@@ -2249,6 +2249,30 @@
     .item-sup-table .col-recv { width: 9.5rem; }
     .item-sup-table .col-action { width: 6.5rem; }
 
+    /* Stock count lines */
+    .sc-lines-table .col-code { width: 11rem; }
+    .sc-lines-table .col-desc { width: auto; }
+    .sc-lines-table .col-uom { width: 4.5rem; }
+    .sc-lines-table .col-qty { width: 7rem; }
+    .sc-lines-table .col-time { width: 9.5rem; }
+    .sc-lines-table .col-action { width: 6.5rem; }
+
+    .sc-var-neg {
+        color: #b91c1c !important;
+        font-weight: 700;
+    }
+
+    .sc-var-pos {
+        color: #166534 !important;
+        font-weight: 700;
+    }
+
+    .sc-time {
+        font-size: 12px;
+        color: #64748b;
+        white-space: nowrap !important;
+    }
+
     .item-tab-grid {
         margin-bottom: 1rem;
     }

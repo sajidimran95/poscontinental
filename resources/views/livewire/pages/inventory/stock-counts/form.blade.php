@@ -101,16 +101,23 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             ],
             'totalItemsCounted' => collect($this->lines)->filter(fn ($l) => filled($l['counted'] ?? null))->count(),
             'totalQtyCounted' => collect($this->lines)->sum(fn ($l) => (float) ($l['counted'] ?: 0)),
+            'isProcessed' => $this->status === 'Processed',
         ];
     }
 
     public function addLine(): void
     {
+        if ($this->status === 'Processed') {
+            return;
+        }
         $this->lines[] = $this->emptyLine();
     }
 
     public function removeLine(int $i): void
     {
+        if ($this->status === 'Processed') {
+            return;
+        }
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
         if ($this->lines === []) {
@@ -154,6 +161,10 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public function save(bool $redirect = true): void
     {
+        if ($this->status === 'Processed') {
+            return;
+        }
+
         $this->validate([
             'stock_count_no' => 'required|string|max:64',
             'site_id' => 'nullable|integer',
@@ -208,111 +219,200 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public function process(): void
     {
+        if ($this->status === 'Processed') {
+            return;
+        }
         $this->save(false);
         app(InventoryService::class)->processStockCount($this->stockCount->fresh('lines'));
         $this->redirect(route('inventory.stock-counts.index'), navigate: true);
     }
 }; ?>
 
-<div>
-    <form wire:submit="save" class="chief-panel bg-white flex flex-col min-h-[72vh]">
-        <x-action-bar :title="$stockCount ? 'Stock Count '.$stock_count_no : 'New Stock Count'" variant="green" />
+<div class="desk-page entity-page">
+    <form wire:submit="save" class="desk-main entity-form item-form">
+        <x-action-bar :title="$stockCount ? 'Stock Count '.$stock_count_no : 'New Stock Count'" />
 
-        <div class="flex-1 p-3 overflow-auto">
+        <div class="entity-body">
+            <div class="entity-header">
+                <div class="so-form-row so-form-row-pair entity-header-row">
+                    <label class="so-form-lbl" for="stock_count_no">Count No.</label>
+                    <input id="stock_count_no" wire:model="stock_count_no" class="so-input font-mono" @disabled($stockCount) />
+                    <span class="so-form-lbl">Status</span>
+                    <span @class([
+                        'desk-pill',
+                        'desk-pill-new' => $status === 'New',
+                        'desk-pill-invoiced' => $status === 'Processed',
+                        'desk-pill-muted' => ! in_array($status, ['New', 'Processed'], true),
+                    ])>{{ $status }}</span>
+                </div>
+                @if ($activeTab === 'expand')
+                    <div class="entity-balance">Counted: <strong>{{ $totalItemsCounted }}</strong> items</div>
+                @endif
+            </div>
+
             @if ($activeTab === 'general')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10 max-w-4xl">
-                    <div class="space-y-1">
-                        <div class="chief-field"><label>Stock Count No.</label><input wire:model="stock_count_no" class="chief-input w-48 font-mono" @disabled($stockCount) /></div>
-                        <div class="chief-field"><label>Date Created</label><input type="date" wire:model="date_created" class="chief-input" /></div>
-                        <div class="chief-field"><label>Count Status</label><input wire:model="status" class="chief-input w-40 bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Last Count Date</label><input type="date" wire:model="last_count_date" class="chief-input bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Date Processed</label><input type="date" wire:model="date_processed" class="chief-input bg-slate-50" readonly /></div>
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Count header</div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="date_created">Date Created</label>
+                            <input id="date_created" type="date" wire:model="date_created" class="so-input" @disabled($isProcessed) />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="status">Count Status</label>
+                            <input id="status" wire:model="status" class="so-input so-input-ro" style="max-width:10rem" readonly />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="last_count_date">Last Count Date</label>
+                            <input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" @disabled($isProcessed) />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="date_processed">Date Processed</label>
+                            <input id="date_processed" type="date" wire:model="date_processed" class="so-input" @disabled($isProcessed) />
+                        </div>
                     </div>
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Site</label>
-                            <select wire:model="site_id" class="chief-input w-40">
+                    <div class="inv-card" style="grid-column: span 2">
+                        <div class="inv-card-title">Site & description</div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="site_id">Site</label>
+                            <select id="site_id" wire:model="site_id" class="so-input" style="max-width:12rem" @disabled($isProcessed)>
                                 <option value="">—</option>
-                                @foreach ($sites as $s)<option value="{{ $s->id }}">{{ $s->code }}</option>@endforeach
+                                @foreach ($sites as $s)
+                                    <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name ?? $s->code }}</option>
+                                @endforeach
                             </select>
                         </div>
-                        <div class="chief-field chief-field-top"><label>Description</label><textarea wire:model="description" rows="3" class="chief-input w-full max-w-md"></textarea></div>
-                        <label class="inline-flex items-center gap-2 text-sm ms-[9.5rem]"><input type="checkbox" wire:model="shared_count" /> Shared Count</label>
+                        <div class="item-stack-field">
+                            <label class="item-stack-lbl" for="description">Description</label>
+                            <textarea id="description" wire:model="description" rows="4" class="so-input so-input-area" @disabled($isProcessed) placeholder="Optional notes for this count…"></textarea>
+                        </div>
+                        <label class="entity-check"><input type="checkbox" wire:model="shared_count" @disabled($isProcessed) /> Shared Count</label>
                     </div>
                 </div>
+
             @elseif ($activeTab === 'expand')
-                <div class="flex justify-between mb-2">
-                    <p class="text-xs text-slate-600">Enter item code or UPC — barcode scan supported</p>
-                    <button type="button" wire:click="addLine" class="chief-btn text-xs">Add Item</button>
+                <div class="item-price-summary" style="grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 28rem;">
+                    <div class="item-price-stat">
+                        <span>Items Counted</span>
+                        <strong>{{ $totalItemsCounted }}</strong>
+                    </div>
+                    <div class="item-price-stat">
+                        <span>Qty Counted</span>
+                        <strong>{{ number_format($totalQtyCounted, 2) }}</strong>
+                    </div>
                 </div>
-                <div class="chief-grid border border-slate-300 overflow-auto mb-3">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Description</th>
-                                <th>U of M</th>
-                                <th class="text-right">In Stock</th>
-                                <th class="text-right">Allocated</th>
-                                <th class="text-right">Counted</th>
-                                <th class="text-right">Variance</th>
-                                <th>Count Time</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($lines as $i => $line)
+
+                <div class="entity-section" style="margin-top:0">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Count Lines</h3>
+                        @unless ($isProcessed)
+                            <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Item</button>
+                        @endunless
+                    </div>
+                    <p class="item-hint" style="border-bottom:1px solid #e2e8f0">Enter item code or UPC, then press Enter — barcode scan supported.</p>
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table sc-lines-table">
+                            <colgroup>
+                                <col class="col-code" />
+                                <col class="col-desc" />
+                                <col class="col-uom" />
+                                <col class="col-qty" />
+                                <col class="col-qty" />
+                                <col class="col-qty" />
+                                <col class="col-qty" />
+                                <col class="col-time" />
+                                <col class="col-action" />
+                            </colgroup>
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <div class="flex gap-1">
-                                            <input wire:model.blur="lines.{{ $i }}.item_code" wire:keydown.enter.prevent="lookupItem({{ $i }})" class="chief-input w-28 font-mono" @disabled($status === 'Processed') />
-                                            <button type="button" wire:click="lookupItem({{ $i }})" class="chief-btn text-xs px-1" @disabled($status === 'Processed')>…</button>
-                                        </div>
-                                    </td>
-                                    <td>{{ $line['description'] }}</td>
-                                    <td>{{ $line['uom'] }}</td>
-                                    <td class="text-right">{{ number_format((float) $line['in_stock'], 2) }}</td>
-                                    <td class="text-right">{{ number_format((float) $line['allocated'], 2) }}</td>
-                                    <td><input wire:model.live="lines.{{ $i }}.counted" class="chief-input w-24 text-right" @disabled($status === 'Processed') /></td>
-                                    <td class="text-right @if(filled($line['counted']) && (float)$line['counted'] != (float)$line['in_stock']) text-red-700 font-semibold @endif">
-                                        @if (filled($line['counted']))
-                                            {{ number_format((float) $line['counted'] - (float) $line['in_stock'], 2) }}
-                                        @endif
-                                    </td>
-                                    <td class="text-xs">{{ $line['count_time'] }}</td>
-                                    <td><button type="button" wire:click="removeLine({{ $i }})" class="text-red-700 text-xs" @disabled($status === 'Processed')>−</button></td>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="text-center">UOM</th>
+                                    <th class="text-center">In Stock</th>
+                                    <th class="text-center">Allocated</th>
+                                    <th class="text-center">Counted</th>
+                                    <th class="text-center">Variance</th>
+                                    <th>Count Time</th>
+                                    <th></th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach ($lines as $i => $line)
+                                    @php
+                                        $variance = filled($line['counted'])
+                                            ? (float) $line['counted'] - (float) $line['in_stock']
+                                            : null;
+                                    @endphp
+                                    <tr>
+                                        <td>
+                                            <div class="so-lookup-row">
+                                                <input
+                                                    wire:model.blur="lines.{{ $i }}.item_code"
+                                                    wire:keydown.enter.prevent="lookupItem({{ $i }})"
+                                                    class="so-input font-mono item-cell-ctl"
+                                                    placeholder="Code + Enter"
+                                                    @disabled($isProcessed)
+                                                />
+                                                <button type="button" wire:click="lookupItem({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isProcessed) title="Lookup item">…</button>
+                                            </div>
+                                        </td>
+                                        <td class="item-cell-desc" title="{{ $line['description'] }}">{{ $line['description'] ?: '—' }}</td>
+                                        <td class="text-center">{{ $line['uom'] ?: '—' }}</td>
+                                        <td class="desk-money">{{ number_format((float) $line['in_stock'], 2) }}</td>
+                                        <td class="desk-money">{{ number_format((float) $line['allocated'], 2) }}</td>
+                                        <td class="text-center">
+                                            <input
+                                                wire:model.live="lines.{{ $i }}.counted"
+                                                class="so-input text-right item-cell-qty"
+                                                @disabled($isProcessed)
+                                                aria-label="Counted qty line {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td @class(['desk-money', 'sc-var-neg' => $variance !== null && $variance < 0, 'sc-var-pos' => $variance !== null && $variance > 0])>
+                                            {{ $variance !== null ? number_format($variance, 2) : '' }}
+                                        </td>
+                                        <td class="sc-time">{{ $line['count_time'] ?: '—' }}</td>
+                                        <td class="text-center">
+                                            @unless ($isProcessed)
+                                                <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
+                                            @endunless
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="text-sm space-x-6">
-                    <span>Total Items Counted: <strong>{{ $totalItemsCounted }}</strong></span>
-                    <span>Total Quantity Counted: <strong>{{ number_format($totalQtyCounted, 2) }}</strong></span>
-                </div>
+
             @else
-                <div class="max-w-2xl">
-                    <label class="block text-xs font-medium mb-1">Comments & Notes</label>
-                    <textarea wire:model="comments" rows="10" class="chief-input w-full"></textarea>
+                <div class="inv-card" style="max-width:48rem">
+                    <div class="inv-card-title">Comments & notes</div>
+                    <div class="item-stack-field">
+                        <label class="item-stack-lbl" for="comments">Comments</label>
+                        <textarea id="comments" wire:model="comments" rows="10" class="so-input so-input-area" @disabled($isProcessed) placeholder="Optional notes…"></textarea>
+                    </div>
                 </div>
             @endif
         </div>
 
-        <div class="flex items-center justify-between border-t border-slate-300 bg-slate-100 px-1">
-            <div class="flex">
+        <div class="entity-footer">
+            <div class="entity-tabs" role="tablist" aria-label="Stock count sections">
                 @foreach ($tabs as $key => $label)
-                    <button type="button" wire:click="$set('activeTab', '{{ $key }}')"
-                        @class(['px-3 py-1.5 text-sm border-r border-slate-300', 'bg-white font-semibold text-sky-800' => $activeTab === $key])>
-                        {{ $label }}
-                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        wire:click="$set('activeTab', '{{ $key }}')"
+                        aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}"
+                        @class(['entity-tab', 'is-active' => $activeTab === $key])
+                    >{{ $label }}</button>
                 @endforeach
             </div>
-            <div class="flex gap-2 py-2 pe-2">
-                <a href="{{ route('inventory.stock-counts.index') }}" wire:navigate class="chief-btn">Cancel</a>
-                @if ($status !== 'Processed')
-                    <button type="submit" class="chief-btn">Save</button>
-                    <button type="button" wire:click="process" wire:confirm="Process stock count and update inventory?" class="chief-btn-primary">Process</button>
-                @endif
+            <div class="entity-footer-actions">
+                <a href="{{ route('inventory.stock-counts.index') }}" wire:navigate class="desk-btn">Cancel</a>
+                @unless ($isProcessed)
+                    <button type="submit" class="desk-btn">Save</button>
+                    <button type="button" wire:click="process" wire:confirm="Process stock count and update inventory?" class="desk-btn desk-btn-primary">Process</button>
+                @endunless
             </div>
         </div>
     </form>

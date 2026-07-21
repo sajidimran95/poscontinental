@@ -2107,6 +2107,78 @@
         white-space: nowrap;
     }
 
+    /* Report filter toolbar (Price List, Sales Report, etc.) */
+    .rpt-toolbar {
+        align-items: flex-end;
+        gap: 0.75rem 1rem;
+    }
+
+    .rpt-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-width: 9.5rem;
+    }
+
+    .rpt-field-search {
+        flex: 1 1 14rem;
+        min-width: 12rem;
+    }
+
+    .rpt-field .desk-select,
+    .rpt-field .desk-search {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .rpt-check {
+        padding-bottom: 0.35rem;
+        white-space: nowrap;
+    }
+
+    .rpt-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+        margin-left: auto;
+        padding-bottom: 0.05rem;
+    }
+
+    .rpt-stats {
+        display: flex;
+        align-items: stretch;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .rpt-stat {
+        min-width: 5.5rem;
+        padding: 0.35rem 0.7rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.35rem;
+        text-align: right;
+    }
+
+    .rpt-stat-lbl {
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .rpt-stat-val {
+        display: block;
+        margin-top: 0.1rem;
+        font-size: 14px;
+        font-weight: 700;
+        color: #0f172a;
+        font-variant-numeric: tabular-nums;
+    }
+
     .desk-table tbody tr.is-selected td {
         background: #e0f2fe;
     }

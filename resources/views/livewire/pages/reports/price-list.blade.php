@@ -66,6 +66,11 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         $this->category_id = null;
     }
 
+    public function clearFilters(): void
+    {
+        $this->reset(['department_id', 'category_id', 'price_level_id', 'search', 'includeInactive']);
+    }
+
     public function downloadPdf(DocumentPdfService $pdfs): StreamedResponse
     {
         $items = $pdfs->queryPriceListItems(
@@ -136,45 +141,90 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
-        <x-action-bar title="Price List Generator" />
-        <div class="flex flex-wrap items-end gap-2 px-2 py-2 bg-slate-100 border-b border-slate-300">
-            <div>
-                <label class="block text-xs text-slate-600" for="pl-dept">Department</label>
-                <select id="pl-dept" wire:model.live="department_id" class="chief-input w-44">
-                    <option value="">All</option>
-                    @foreach ($departments as $d)<option value="{{ $d->id }}">{{ $d->name }}</option>@endforeach
+@php
+    $listAvg = $items->count() ? $items->avg(fn ($i) => (float) $i->list_price) : 0;
+    $msrpAvg = $items->count() ? $items->avg(fn ($i) => (float) $i->msrp) : 0;
+@endphp
+
+<div class="desk-page">
+    <div class="desk-main">
+        <x-action-bar title="Price List" />
+
+        <div class="desk-toolbar rpt-toolbar">
+            <div class="rpt-field">
+                <label class="desk-toolbar-label" for="pl-dept">Department</label>
+                <select id="pl-dept" wire:model.live="department_id" class="desk-select">
+                    <option value="">All departments</option>
+                    @foreach ($departments as $d)
+                        <option value="{{ $d->id }}">{{ $d->name }}</option>
+                    @endforeach
                 </select>
             </div>
-            <div>
-                <label class="block text-xs text-slate-600" for="pl-cat">Category</label>
-                <select id="pl-cat" wire:model.live="category_id" class="chief-input w-44">
-                    <option value="">All</option>
-                    @foreach ($categories as $c)<option value="{{ $c->id }}">{{ $c->name }}</option>@endforeach
+            <div class="rpt-field">
+                <label class="desk-toolbar-label" for="pl-cat">Category</label>
+                <select id="pl-cat" wire:model.live="category_id" class="desk-select">
+                    <option value="">All categories</option>
+                    @foreach ($categories as $c)
+                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                    @endforeach
                 </select>
             </div>
-            <div>
-                <label class="block text-xs text-slate-600" for="pl-level">Price Level</label>
-                <select id="pl-level" wire:model.live="price_level_id" class="chief-input w-44">
+            <div class="rpt-field">
+                <label class="desk-toolbar-label" for="pl-level">Price Level</label>
+                <select id="pl-level" wire:model.live="price_level_id" class="desk-select">
                     <option value="">List Price</option>
-                    @foreach ($priceLevels as $pl)<option value="{{ $pl->id }}">{{ $pl->name }}</option>@endforeach
+                    @foreach ($priceLevels as $pl)
+                        <option value="{{ $pl->id }}">{{ $pl->name }}</option>
+                    @endforeach
                 </select>
             </div>
-            <div>
-                <label class="block text-xs text-slate-600" for="pl-search">Search</label>
-                <input id="pl-search" wire:model.live.debounce.300ms="search" class="chief-input w-48" />
+            <div class="rpt-field rpt-field-search">
+                <label class="desk-toolbar-label" for="pl-search">Search</label>
+                <input
+                    id="pl-search"
+                    type="search"
+                    wire:model.live.debounce.300ms="search"
+                    class="desk-search"
+                    placeholder="Code, description, UPC…"
+                />
             </div>
-            <label class="inline-flex items-center gap-2 text-sm pb-1">
-                <input type="checkbox" wire:model.live="includeInactive" /> Include inactive
+            <label class="entity-check rpt-check">
+                <input type="checkbox" wire:model.live="includeInactive" />
+                Include inactive
             </label>
-            <button type="button" wire:click="downloadCsv" class="chief-btn">Download CSV</button>
-            <button type="button" wire:click="downloadPdf" class="chief-btn-primary">Download PDF</button>
+            <div class="rpt-actions">
+                <button type="button" wire:click="clearFilters" class="desk-btn">Clear</button>
+                <button type="button" wire:click="downloadCsv" class="desk-btn" wire:loading.attr="disabled">CSV</button>
+                <button type="button" wire:click="downloadPdf" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
+                    <span wire:loading.remove wire:target="downloadPdf">Download PDF</span>
+                    <span wire:loading wire:target="downloadPdf">Building PDF…</span>
+                </button>
+            </div>
         </div>
 
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Price List</div>
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+        <div class="desk-titlebar">
+            <div>
+                <h2 class="desk-title">Price List</h2>
+                <span class="desk-title-meta">Preview up to 500 matching items</span>
+            </div>
+            <div class="rpt-stats">
+                <div class="rpt-stat">
+                    <span class="rpt-stat-lbl">Items</span>
+                    <span class="rpt-stat-val">{{ number_format($items->count()) }}</span>
+                </div>
+                <div class="rpt-stat">
+                    <span class="rpt-stat-lbl">Avg List</span>
+                    <span class="rpt-stat-val">${{ number_format($listAvg, 2) }}</span>
+                </div>
+                <div class="rpt-stat">
+                    <span class="rpt-stat-lbl">Avg MSRP</span>
+                    <span class="rpt-stat-val">${{ number_format($msrpAvg, 2) }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Item Code</th>
@@ -186,27 +236,44 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                         <th class="text-right">List Price</th>
                         <th class="text-right">MSRP</th>
                         <th class="text-right">Std Cost</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($items as $item)
                         <tr>
-                            <td class="font-mono">{{ $item->item_code }}</td>
+                            <td class="desk-num">{{ $item->item_code }}</td>
                             <td>{{ $item->description }}</td>
-                            <td class="font-mono">{{ $item->primary_upc }}</td>
-                            <td>{{ $item->department?->name }}</td>
-                            <td>{{ $item->category?->name }}</td>
-                            <td>{{ $item->unit_of_measure }}</td>
-                            <td class="text-right">${{ number_format($item->list_price, 2) }}</td>
-                            <td class="text-right">${{ number_format($item->msrp, 2) }}</td>
-                            <td class="text-right">${{ number_format($item->standard_cost, 2) }}</td>
+                            <td class="desk-num">{{ $item->primary_upc ?: '—' }}</td>
+                            <td>{{ $item->department?->name ?: '—' }}</td>
+                            <td>{{ $item->category?->name ?: '—' }}</td>
+                            <td>{{ $item->unit_of_measure ?: '—' }}</td>
+                            <td class="desk-money">${{ number_format((float) $item->list_price, 2) }}</td>
+                            <td class="desk-money">${{ number_format((float) $item->msrp, 2) }}</td>
+                            <td class="desk-money">${{ number_format((float) $item->standard_cost, 2) }}</td>
+                            <td>
+                                @if ($item->is_inactive)
+                                    <span class="desk-pill desk-pill-muted">Inactive</span>
+                                @else
+                                    <span class="desk-pill desk-pill-invoiced">Active</span>
+                                @endif
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="9" class="px-2 py-6 text-slate-500">No items match the filters.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="10">No items match the filters.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
-        <x-record-count :count="$items->count()" />
+
+        <div class="desk-footer">
+            <span>{{ number_format($items->count()) }} item(s) shown</span>
+            <div class="desk-footer-actions">
+                <button type="button" wire:click="downloadCsv" class="desk-btn desk-btn-sm">Download CSV</button>
+                <button type="button" wire:click="downloadPdf" class="desk-btn desk-btn-sm desk-btn-primary">Download PDF</button>
+            </div>
+        </div>
     </div>
 </div>

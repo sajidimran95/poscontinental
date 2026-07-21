@@ -254,146 +254,256 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 }; ?>
 
-<div>
-    <form wire:submit="save" class="chief-panel bg-white flex flex-col min-h-[72vh]">
+<div class="desk-page entity-page">
+    <form wire:submit="save" class="desk-main entity-form item-form">
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'" />
 
-        <div class="flex-1 p-3 overflow-auto">
+        <div class="entity-body">
+            <div class="entity-header">
+                <div class="so-form-row so-form-row-pair entity-header-row">
+                    <label class="so-form-lbl" for="po_number">PO No.</label>
+                    <input id="po_number" wire:model="po_number" class="so-input font-mono" @disabled($purchaseOrder) />
+                    <span class="so-form-lbl">Status</span>
+                    <span @class([
+                        'desk-pill',
+                        'desk-pill-new' => in_array($status, ['New', 'Partially Received'], true),
+                        'desk-pill-invoiced' => $status === 'Received',
+                        'desk-pill-muted' => ! in_array($status, ['New', 'Partially Received', 'Received'], true),
+                    ])>{{ $status }}</span>
+                </div>
+                @if ($activeTab === 'items')
+                    <div class="entity-balance">Total: <strong>${{ number_format($orderTotal, 2) }}</strong></div>
+                @endif
+            </div>
+
             @if ($activeTab === 'general')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
-                    <div class="space-y-1">
-                        <div class="chief-field"><label>PO No.</label><input wire:model="po_number" class="chief-input w-44 font-mono" @disabled($purchaseOrder) /></div>
-                        <div class="chief-field">
-                            <label>Order Type</label>
-                            <select wire:model="order_type" class="chief-input w-40">
+                <div class="sc-general-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Order header</div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="order_type">Order Type</label>
+                            <select id="order_type" wire:model="order_type" class="so-input">
                                 <option>Standard</option>
                                 <option>Drop Ship</option>
                                 <option>Blanket</option>
                             </select>
                         </div>
-                        <div class="chief-field"><label>Reference No.</label><input wire:model="reference_no" class="chief-input w-44" /></div>
-                        <div class="chief-field"><label>Requisition Date</label><input type="date" wire:model="requisition_date" class="chief-input" /></div>
-                        <div class="chief-field"><label>Order Status</label><input wire:model="status" class="chief-input w-40 bg-slate-50" readonly /></div>
-                        <div class="chief-field">
-                            <label>Buyer</label>
-                            <select wire:model="buyer_id" class="chief-input w-56">
-                                <option value="">—</option>
-                                @foreach ($buyers as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach
-                            </select>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="reference_no">Reference No.</label>
+                            <input id="reference_no" wire:model="reference_no" class="so-input" />
                         </div>
-                        <div class="chief-field"><label>Required Date</label><input type="date" wire:model="required_date" class="chief-input" /></div>
-                        <div class="chief-field">
-                            <label>Ship To</label>
-                            <select wire:model="ship_to_site_id" class="chief-input w-56">
-                                <option value="">—</option>
-                                @foreach ($sites as $s)<option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name }}</option>@endforeach
-                            </select>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="requisition_date">Requisition Date</label>
+                            <input id="requisition_date" type="date" wire:model="requisition_date" class="so-input sc-date" />
                         </div>
-                    </div>
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Supplier</label>
-                            <select wire:model.live="supplier_id" class="chief-input w-64">
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="status">Order Status</label>
+                            <input id="status" wire:model="status" class="so-input so-input-ro sc-date" readonly />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="buyer_id">Buyer</label>
+                            <select id="buyer_id" wire:model="buyer_id" class="so-input">
                                 <option value="">—</option>
-                                @foreach ($suppliers as $sup)
-                                    <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                                @foreach ($buyers as $b)
+                                    <option value="{{ $b->id }}">{{ $b->name }}</option>
                                 @endforeach
                             </select>
                         </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="required_date">Required Date</label>
+                            <input id="required_date" type="date" wire:model="required_date" class="so-input sc-date" />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="ship_to_site_id">Ship To</label>
+                            <select id="ship_to_site_id" wire:model="ship_to_site_id" class="so-input">
+                                <option value="">—</option>
+                                @foreach ($sites as $s)
+                                    <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="inv-card">
+                        <div class="inv-card-title">Supplier & shipping</div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="supplier_id">Supplier</label>
+                            <div class="so-lookup-row">
+                                <select id="supplier_id" wire:model.live="supplier_id" class="so-input">
+                                    <option value="">— Select supplier —</option>
+                                    @foreach ($suppliers as $sup)
+                                        <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-sm" title="New supplier">+</a>
+                            </div>
+                        </div>
                         @if ($selectedSupplier)
-                            <div class="ms-[9.5rem] text-sm text-slate-600 mb-2">
-                                {{ $selectedSupplier->address }}<br>
-                                {{ $selectedSupplier->city }}, {{ $selectedSupplier->state }} {{ $selectedSupplier->zip_code }}
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <span class="so-form-lbl"></span>
+                                <div class="po-supplier-addr">
+                                    {{ $selectedSupplier->address }}<br>
+                                    {{ collect([$selectedSupplier->city, $selectedSupplier->state, $selectedSupplier->zip_code])->filter()->implode(', ') }}
+                                </div>
                             </div>
                         @endif
-                        <div class="chief-field"><label>Ship From</label><input wire:model="ship_from" class="chief-input w-56" /></div>
-                        <div class="chief-field">
-                            <label>Terms</label>
-                            <select wire:model="payment_term_id" class="chief-input w-56">
-                                <option value="">—</option>
-                                @foreach ($paymentTerms as $pt)<option value="{{ $pt->id }}">{{ $pt->name }}</option>@endforeach
-                            </select>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="ship_from">Ship From</label>
+                            <input id="ship_from" wire:model="ship_from" class="so-input" />
                         </div>
-                        <div class="chief-field">
-                            <label>Ship Via</label>
-                            <select wire:model="ship_via_id" class="chief-input w-56">
-                                <option value="">—</option>
-                                @foreach ($shipVias as $sv)<option value="{{ $sv->id }}">{{ $sv->name }}</option>@endforeach
-                            </select>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="payment_term_id">Terms</label>
+                            <div class="so-lookup-row">
+                                <select id="payment_term_id" wire:model="payment_term_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($paymentTerms as $pt)
+                                        <option value="{{ $pt->id }}">{{ $pt->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'payment_terms']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
                         </div>
-                        <div class="chief-field chief-field-top"><label>Comments</label><textarea wire:model="comments" rows="4" class="chief-input w-full max-w-md"></textarea></div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="ship_via_id">Ship Via</label>
+                            <div class="so-lookup-row">
+                                <select id="ship_via_id" wire:model="ship_via_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($shipVias as $sv)
+                                        <option value="{{ $sv->id }}">{{ $sv->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'ship_vias']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
+                        </div>
+                        <div class="so-form-row so-form-row-side so-form-row-top sc-field">
+                            <label class="so-form-lbl" for="comments">Comments</label>
+                            <textarea id="comments" wire:model="comments" rows="4" class="so-input so-input-area" placeholder="Optional notes…"></textarea>
+                        </div>
                     </div>
-                </div>
-            @else
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-xs text-slate-600">Enter item code (or supplier SKU) and press Tab / Lookup</p>
-                    <button type="button" wire:click="addLine" class="chief-btn text-xs">Add Line</button>
-                </div>
-                <div class="chief-grid border border-slate-300 overflow-auto mb-3">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Description</th>
-                                <th>U of M</th>
-                                <th class="text-right">Qty Ordered</th>
-                                <th class="text-right">Qty Received</th>
-                                <th class="text-right">Cost</th>
-                                <th class="text-right">Extended</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($lines as $i => $line)
-                                <tr>
-                                    <td>
-                                        <div class="flex gap-1">
-                                            <input wire:model.blur="lines.{{ $i }}.item_code" wire:keydown.tab="lookupItem({{ $i }})" wire:keydown.enter.prevent="lookupItem({{ $i }})" class="chief-input w-28 font-mono" />
-                                            <button type="button" wire:click="lookupItem({{ $i }})" class="chief-btn text-xs px-1">…</button>
-                                        </div>
-                                    </td>
-                                    <td><input wire:model="lines.{{ $i }}.description" class="chief-input w-full min-w-[10rem]" /></td>
-                                    <td><input wire:model="lines.{{ $i }}.uom" class="chief-input w-16" /></td>
-                                    <td><input wire:model.live="lines.{{ $i }}.qty_ordered" class="chief-input w-24 text-right" /></td>
-                                    <td><input wire:model="lines.{{ $i }}.qty_received" class="chief-input w-24 text-right bg-slate-50" readonly /></td>
-                                    <td><input wire:model.live="lines.{{ $i }}.unit_cost" class="chief-input w-24 text-right" /></td>
-                                    <td class="text-right pe-2">${{ number_format((float) $line['qty_ordered'] * (float) $line['unit_cost'], 2) }}</td>
-                                    <td><button type="button" wire:click="removeLine({{ $i }})" class="text-xs text-red-700">−</button></td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
                 </div>
 
-                <div class="grid grid-cols-2 gap-6 max-w-3xl">
-                    <div class="space-y-1 text-sm">
-                        <div>Total Items Ordered: <strong>{{ number_format($totalItemsOrdered, 2) }}</strong></div>
-                        <div>Total Items Received: <strong>{{ number_format($totalItemsReceived, 2) }}</strong></div>
+            @else
+                <div class="item-price-summary" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 36rem;">
+                    <div class="item-price-stat">
+                        <span>Items Ordered</span>
+                        <strong>{{ number_format($totalItemsOrdered, 2) }}</strong>
                     </div>
-                    <div class="space-y-1">
-                        <div class="chief-field"><label>Subtotal</label><span class="w-28 text-right">${{ number_format($subtotal, 2) }}</span></div>
-                        <div class="chief-field"><label>Trade Discount</label><input wire:model.live="trade_discount" class="chief-input w-28 text-right" /></div>
-                        <div class="chief-field"><label>Freight</label><input wire:model.live="freight" class="chief-input w-28 text-right" /></div>
-                        <div class="chief-field"><label>Miscellaneous</label><input wire:model.live="miscellaneous" class="chief-input w-28 text-right" /></div>
-                        <div class="chief-field"><label>Tax</label><input wire:model.live="tax" class="chief-input w-28 text-right" /></div>
-                        <div class="chief-field"><label>Total</label><strong class="w-28 text-right">${{ number_format($orderTotal, 2) }}</strong></div>
+                    <div class="item-price-stat">
+                        <span>Items Received</span>
+                        <strong>{{ number_format($totalItemsReceived, 2) }}</strong>
+                    </div>
+                    <div class="item-price-stat">
+                        <span>Order Total</span>
+                        <strong>${{ number_format($orderTotal, 2) }}</strong>
+                    </div>
+                </div>
+
+                <div class="entity-section" style="margin-top:0">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Order Lines</h3>
+                        <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                    </div>
+                    <p class="item-hint" style="border-bottom:1px solid #e2e8f0">Enter item code or supplier SKU, then press Enter to look up.</p>
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table po-lines-table">
+                            <colgroup>
+                                <col class="col-code" />
+                                <col class="col-desc" />
+                                <col class="col-uom" />
+                                <col class="col-qty" />
+                                <col class="col-qty" />
+                                <col class="col-cost" />
+                                <col class="col-ext" />
+                                <col class="col-action" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="text-center">UOM</th>
+                                    <th class="text-center">Qty Ordered</th>
+                                    <th class="text-center">Qty Received</th>
+                                    <th class="text-center">Cost</th>
+                                    <th class="text-center">Extended</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($lines as $i => $line)
+                                    <tr>
+                                        <td>
+                                            <div class="so-lookup-row">
+                                                <input
+                                                    wire:model.blur="lines.{{ $i }}.item_code"
+                                                    wire:keydown.tab="lookupItem({{ $i }})"
+                                                    wire:keydown.enter.prevent="lookupItem({{ $i }})"
+                                                    class="so-input font-mono item-cell-ctl"
+                                                    placeholder="Code + Enter"
+                                                />
+                                                <button type="button" wire:click="lookupItem({{ $i }})" class="desk-btn desk-btn-sm" title="Lookup item">…</button>
+                                            </div>
+                                        </td>
+                                        <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" /></td>
+                                        <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" /></td>
+                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right item-cell-qty" /></td>
+                                        <td class="text-center"><input wire:model="lines.{{ $i }}.qty_received" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
+                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" /></td>
+                                        <td class="desk-money">${{ number_format((float) $line['qty_ordered'] * (float) $line['unit_cost'], 2) }}</td>
+                                        <td class="text-center"><button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="po-totals">
+                    <div class="inv-card po-totals-card">
+                        <div class="inv-card-title">Totals</div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl">Subtotal</label>
+                            <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="trade_discount">Trade Discount</label>
+                            <input id="trade_discount" wire:model.live="trade_discount" class="so-input text-right sc-date" />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="freight">Freight</label>
+                            <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="miscellaneous">Miscellaneous</label>
+                            <input id="miscellaneous" wire:model.live="miscellaneous" class="so-input text-right sc-date" />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="tax">Tax</label>
+                            <input id="tax" wire:model.live="tax" class="so-input text-right sc-date" />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field po-total-row">
+                            <label class="so-form-lbl">Total</label>
+                            <strong class="entity-value text-right" style="display:block;width:100%;font-size:1.15rem">${{ number_format($orderTotal, 2) }}</strong>
+                        </div>
                     </div>
                 </div>
             @endif
         </div>
 
-        <div class="flex items-center justify-between border-t border-slate-300 bg-slate-100 px-1">
-            <div class="flex">
+        <div class="entity-footer">
+            <div class="entity-tabs" role="tablist" aria-label="Purchase order sections">
                 @foreach ($tabs as $key => $label)
-                    <button type="button" wire:click="$set('activeTab', '{{ $key }}')"
-                        @class(['px-3 py-1.5 text-sm border-r border-slate-300', 'bg-white font-semibold text-sky-800' => $activeTab === $key])>
-                        {{ $label }}
-                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        wire:click="$set('activeTab', '{{ $key }}')"
+                        aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}"
+                        @class(['entity-tab', 'is-active' => $activeTab === $key])
+                    >{{ $label }}</button>
                 @endforeach
             </div>
-            <div class="flex gap-2 py-2 pe-2">
-                <a href="{{ route('purchasing.orders.index') }}" wire:navigate class="chief-btn">Cancel</a>
-                <button type="submit" class="chief-btn-primary">Save Changes</button>
+            <div class="entity-footer-actions">
+                <a href="{{ route('purchasing.orders.index') }}" wire:navigate class="desk-btn">Cancel</a>
+                <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
             </div>
         </div>
     </form>

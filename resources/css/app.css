@@ -2273,6 +2273,40 @@
         white-space: nowrap !important;
     }
 
+    .po-supplier-addr {
+        font-size: 13px;
+        color: #64748b;
+        line-height: 1.45;
+        padding: 0.2rem 0;
+    }
+
+    .po-lines-table .col-code { width: 11rem; }
+    .po-lines-table .col-desc { width: auto; }
+    .po-lines-table .col-uom { width: 4.5rem; }
+    .po-lines-table .col-qty { width: 7.25rem; }
+    .po-lines-table .col-cost { width: 7.25rem; }
+    .po-lines-table .col-ext { width: 7.5rem; }
+    .po-lines-table .col-action { width: 6.5rem; }
+
+    .po-totals {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+
+    .po-totals-card {
+        width: min(100%, 26rem);
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .po-total-row {
+        padding-top: 0.45rem;
+        border-top: 1px solid #e2e8f0;
+        margin-top: 0.15rem;
+    }
+
     .sc-general-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);

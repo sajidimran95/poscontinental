@@ -58,10 +58,17 @@
 
 <x-app-layout>
     <div class="home-chief">
+        <div class="home-chief-bg" aria-hidden="true">
+            <span class="home-chief-orb home-chief-orb-a"></span>
+            <span class="home-chief-orb home-chief-orb-b"></span>
+            <span class="home-chief-orb home-chief-orb-c"></span>
+        </div>
+
         <div class="home-chief-modules">
             @foreach ($modules as $i => $module)
-                <div class="home-chief-col" style="--mod: {{ $module['color'] }}; --i: {{ $i }}">
+                <section class="home-chief-col" style="--mod: {{ $module['color'] }}; --i: {{ $i }}">
                     <div class="home-chief-badge" aria-hidden="true">
+                        <div class="home-chief-badge-shine"></div>
                         <div class="home-chief-badge-face">
                             @if ($module['icon'] === 'register')
                                 <svg viewBox="0 0 64 64" class="home-chief-svg" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -106,18 +113,24 @@
                         @foreach ($module['links'] as [$label, $route, $enabled])
                             <li>
                                 @if ($enabled && $route && Route::has($route))
-                                    <a href="{{ route($route) }}" wire:navigate>{{ $label }}</a>
+                                    <a href="{{ route($route) }}" wire:navigate>
+                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
+                                        <span class="home-chief-link-text">{{ $label }}</span>
+                                    </a>
                                 @else
-                                    <span class="home-chief-disabled">{{ $label }}</span>
+                                    <span class="home-chief-disabled">
+                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
+                                        <span>{{ $label }}</span>
+                                    </span>
                                 @endif
                             </li>
                         @endforeach
                     </ul>
-                </div>
+                </section>
             @endforeach
         </div>
 
-        <div class="home-chief-alert" role="status">
+        <aside class="home-chief-alert" role="status">
             <span class="home-chief-alert-ico" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="22" height="22">
                     <path fill="#fff" d="M12 3L1.8 21h20.4L12 3zm0 5.5l6.2 10.7H5.8L12 8.5z"/>
@@ -125,7 +138,10 @@
                     <rect x="11" y="17" width="2" height="2" fill="#c62828"/>
                 </svg>
             </span>
-            <span>{{ $lowStockCount }} item(s) running low and should be ordered soon</span>
-        </div>
+            <span class="home-chief-alert-text">{{ $lowStockCount }} item(s) running low and should be ordered soon</span>
+            @if (Route::has('inquiries.stock-status'))
+                <a href="{{ route('inquiries.stock-status') }}" wire:navigate class="home-chief-alert-go">View</a>
+            @endif
+        </aside>
     </div>
 </x-app-layout>

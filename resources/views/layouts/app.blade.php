@@ -11,12 +11,16 @@
         @livewireStyles
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
+        <a href="#main-content" class="skip-link">Skip to main content</a>
         <div class="h-screen flex flex-col overflow-hidden">
             <nav class="chief-menu select-none" role="navigation" aria-label="Main menu">
                 <div class="flex items-center gap-0.5 px-2 py-0.5">
                     <span class="px-2 py-1 font-semibold text-slate-800">Chief 5.0</span>
                     @foreach ([
-                        'File' => [],
+                        'File' => [
+                            ['Users & Roles', 'admin.users.index'],
+                            ['Email Send Log', 'admin.email-logs'],
+                        ],
                         'Inquiry' => [
                             ['Stock Status', 'inquiries.stock-status'],
                             ['Item Velocity', 'inquiries.item-velocity'],
@@ -118,6 +122,8 @@
                     'inquiries.item-velocity' => 'Item Velocity',
                     'tobacco.stamp-inventory' => 'Stamp Inventory',
                     'tobacco.filing' => 'Tobacco Filing',
+                    'admin.users.index' => 'Users & Roles',
+                    'admin.email-logs' => 'Email Send Log',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

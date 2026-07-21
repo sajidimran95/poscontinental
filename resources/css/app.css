@@ -1070,4 +1070,159 @@
     .chief-page {
         padding: 0.5rem;
     }
+
+    /* Shared desktop form surface */
+    .desktop-form {
+        background: var(--chief-chrome);
+        max-width: 100%;
+    }
+
+    .desktop-form-table {
+        border-collapse: collapse;
+        border: 1px solid #888;
+        background: var(--chief-chrome);
+        width: max-content;
+        max-width: 100%;
+    }
+
+    .desktop-form-table th.desktop-field-lbl,
+    .desktop-field-lbl {
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1e293b;
+        padding: 0.28rem 0.5rem;
+        white-space: nowrap;
+        vertical-align: middle;
+        background: var(--chief-chrome);
+        border: none;
+        width: 1%;
+    }
+
+    .desktop-field-ctl {
+        padding: 0.22rem 0.45rem;
+        vertical-align: middle;
+        background: var(--chief-chrome);
+        border: none;
+    }
+
+    /* SO header: one-border left table + borderless right status block */
+    .so-header-split {
+        display: flex;
+        align-items: flex-start;
+        gap: 1.25rem;
+        width: max-content;
+        max-width: 100%;
+        background: var(--chief-chrome);
+    }
+
+    .so-left-table {
+        border-collapse: collapse;
+        border: 1px solid #888;
+        background: var(--chief-chrome);
+        width: max-content;
+        max-width: 100%;
+    }
+
+    .so-left-table > tbody > tr > th,
+    .so-left-table > tbody > tr > td {
+        border: none;
+        background: var(--chief-chrome);
+        vertical-align: middle;
+        padding: 0.28rem 0.45rem;
+    }
+
+    .so-left-table > tbody > tr > th {
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1e293b;
+        white-space: nowrap;
+        width: 1%;
+        padding-right: 0.55rem;
+    }
+
+    .so-left-table .so-addr-block {
+        border: none;
+        margin: 0;
+        width: 100%;
+    }
+
+    .so-left-table .so-addr-tabs {
+        border-left: none;
+        border-right: none;
+        border-top: none;
+    }
+
+    .so-right-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        background: var(--chief-chrome);
+        border: none;
+        padding: 0;
+        width: max-content;
+        max-width: 18rem;
+        flex-shrink: 0;
+    }
+
+    .so-right-table {
+        border-collapse: collapse;
+        background: var(--chief-chrome);
+        width: max-content;
+    }
+
+    .so-right-table th,
+    .so-right-table td {
+        border: none;
+        background: var(--chief-chrome);
+        vertical-align: middle;
+        padding: 0.22rem 0.3rem;
+    }
+
+    .so-right-table th {
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1e293b;
+        white-space: nowrap;
+        width: 1%;
+        padding-right: 0.45rem;
+    }
+
+    .so-right-table .so-input {
+        width: 9.5rem;
+        max-width: 9.5rem;
+    }
+
+    .so-screen {
+        width: max-content;
+        max-width: 100%;
+    }
+
+    /* Focus rings for a11y */
+    :focus-visible {
+        outline: 2px solid #1e6fff;
+        outline-offset: 2px;
+    }
+
+    .chief-action-bar :focus-visible,
+    .so-mode-tab:focus-visible {
+        outline-color: #fff;
+    }
+
+    .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 100;
+        background: #1e293b;
+        color: #fff;
+        padding: 0.5rem 1rem;
+    }
+
+    .skip-link:focus {
+        left: 0.5rem;
+        top: 0.5rem;
+    }
 }

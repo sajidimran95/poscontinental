@@ -155,10 +155,11 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                     <input wire:model="supplier_id" class="chief-input w-40" @disabled($supplier) />
                     @error('supplier_id') <div class="text-red-600 text-xs">{{ $message }}</div> @enderror
                 </div>
-                <label class="inline-flex items-center gap-2 mt-4 text-sm">
-                    <input type="checkbox" wire:model="is_inactive" class="rounded border-slate-400" />
-                    Supplier is inactive
-                </label>
+                <div class="flex items-center gap-2 mt-4 text-sm">
+                    <span class="font-medium">Status:</span>
+                    <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
+                    <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
+                </div>
                 <label class="inline-flex items-center gap-2 mt-4 text-sm">
                     <input type="checkbox" wire:model.live="is_tobacco_supplier" class="rounded border-slate-400" />
                     Tobacco supplier (FEIN required)

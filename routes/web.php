@@ -21,6 +21,10 @@ Route::middleware(['auth'])->group(function () {
     // Lookups
     Volt::route('lookups', 'pages.lookups.index')->name('lookups.index');
 
+    // Admin
+    Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
+    Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
+
     // Purchasing / Suppliers
     Volt::route('purchasing/suppliers', 'pages.purchasing.suppliers.index')->name('purchasing.suppliers.index');
     Volt::route('purchasing/suppliers/create', 'pages.purchasing.suppliers.form')->name('purchasing.suppliers.create');

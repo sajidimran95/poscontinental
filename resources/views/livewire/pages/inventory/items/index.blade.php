@@ -36,6 +36,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             })
             ->when($this->favorite === 'new', fn ($q) => $q->newItems())
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
+            ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->when(str_starts_with($this->favorite, 'dept:'), function ($q) {
                 $deptId = (int) substr($this->favorite, 5);
                 $q->where('department_id', $deptId);
@@ -46,6 +47,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'all' => 'All Items',
             'new' => 'New Items',
             'active' => 'Active Items',
+            'inactive' => 'Inactive Items',
         ];
 
         foreach (Department::query()->where('company_id', $companyId)->orderBy('name')->get() as $dept) {
@@ -63,8 +65,27 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->resetPage();
     }
 
+    public function updatedFavorite(): void
+    {
+        $this->resetPage();
+    }
+
     public function selectRow(int $id): void
     {
+        $this->selectedId = $id;
+    }
+
+    public function toggleInactive(int $id): void
+    {
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
+        $item->update(['is_inactive' => ! $item->is_inactive]);
+        $this->selectedId = $id;
+    }
+
+    public function toggleCanSell(int $id): void
+    {
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
+        $item->update(['can_sell' => ! $item->can_sell]);
         $this->selectedId = $id;
     }
 }; ?>
@@ -78,7 +99,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">
             Items List
-            @if ($favorite === 'new') (New Items) @elseif ($favorite === 'all') (All Items) @endif
+            @if ($favorite === 'new') (New Items)
+            @elseif ($favorite === 'active') (Active Items)
+            @elseif ($favorite === 'inactive') (Inactive Items)
+            @elseif ($favorite === 'all') (All Items)
+            @endif
         </div>
 
         <div class="chief-grid flex-1 overflow-auto">
@@ -113,8 +138,24 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             <td class="text-right">{{ number_format($item->quantity_in_stock, 2) }}</td>
                             <td class="text-right">{{ number_format($item->available_quantity, 2) }}</td>
                             <td class="text-center">{{ $item->created_at && $item->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
-                            <td class="text-center">{{ $item->can_sell ? '☑' : '☐' }}</td>
-                            <td class="text-center">{{ $item->is_inactive ? '☑' : '☐' }}</td>
+                            <td class="text-center" wire:click.stop>
+                                <button
+                                    type="button"
+                                    wire:click="toggleCanSell({{ $item->id }})"
+                                    class="px-1 text-base leading-none hover:scale-110"
+                                    title="{{ $item->can_sell ? 'Can sell — click to disable' : 'Cannot sell — click to enable' }}"
+                                    aria-label="Toggle can sell"
+                                >{{ $item->can_sell ? '☑' : '☐' }}</button>
+                            </td>
+                            <td class="text-center" wire:click.stop>
+                                <button
+                                    type="button"
+                                    wire:click="toggleInactive({{ $item->id }})"
+                                    class="px-1 text-base leading-none hover:scale-110"
+                                    title="{{ $item->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
+                                    aria-label="Toggle inactive"
+                                >{{ $item->is_inactive ? '☑' : '☐' }}</button>
+                            </td>
                         </tr>
                     @empty
                         <tr><td colspan="10" class="px-2 py-6 text-slate-500">No items found.</td></tr>

@@ -627,7 +627,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </select>
                         </div>
                         <label class="inline-flex items-center gap-2 text-sm pt-2 ms-[9.5rem]">
-                            <input type="checkbox" wire:model="is_inactive" /> Item is inactive
+                            <span class="font-medium">Status:</span>
+                            <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
+                            <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
                         </label>
                     </div>
                 </div>
@@ -978,8 +980,12 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             @else
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-1 max-w-5xl">
                     <div class="space-y-2">
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="is_inactive" /> Item is inactive</label>
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="available_on_website" /> Item is available on the website</label>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="font-medium w-28">Status:</span>
+                            <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
+                            <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
+                        </div>
+                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model.live="available_on_website" /> Item is available on the website</label>
                         <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="allow_back_order" /> Allow Back Order</label>
                         <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="can_sell" /> Can Sell</label>
                         <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="can_order" /> Can Order</label>

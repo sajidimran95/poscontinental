@@ -25,7 +25,7 @@ class DocumentPdfService
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)
     {
-        $memo->load(['customer', 'salesOrder']);
+        $memo->load(['customer', 'salesOrder', 'lines']);
 
         return Pdf::loadView('pdf.credit-memo', [
             'memo' => $memo,

@@ -32,6 +32,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                 });
             })
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
+            ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->orderBy('customer_id');
 
         return [
@@ -39,6 +40,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             'favorites' => [
                 'all' => 'All Customers',
                 'active' => 'Active Customers',
+                'inactive' => 'Inactive Customers',
             ],
         ];
     }
@@ -48,8 +50,20 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $this->resetPage();
     }
 
+    public function updatedFavorite(): void
+    {
+        $this->resetPage();
+    }
+
     public function selectRow(int $id): void
     {
+        $this->selectedId = $id;
+    }
+
+    public function toggleInactive(int $id): void
+    {
+        $customer = Customer::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
+        $customer->update(['is_inactive' => ! $customer->is_inactive]);
         $this->selectedId = $id;
     }
 }; ?>
@@ -92,7 +106,15 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                             <td>{{ $customer->telephone }}</td>
                             <td>{{ $customer->email }}</td>
                             <td class="text-right">${{ number_format($customer->balance, 2) }}</td>
-                            <td class="text-center">{{ $customer->is_inactive ? '☑' : '☐' }}</td>
+                            <td class="text-center" wire:click.stop>
+                                <button
+                                    type="button"
+                                    wire:click="toggleInactive({{ $customer->id }})"
+                                    class="px-1 text-base leading-none hover:scale-110"
+                                    title="{{ $customer->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
+                                    aria-label="Toggle inactive"
+                                >{{ $customer->is_inactive ? '☑' : '☐' }}</button>
+                            </td>
                         </tr>
                     @empty
                         <tr><td colspan="8" class="px-2 py-6 text-slate-500">No customers found.</td></tr>
@@ -103,6 +125,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         <x-record-count :count="$customers->total()">
             <a href="{{ route('sales.customers.create') }}" wire:navigate class="chief-btn-primary">New Customer</a>
+            {{ $customers->links() }}
         </x-record-count>
     </div>
 </div>

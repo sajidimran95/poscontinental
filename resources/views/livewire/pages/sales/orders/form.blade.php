@@ -2,6 +2,7 @@
 
 use App\Models\Customer;
 use App\Models\Item;
+use App\Models\ItemSubstitute;
 use App\Models\PaymentTerm;
 use App\Models\RouteLookup;
 use App\Models\SalesOrder;
@@ -116,6 +117,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public string $taxExemptWarning = '';
 
     public string $lineWarning = '';
+
+    public bool $showSubstitutePrompt = false;
+
+    public ?int $pendingItemId = null;
+
+    public ?int $pendingLineIndex = null;
+
+    /** @var array<int, array{id:int,item_code:string,description:string,available:float}> */
+    public array $substituteOptions = [];
 
     public bool $showCustomerBrowse = false;
 
@@ -509,6 +519,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $item) {
             return;
         }
+        if ($this->shouldPromptForceSubstitute($item)) {
+            $this->pendingItemId = $item->id;
+            $this->pendingLineIndex = $index;
+            $this->substituteOptions = $item->substitutes
+                ->filter(fn (ItemSubstitute $s) => $s->force_substitute && $s->substituteItem)
+                ->map(fn (ItemSubstitute $s) => [
+                    'id' => $s->substituteItem->id,
+                    'item_code' => $s->substituteItem->item_code,
+                    'description' => $s->substituteItem->description,
+                    'available' => (float) $s->substituteItem->available_quantity,
+                ])
+                ->values()
+                ->all();
+            $this->showSubstitutePrompt = true;
+
+            return;
+        }
         $this->fillLineFromItem($index, $item);
     }
 
@@ -522,23 +549,113 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $item) {
             return;
         }
-        $this->lines[] = $this->emptyLine();
-        $index = count($this->lines) - 1;
-        $this->fillLineFromItem($index, $item);
         $this->itemEntry = '';
         $this->showBrowse = false;
+        $this->queueItemOrPromptSubstitute($item);
     }
 
     public function pickBrowseItem(int $itemId): void
     {
-        $item = Item::query()->with(['prices', 'taxSchedule'])->where('company_id', auth()->user()->company_id)->find($itemId);
+        $item = Item::query()->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
+            ->where('company_id', auth()->user()->company_id)
+            ->find($itemId);
         if (! $item) {
             return;
         }
-        $this->lines[] = $this->emptyLine();
-        $this->fillLineFromItem(count($this->lines) - 1, $item);
         $this->showBrowse = false;
         $this->itemEntry = '';
+        $this->queueItemOrPromptSubstitute($item);
+    }
+
+    protected function queueItemOrPromptSubstitute(Item $item): void
+    {
+        if ($this->shouldPromptForceSubstitute($item)) {
+            $this->pendingItemId = $item->id;
+            $this->substituteOptions = $item->substitutes
+                ->filter(fn (ItemSubstitute $s) => $s->force_substitute && $s->substituteItem)
+                ->map(fn (ItemSubstitute $s) => [
+                    'id' => $s->substituteItem->id,
+                    'item_code' => $s->substituteItem->item_code,
+                    'description' => $s->substituteItem->description,
+                    'available' => (float) $s->substituteItem->available_quantity,
+                ])
+                ->values()
+                ->all();
+            $this->showSubstitutePrompt = true;
+
+            return;
+        }
+
+        $this->appendItemLine($item);
+    }
+
+    protected function shouldPromptForceSubstitute(Item $item): bool
+    {
+        if ((float) $item->available_quantity > 0) {
+            return false;
+        }
+
+        if (! $item->relationLoaded('substitutes')) {
+            $item->load(['substitutes.substituteItem']);
+        }
+
+        return $item->substitutes->contains(fn (ItemSubstitute $s) => $s->force_substitute && $s->substitute_item_id);
+    }
+
+    public function acceptSubstitute(int $substituteItemId): void
+    {
+        $item = Item::query()->with(['prices', 'taxSchedule'])
+            ->where('company_id', auth()->user()->company_id)
+            ->find($substituteItemId);
+        $lineIndex = $this->pendingLineIndex;
+        $this->showSubstitutePrompt = false;
+        $this->pendingItemId = null;
+        $this->pendingLineIndex = null;
+        $this->substituteOptions = [];
+        if (! $item) {
+            return;
+        }
+        if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
+            $this->fillLineFromItem($lineIndex, $item);
+        } else {
+            $this->appendItemLine($item);
+        }
+        $this->lineWarning = 'Used force substitute '.$item->item_code.' (original out of stock).';
+    }
+
+    public function keepOriginalItem(): void
+    {
+        $item = $this->pendingItemId
+            ? Item::query()->with(['prices', 'taxSchedule'])->where('company_id', auth()->user()->company_id)->find($this->pendingItemId)
+            : null;
+        $lineIndex = $this->pendingLineIndex;
+        $this->showSubstitutePrompt = false;
+        $this->pendingItemId = null;
+        $this->pendingLineIndex = null;
+        $this->substituteOptions = [];
+        if (! $item) {
+            return;
+        }
+        if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
+            $this->fillLineFromItem($lineIndex, $item);
+        } else {
+            $this->appendItemLine($item);
+        }
+        $this->lineWarning = $item->item_code.' is out of stock; kept original per operator choice.';
+    }
+
+    public function cancelSubstitutePrompt(): void
+    {
+        $this->showSubstitutePrompt = false;
+        $this->pendingItemId = null;
+        $this->pendingLineIndex = null;
+        $this->substituteOptions = [];
+    }
+
+    protected function appendItemLine(Item $item): void
+    {
+        $this->lines[] = $this->emptyLine();
+        $this->fillLineFromItem(count($this->lines) - 1, $item);
     }
 
     public function toggleBrowse(): void
@@ -551,7 +668,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function findItem(string $code): ?Item
     {
         return Item::query()
-            ->with(['prices', 'taxSchedule'])
+            ->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
             ->where('company_id', auth()->user()->company_id)
             ->where(function ($q) use ($code) {
                 $q->where('item_code', $code)
@@ -742,223 +859,243 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <strong>Tax Exempt:</strong> {{ $taxExemptWarning }}
             </div>
         @endif
+        @if (filled($lineWarning))
+            <div class="mx-2 mt-1 border border-sky-400 bg-sky-50 px-2 py-1 text-xs text-sky-950" role="status">
+                {{ $lineWarning }}
+            </div>
+        @endif
         @error('customer_id')
             <div class="mx-2 mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
         @enderror
 
         <div class="so-body">
             @if ($activeTab === 'general')
-            <div class="so-header">
-                {{-- Labels above fields --}}
-                <div class="so-header-grid">
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Order Type:</label>
-                        <select wire:model="order_type" class="so-input so-w-ordertype">
-                            <option>Sales Order</option>
-                            <option>Return</option>
-                        </select>
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Order No:</label>
-                        <div class="so-lookup-row">
-                            <input wire:model="order_number" class="so-input font-mono so-w-orderno" @disabled($salesOrder) />
-                            <button type="button" class="so-icon-btn" title="Lookup" tabindex="-1" aria-label="Lookup">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M6 2v8"/></svg>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Order Status:</label>
-                        <input wire:model="status" class="so-input so-w-status" readonly />
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Priority:</label>
-                        <select wire:model="priority" class="so-input so-w-status">
-                            <option>Normal</option>
-                            <option>High</option>
-                            <option>Low</option>
-                        </select>
-                    </div>
+            <div class="so-header" id="mode-panel-general" role="tabpanel" aria-labelledby="mode-tab-general">
+                <div class="so-header-split">
+                    <table class="so-left-table" aria-label="Order customer and address">
+                        <tbody>
+                            <tr>
+                                <th scope="row">Order Type:</th>
+                                <td>
+                                    <select wire:model="order_type" class="so-input so-w-ordertype" aria-label="Order Type">
+                                        <option>Sales Order</option>
+                                        <option>Return</option>
+                                    </select>
+                                </td>
+                                <th scope="row">Order No:</th>
+                                <td>
+                                    <div class="so-lookup-row">
+                                        <input wire:model="order_number" class="so-input font-mono so-w-orderno" aria-label="Order Number" @disabled($salesOrder) />
+                                        <button type="button" class="so-icon-btn" title="Lookup" tabindex="-1" aria-label="Lookup order">
+                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M6 2v8"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Customer:</th>
+                                <td colspan="3">
+                                    <div class="so-lookup-row">
+                                        <select wire:model.live="customer_id" class="so-input so-w-customer" aria-label="Customer">
+                                            <option value="">—</option>
+                                            @foreach ($customers as $c)
+                                                <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
+                                            @endforeach
+                                        </select>
+                                        <button type="button" class="so-icon-btn" title="Favorite" tabindex="-1" aria-label="Favorite">
+                                            <svg viewBox="0 0 12 12" fill="currentColor"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
+                                        </button>
+                                        <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Search" aria-label="Search customer">
+                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3.2"/><path d="M7.5 7.5L10.5 10.5"/></svg>
+                                        </button>
+                                        <a href="{{ route('sales.customers.create') }}" wire:navigate class="so-icon-btn" title="New" aria-label="New customer">
+                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                                        </a>
+                                        <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Browse" aria-label="Browse customers">
+                                            <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
+                                        </button>
+                                    </div>
+                                    @if ($showCustomerBrowse)
+                                        <div class="so-lookup-panel" role="dialog" aria-label="Customer browse">
+                                            <div class="so-lookup-panel-head">
+                                                <input type="text" wire:model.live.debounce.200ms="customerSearch" class="so-input" placeholder="Search customer ID, name, phone…" aria-label="Search customers" />
+                                                <button type="button" wire:click="$set('showCustomerBrowse', false)" class="so-icon-btn" title="Close" aria-label="Close">×</button>
+                                            </div>
+                                            <table class="so-lookup-table">
+                                                <thead>
+                                                    <tr><th>ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>City</th></tr>
+                                                </thead>
+                                                <tbody>
+                                                    @forelse ($browseCustomers as $bc)
+                                                        <tr wire:click="pickCustomer({{ $bc->id }})" class="cursor-pointer hover:bg-sky-100">
+                                                            <td class="font-mono">{{ $bc->customer_id }}</td>
+                                                            <td>{{ $bc->company_name }}</td>
+                                                            <td>{{ $bc->contact }}</td>
+                                                            <td>{{ $bc->telephone }}</td>
+                                                            <td>{{ $bc->city }}{{ $bc->state ? ', '.$bc->state : '' }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="5" class="text-slate-500 px-2 py-2">No customers found.</td></tr>
+                                                    @endforelse
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Ship to:</th>
+                                <td colspan="3">
+                                    <div class="so-lookup-row">
+                                        <select wire:model.live="ship_to_address_id" class="so-input so-w-customer" aria-label="Ship to">
+                                            <option value="">—</option>
+                                            @if ($selectedCustomer)
+                                                @foreach ($selectedCustomer->shippingAddresses as $addr)
+                                                    <option value="{{ $addr->id }}">{{ $addr->name ?: $addr->address ?: 'Ship-To #'.$addr->id }}</option>
+                                                @endforeach
+                                            @endif
+                                        </select>
+                                        <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="Browse" aria-label="Browse ship-to" @disabled(! $customer_id)>
+                                            <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
+                                        </button>
+                                    </div>
+                                    @if ($showShipBrowse && $selectedCustomer)
+                                        <div class="so-lookup-panel" role="dialog" aria-label="Ship-to browse">
+                                            <div class="so-lookup-panel-head">
+                                                <span class="text-xs font-semibold text-slate-700">Ship-to addresses</span>
+                                                <button type="button" wire:click="$set('showShipBrowse', false)" class="so-icon-btn" title="Close" aria-label="Close">×</button>
+                                            </div>
+                                            <table class="so-lookup-table">
+                                                <thead>
+                                                    <tr><th>Name</th><th>Address</th><th>City</th><th>Phone</th><th></th></tr>
+                                                </thead>
+                                                <tbody>
+                                                    @forelse ($selectedCustomer->shippingAddresses as $addr)
+                                                        <tr wire:click="pickShipTo({{ $addr->id }})" class="cursor-pointer hover:bg-sky-100">
+                                                            <td>{{ $addr->name }}@if ($addr->is_primary) <span class="text-green-700">●</span>@endif</td>
+                                                            <td>{{ $addr->address }}</td>
+                                                            <td>{{ collect([$addr->city, $addr->state, $addr->zip])->filter()->implode(', ') }}</td>
+                                                            <td>{{ $addr->telephone }}</td>
+                                                            <td class="text-sky-700 underline text-xs">Select</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="5" class="text-slate-500 px-2 py-2">No ship-to addresses for this customer.</td></tr>
+                                                    @endforelse
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <td colspan="4" class="!p-0">
+                                    <div class="so-addr-block">
+                                        <div class="so-addr-tabs" role="tablist" aria-label="Address type">
+                                            <button type="button" role="tab" aria-selected="{{ $addressTab === 'bill' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'bill')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'bill'])>Bill To Address</button>
+                                            <button type="button" role="tab" aria-selected="{{ $addressTab === 'ship' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'ship')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'ship'])>Ship To Address</button>
+                                        </div>
+                                        <table class="so-addr-table">
+                                            @if ($addressTab === 'bill')
+                                                <tr>
+                                                    <td class="so-addr-lbl">Name:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_name" class="so-input" aria-label="Bill to name" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">Phone No.:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_phone" class="so-input so-w-phone" aria-label="Bill to phone" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">Address:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_address" class="so-input" aria-label="Bill to address" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">City:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="bill_to_city" class="so-input so-w-city" aria-label="Bill to city" /></td>
+                                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="bill_to_state" class="so-input so-w-state" aria-label="Bill to state" /></td>
+                                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="bill_to_zip" class="so-input so-w-zip" aria-label="Bill to ZIP" /></td>
+                                                </tr>
+                                            @else
+                                                <tr>
+                                                    <td class="so-addr-lbl">Name:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_name" class="so-input" aria-label="Ship to name" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">Phone No.:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_phone" class="so-input so-w-phone" aria-label="Ship to phone" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">Address:</td>
+                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_address" class="so-input" aria-label="Ship to address" /></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="so-addr-lbl">City:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="ship_to_city" class="so-input so-w-city" aria-label="Ship to city" /></td>
+                                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="ship_to_state" class="so-input so-w-state" aria-label="Ship to state" /></td>
+                                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
+                                                    <td class="so-addr-ctl"><input wire:model="ship_to_zip" class="so-input so-w-zip" aria-label="Ship to ZIP" /></td>
+                                                </tr>
+                                            @endif
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
 
-                    <div class="so-field-stack so-field-wide">
-                        <label class="so-lbl">Customer:</label>
-                        <div class="so-lookup-row">
-                            <select wire:model.live="customer_id" class="so-input so-w-customer">
-                                <option value="">—</option>
-                                @foreach ($customers as $c)
-                                    <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
-                                @endforeach
-                            </select>
-                            <button type="button" class="so-icon-btn" title="Favorite" tabindex="-1" aria-label="Favorite">
-                                <svg viewBox="0 0 12 12" fill="currentColor"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
-                            </button>
-                            <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Search" aria-label="Search">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3.2"/><path d="M7.5 7.5L10.5 10.5"/></svg>
-                            </button>
-                            <a href="{{ route('sales.customers.create') }}" wire:navigate class="so-icon-btn" title="New" aria-label="New customer">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
-                            </a>
-                            <button type="button" class="so-icon-btn" title="Info" tabindex="-1" aria-label="Info">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="4.2"/><path d="M6 5.2V8.5M6 3.6h.01"/></svg>
-                            </button>
-                            <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Browse" aria-label="Browse">
-                                <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
-                            </button>
-                        </div>
-                        @if ($showCustomerBrowse)
-                            <div class="so-lookup-panel">
-                                <div class="so-lookup-panel-head">
-                                    <input type="text" wire:model.live.debounce.200ms="customerSearch" class="so-input" placeholder="Search customer ID, name, phone…" />
-                                    <button type="button" wire:click="$set('showCustomerBrowse', false)" class="so-icon-btn" title="Close">×</button>
-                                </div>
-                                <table class="so-lookup-table">
-                                    <thead>
-                                        <tr><th>ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>City</th></tr>
-                                    </thead>
-                                    <tbody>
-                                        @forelse ($browseCustomers as $bc)
-                                            <tr wire:click="pickCustomer({{ $bc->id }})" class="cursor-pointer hover:bg-sky-100">
-                                                <td class="font-mono">{{ $bc->customer_id }}</td>
-                                                <td>{{ $bc->company_name }}</td>
-                                                <td>{{ $bc->contact }}</td>
-                                                <td>{{ $bc->telephone }}</td>
-                                                <td>{{ $bc->city }}{{ $bc->state ? ', '.$bc->state : '' }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="5" class="text-slate-500 px-2 py-2">No customers found.</td></tr>
-                                        @endforelse
-                                    </tbody>
-                                </table>
-                            </div>
-                        @endif
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Order Date:</label>
-                        <input type="date" wire:model="order_date" class="so-input so-w-date" />
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Required Date:</label>
-                        <input type="date" wire:model="required_date" class="so-input so-w-date" />
-                    </div>
-
-                    <div class="so-field-stack so-field-wide">
-                        <label class="so-lbl">Ship to:</label>
-                        <div class="so-lookup-row">
-                            <select wire:model.live="ship_to_address_id" class="so-input so-w-customer">
-                                <option value="">—</option>
-                                @if ($selectedCustomer)
-                                    @foreach ($selectedCustomer->shippingAddresses as $addr)
-                                        <option value="{{ $addr->id }}">{{ $addr->name ?: $addr->address ?: 'Ship-To #'.$addr->id }}</option>
-                                    @endforeach
-                                @endif
-                            </select>
-                            <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="Browse" aria-label="Browse ship-to" @disabled(! $customer_id)>
-                                <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
-                            </button>
-                            <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="More" aria-label="More" @disabled(! $customer_id)>
-                                <svg viewBox="0 0 12 12" fill="currentColor"><path d="M2 4l4 4 4-4"/></svg>
-                            </button>
-                        </div>
-                        @if ($showShipBrowse && $selectedCustomer)
-                            <div class="so-lookup-panel">
-                                <div class="so-lookup-panel-head">
-                                    <span class="text-xs font-semibold text-slate-700">Ship-to addresses</span>
-                                    <button type="button" wire:click="$set('showShipBrowse', false)" class="so-icon-btn" title="Close">×</button>
-                                </div>
-                                <table class="so-lookup-table">
-                                    <thead>
-                                        <tr><th>Name</th><th>Address</th><th>City</th><th>Phone</th><th></th></tr>
-                                    </thead>
-                                    <tbody>
-                                        @forelse ($selectedCustomer->shippingAddresses as $addr)
-                                            <tr wire:click="pickShipTo({{ $addr->id }})" class="cursor-pointer hover:bg-sky-100">
-                                                <td>{{ $addr->name }}@if ($addr->is_primary) <span class="text-green-700">●</span>@endif</td>
-                                                <td>{{ $addr->address }}</td>
-                                                <td>{{ collect([$addr->city, $addr->state, $addr->zip])->filter()->implode(', ') }}</td>
-                                                <td>{{ $addr->telephone }}</td>
-                                                <td class="text-sky-700 underline text-xs">Select</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="5" class="text-slate-500 px-2 py-2">No ship-to addresses for this customer.</td></tr>
-                                        @endforelse
-                                    </tbody>
-                                </table>
-                            </div>
-                        @endif
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Customer PO No.:</label>
-                        <input wire:model="customer_po_no" class="so-input so-w-date" />
-                    </div>
-                    <div class="so-field-stack">
-                        <label class="so-lbl">Reference No:</label>
-                        <input wire:model="reference_no" class="so-input so-w-date" />
-                    </div>
-
-                    <div class="so-addr-block">
-                        <div class="so-addr-tabs">
-                            <button type="button" wire:click="$set('addressTab', 'bill')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'bill'])>Bill To Address</button>
-                            <button type="button" wire:click="$set('addressTab', 'ship')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'ship'])>Ship To Address</button>
-                        </div>
-                        <table class="so-addr-table">
-                            @if ($addressTab === 'bill')
+                    <div class="so-right-fields" aria-label="Order status and dates">
+                        <table class="so-right-table">
+                            <tbody>
                                 <tr>
-                                    <td class="so-addr-lbl">Name:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_name" class="so-input" /></td>
+                                    <th scope="row">Order Status:</th>
+                                    <td><input wire:model="status" class="so-input so-w-status" readonly aria-label="Order Status" /></td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">Phone No.:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_phone" class="so-input so-w-phone" /></td>
+                                    <th scope="row">Priority:</th>
+                                    <td>
+                                        <select wire:model="priority" class="so-input so-w-status" aria-label="Priority">
+                                            <option>Normal</option>
+                                            <option>High</option>
+                                            <option>Low</option>
+                                        </select>
+                                    </td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">Address:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_address" class="so-input" /></td>
+                                    <th scope="row">Order Date:</th>
+                                    <td><input type="date" wire:model="order_date" class="so-input so-w-date" aria-label="Order Date" /></td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">City:</td>
-                                    <td class="so-addr-ctl"><input wire:model="bill_to_city" class="so-input so-w-city" /></td>
-                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
-                                    <td class="so-addr-ctl"><input wire:model="bill_to_state" class="so-input so-w-state" /></td>
-                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
-                                    <td class="so-addr-ctl"><input wire:model="bill_to_zip" class="so-input so-w-zip" /></td>
-                                </tr>
-                            @else
-                                <tr>
-                                    <td class="so-addr-lbl">Name:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_name" class="so-input" /></td>
+                                    <th scope="row">Required Date:</th>
+                                    <td><input type="date" wire:model="required_date" class="so-input so-w-date" aria-label="Required Date" /></td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">Phone No.:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_phone" class="so-input so-w-phone" /></td>
+                                    <th scope="row">Customer PO No.:</th>
+                                    <td><input wire:model="customer_po_no" class="so-input so-w-date" aria-label="Customer PO Number" /></td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">Address:</td>
-                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_address" class="so-input" /></td>
+                                    <th scope="row">Reference No:</th>
+                                    <td><input wire:model="reference_no" class="so-input so-w-date" aria-label="Reference Number" /></td>
                                 </tr>
                                 <tr>
-                                    <td class="so-addr-lbl">City:</td>
-                                    <td class="so-addr-ctl"><input wire:model="ship_to_city" class="so-input so-w-city" /></td>
-                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
-                                    <td class="so-addr-ctl"><input wire:model="ship_to_state" class="so-input so-w-state" /></td>
-                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
-                                    <td class="so-addr-ctl"><input wire:model="ship_to_zip" class="so-input so-w-zip" /></td>
+                                    <th scope="row">Sales Rep.:</th>
+                                    <td>
+                                        <select wire:model="sales_rep_id" class="so-input so-w-rep" aria-label="Sales Rep">
+                                            <option value="">—</option>
+                                            @foreach ($salesReps as $r)
+                                                <option value="{{ $r->id }}">{{ $r->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </td>
                                 </tr>
-                            @endif
+                            </tbody>
                         </table>
-                    </div>
-                    <div class="so-field-stack so-field-rep">
-                        <label class="so-lbl">Sales Rep.:</label>
-                        <select wire:model="sales_rep_id" class="so-input so-w-rep">
-                            <option value="">—</option>
-                            @foreach ($salesReps as $r)
-                                <option value="{{ $r->id }}">{{ $r->name }}</option>
-                            @endforeach
-                        </select>
                     </div>
                 </div>
             </div>
             @elseif ($activeTab === 'items')
-                <div class="so-items-wrap so-items-wrap-tall">
+                <div class="so-items-wrap so-items-wrap-tall" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
                         <table class="w-full">
@@ -1081,7 +1218,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                 </div>
             @elseif ($activeTab === 'shipping')
-                <div class="so-ship-panel">
+                <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
                     <div class="so-ship-grid">
                         <div class="so-ship-col">
                             <div class="so-field"><label>Payment Terms:</label>
@@ -1162,21 +1299,46 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     <div class="so-bottom so-bottom-full">
         <div class="so-bottom-tabs">
-            <div class="so-mode-tabs">
-                <button type="button" wire:click="$set('activeTab', 'general')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'general'])>
-                    @if ($activeTab === 'general')<span class="so-mode-check">●</span>@endif General
-                </button>
-                <button type="button" wire:click="$set('activeTab', 'items')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'items'])>
-                    @if ($activeTab === 'items')<span class="so-mode-check">●</span>@endif Items
-                </button>
-                <button type="button" wire:click="$set('activeTab', 'shipping')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'shipping'])>
-                    @if ($activeTab === 'shipping')<span class="so-mode-check">●</span>@endif Shipping info.
-                </button>
-            </div>
+            <x-mode-tabs
+                :tabs="['general' => 'General', 'items' => 'Expand', 'shipping' => 'Shipping info.']"
+                :active="$activeTab"
+            />
         </div>
         <div class="so-bottom-actions">
             <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">Cancel</a>
             <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
         </div>
     </div>
+
+    @if ($showSubstitutePrompt)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="cancelSubstitutePrompt" role="dialog" aria-modal="true" aria-labelledby="sub-prompt-title">
+            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-lg">
+                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
+                    <span id="sub-prompt-title">Force substitute suggested</span>
+                    <button type="button" wire:click="cancelSubstitutePrompt" class="text-white hover:text-red-200" aria-label="Close">×</button>
+                </div>
+                <div class="p-3 space-y-2 text-sm">
+                    <p>Selected item is out of stock. Choose a forced substitute, or keep the original.</p>
+                    <ul class="border border-slate-300 divide-y max-h-48 overflow-auto">
+                        @forelse ($substituteOptions as $opt)
+                            <li class="flex items-center justify-between gap-2 px-2 py-1.5">
+                                <span>
+                                    <span class="font-mono">{{ $opt['item_code'] }}</span>
+                                    — {{ $opt['description'] }}
+                                    <span class="text-xs text-slate-500">(avail {{ number_format($opt['available'], 0) }})</span>
+                                </span>
+                                <button type="button" wire:click="acceptSubstitute({{ $opt['id'] }})" class="chief-btn-primary text-xs">Use</button>
+                            </li>
+                        @empty
+                            <li class="px-2 py-2 text-slate-500">No substitute items configured.</li>
+                        @endforelse
+                    </ul>
+                    <div class="flex justify-end gap-2 pt-1">
+                        <button type="button" wire:click="cancelSubstitutePrompt" class="chief-btn">Cancel</button>
+                        <button type="button" wire:click="keepOriginalItem" class="chief-btn">Keep original</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

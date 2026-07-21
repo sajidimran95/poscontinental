@@ -393,9 +393,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                     <label>Customer ID</label>
                     <input wire:model="customer_id" class="chief-input w-40 font-mono" @disabled($customer) />
                 </div>
-                <label class="inline-flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model="is_inactive" /> Customer is inactive
-                </label>
+                <div class="flex items-center gap-2 text-sm">
+                    <span class="font-medium">Status:</span>
+                    <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
+                    <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
+                </div>
                 @if ($activeTab === 'account')
                     <div class="ms-auto text-base font-semibold text-slate-800">Balance: ${{ number_format((float) $balance, 2) }}</div>
                 @endif

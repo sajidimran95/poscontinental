@@ -25,5 +25,32 @@
         <tr><th>Amount</th><td class="right">${{ number_format($memo->amount, 2) }}</td></tr>
         <tr><th>Comments</th><td>{{ $memo->comments }}</td></tr>
     </table>
+
+    @if ($memo->relationLoaded('lines') ? $memo->lines->isNotEmpty() : $memo->lines()->exists())
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Description</th>
+                    <th>UOM</th>
+                    <th class="right">Qty</th>
+                    <th class="right">Price</th>
+                    <th class="right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($memo->lines as $line)
+                    <tr>
+                        <td>{{ $line->item_code }}</td>
+                        <td>{{ $line->description }}</td>
+                        <td>{{ $line->uom }}</td>
+                        <td class="right">{{ number_format((float) $line->qty, 2) }}</td>
+                        <td class="right">${{ number_format((float) $line->price, 2) }}</td>
+                        <td class="right">${{ number_format((float) $line->line_total, 2) }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @endif
 </body>
 </html>

@@ -128,12 +128,33 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json($order->load('lines'), 201);
     });
 
-    Route::get('/sales-orders', function (Request $request) {
-        return SalesOrder::query()
-            ->with('customer:id,customer_id,company_name')
+    Route::get('/sales-orders/{salesOrder}', function (Request $request, SalesOrder $salesOrder) {
+        abort_unless($salesOrder->company_id === $request->user()->company_id, 403);
+
+        return $salesOrder->load(['customer:id,customer_id,company_name', 'lines']);
+    });
+
+    Route::get('/invoices', function (Request $request) {
+        $rows = \App\Models\Invoice::query()
+            ->with(['customer:id,customer_id,company_name', 'payments', 'credits'])
             ->where('company_id', $request->user()->company_id)
             ->when($request->filled('customer_id'), fn ($q) => $q->where('customer_id', $request->integer('customer_id')))
             ->orderByDesc('id')
             ->paginate(50);
+
+        $rows->getCollection()->transform(function ($inv) {
+            return [
+                'id' => $inv->id,
+                'invoice_number' => $inv->invoice_number,
+                'invoice_date' => optional($inv->invoice_date)?->toDateString(),
+                'customer_id' => $inv->customer_id,
+                'customer' => $inv->customer,
+                'status' => $inv->status,
+                'invoice_total' => $inv->invoice_total,
+                'balance' => $inv->invoice_balance,
+            ];
+        });
+
+        return $rows;
     });
 });

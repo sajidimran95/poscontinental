@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CreditMemo extends Model
 {
@@ -28,6 +29,11 @@ class CreditMemo extends Model
     public function salesOrder(): BelongsTo
     {
         return $this->belongsTo(SalesOrder::class);
+    }
+
+    public function lines(): HasMany
+    {
+        return $this->hasMany(CreditMemoLine::class)->orderBy('line_no');
     }
 
     public static function nextNumber(int $companyId): string

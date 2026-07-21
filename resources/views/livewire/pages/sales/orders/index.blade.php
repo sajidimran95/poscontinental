@@ -116,26 +116,34 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
+
+    <div class="desk-main">
         <x-action-bar title="Action" />
+
         @if (session('status'))
-            <div class="mx-2 mt-1 border border-sky-400 bg-sky-50 px-2 py-1 text-xs text-sky-950" role="status">{{ session('status') }}</div>
+            <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
-        <div class="flex flex-wrap items-center gap-2 px-2 py-1 border-b border-slate-300 bg-white">
-            <x-list-chrome label="Search Orders:" model="search" />
-            <label class="text-xs font-semibold text-slate-700">Quick filter:</label>
-            <select wire:model.live="statusFilter" class="chief-input text-xs">
+
+        <x-list-chrome label="Search Orders:" model="search" placeholder="Order #, customer, phone…">
+            <label class="desk-toolbar-label" for="orders-status-filter">Status</label>
+            <select id="orders-status-filter" wire:model.live="statusFilter" class="desk-select" aria-label="Filter by status">
                 <option value="">All Statuses</option>
                 @foreach ($statusOptions as $st)
                     <option value="{{ $st }}">{{ $st === 'New' ? 'Not Invoiced (New)' : $st }}</option>
                 @endforeach
             </select>
+            <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary ms-auto">New Sales Order</a>
+        </x-list-chrome>
+
+        <div class="desk-titlebar">
+            <h2 class="desk-title">Orders List</h2>
+            <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
         </div>
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Orders List</div>
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Order #</th>
@@ -158,14 +166,21 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 <tbody>
                     @forelse ($orders as $order)
                         <tr>
-                            <td class="font-mono">
-                                <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate class="hover:underline">{{ $order->order_number }}</a>
+                            <td class="desk-num">
+                                <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate>{{ $order->order_number }}</a>
                             </td>
                             <td>{{ $order->order_type }}</td>
                             <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
                             <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
-                            <td>{{ $order->status }}</td>
-                            <td class="font-mono">{{ $order->customer?->customer_id }}</td>
+                            <td>
+                                <span @class([
+                                    'desk-pill',
+                                    'desk-pill-new' => $order->status === 'New',
+                                    'desk-pill-invoiced' => $order->status === 'Invoiced',
+                                    'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
+                                ])>{{ $order->status }}</span>
+                            </td>
+                            <td class="desk-num">{{ $order->customer?->customer_id }}</td>
                             <td>{{ $order->customer?->contact }}</td>
                             <td>{{ $order->customer?->company_name }}</td>
                             <td class="max-w-[10rem] truncate" title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
@@ -173,21 +188,24 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             <td>{{ $order->createdBy?->name }}</td>
                             <td>{{ optional($order->updated_at)?->format('n/j/Y g:i A') }}</td>
                             <td>{{ optional($order->required_date)?->format('n/j/Y') }}</td>
-                            <td class="text-right">${{ number_format($order->total, 2) }}</td>
+                            <td class="desk-money">${{ number_format($order->total, 2) }}</td>
                             <td>
                                 @if ($order->status !== 'Invoiced')
-                                    <button type="button" wire:click="invoiceOrder({{ $order->id }})" class="chief-btn text-xs">Invoice</button>
+                                    <button type="button" wire:click="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
                                 @endif
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="15" class="px-2 py-6 text-slate-500">No orders found.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="15">No orders found.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+
         <x-record-count :count="$orders->total()">
-            <a href="{{ route('sales.orders.create') }}" wire:navigate class="chief-btn-primary">New Sales Order</a>
+            <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Sales Order</a>
             {{ $orders->links() }}
         </x-record-count>
     </div>

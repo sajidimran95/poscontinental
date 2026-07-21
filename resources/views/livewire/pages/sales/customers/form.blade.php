@@ -383,57 +383,62 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     }
 }; ?>
 
-<div>
-    <form wire:submit="save" class="chief-panel bg-white flex flex-col min-h-[72vh]">
+<div class="desk-page entity-page">
+    <form wire:submit="save" class="desk-main entity-form">
         <x-action-bar :title="$customer ? 'Edit Customer — '.$customer_id : 'New Customer'" />
 
-        <div class="flex-1 p-3 overflow-auto">
-            <div class="flex flex-wrap items-center gap-4 mb-3">
-                <div class="chief-field">
-                    <label>Customer ID</label>
-                    <input wire:model="customer_id" class="chief-input w-40 font-mono" @disabled($customer) />
-                </div>
-                <div class="flex items-center gap-2 text-sm">
-                    <span class="font-medium">Status:</span>
-                    <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
-                    <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
+        <div class="entity-body">
+            <div class="entity-header">
+                <div class="so-form-row so-form-row-pair entity-header-row">
+                    <label class="so-form-lbl" for="customer_id">Customer ID</label>
+                    <input id="customer_id" wire:model="customer_id" class="so-input font-mono" @disabled($customer) />
+                    <span class="so-form-lbl">Status</span>
+                    <div class="entity-status-btns">
+                        <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
+                        <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
+                    </div>
                 </div>
                 @if ($activeTab === 'account')
-                    <div class="ms-auto text-base font-semibold text-slate-800">Balance: ${{ number_format((float) $balance, 2) }}</div>
+                    <div class="entity-balance">Balance: <strong>${{ number_format((float) $balance, 2) }}</strong></div>
                 @endif
             </div>
 
             @if ($activeTab === 'name')
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-8">
-                    <div class="space-y-1">
-                        <div class="chief-field"><label>Contact</label><input wire:model="contact" class="chief-input w-full max-w-md" /></div>
-                        <div class="chief-field"><label>Company</label><input wire:model="company_name" class="chief-input w-full max-w-md" /></div>
-                        <div class="chief-field"><label>Address</label><input wire:model="address" class="chief-input w-full max-w-md" /></div>
-                        <div class="chief-field"><label>City</label><input wire:model="city" class="chief-input w-48" /></div>
-                        <div class="chief-field"><label>State</label><input wire:model="state" class="chief-input w-20" /></div>
-                        <div class="chief-field"><label>Zip code</label><input wire:model="zip_code" class="chief-input w-28" /></div>
-                        <div class="chief-field"><label>Country</label><input wire:model="country" class="chief-input w-24" /></div>
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row"><label class="so-form-lbl" for="contact">Contact</label><input id="contact" wire:model="contact" class="so-input" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="company_name">Company</label><input id="company_name" wire:model="company_name" class="so-input" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="address">Address</label><input id="address" wire:model="address" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-city">
+                            <label class="so-form-lbl" for="city">City</label>
+                            <input id="city" wire:model="city" class="so-input" />
+                            <label class="so-form-lbl so-form-lbl-sm" for="state">State</label>
+                            <input id="state" wire:model="state" class="so-input so-w-state" />
+                            <label class="so-form-lbl so-form-lbl-sm" for="zip_code">ZIP</label>
+                            <input id="zip_code" wire:model="zip_code" class="so-input so-w-zip" />
+                        </div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="country">Country</label><input id="country" wire:model="country" class="so-input" style="max-width:6rem" /></div>
                     </div>
-                    <div class="space-y-1">
-                        <div class="chief-field"><label>Telephone</label><input wire:model="telephone" class="chief-input w-48" placeholder="( ) -" /></div>
-                        <div class="chief-field"><label>2nd phone</label><input wire:model="telephone2" class="chief-input w-48" placeholder="( ) -" /></div>
-                        <div class="chief-field"><label>Mobile</label><input wire:model="mobile" class="chief-input w-48" placeholder="( ) -" /></div>
-                        <div class="chief-field"><label>Fax number</label><input wire:model="fax" class="chief-input w-48" placeholder="( ) -" /></div>
-                        <div class="chief-field"><label>Email Address</label><input wire:model="email" type="email" class="chief-input w-full max-w-md" /></div>
-                        <div class="chief-field"><label>Web page</label><input wire:model="web_page" class="chief-input w-full max-w-md" /></div>
+                    <div class="entity-col">
+                        <div class="so-form-row"><label class="so-form-lbl" for="telephone">Telephone</label><input id="telephone" wire:model="telephone" class="so-input" placeholder="( ) -" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="telephone2">2nd phone</label><input id="telephone2" wire:model="telephone2" class="so-input" placeholder="( ) -" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="mobile">Mobile</label><input id="mobile" wire:model="mobile" class="so-input" placeholder="( ) -" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="fax">Fax number</label><input id="fax" wire:model="fax" class="so-input" placeholder="( ) -" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="email">Email</label><input id="email" wire:model="email" type="email" class="so-input" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="web_page">Web page</label><input id="web_page" wire:model="web_page" class="so-input" /></div>
                     </div>
                 </div>
 
-                <div class="mt-4">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold">Shipping Addresses</h3>
-                        <button type="button" wire:click="addShipTo" class="chief-btn text-xs">Add Ship-To</button>
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Shipping Addresses</h3>
+                        <button type="button" wire:click="addShipTo" class="desk-btn desk-btn-sm">Add Ship-To</button>
                     </div>
-                    <div class="chief-grid border border-slate-300 overflow-auto">
-                        <table>
+                    <div class="desk-grid entity-ship-grid">
+                        <table class="desk-table">
                             <thead>
                                 <tr>
-                                    <th class="w-14 text-center">Primary</th>
+                                    <th class="text-center">Primary</th>
                                     <th>Name</th>
                                     <th>Address</th>
                                     <th>City</th>
@@ -442,22 +447,22 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                     <th>Telephone</th>
                                     <th>Fax No.</th>
                                     <th>Class</th>
-                                    <th class="w-16"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($shippingAddresses as $i => $row)
                                     <tr>
                                         <td class="text-center"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.name" class="chief-input w-full" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="chief-input w-full min-w-[10rem]" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="chief-input w-28" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="chief-input w-16" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="chief-input w-20" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="chief-input w-28" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="chief-input w-24" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="chief-input w-20" /></td>
-                                        <td><button type="button" wire:click="removeShipTo({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.name" class="so-input" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="so-input min-w-[10rem]" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="so-input" style="width:7rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="so-input" style="width:3.5rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="so-input" style="width:5rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="so-input" style="width:7.5rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="so-input" style="width:6.5rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="so-input" style="width:5rem" /></td>
+                                        <td><button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -466,55 +471,55 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'general')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Price Level</label>
-                            <select wire:model="price_level_id" class="chief-input w-64">
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="price_level_id">Price Level</label>
+                            <select id="price_level_id" wire:model="price_level_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($priceLevels as $pl)<option value="{{ $pl->id }}">{{ $pl->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Cigarette Tax</label>
-                            <select wire:model="cigarette_tax_class_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="cigarette_tax_class_id">Cigarette Tax</label>
+                            <select id="cigarette_tax_class_id" wire:model="cigarette_tax_class_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($cigaretteTaxes as $ct)<option value="{{ $ct->id }}">{{ $ct->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Discount Schedule</label>
-                            <select wire:model="discount_schedule_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="discount_schedule_id">Discount Sched.</label>
+                            <select id="discount_schedule_id" wire:model="discount_schedule_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($discountSchedules as $ds)<option value="{{ $ds->id }}">{{ $ds->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Purchase Limits</label>
-                            <select wire:model="purchase_limit_schedule_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="purchase_limit_schedule_id">Purchase Limits</label>
+                            <select id="purchase_limit_schedule_id" wire:model="purchase_limit_schedule_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($purchaseLimits as $pl)<option value="{{ $pl->id }}">{{ $pl->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Lead Source</label>
-                            <select wire:model="lead_source" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="lead_source">Lead Source</label>
+                            <select id="lead_source" wire:model="lead_source" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($leadSources as $opt)
                                     <option value="{{ $opt->name }}">{{ $opt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Sales Rep</label>
-                            <select wire:model="sales_rep_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="sales_rep_id">Sales Rep</label>
+                            <select id="sales_rep_id" wire:model="sales_rep_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($salesReps as $rep)<option value="{{ $rep->id }}">{{ $rep->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Category</label>
-                            <select wire:model="customer_category" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="customer_category">Category</label>
+                            <select id="customer_category" wire:model="customer_category" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($customerCategories as $opt)
                                     <option value="{{ $opt->name }}">{{ $opt->name }}</option>
@@ -522,123 +527,135 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                             </select>
                         </div>
                     </div>
-                    <div class="space-y-2">
-                        <fieldset class="border border-slate-300 p-2">
-                            <legend class="px-1 text-xs font-semibold">Opt-Out Options</legend>
-                            <label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" wire:model="opt_out_catalog" /> Catalog Mailings</label>
-                            <label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" wire:model="opt_out_email" /> Email Marketing</label>
-                            <label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" wire:model="opt_out_telemarketing" /> Telemarketing Calls</label>
-                            <label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" wire:model="opt_out_mobile" /> Mobile Marketing</label>
-                            <label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" wire:model.live="opt_out_all" /> All</label>
+                    <div class="entity-col">
+                        <fieldset class="entity-fieldset">
+                            <legend>Opt-Out Options</legend>
+                            <label class="entity-check"><input type="checkbox" wire:model="opt_out_catalog" /> Catalog Mailings</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="opt_out_email" /> Email Marketing</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="opt_out_telemarketing" /> Telemarketing Calls</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="opt_out_mobile" /> Mobile Marketing</label>
+                            <label class="entity-check"><input type="checkbox" wire:model.live="opt_out_all" /> All</label>
                         </fieldset>
-                        <div>
-                            <label class="block text-xs font-medium mb-1">Comments</label>
-                            <textarea wire:model="comments" rows="6" class="chief-input w-full"></textarea>
+                        <div class="so-form-row so-form-row-top">
+                            <label class="so-form-lbl" for="comments">Comments</label>
+                            <textarea id="comments" wire:model="comments" rows="6" class="so-input so-input-area"></textarea>
                         </div>
                     </div>
                 </div>
 
             @elseif ($activeTab === 'account')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Account Type</label>
-                            <select wire:model="account_type" class="chief-input w-56">
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="account_type">Account Type</label>
+                            <select id="account_type" wire:model="account_type" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($accountTypes as $opt)
                                     <option value="{{ $opt->name }}">{{ $opt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="chief-field"><label>FEIN No.</label><input wire:model="fein_no" class="chief-input w-56 font-mono" /></div>
-                        <div class="chief-field">
-                            <label>Payment Terms</label>
-                            <select wire:model="payment_term_id" class="chief-input w-56">
+                        <div class="so-form-row"><label class="so-form-lbl" for="fein_no">FEIN No.</label><input id="fein_no" wire:model="fein_no" class="so-input font-mono" /></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="payment_term_id">Payment Terms</label>
+                            <select id="payment_term_id" wire:model="payment_term_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($paymentTerms as $pt)<option value="{{ $pt->id }}">{{ $pt->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field"><label>Customer Since</label><input type="date" wire:model="customer_since" class="chief-input bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Last Order On</label><input type="date" wire:model="last_order_on" class="chief-input bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Number of Orders</label><input wire:model="number_of_orders" class="chief-input w-28 text-right bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Total Sales</label><input wire:model="total_sales" class="chief-input w-36 text-right bg-slate-50" readonly /></div>
-                        <div class="chief-field"><label>Credit Limit</label><input wire:model.live="credit_limit" class="chief-input w-36 text-right" /></div>
-                        <div class="chief-field"><label>Available Credit</label><span class="font-semibold">${{ number_format($availableCredit, 2) }}</span></div>
-                        <fieldset class="border border-slate-300 p-2 mt-2">
-                            <legend class="px-1 text-xs font-semibold">Negative Points</legend>
-                            <div class="chief-field"><label>Bad Checks</label><input wire:model="bad_checks_count" class="chief-input w-20 text-right" /></div>
-                            <div class="chief-field"><label>Replacements</label><input wire:model="replacements_count" class="chief-input w-20 text-right" /></div>
-                            <div class="chief-field"><label>Returns</label><input wire:model="returns_count" class="chief-input w-20 text-right" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="customer_since">Customer Since</label><input id="customer_since" type="date" wire:model="customer_since" class="so-input" readonly /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="last_order_on">Last Order On</label><input id="last_order_on" type="date" wire:model="last_order_on" class="so-input" readonly /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="number_of_orders">No. of Orders</label><input id="number_of_orders" wire:model="number_of_orders" class="so-input text-right" readonly /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="total_sales">Total Sales</label><input id="total_sales" wire:model="total_sales" class="so-input text-right" readonly /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="credit_limit">Credit Limit</label><input id="credit_limit" wire:model.live="credit_limit" class="so-input text-right" /></div>
+                        <div class="so-form-row"><span class="so-form-lbl">Available Credit</span><span class="entity-value">${{ number_format($availableCredit, 2) }}</span></div>
+                        <fieldset class="entity-fieldset">
+                            <legend>Negative Points</legend>
+                            <div class="so-form-row"><label class="so-form-lbl" for="bad_checks_count">Bad Checks</label><input id="bad_checks_count" wire:model="bad_checks_count" class="so-input text-right" style="max-width:5rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="replacements_count">Replacements</label><input id="replacements_count" wire:model="replacements_count" class="so-input text-right" style="max-width:5rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="returns_count">Returns</label><input id="returns_count" wire:model="returns_count" class="so-input text-right" style="max-width:5rem" /></div>
                         </fieldset>
                     </div>
-                    <div>
-                        <h3 class="text-sm font-semibold mb-1">Messages & Alerts</h3>
-                        <textarea wire:model="messages_alerts" rows="12" class="chief-input w-full" placeholder="Shown when customer is selected on a sales order"></textarea>
+                    <div class="entity-col">
+                        <div class="so-form-row so-form-row-top">
+                            <label class="so-form-lbl" for="messages_alerts">Messages & Alerts</label>
+                            <textarea id="messages_alerts" wire:model="messages_alerts" rows="14" class="so-input so-input-area" placeholder="Shown when customer is selected on a sales order"></textarea>
+                        </div>
                     </div>
                 </div>
 
             @else
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Order Day</label>
-                            <select wire:model="order_day" class="chief-input w-40">
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="order_day">Order Day</label>
+                            <select id="order_day" wire:model="order_day" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($orderDays as $day)<option value="{{ $day }}">{{ $day }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Delivery Route</label>
-                            <select wire:model="delivery_route_id" class="chief-input w-56">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="delivery_route_id">Delivery Route</label>
+                            <select id="delivery_route_id" wire:model="delivery_route_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($routes as $route)<option value="{{ $route->id }}">{{ $route->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field"><label>Location No.</label><input wire:model="location_no" class="chief-input w-40" /></div>
-                        <label class="inline-flex items-center gap-2 text-sm ms-[9.5rem] py-1"><input type="checkbox" wire:model="drivers_accept_returns" /> Drivers Accept Returns</label>
-                        <label class="inline-flex items-center gap-2 text-sm ms-[9.5rem] py-1"><input type="checkbox" wire:model.live="is_tax_exempt" /> Customer is Tax Exempt</label>
+                        <div class="so-form-row"><label class="so-form-lbl" for="location_no">Location No.</label><input id="location_no" wire:model="location_no" class="so-input" /></div>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="drivers_accept_returns" /> Drivers Accept Returns</label></div>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model.live="is_tax_exempt" /> Customer is Tax Exempt</label></div>
                         @if ($is_tax_exempt)
-                            <div class="chief-field"><label>Certificate No.</label><input wire:model="tax_certificate_no" class="chief-input w-56" /></div>
-                            <div class="chief-field"><label>Exp. Date</label><input type="date" wire:model="tax_certificate_exp" class="chief-input" /></div>
-                            <label class="inline-flex items-center gap-2 text-sm ms-[9.5rem] py-1"><input type="checkbox" wire:model="certificate_on_file" /> Certificate on File</label>
+                            <div class="so-form-row"><label class="so-form-lbl" for="tax_certificate_no">Certificate No.</label><input id="tax_certificate_no" wire:model="tax_certificate_no" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="tax_certificate_exp">Exp. Date</label><input id="tax_certificate_exp" type="date" wire:model="tax_certificate_exp" class="so-input" /></div>
+                            <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="certificate_on_file" /> Certificate on File</label></div>
                         @endif
-                        <label class="inline-flex items-center gap-2 text-sm ms-[9.5rem] py-1"><input type="checkbox" wire:model="is_employee" /> Customer is an Employee</label>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="is_employee" /> Customer is an Employee</label></div>
                     </div>
-                    <div class="space-y-1">
-                        <fieldset class="border border-slate-300 p-2">
-                            <legend class="px-1 text-xs font-semibold">Owner / Grantor</legend>
-                            <div class="chief-field"><label>Name</label><input wire:model="owner_name" class="chief-input w-full max-w-xs" /></div>
-                            <div class="chief-field">
-                                <label>SSN</label>
-                                <input wire:model.live="owner_ssn_display" class="chief-input w-40 font-mono" @disabled(! $reveal_ssn && filled($owner_ssn) && str_contains($owner_ssn_display, '*')) />
-                                <button type="button" wire:click="toggleRevealSsn" class="chief-btn text-xs">{{ $reveal_ssn ? 'Hide' : 'Reveal' }}</button>
+                    <div class="entity-col">
+                        <fieldset class="entity-fieldset">
+                            <legend>Owner / Grantor</legend>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_name">Name</label><input id="owner_name" wire:model="owner_name" class="so-input" /></div>
+                            <div class="so-form-row">
+                                <label class="so-form-lbl" for="owner_ssn_display">SSN</label>
+                                <div class="so-lookup-row">
+                                    <input id="owner_ssn_display" wire:model.live="owner_ssn_display" class="so-input font-mono" @disabled(! $reveal_ssn && filled($owner_ssn) && str_contains($owner_ssn_display, '*')) />
+                                    <button type="button" wire:click="toggleRevealSsn" class="desk-btn desk-btn-sm">{{ $reveal_ssn ? 'Hide' : 'Reveal' }}</button>
+                                </div>
                             </div>
-                            <div class="chief-field"><label>Address</label><input wire:model="owner_address" class="chief-input w-full max-w-xs" /></div>
-                            <div class="chief-field"><label>City</label><input wire:model="owner_city" class="chief-input w-40" /></div>
-                            <div class="chief-field"><label>State</label><input wire:model="owner_state" class="chief-input w-16" /></div>
-                            <div class="chief-field"><label>Zip</label><input wire:model="owner_zip" class="chief-input w-24" /></div>
-                            <div class="chief-field"><label>Country</label><input wire:model="owner_country" class="chief-input w-24" /></div>
-                            <div class="chief-field"><label>Telephone</label><input wire:model="owner_telephone" class="chief-input w-40" /></div>
-                            <div class="chief-field"><label>Fax</label><input wire:model="owner_fax" class="chief-input w-40" /></div>
-                            <div class="chief-field"><label>Email</label><input wire:model="owner_email" class="chief-input w-full max-w-xs" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_address">Address</label><input id="owner_address" wire:model="owner_address" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-city">
+                                <label class="so-form-lbl" for="owner_city">City</label>
+                                <input id="owner_city" wire:model="owner_city" class="so-input" />
+                                <label class="so-form-lbl so-form-lbl-sm" for="owner_state">State</label>
+                                <input id="owner_state" wire:model="owner_state" class="so-input so-w-state" />
+                                <label class="so-form-lbl so-form-lbl-sm" for="owner_zip">ZIP</label>
+                                <input id="owner_zip" wire:model="owner_zip" class="so-input so-w-zip" />
+                            </div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_country">Country</label><input id="owner_country" wire:model="owner_country" class="so-input" style="max-width:6rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_telephone">Telephone</label><input id="owner_telephone" wire:model="owner_telephone" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_fax">Fax</label><input id="owner_fax" wire:model="owner_fax" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="owner_email">Email</label><input id="owner_email" wire:model="owner_email" class="so-input" /></div>
                         </fieldset>
                     </div>
                 </div>
             @endif
         </div>
 
-        <div class="flex items-center justify-between border-t border-slate-300 bg-slate-100 px-1 flex-wrap gap-2">
-            <div class="flex flex-wrap">
+        <div class="entity-footer">
+            <div class="entity-tabs" role="tablist" aria-label="Customer sections">
                 @foreach ($tabs as $key => $label)
-                    <button type="button" wire:click="$set('activeTab', '{{ $key }}')"
-                        @class(['px-3 py-1.5 text-sm border-r border-slate-300 whitespace-nowrap', 'bg-white font-semibold text-sky-800' => $activeTab === $key, 'text-slate-600 hover:bg-slate-200' => $activeTab !== $key])>
-                        {{ $label }}
-                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        wire:click="$set('activeTab', '{{ $key }}')"
+                        aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}"
+                        @class(['entity-tab', 'is-active' => $activeTab === $key])
+                    >{{ $label }}</button>
                 @endforeach
             </div>
-            <div class="flex gap-2 py-2 pe-2">
-                <a href="{{ route('sales.customers.index') }}" wire:navigate class="chief-btn">Cancel</a>
-                <button type="submit" class="chief-btn-primary">Save Changes</button>
+            <div class="entity-footer-actions">
+                <a href="{{ route('sales.customers.index') }}" wire:navigate class="desk-btn">Cancel</a>
+                <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
             </div>
         </div>
     </form>

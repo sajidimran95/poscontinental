@@ -68,17 +68,23 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
+    <div class="desk-main">
         <x-action-bar title="Action" />
-        <x-list-chrome label="Search Customers:" model="search" />
 
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Customers List</div>
+        <x-list-chrome label="Search Customers:" model="search" placeholder="ID, company, contact, phone…">
+            <a href="{{ route('sales.customers.create') }}" wire:navigate class="desk-btn desk-btn-primary ms-auto">New Customer</a>
+        </x-list-chrome>
 
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+        <div class="desk-titlebar">
+            <h2 class="desk-title">Customers List</h2>
+            <span class="desk-title-meta">{{ number_format($customers->total()) }} records</span>
+        </div>
+
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Customer ID</th>
@@ -88,43 +94,45 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                         <th>Telephone</th>
                         <th>Email</th>
                         <th class="text-right">Balance</th>
-                        <th class="text-center">Inactive</th>
+                        <th class="text-center">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($customers as $customer)
                         <tr
                             wire:click="selectRow({{ $customer->id }})"
-                            @class(['chief-selected-row' => $selectedId === $customer->id, 'cursor-pointer'])
+                            @class(['is-selected' => $selectedId === $customer->id, 'cursor-pointer'])
                         >
-                            <td class="font-mono">
-                                <a href="{{ route('sales.customers.edit', $customer) }}" wire:navigate class="hover:underline">{{ $customer->customer_id }}</a>
+                            <td class="desk-num">
+                                <a href="{{ route('sales.customers.edit', $customer) }}" wire:navigate wire:click.stop>{{ $customer->customer_id }}</a>
                             </td>
                             <td>{{ $customer->contact }}</td>
                             <td>{{ $customer->company_name }}</td>
-                            <td>{{ $customer->address }}</td>
+                            <td class="max-w-[12rem] truncate" title="{{ $customer->address }}">{{ $customer->address }}</td>
                             <td>{{ $customer->telephone }}</td>
                             <td>{{ $customer->email }}</td>
-                            <td class="text-right">${{ number_format($customer->balance, 2) }}</td>
+                            <td class="desk-money">${{ number_format($customer->balance, 2) }}</td>
                             <td class="text-center" wire:click.stop>
                                 <button
                                     type="button"
                                     wire:click="toggleInactive({{ $customer->id }})"
-                                    class="px-1 text-base leading-none hover:scale-110"
+                                    class="desk-pill {{ $customer->is_inactive ? 'desk-pill-muted' : 'desk-pill-invoiced' }}"
                                     title="{{ $customer->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
-                                    aria-label="Toggle inactive"
-                                >{{ $customer->is_inactive ? '☑' : '☐' }}</button>
+                                    aria-label="Toggle active status"
+                                >{{ $customer->is_inactive ? 'Inactive' : 'Active' }}</button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="px-2 py-6 text-slate-500">No customers found.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="8">No customers found.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
         <x-record-count :count="$customers->total()">
-            <a href="{{ route('sales.customers.create') }}" wire:navigate class="chief-btn-primary">New Customer</a>
+            <a href="{{ route('sales.customers.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Customer</a>
             {{ $customers->links() }}
         </x-record-count>
     </div>

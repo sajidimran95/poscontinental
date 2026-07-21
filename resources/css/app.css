@@ -318,33 +318,43 @@
 
     /* —— New Sales Order (left gap, ~66% width, larger type, shorter items) —— */
     .so-page {
-        width: calc(100% + 0.9rem + 0.5rem);
-        max-width: none;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         background: #ececec;
         min-height: calc(100vh - 7.25rem);
-        margin: 0 0 0 -0.9rem;
+        margin: 0;
         padding: 0;
+        overflow-x: clip;
+    }
+
+    /* Full-bleed Action + bottom bars (cancel main padding without page overflow) */
+    .so-action-full,
+    .so-page > .chief-action-bar.so-action-full,
+    .so-bottom.so-bottom-full {
+        width: calc(100% + 0.9rem + 0.5rem);
+        max-width: none;
+        margin-left: -0.9rem;
+        margin-right: -0.5rem;
+        box-sizing: border-box;
+        flex-shrink: 0;
     }
 
     .so-action-full,
     .so-page > .chief-action-bar.so-action-full {
-        width: 100% !important;
-        max-width: none !important;
-        box-sizing: border-box;
-        flex-shrink: 0;
         padding-left: 0.9rem;
-        padding-right: 0.75rem;
+        padding-right: 0.5rem;
     }
 
     .so-screen {
         display: flex;
         flex-direction: column;
         background: #ececec;
-        width: 66vw;
-        min-width: 52rem;
-        max-width: calc(100% - 1.25rem);
+        width: 66%;
+        min-width: 0;
+        max-width: 100%;
         min-height: calc(100vh - 8.5rem);
-        margin-left: 0.9rem;
+        margin-left: 0.15rem;
         border: none !important;
         box-shadow: none !important;
         outline: none !important;
@@ -844,37 +854,105 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        border: none;
-        padding: 0.45rem 0.5rem;
+        gap: 0.75rem;
+        border: 1px solid #9ca3af;
+        border-top: 1px solid #9ca3af;
+        padding: 0.35rem 0.45rem;
         flex-shrink: 0;
         background: #ececec;
         width: 100%;
-        margin-top: 0.25rem;
+        margin-top: 0.5rem;
+        box-sizing: border-box;
+    }
+
+    .so-bottom.so-bottom-full {
+        margin-top: 0.5rem;
+        padding: 0.35rem 0.4rem 0.35rem 0.9rem;
+    }
+
+    .so-bottom-tabs {
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: left;
+    }
+
+    .so-bottom-actions {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.35rem;
+        white-space: nowrap;
+        margin-left: auto;
     }
 
     .so-mode-tabs {
-        display: flex;
-        align-items: center;
+        display: inline-flex;
+        align-items: stretch;
+        border: 1px solid #9ca3af;
+        background: #e4e4e4;
     }
 
     .so-mode-tab {
-        padding: 0.35rem 0.85rem;
+        padding: 0.35rem 0.9rem;
         font-size: 14px;
         color: #334155;
-        background: transparent;
+        background: #e8e8e8;
         border: none;
+        border-right: 1px solid #9ca3af;
         cursor: pointer;
+        line-height: 1.2;
+    }
+
+    .so-mode-tab:last-child {
+        border-right: none;
     }
 
     .so-mode-tab-active {
         font-weight: 700;
         color: #0f172a;
+        background: #ffffff;
     }
 
     .so-mode-check {
         color: #16a34a;
-        margin-right: 0.15rem;
+        margin-right: 0.2rem;
         font-size: 11px;
+    }
+
+    .so-btn-cancel,
+    .so-btn-save {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.35rem 0.85rem;
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid #9ca3af;
+        border-radius: 0;
+        text-decoration: none;
+        cursor: pointer;
+        line-height: 1.2;
+        margin-left: 0;
+    }
+
+    .so-btn-cancel {
+        background: #f3f3f3;
+        color: #1e293b;
+    }
+
+    .so-btn-cancel:hover {
+        background: #e4e4e4;
+    }
+
+    .so-btn-save {
+        background: var(--chief-action);
+        color: #ffffff;
+        border-color: #1a3f6d;
+    }
+
+    .so-btn-save:hover {
+        background: #1e4a7a;
     }
 
     .so-ship-panel {

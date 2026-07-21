@@ -145,7 +145,7 @@
                 @endforeach
             </div>
 
-            <main class="flex-1 overflow-auto bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;">
+            <main class="flex-1 overflow-y-auto overflow-x-hidden bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;">
                 {{ $slot }}
             </main>
 

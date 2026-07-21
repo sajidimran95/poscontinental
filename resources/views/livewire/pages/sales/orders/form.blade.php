@@ -462,7 +462,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 <div class="so-page">
     <x-action-bar title="Action" class="so-action-full" />
 
-    <form wire:submit="save" class="so-screen">
+    <form id="so-form" wire:submit="save" class="so-screen">
         @if (filled($customerAlert))
             <div class="mx-2 mt-1 border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-950" role="alert">
                 <strong>Alert:</strong> {{ $customerAlert }}
@@ -783,7 +783,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             </div>
         </div>
 
-        <div class="so-bottom">
+    </form>
+
+    <div class="so-bottom so-bottom-full">
+        <div class="so-bottom-tabs">
             <div class="so-mode-tabs">
                 <button type="button" wire:click="$set('activeTab', 'general')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'general'])>
                     @if ($activeTab === 'general')<span class="so-mode-check">●</span>@endif General
@@ -791,10 +794,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <button type="button" wire:click="$set('activeTab', 'expand')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'expand'])>Expand</button>
                 <button type="button" wire:click="$set('activeTab', 'shipping')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'shipping'])>Shipping info.</button>
             </div>
-            <div class="flex gap-1 py-1 pe-1">
-                <a href="{{ route('sales.orders.index') }}" wire:navigate class="chief-btn text-xs py-0.5">Cancel</a>
-                <button type="submit" class="chief-btn-primary text-xs py-0.5">Save Changes</button>
-            </div>
         </div>
-    </form>
+        <div class="so-bottom-actions">
+            <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">Cancel</a>
+            <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
+        </div>
+    </div>
 </div>

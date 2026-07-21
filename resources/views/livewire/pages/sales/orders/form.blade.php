@@ -205,7 +205,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $this->order_number = SalesOrder::nextNumber((int) auth()->user()->company_id);
+        $companyId = (int) auth()->user()->company_id;
+        $current = (int) preg_replace('/\D/', '', (string) $this->order_number);
+        $base = (int) SalesOrder::nextNumber($companyId);
+        $n = max($current + 1, $base);
+
+        while (
+            SalesOrder::query()
+                ->where('company_id', $companyId)
+                ->where('order_number', (string) $n)
+                ->exists()
+        ) {
+            $n++;
+        }
+
+        $this->order_number = (string) $n;
     }
 
     protected function emptyLine(): array
@@ -807,9 +821,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $order->lines()->delete();
                 $order->boxes()->delete();
             } else {
-                // Always assign a fresh number on create to avoid duplicates.
-                $data['order_number'] = SalesOrder::nextNumber($companyId);
-                $this->order_number = $data['order_number'];
+                $candidate = filled($this->order_number) ? (string) $this->order_number : SalesOrder::nextNumber($companyId);
+                if (
+                    SalesOrder::query()
+                        ->where('company_id', $companyId)
+                        ->where('order_number', $candidate)
+                        ->exists()
+                ) {
+                    $candidate = SalesOrder::nextNumber($companyId);
+                }
+                $data['order_number'] = $candidate;
+                $this->order_number = $candidate;
                 $order = SalesOrder::query()->create($data);
             }
 
@@ -897,11 +919,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <label class="so-form-lbl" for="order_number">Order No</label>
                                 <div class="so-lookup-row">
                                     <input id="order_number" wire:model="order_number" class="so-input font-mono" aria-label="Order Number" readonly title="Auto-generated" />
-                                    @unless ($salesOrder?->exists)
-                                        <button type="button" wire:click="regenerateOrderNumber" class="so-icon-btn" title="Generate next number" aria-label="Generate next order number">
-                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M6 2v8"/></svg>
-                                        </button>
-                                    @endunless
+                                    <button
+                                        type="button"
+                                        wire:click="regenerateOrderNumber"
+                                        class="so-icon-btn"
+                                        title="Regenerate order number"
+                                        aria-label="Regenerate order number"
+                                        @disabled($salesOrder?->exists)
+                                    >
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M6 2v8"/></svg>
+                                    </button>
                                 </div>
                             </div>
 

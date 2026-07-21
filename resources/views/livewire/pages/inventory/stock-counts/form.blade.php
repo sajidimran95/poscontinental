@@ -251,42 +251,45 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             </div>
 
             @if ($activeTab === 'general')
-                <div class="inv-top-grid item-tab-grid">
+                <div class="sc-general-grid">
                     <div class="inv-card">
                         <div class="inv-card-title">Count header</div>
-                        <div class="so-form-row so-form-row-side">
+                        <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="date_created">Date Created</label>
-                            <input id="date_created" type="date" wire:model="date_created" class="so-input" @disabled($isProcessed) />
+                            <input id="date_created" type="date" wire:model="date_created" class="so-input sc-date" @disabled($isProcessed) />
                         </div>
-                        <div class="so-form-row so-form-row-side">
+                        <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="status">Count Status</label>
-                            <input id="status" wire:model="status" class="so-input so-input-ro" style="max-width:10rem" readonly />
+                            <input id="status" wire:model="status" class="so-input so-input-ro sc-date" readonly />
                         </div>
-                        <div class="so-form-row so-form-row-side">
+                        <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="last_count_date">Last Count Date</label>
-                            <input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" @disabled($isProcessed) />
+                            <input id="last_count_date" type="date" wire:model="last_count_date" class="so-input sc-date" @disabled($isProcessed) />
                         </div>
-                        <div class="so-form-row so-form-row-side">
+                        <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="date_processed">Date Processed</label>
-                            <input id="date_processed" type="date" wire:model="date_processed" class="so-input" @disabled($isProcessed) />
+                            <input id="date_processed" type="date" wire:model="date_processed" class="so-input sc-date" @disabled($isProcessed) />
                         </div>
                     </div>
-                    <div class="inv-card" style="grid-column: span 2">
+                    <div class="inv-card">
                         <div class="inv-card-title">Site & description</div>
-                        <div class="so-form-row so-form-row-side">
+                        <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="site_id">Site</label>
-                            <select id="site_id" wire:model="site_id" class="so-input" style="max-width:12rem" @disabled($isProcessed)>
+                            <select id="site_id" wire:model="site_id" class="so-input" @disabled($isProcessed)>
                                 <option value="">—</option>
                                 @foreach ($sites as $s)
                                     <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name ?? $s->code }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="item-stack-field">
-                            <label class="item-stack-lbl" for="description">Description</label>
+                        <div class="so-form-row so-form-row-side so-form-row-top sc-field">
+                            <label class="so-form-lbl" for="description">Description</label>
                             <textarea id="description" wire:model="description" rows="4" class="so-input so-input-area" @disabled($isProcessed) placeholder="Optional notes for this count…"></textarea>
                         </div>
-                        <label class="entity-check"><input type="checkbox" wire:model="shared_count" @disabled($isProcessed) /> Shared Count</label>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <span class="so-form-lbl"></span>
+                            <label class="entity-check"><input type="checkbox" wire:model="shared_count" @disabled($isProcessed) /> Shared Count</label>
+                        </div>
                     </div>
                 </div>
 

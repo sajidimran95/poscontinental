@@ -2273,6 +2273,54 @@
         white-space: nowrap !important;
     }
 
+    .sc-general-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+        align-items: start;
+    }
+
+    .sc-general-grid .inv-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+    }
+
+    .sc-field {
+        grid-template-columns: 8.5rem minmax(0, 1fr) !important;
+        column-gap: 0.85rem !important;
+        align-items: center;
+    }
+
+    .sc-field.so-form-row-top {
+        align-items: start;
+    }
+
+    .sc-field .so-form-lbl {
+        min-width: 8.5rem;
+        width: 8.5rem;
+        text-align: right;
+    }
+
+    .sc-date {
+        max-width: 11.5rem;
+        width: 100%;
+    }
+
+    .sc-field > .so-input,
+    .sc-field > select.so-input,
+    .sc-field > .so-input-area {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    @media (max-width: 900px) {
+        .sc-general-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
     .item-tab-grid {
         margin-bottom: 1rem;
     }

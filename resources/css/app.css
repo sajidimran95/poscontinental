@@ -1,4 +1,4 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -2328,6 +2328,44 @@
     .sup-contact-table .col-phone { width: 9rem; }
     .sup-contact-table .col-ext { width: 5rem; }
     .sup-contact-table .col-action { width: 6.5rem; }
+
+    .sup-header-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1rem 1.5rem;
+        width: 100%;
+    }
+
+    .sup-header-id {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .sup-header-id .so-form-lbl {
+        min-width: auto;
+        white-space: nowrap;
+    }
+
+    .sup-header-status {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-shrink: 0;
+    }
+
+    .sup-status-lbl {
+        font-size: 13px;
+        font-weight: 700;
+        color: #334155;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .sup-header-tobacco {
+        margin-left: auto;
+    }
 
     .sc-field-city {
         grid-template-columns: 8.5rem minmax(0, 1fr) 3.25rem 3.75rem 2.5rem 6rem !important;

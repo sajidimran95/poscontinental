@@ -153,19 +153,23 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
 
         <div class="entity-body">
             <div class="entity-header">
-                <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl" for="supplier_id">Supplier ID</label>
-                    <input id="supplier_id" wire:model="supplier_id" class="so-input font-mono" @disabled($supplier) />
-                    <span class="so-form-lbl">Status</span>
-                    <div class="entity-status-btns">
-                        <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
-                        <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
+                <div class="sup-header-bar">
+                    <div class="sup-header-id">
+                        <label class="so-form-lbl" for="supplier_id">Supplier ID</label>
+                        <input id="supplier_id" wire:model="supplier_id" class="so-input font-mono" style="width:10rem" @disabled($supplier) />
                     </div>
+                    <div class="sup-header-status">
+                        <span class="sup-status-lbl">Status</span>
+                        <div class="entity-status-btns">
+                            <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
+                            <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
+                        </div>
+                    </div>
+                    <label class="entity-check sup-header-tobacco">
+                        <input type="checkbox" wire:model.live="is_tobacco_supplier" />
+                        Tobacco supplier (FEIN required)
+                    </label>
                 </div>
-                <label class="entity-check">
-                    <input type="checkbox" wire:model.live="is_tobacco_supplier" />
-                    Tobacco supplier (FEIN required)
-                </label>
             </div>
             @error('supplier_id') <p class="text-xs text-red-700 mb-2" role="alert">{{ $message }}</p> @enderror
 

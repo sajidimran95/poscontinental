@@ -563,103 +563,116 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     }
 }; ?>
 
-<div>
-    <form wire:submit="save" class="chief-panel bg-white flex flex-col min-h-[72vh]">
-        <x-action-bar :title="$item ? 'Edit Item — '.$item_code : 'New Item'" variant="green" />
+<div class="desk-page entity-page">
+    <form wire:submit="save" class="desk-main entity-form item-form">
+        <x-action-bar :title="$item ? 'Edit Item — '.$item_code : 'New Item'" />
 
-        <div class="flex-1 p-3 overflow-auto">
-            @error('item_code') <p class="text-red-600 text-xs mb-2">{{ $message }}</p> @enderror
+        <div class="entity-body">
+            <div class="entity-header">
+                <div class="so-form-row so-form-row-pair entity-header-row">
+                    <label class="so-form-lbl" for="item_code">Item Code</label>
+                    <input id="item_code" wire:model="item_code" class="so-input font-mono" @disabled($item) />
+                    <span class="so-form-lbl">Status</span>
+                    <div class="entity-status-btns">
+                        <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
+                        <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
+                    </div>
+                </div>
+                @if ($activeTab === 'inventory')
+                    <div class="entity-balance">Available: <strong>{{ number_format($availableQty, 2) }}</strong></div>
+                @elseif ($activeTab === 'pricing' || $activeTab === 'general')
+                    <div class="entity-balance">List: <strong>${{ number_format((float) $list_price, 2) }}</strong></div>
+                @endif
+            </div>
+
+            @error('item_code') <p class="text-xs text-red-700 mb-2" role="alert">{{ $message }}</p> @enderror
 
             @if ($activeTab === 'general')
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-1">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Item Code</label>
-                            <input wire:model="item_code" class="chief-input w-44 font-mono" @disabled($item) />
-                        </div>
-                        <div class="chief-field">
-                            <label>Item Type</label>
-                            <select wire:model="item_type" class="chief-input w-56">
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="item_type">Item Type</label>
+                            <select id="item_type" wire:model="item_type" class="so-input">
                                 @foreach ($itemTypes as $type)
                                     <option value="{{ $type }}">{{ $type }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Class</label>
-                            <input wire:model="class" class="chief-input w-56" />
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="class">Class</label>
+                            <input id="class" wire:model="class" class="so-input" />
                         </div>
-                        <div class="chief-field chief-field-top">
-                            <label>Description</label>
-                            <textarea wire:model="description" rows="3" class="chief-input w-full max-w-md"></textarea>
+                        <div class="so-form-row so-form-row-top">
+                            <label class="so-form-lbl" for="description">Description</label>
+                            <textarea id="description" wire:model="description" rows="3" class="so-input so-input-area"></textarea>
                         </div>
-                        <div class="chief-field">
-                            <label>List Price</label>
-                            <input wire:model="list_price" class="chief-input w-28 text-right" />
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="list_price_general">List Price</label>
+                            <input id="list_price_general" wire:model="list_price" class="so-input text-right" style="max-width:8rem" />
                         </div>
                     </div>
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Department</label>
-                            <select wire:model.live="department_id" class="chief-input w-full max-w-xs">
-                                <option value="">—</option>
-                                @foreach ($departments as $d)
-                                    <option value="{{ $d->id }}">{{ $d->code }} — {{ $d->name }}</option>
-                                @endforeach
-                            </select>
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="department_id">Department</label>
+                            <div class="so-lookup-row">
+                                <select id="department_id" wire:model.live="department_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($departments as $d)
+                                        <option value="{{ $d->id }}">{{ $d->code }} — {{ $d->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'departments']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create departments in Lookups">+</a>
+                            </div>
                         </div>
-                        <div class="chief-field">
-                            <label>Category</label>
-                            <select wire:model.live="category_id" class="chief-input w-full max-w-xs">
-                                <option value="">—</option>
-                                @foreach ($categories as $c)
-                                    <option value="{{ $c->id }}">{{ $c->name }}</option>
-                                @endforeach
-                            </select>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="category_id">Category</label>
+                            <div class="so-lookup-row">
+                                <select id="category_id" wire:model.live="category_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($categories as $c)
+                                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'categories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create categories in Lookups">+</a>
+                            </div>
                         </div>
-                        <div class="chief-field">
-                            <label>Sub Category</label>
-                            <select wire:model="subcategory_id" class="chief-input w-full max-w-xs">
-                                <option value="">—</option>
-                                @foreach ($subcategories as $s)
-                                    <option value="{{ $s->id }}">{{ $s->name }}</option>
-                                @endforeach
-                            </select>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="subcategory_id">Sub Category</label>
+                            <div class="so-lookup-row">
+                                <select id="subcategory_id" wire:model="subcategory_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($subcategories as $s)
+                                        <option value="{{ $s->id }}">{{ $s->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'subcategories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create sub categories in Lookups">+</a>
+                            </div>
                         </div>
-                        <label class="inline-flex items-center gap-2 text-sm pt-2 ms-[9.5rem]">
-                            <span class="font-medium">Status:</span>
-                            <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
-                            <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
-                        </label>
                     </div>
                 </div>
 
-                <div class="mt-4">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold text-slate-800">Aliases / Primary UPC</h3>
-                        <button type="button" wire:click="addUpc" class="chief-btn text-xs">Add UPC</button>
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Aliases / Primary UPC</h3>
+                        <button type="button" wire:click="addUpc" class="desk-btn desk-btn-sm">Add UPC</button>
                     </div>
-                    <div class="chief-grid border border-slate-300 max-w-2xl">
-                        <table>
+                    <div class="desk-grid">
+                        <table class="desk-table">
                             <thead>
                                 <tr>
-                                    <th class="w-16 text-center">Primary</th>
+                                    <th class="text-center" style="width:5rem">Primary</th>
                                     <th>UPC / Alias</th>
-                                    <th class="w-20"></th>
+                                    <th style="width:6rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($upcs as $i => $row)
                                     <tr>
                                         <td class="text-center">
-                                            <input type="radio" name="primary_upc_radio" wire:click="setPrimaryUpc({{ $i }})" @checked($row['is_primary'] ?? false) />
+                                            <input type="radio" name="primary_upc_radio" wire:click="setPrimaryUpc({{ $i }})" @checked($row['is_primary'] ?? false) aria-label="Primary UPC {{ $i + 1 }}" />
                                         </td>
-                                        <td>
-                                            <input wire:model="upcs.{{ $i }}.upc" class="chief-input w-full font-mono" />
-                                        </td>
-                                        <td>
-                                            <button type="button" wire:click="removeUpc({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button>
-                                        </td>
+                                        <td><input wire:model="upcs.{{ $i }}.upc" class="so-input font-mono" style="min-width:14rem" /></td>
+                                        <td><button type="button" wire:click="removeUpc({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -668,179 +681,136 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'inventory')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-1 max-w-5xl">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>UOM Schedule</label>
-                            <select wire:model="uom_schedule_id" class="chief-input w-64">
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="uom_schedule_id">UOM Schedule</label>
+                            <select id="uom_schedule_id" wire:model="uom_schedule_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($uomSchedules as $u)
                                     <option value="{{ $u->id }}">{{ $u->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Unit of Measure</label>
-                            <input wire:model="unit_of_measure" class="chief-input w-24" />
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="unit_of_measure">Unit of Measure</label>
+                            <input id="unit_of_measure" wire:model="unit_of_measure" class="so-input" style="max-width:6rem" />
                         </div>
-                        <fieldset class="border border-slate-300 p-2 mt-3">
-                            <legend class="px-1 text-xs font-semibold text-slate-700">History</legend>
-                            <div class="chief-field">
-                                <label>Last Received</label>
-                                <input type="date" wire:model="last_received_at" class="chief-input" readonly />
-                            </div>
-                            <div class="chief-field">
-                                <label>Last Ordered</label>
-                                <input type="date" wire:model="last_ordered_at" class="chief-input" readonly />
-                            </div>
-                            <div class="chief-field">
-                                <label>Last Sold</label>
-                                <input type="date" wire:model="last_sold_at" class="chief-input" readonly />
-                            </div>
-                            <div class="chief-field">
-                                <label>Last Count Date</label>
-                                <input type="date" wire:model="last_count_date" class="chief-input" readonly />
-                            </div>
+                        <fieldset class="entity-fieldset">
+                            <legend>History</legend>
+                            <div class="so-form-row"><label class="so-form-lbl" for="last_received_at">Last Received</label><input id="last_received_at" type="date" wire:model="last_received_at" class="so-input" readonly /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="last_ordered_at">Last Ordered</label><input id="last_ordered_at" type="date" wire:model="last_ordered_at" class="so-input" readonly /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="last_sold_at">Last Sold</label><input id="last_sold_at" type="date" wire:model="last_sold_at" class="so-input" readonly /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="last_count_date">Last Count Date</label><input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" readonly /></div>
                         </fieldset>
                     </div>
-                    <div class="space-y-1">
-                        <fieldset class="border border-slate-300 p-2">
-                            <legend class="px-1 text-xs font-semibold text-slate-700">Reorder</legend>
-                            <div class="chief-field">
-                                <label>Reorder Point</label>
-                                <input wire:model="reorder_point" class="chief-input w-28 text-right" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Restock Level</label>
-                                <input wire:model="restock_level" class="chief-input w-28 text-right" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Lead Time (days)</label>
-                                <input wire:model="lead_time_days" class="chief-input w-28 text-right" />
-                            </div>
+                    <div class="entity-col">
+                        <fieldset class="entity-fieldset">
+                            <legend>Reorder</legend>
+                            <div class="so-form-row"><label class="so-form-lbl" for="reorder_point">Reorder Point</label><input id="reorder_point" wire:model="reorder_point" class="so-input text-right" style="max-width:8rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="restock_level">Restock Level</label><input id="restock_level" wire:model="restock_level" class="so-input text-right" style="max-width:8rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="lead_time_days">Lead Time (days)</label><input id="lead_time_days" wire:model="lead_time_days" class="so-input text-right" style="max-width:8rem" /></div>
                         </fieldset>
-                        <div class="pt-3">
-                            <button type="button" wire:click="openJournal" class="chief-btn" @disabled(! $item)>View Journal</button>
+                        <div class="pt-2">
+                            <button type="button" wire:click="openJournal" class="desk-btn" @disabled(! $item)>View Journal</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="mt-4">
-                    <h3 class="text-sm font-semibold text-slate-800 mb-1">Current Quantities</h3>
-                    <div class="chief-grid border border-slate-300 overflow-auto">
-                        <table>
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Current Quantities</h3>
+                    </div>
+                    <div class="desk-grid">
+                        <table class="desk-table">
                             <thead>
                                 <tr>
                                     <th>Site</th>
-                                    <th class="text-right">In Stock</th>
-                                    <th class="text-right">Allocated</th>
-                                    <th class="text-right">On Order</th>
-                                    <th class="text-right">Back Order</th>
-                                    <th class="text-right">Available</th>
+                                    <th class="desk-money">In Stock</th>
+                                    <th class="desk-money">Allocated</th>
+                                    <th class="desk-money">On Order</th>
+                                    <th class="desk-money">Back Order</th>
+                                    <th class="desk-money">Available</th>
                                     <th>Last Counted</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @forelse ($sites as $site)
                                     <tr>
-                                        <td class="font-mono">{{ $site->code }}</td>
-                                        <td class="text-right">{{ number_format((float) $quantity_in_stock, 2) }}</td>
-                                        <td class="text-right">{{ number_format((float) $allocated_qty, 2) }}</td>
-                                        <td class="text-right">{{ number_format((float) $on_order_qty, 2) }}</td>
-                                        <td class="text-right">{{ number_format((float) $back_order_qty, 2) }}</td>
-                                        <td class="text-right font-semibold">{{ number_format($availableQty, 2) }}</td>
+                                        <td class="desk-num">{{ $site->code }}</td>
+                                        <td class="desk-money">{{ number_format((float) $quantity_in_stock, 2) }}</td>
+                                        <td class="desk-money">{{ number_format((float) $allocated_qty, 2) }}</td>
+                                        <td class="desk-money">{{ number_format((float) $on_order_qty, 2) }}</td>
+                                        <td class="desk-money">{{ number_format((float) $back_order_qty, 2) }}</td>
+                                        <td class="desk-money entity-value">{{ number_format($availableQty, 2) }}</td>
                                         <td>{{ $last_count_date ?: '—' }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="7" class="text-slate-500">No sites configured.</td></tr>
+                                    <tr class="is-empty"><td colspan="7">No sites configured.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
                     </div>
-                    <p class="text-xs text-slate-500 mt-1">Quantities are maintained by receiving, sales, and stock counts (read-only here).</p>
+                    <p class="item-hint">Quantities update from receiving, sales, and stock counts (read-only here).</p>
                 </div>
 
             @elseif ($activeTab === 'pricing')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-1 max-w-4xl">
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>List Price</label>
-                            <input wire:model="list_price" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>MSRP</label>
-                            <input wire:model="msrp" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Standard Cost</label>
-                            <input wire:model="standard_cost" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Current Cost</label>
-                            <input wire:model="current_cost" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Last Cost</label>
-                            <input wire:model="last_cost" class="chief-input w-28 text-right bg-slate-50" readonly />
-                        </div>
-                        <div class="chief-field">
-                            <label>Average Cost</label>
-                            <input wire:model="average_cost" class="chief-input w-28 text-right bg-slate-50" readonly />
-                        </div>
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row"><label class="so-form-lbl" for="list_price">List Price</label><input id="list_price" wire:model="list_price" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="msrp">MSRP</label><input id="msrp" wire:model="msrp" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="standard_cost">Standard Cost</label><input id="standard_cost" wire:model="standard_cost" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="current_cost">Current Cost</label><input id="current_cost" wire:model="current_cost" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="last_cost">Last Cost</label><input id="last_cost" wire:model="last_cost" class="so-input text-right" style="max-width:8rem;background:#f8fafc" readonly /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="average_cost">Average Cost</label><input id="average_cost" wire:model="average_cost" class="so-input text-right" style="max-width:8rem;background:#f8fafc" readonly /></div>
                     </div>
-                    <div class="space-y-1">
-                        <div class="chief-field">
-                            <label>Tax Schedule</label>
-                            <select wire:model="tax_schedule_id" class="chief-input w-64">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="tax_schedule_id">Tax Schedule</label>
+                            <select id="tax_schedule_id" wire:model="tax_schedule_id" class="so-input">
                                 <option value="">—</option>
-                                @foreach ($taxSchedules as $t)
-                                    <option value="{{ $t->id }}">{{ $t->name }}</option>
-                                @endforeach
+                                @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Promotion Schedule</label>
-                            <select wire:model="promotion_schedule_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="promotion_schedule_id">Promotion Schedule</label>
+                            <select id="promotion_schedule_id" wire:model="promotion_schedule_id" class="so-input">
                                 <option value="">—</option>
-                                @foreach ($promotionSchedules as $p)
-                                    <option value="{{ $p->id }}">{{ $p->name }}</option>
-                                @endforeach
+                                @foreach ($promotionSchedules as $p)<option value="{{ $p->id }}">{{ $p->name }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Pricing Method</label>
-                            <select wire:model="pricing_method_id" class="chief-input w-64">
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="pricing_method_id">Pricing Method</label>
+                            <select id="pricing_method_id" wire:model="pricing_method_id" class="so-input">
                                 <option value="">—</option>
-                                @foreach ($pricingMethods as $m)
-                                    <option value="{{ $m->id }}">{{ $m->name }}</option>
-                                @endforeach
+                                @foreach ($pricingMethods as $m)<option value="{{ $m->id }}">{{ $m->name }}</option>@endforeach
                             </select>
                         </div>
                     </div>
                 </div>
 
-                <div class="mt-4">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold text-slate-800">Prices</h3>
-                        <button type="button" wire:click="addPrice" class="chief-btn text-xs">Add Price</button>
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Prices by UOM</h3>
+                        <button type="button" wire:click="addPrice" class="desk-btn desk-btn-sm">Add Price</button>
                     </div>
-                    <div class="chief-grid border border-slate-300 max-w-3xl">
-                        <table>
+                    <div class="desk-grid">
+                        <table class="desk-table">
                             <thead>
                                 <tr>
                                     <th>U of M</th>
-                                    <th class="text-right">Price</th>
+                                    <th class="desk-money">Price</th>
                                     <th>Alias Code</th>
-                                    <th class="w-20"></th>
+                                    <th style="width:6rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($prices as $i => $row)
                                     <tr>
-                                        <td><input wire:model="prices.{{ $i }}.uom" class="chief-input w-20" /></td>
-                                        <td><input wire:model="prices.{{ $i }}.price" class="chief-input w-28 text-right" /></td>
-                                        <td><input wire:model="prices.{{ $i }}.alias_code" class="chief-input w-full" /></td>
-                                        <td><button type="button" wire:click="removePrice({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button></td>
+                                        <td><input wire:model="prices.{{ $i }}.uom" class="so-input" style="width:5rem" /></td>
+                                        <td><input wire:model="prices.{{ $i }}.price" class="so-input text-right" style="width:7rem" /></td>
+                                        <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input" style="min-width:10rem" /></td>
+                                        <td><button type="button" wire:click="removePrice({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -849,43 +819,43 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'extended')
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-medium mb-1">Extended Description</label>
-                            <textarea wire:model="extended_description" rows="8" class="chief-input w-full"></textarea>
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row so-form-row-top">
+                            <label class="so-form-lbl" for="extended_description">Extended Description</label>
+                            <textarea id="extended_description" wire:model="extended_description" rows="8" class="so-input so-input-area"></textarea>
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium mb-1">Product Highlights</label>
-                            <textarea wire:model="product_highlights" rows="6" class="chief-input w-full" placeholder="One highlight per line"></textarea>
+                        <div class="so-form-row so-form-row-top">
+                            <label class="so-form-lbl" for="product_highlights">Product Highlights</label>
+                            <textarea id="product_highlights" wire:model="product_highlights" rows="6" class="so-input so-input-area" placeholder="One highlight per line"></textarea>
                         </div>
                     </div>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-xs font-medium mb-1">Image</label>
-                            <input type="file" wire:model="image_upload" accept="image/*" class="text-sm" />
-                            <div wire:loading wire:target="image_upload" class="text-xs text-slate-500">Uploading…</div>
-                            @error('image_upload') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                    <div class="entity-col">
+                        <div class="item-media">
+                            <div class="item-media-label">Image</div>
+                            <input type="file" wire:model="image_upload" accept="image/*" class="item-file" />
+                            <div wire:loading wire:target="image_upload" class="item-hint">Uploading…</div>
+                            @error('image_upload') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
                             @if ($image_upload)
-                                <img src="{{ $image_upload->temporaryUrl() }}" alt="" class="mt-2 max-h-40 border border-slate-300" />
+                                <img src="{{ $image_upload->temporaryUrl() }}" alt="" class="item-preview" />
                             @elseif ($image_path)
-                                <div class="mt-2 flex items-start gap-2">
-                                    <img src="{{ asset('storage/'.$image_path) }}" alt="" class="max-h-40 border border-slate-300" />
-                                    <button type="button" wire:click="removeImage" class="text-xs text-red-700 hover:underline">Remove</button>
+                                <div class="item-preview-row">
+                                    <img src="{{ asset('storage/'.$image_path) }}" alt="" class="item-preview" />
+                                    <button type="button" wire:click="removeImage" class="desk-btn desk-btn-sm">Remove</button>
                                 </div>
                             @endif
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium mb-1">Thumbnail</label>
-                            <input type="file" wire:model="thumbnail_upload" accept="image/*" class="text-sm" />
-                            <div wire:loading wire:target="thumbnail_upload" class="text-xs text-slate-500">Uploading…</div>
-                            @error('thumbnail_upload') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                        <div class="item-media">
+                            <div class="item-media-label">Thumbnail</div>
+                            <input type="file" wire:model="thumbnail_upload" accept="image/*" class="item-file" />
+                            <div wire:loading wire:target="thumbnail_upload" class="item-hint">Uploading…</div>
+                            @error('thumbnail_upload') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
                             @if ($thumbnail_upload)
-                                <img src="{{ $thumbnail_upload->temporaryUrl() }}" alt="" class="mt-2 max-h-24 border border-slate-300" />
+                                <img src="{{ $thumbnail_upload->temporaryUrl() }}" alt="" class="item-preview item-preview-sm" />
                             @elseif ($thumbnail_path)
-                                <div class="mt-2 flex items-start gap-2">
-                                    <img src="{{ asset('storage/'.$thumbnail_path) }}" alt="" class="max-h-24 border border-slate-300" />
-                                    <button type="button" wire:click="removeThumbnail" class="text-xs text-red-700 hover:underline">Remove</button>
+                                <div class="item-preview-row">
+                                    <img src="{{ asset('storage/'.$thumbnail_path) }}" alt="" class="item-preview item-preview-sm" />
+                                    <button type="button" wire:click="removeThumbnail" class="desk-btn desk-btn-sm">Remove</button>
                                 </div>
                             @endif
                         </div>
@@ -893,208 +863,176 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'suppliers')
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-sm font-semibold text-slate-800">Item Suppliers</h3>
-                    <button type="button" wire:click="addSupplierRow" class="chief-btn text-xs">Add Supplier</button>
-                </div>
-                <div class="chief-grid border border-slate-300 overflow-auto">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th class="w-14 text-center">Default</th>
-                                <th>Supplier</th>
-                                <th>Supplier Item Code</th>
-                                <th class="text-right">Lead Time</th>
-                                <th class="text-right">Last Cost</th>
-                                <th class="text-right">Avg Cost</th>
-                                <th>Last Received</th>
-                                <th class="w-20"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($suppliers as $i => $row)
+                <div class="entity-section" style="margin-top:0">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Item Suppliers</h3>
+                        <button type="button" wire:click="addSupplierRow" class="desk-btn desk-btn-sm">Add Supplier</button>
+                    </div>
+                    <div class="desk-grid">
+                        <table class="desk-table">
+                            <thead>
                                 <tr>
-                                    <td class="text-center">
-                                        <input type="radio" name="default_supplier" wire:click="setDefaultSupplier({{ $i }})" @checked($row['is_default'] ?? false) />
-                                    </td>
-                                    <td>
-                                        <select wire:model="suppliers.{{ $i }}.supplier_id" class="chief-input w-56">
-                                            <option value="">—</option>
-                                            @foreach ($supplierOptions as $sup)
-                                                <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
-                                            @endforeach
-                                        </select>
-                                    </td>
-                                    <td><input wire:model="suppliers.{{ $i }}.supplier_item_code" class="chief-input w-36 font-mono" /></td>
-                                    <td><input wire:model="suppliers.{{ $i }}.lead_time" class="chief-input w-20 text-right" /></td>
-                                    <td><input wire:model="suppliers.{{ $i }}.last_cost" class="chief-input w-24 text-right bg-slate-50" readonly /></td>
-                                    <td><input wire:model="suppliers.{{ $i }}.avg_cost" class="chief-input w-24 text-right bg-slate-50" readonly /></td>
-                                    <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="chief-input bg-slate-50" readonly /></td>
-                                    <td><button type="button" wire:click="removeSupplierRow({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button></td>
+                                    <th class="text-center" style="width:4.5rem">Default</th>
+                                    <th>Supplier</th>
+                                    <th>Supplier Item Code</th>
+                                    <th class="desk-money">Lead Time</th>
+                                    <th class="desk-money">Last Cost</th>
+                                    <th class="desk-money">Avg Cost</th>
+                                    <th>Last Received</th>
+                                    <th style="width:6rem"></th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach ($suppliers as $i => $row)
+                                    <tr>
+                                        <td class="text-center">
+                                            <input type="radio" name="default_supplier" wire:click="setDefaultSupplier({{ $i }})" @checked($row['is_default'] ?? false) aria-label="Default supplier {{ $i + 1 }}" />
+                                        </td>
+                                        <td>
+                                            <select wire:model="suppliers.{{ $i }}.supplier_id" class="so-input" style="min-width:14rem">
+                                                <option value="">—</option>
+                                                @foreach ($supplierOptions as $sup)
+                                                    <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </td>
+                                        <td><input wire:model="suppliers.{{ $i }}.supplier_item_code" class="so-input font-mono" style="width:9rem" /></td>
+                                        <td><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right" style="width:5rem" /></td>
+                                        <td><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right" style="width:6rem;background:#f8fafc" readonly /></td>
+                                        <td><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right" style="width:6rem;background:#f8fafc" readonly /></td>
+                                        <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input" style="background:#f8fafc" readonly /></td>
+                                        <td><button type="button" wire:click="removeSupplierRow({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
             @elseif ($activeTab === 'substitutes')
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-sm font-semibold text-slate-800">Substitutes</h3>
-                    <button type="button" wire:click="addSubstitute" class="chief-btn text-xs">Add Substitute</button>
-                </div>
-                <div class="chief-grid border border-slate-300 overflow-auto max-w-4xl">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Description</th>
-                                <th class="text-right">Quantity</th>
-                                <th class="text-center">Force Substitute</th>
-                                <th class="w-20"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($substitutes as $i => $row)
-                                @php
-                                    $sub = $substituteOptions->firstWhere('id', $row['substitute_item_id'] ?? null);
-                                @endphp
+                <div class="entity-section" style="margin-top:0">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Substitutes</h3>
+                        <button type="button" wire:click="addSubstitute" class="desk-btn desk-btn-sm">Add Substitute</button>
+                    </div>
+                    <div class="desk-grid">
+                        <table class="desk-table">
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <select wire:model.live="substitutes.{{ $i }}.substitute_item_id" class="chief-input w-40 font-mono">
-                                            <option value="">—</option>
-                                            @foreach ($substituteOptions as $opt)
-                                                <option value="{{ $opt->id }}">{{ $opt->item_code }}</option>
-                                            @endforeach
-                                        </select>
-                                    </td>
-                                    <td class="max-w-xs truncate text-slate-600">{{ $sub?->description ?: '—' }}</td>
-                                    <td><input wire:model="substitutes.{{ $i }}.quantity" class="chief-input w-24 text-right" /></td>
-                                    <td class="text-center"><input type="checkbox" wire:model="substitutes.{{ $i }}.force_substitute" /></td>
-                                    <td><button type="button" wire:click="removeSubstitute({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button></td>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="desk-money">Quantity</th>
+                                    <th class="text-center">Force Substitute</th>
+                                    <th style="width:6rem"></th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach ($substitutes as $i => $row)
+                                    @php $sub = $substituteOptions->firstWhere('id', $row['substitute_item_id'] ?? null); @endphp
+                                    <tr>
+                                        <td>
+                                            <select wire:model.live="substitutes.{{ $i }}.substitute_item_id" class="so-input font-mono" style="min-width:9rem">
+                                                <option value="">—</option>
+                                                @foreach ($substituteOptions as $opt)
+                                                    <option value="{{ $opt->id }}">{{ $opt->item_code }}</option>
+                                                @endforeach
+                                            </select>
+                                        </td>
+                                        <td>{{ $sub?->description ?: '—' }}</td>
+                                        <td><input wire:model="substitutes.{{ $i }}.quantity" class="so-input text-right" style="width:5.5rem" /></td>
+                                        <td class="text-center"><input type="checkbox" wire:model="substitutes.{{ $i }}.force_substitute" aria-label="Force substitute {{ $i + 1 }}" /></td>
+                                        <td><button type="button" wire:click="removeSubstitute({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
             @else
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-1 max-w-5xl">
-                    <div class="space-y-2">
-                        <div class="flex items-center gap-2 text-sm">
-                            <span class="font-medium w-28">Status:</span>
-                            <button type="button" wire:click="$set('is_inactive', false)" @class(['chief-btn text-xs', 'chief-btn-primary' => ! $is_inactive])>Active</button>
-                            <button type="button" wire:click="$set('is_inactive', true)" @class(['chief-btn text-xs', 'chief-btn-primary' => $is_inactive])>Inactive</button>
+                <div class="entity-grid-2">
+                    <div class="entity-col">
+                        <div class="so-form-row">
+                            <span class="so-form-lbl">Status</span>
+                            <div class="entity-status-btns">
+                                <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
+                                <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
+                            </div>
                         </div>
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model.live="available_on_website" /> Item is available on the website</label>
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="allow_back_order" /> Allow Back Order</label>
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="can_sell" /> Can Sell</label>
-                        <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" wire:model="can_order" /> Can Order</label>
-
-                        <div class="chief-field mt-2">
-                            <label>Item Tracking</label>
-                            <select wire:model="item_tracking" class="chief-input w-40">
-                                @foreach ($trackingOptions as $opt)
-                                    <option value="{{ $opt }}">{{ $opt }}</option>
-                                @endforeach
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model.live="available_on_website" /> Available on website</label></div>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="allow_back_order" /> Allow Back Order</label></div>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="can_sell" /> Can Sell</label></div>
+                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="can_order" /> Can Order</label></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="item_tracking">Item Tracking</label>
+                            <select id="item_tracking" wire:model="item_tracking" class="so-input" style="max-width:10rem">
+                                @foreach ($trackingOptions as $opt)<option value="{{ $opt }}">{{ $opt }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Barcode Format</label>
-                            <select wire:model="barcode_format" class="chief-input w-40">
-                                @foreach ($barcodeFormats as $fmt)
-                                    <option value="{{ $fmt }}">{{ $fmt }}</option>
-                                @endforeach
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="barcode_format">Barcode Format</label>
+                            <select id="barcode_format" wire:model="barcode_format" class="so-input" style="max-width:10rem">
+                                @foreach ($barcodeFormats as $fmt)<option value="{{ $fmt }}">{{ $fmt }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="chief-field">
-                            <label>Shipping Weight</label>
-                            <input wire:model="shipping_weight" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Tare Weight</label>
-                            <input wire:model="tare_weight" class="chief-input w-28 text-right" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Manufacturer</label>
-                            <input wire:model="manufacturer" class="chief-input w-64" />
-                        </div>
-                        <div class="chief-field">
-                            <label>Item Line Message</label>
-                            <input wire:model="item_line_message" class="chief-input w-full max-w-md" />
-                        </div>
-                        <div class="chief-field chief-field-top">
-                            <label>Comments</label>
-                            <textarea wire:model="comments" rows="4" class="chief-input w-full max-w-md"></textarea>
-                        </div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
+                        <div class="so-form-row"><label class="so-form-lbl" for="item_line_message">Item Line Message</label><input id="item_line_message" wire:model="item_line_message" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-top"><label class="so-form-lbl" for="comments">Comments</label><textarea id="comments" wire:model="comments" rows="4" class="so-input so-input-area"></textarea></div>
                     </div>
-                    <div class="space-y-1">
-                        <fieldset class="border border-slate-300 p-2">
-                            <legend class="px-1 text-xs font-semibold text-slate-700">Manufacturer Promotion</legend>
-                            <div class="chief-field">
-                                <label>Manu. ProductID</label>
-                                <input wire:model="manu_product_id" class="chief-input w-56" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Manu. Promotion Item</label>
-                                <input wire:model="manu_promotion_item" class="chief-input w-56" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Manu. Promo Desc</label>
-                                <input wire:model="manu_promotion_description" class="chief-input w-full max-w-xs" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Manu. Promo Code</label>
-                                <input wire:model="manu_promotion_code" class="chief-input w-40" />
-                            </div>
-                            <div class="chief-field">
-                                <label>Manu. BaseCount</label>
-                                <input wire:model="manu_base_count" class="chief-input w-28 text-right" />
-                            </div>
+                    <div class="entity-col">
+                        <fieldset class="entity-fieldset">
+                            <legend>Manufacturer Promotion</legend>
+                            <div class="so-form-row"><label class="so-form-lbl" for="manu_product_id">Manu. Product ID</label><input id="manu_product_id" wire:model="manu_product_id" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_item">Manu. Promo Item</label><input id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_description">Manu. Promo Desc</label><input id="manu_promotion_description" wire:model="manu_promotion_description" class="so-input" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_code">Manu. Promo Code</label><input id="manu_promotion_code" wire:model="manu_promotion_code" class="so-input" style="max-width:10rem" /></div>
+                            <div class="so-form-row"><label class="so-form-lbl" for="manu_base_count">Manu. Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" /></div>
                         </fieldset>
                     </div>
                 </div>
             @endif
         </div>
 
-        <div class="flex items-center justify-between border-t border-slate-300 bg-slate-100 px-1 flex-wrap gap-2">
-            <div class="flex flex-wrap overflow-x-auto">
+        <div class="entity-footer">
+            <div class="entity-tabs" role="tablist" aria-label="Item sections">
                 @foreach ($tabs as $key => $label)
-                    <button type="button" wire:click="$set('activeTab', '{{ $key }}')"
-                        @class([
-                            'px-3 py-1.5 text-sm border-r border-slate-300 whitespace-nowrap',
-                            'bg-white font-semibold text-sky-800' => $activeTab === $key,
-                            'text-slate-600 hover:bg-slate-200' => $activeTab !== $key,
-                        ])>
-                        {{ $label }}
-                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        wire:click="$set('activeTab', '{{ $key }}')"
+                        aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}"
+                        @class(['entity-tab', 'is-active' => $activeTab === $key])
+                    >{{ $label }}</button>
                 @endforeach
             </div>
-            <div class="flex gap-2 py-2 pe-2">
-                <a href="{{ route('inventory.items.index') }}" wire:navigate class="chief-btn">Cancel</a>
-                <button type="submit" class="chief-btn-primary">Save Changes</button>
+            <div class="entity-footer-actions">
+                <a href="{{ route('inventory.items.index') }}" wire:navigate class="desk-btn">Cancel</a>
+                <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
             </div>
         </div>
     </form>
 
     @if ($showJournal && $item)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeJournal">
-            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-auto">
-                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
+        <div class="desk-modal-backdrop" wire:click.self="closeJournal" role="dialog" aria-modal="true" aria-label="Inventory journal">
+            <div class="desk-modal" style="max-width:56rem">
+                <div class="desk-modal-head">
                     <span>Inventory Journal — {{ $item->item_code }}</span>
-                    <button type="button" wire:click="closeJournal" class="text-white hover:text-red-200">×</button>
+                    <button type="button" wire:click="closeJournal" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
-                <div class="p-3">
-                    <div class="chief-grid border border-slate-300 overflow-auto">
-                        <table>
+                <div class="desk-modal-body">
+                    <div class="desk-grid">
+                        <table class="desk-table">
                             <thead>
                                 <tr>
                                     <th>Date</th>
                                     <th>Site</th>
                                     <th>Source</th>
                                     <th>Reference</th>
-                                    <th class="text-right">Qty Change</th>
-                                    <th class="text-right">Qty After</th>
-                                    <th class="text-right">Unit Cost</th>
+                                    <th class="desk-money">Qty Change</th>
+                                    <th class="desk-money">Qty After</th>
+                                    <th class="desk-money">Unit Cost</th>
                                     <th>Notes</th>
                                 </tr>
                             </thead>
@@ -1102,16 +1040,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 @forelse ($journalEntries as $entry)
                                     <tr>
                                         <td>{{ optional($entry->created_at)?->format('n/j/Y g:ia') }}</td>
-                                        <td class="font-mono">{{ $entry->site?->code ?: '—' }}</td>
+                                        <td class="desk-num">{{ $entry->site?->code ?: '—' }}</td>
                                         <td>{{ $entry->source_type }}</td>
-                                        <td class="font-mono">{{ $entry->reference }}</td>
-                                        <td class="text-right">{{ number_format($entry->qty_change, 2) }}</td>
-                                        <td class="text-right">{{ number_format($entry->qty_after, 2) }}</td>
-                                        <td class="text-right">${{ number_format((float) $entry->unit_cost, 4) }}</td>
+                                        <td class="desk-num">{{ $entry->reference }}</td>
+                                        <td class="desk-money">{{ number_format($entry->qty_change, 2) }}</td>
+                                        <td class="desk-money">{{ number_format($entry->qty_after, 2) }}</td>
+                                        <td class="desk-money">${{ number_format((float) $entry->unit_cost, 4) }}</td>
                                         <td>{{ $entry->notes }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="8" class="text-slate-500 px-2 py-4">No journal entries for this item.</td></tr>
+                                    <tr class="is-empty"><td colspan="8">No journal entries for this item.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>

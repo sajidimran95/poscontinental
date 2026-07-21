@@ -30,6 +30,7 @@
                             ['New Item', 'inventory.items.create'],
                             ['Stock Counts', 'inventory.stock-counts.index'],
                             ['Transfers', null],
+                            ['Lookups (Dept / Category)', 'lookups.index'],
                         ],
                         'Sales' => [
                             ['New Sales Order', 'sales.orders.create'],

@@ -15,6 +15,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     #[Url]
     public string $search = '';
 
+    #[Url]
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
@@ -24,6 +25,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = Item::query()
+            ->with('department')
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -31,12 +33,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     $inner->where('item_code', 'like', $term)
                         ->orWhere('description', 'like', $term)
                         ->orWhere('primary_upc', 'like', $term)
+                        ->orWhere('manufacturer', 'like', $term)
                         ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
                 });
             })
             ->when($this->favorite === 'new', fn ($q) => $q->newItems())
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
+            ->when($this->favorite === 'low_stock', fn ($q) => $q->lowStock())
             ->when(str_starts_with($this->favorite, 'dept:'), function ($q) {
                 $deptId = (int) substr($this->favorite, 5);
                 $q->where('department_id', $deptId);
@@ -48,15 +52,32 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'new' => 'New Items',
             'active' => 'Active Items',
             'inactive' => 'Inactive Items',
+            'low_stock' => 'Low Stock',
         ];
 
-        foreach (Department::query()->where('company_id', $companyId)->orderBy('name')->get() as $dept) {
+        $departments = Department::query()->where('company_id', $companyId)->orderBy('name')->get();
+        foreach ($departments as $dept) {
             $favorites['dept:'.$dept->id] = $dept->name;
+        }
+
+        $listTitle = 'Items List';
+        if ($this->favorite === 'new') {
+            $listTitle = 'New Items';
+        } elseif ($this->favorite === 'active') {
+            $listTitle = 'Active Items';
+        } elseif ($this->favorite === 'inactive') {
+            $listTitle = 'Inactive Items';
+        } elseif ($this->favorite === 'low_stock') {
+            $listTitle = 'Low Stock Items';
+        } elseif (str_starts_with($this->favorite, 'dept:')) {
+            $deptId = (int) substr($this->favorite, 5);
+            $listTitle = $departments->firstWhere('id', $deptId)?->name ?? 'Items List';
         }
 
         return [
             'items' => $query->paginate(50),
             'favorites' => $favorites,
+            'listTitle' => $listTitle,
         ];
     }
 
@@ -68,6 +89,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function updatedFavorite(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
     }
 
     public function selectRow(int $id): void
@@ -90,82 +112,95 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
-        <x-action-bar title="Action" variant="green" />
-        <x-list-chrome label="Search Items:" model="search" />
+    <div class="desk-main">
+        <x-action-bar title="Action" />
 
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">
-            Items List
-            @if ($favorite === 'new') (New Items)
-            @elseif ($favorite === 'active') (Active Items)
-            @elseif ($favorite === 'inactive') (Inactive Items)
-            @elseif ($favorite === 'all') (All Items)
-            @endif
+        <x-list-chrome label="Search Items:" model="search" placeholder="Code, description, UPC, manufacturer…">
+            <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary ms-auto">New Item</a>
+        </x-list-chrome>
+
+        <div class="desk-titlebar">
+            <h2 class="desk-title">{{ $listTitle }}</h2>
+            <span class="desk-title-meta">{{ number_format($items->total()) }} records</span>
         </div>
 
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Item Code</th>
-                        <th>Item Description</th>
-                        <th>Unit of Measure</th>
-                        <th class="text-right">List Price</th>
-                        <th class="text-right">Standard Cost</th>
-                        <th class="text-right">Qty In Stock</th>
-                        <th class="text-right">Available</th>
-                        <th class="text-center">New</th>
+                        <th>Description</th>
+                        <th>Department</th>
+                        <th>UOM</th>
+                        <th class="desk-money">List Price</th>
+                        <th class="desk-money">Std Cost</th>
+                        <th class="desk-money">In Stock</th>
+                        <th class="desk-money">Available</th>
                         <th class="text-center">Can Sell</th>
-                        <th class="text-center">Inactive</th>
+                        <th class="text-center">Status</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($items as $item)
                         <tr
                             wire:click="selectRow({{ $item->id }})"
-                            @class(['chief-selected-row' => $selectedId === $item->id, 'cursor-pointer'])
+                            @class(['is-selected' => $selectedId === $item->id, 'cursor-pointer'])
                         >
-                            <td class="font-mono">
-                                <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate class="hover:underline">{{ $item->item_code }}</a>
+                            <td class="desk-num">
+                                <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
                             </td>
-                            <td class="max-w-xs truncate">{{ $item->description }}</td>
+                            <td title="{{ $item->description }}">{{ \Illuminate\Support\Str::limit($item->description, 48) }}</td>
+                            <td>{{ $item->department?->name ?: '—' }}</td>
                             <td>{{ $item->unit_of_measure }}</td>
-                            <td class="text-right">${{ number_format($item->list_price, 2) }}</td>
-                            <td class="text-right">${{ number_format($item->standard_cost, 2) }}</td>
-                            <td class="text-right">{{ number_format($item->quantity_in_stock, 2) }}</td>
-                            <td class="text-right">{{ number_format($item->available_quantity, 2) }}</td>
-                            <td class="text-center">{{ $item->created_at && $item->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
+                            <td class="desk-money">${{ number_format($item->list_price, 2) }}</td>
+                            <td class="desk-money">${{ number_format($item->standard_cost, 2) }}</td>
+                            <td class="desk-money">{{ number_format($item->quantity_in_stock, 2) }}</td>
+                            <td class="desk-money">{{ number_format($item->available_quantity, 2) }}</td>
                             <td class="text-center" wire:click.stop>
                                 <button
                                     type="button"
                                     wire:click="toggleCanSell({{ $item->id }})"
-                                    class="px-1 text-base leading-none hover:scale-110"
+                                    @class([
+                                        'desk-pill',
+                                        'desk-pill-invoiced' => $item->can_sell,
+                                        'desk-pill-muted' => ! $item->can_sell,
+                                    ])
                                     title="{{ $item->can_sell ? 'Can sell — click to disable' : 'Cannot sell — click to enable' }}"
                                     aria-label="Toggle can sell"
-                                >{{ $item->can_sell ? '☑' : '☐' }}</button>
+                                >{{ $item->can_sell ? 'Yes' : 'No' }}</button>
                             </td>
                             <td class="text-center" wire:click.stop>
                                 <button
                                     type="button"
                                     wire:click="toggleInactive({{ $item->id }})"
-                                    class="px-1 text-base leading-none hover:scale-110"
+                                    @class([
+                                        'desk-pill',
+                                        'desk-pill-muted' => $item->is_inactive,
+                                        'desk-pill-invoiced' => ! $item->is_inactive,
+                                    ])
                                     title="{{ $item->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
                                     aria-label="Toggle inactive"
-                                >{{ $item->is_inactive ? '☑' : '☐' }}</button>
+                                >{{ $item->is_inactive ? 'Inactive' : 'Active' }}</button>
+                            </td>
+                            <td wire:click.stop>
+                                <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate class="desk-btn desk-btn-sm">Edit</a>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="10" class="px-2 py-6 text-slate-500">No items found.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="11">No items found. Click <strong>New Item</strong> to create one.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
         <x-record-count :count="$items->total()">
-            <a href="{{ route('inventory.items.create') }}" wire:navigate class="chief-btn-primary">New Item</a>
+            <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Item</a>
             {{ $items->links() }}
         </x-record-count>
     </div>

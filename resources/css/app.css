@@ -2121,6 +2121,57 @@
         max-height: 100%;
     }
 
+    .item-form {
+        width: min(100%, 78rem);
+    }
+
+    .item-hint {
+        margin: 0;
+        padding: 0.55rem 0.75rem;
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.4;
+    }
+
+    .item-media {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .item-media-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: #475569;
+    }
+
+    .item-file {
+        font-size: 13px;
+        color: #334155;
+    }
+
+    .item-preview {
+        max-height: 10rem;
+        width: auto;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background: #fff;
+    }
+
+    .item-preview-sm {
+        max-height: 6rem;
+    }
+
+    .item-preview-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.65rem;
+    }
+
     .entity-body {
         flex: 1 1 auto;
         min-height: 0;

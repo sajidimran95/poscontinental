@@ -54,6 +54,14 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public string $itemLookup = '';
 
+    public bool $showItemBrowse = false;
+
+    public ?int $browseLineIndex = null;
+
+    public string $itemBrowseSearch = '';
+
+    public string $lookupMessage = '';
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_received:string,unit_cost:string}> */
     public array $lines = [];
 
@@ -128,7 +136,64 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'general' => 'General',
                 'items' => 'Items',
             ],
+            'browseItems' => $this->showItemBrowse
+                ? Item::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_inactive', false)
+                    ->where('can_order', true)
+                    ->when($this->itemBrowseSearch !== '', function ($q) {
+                        $term = '%'.$this->itemBrowseSearch.'%';
+                        $q->where(function ($inner) use ($term) {
+                            $inner->where('item_code', 'like', $term)
+                                ->orWhere('description', 'like', $term)
+                                ->orWhere('primary_upc', 'like', $term);
+                        });
+                    })
+                    ->orderBy('item_code')
+                    ->limit(100)
+                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'standard_cost', 'current_cost', 'quantity_in_stock'])
+                : collect(),
         ];
+    }
+
+    public function openItemBrowse(?int $lineIndex = null): void
+    {
+        $this->browseLineIndex = $lineIndex;
+        $this->itemBrowseSearch = '';
+        $this->lookupMessage = '';
+        $this->showItemBrowse = true;
+    }
+
+    public function closeItemBrowse(): void
+    {
+        $this->showItemBrowse = false;
+        $this->browseLineIndex = null;
+        $this->itemBrowseSearch = '';
+    }
+
+    public function pickBrowseItem(int $itemId): void
+    {
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($itemId);
+
+        if (! $item) {
+            return;
+        }
+
+        if ($this->browseLineIndex !== null && isset($this->lines[$this->browseLineIndex])) {
+            $this->fillLineFromItem($this->browseLineIndex, $item);
+        } else {
+            $empty = collect($this->lines)->search(fn ($l) => ! filled($l['item_code'] ?? null));
+            if ($empty === false) {
+                $this->addLine();
+                $empty = count($this->lines) - 1;
+            }
+            $this->fillLineFromItem((int) $empty, $item);
+        }
+
+        $this->closeItemBrowse();
+        $this->lookupMessage = 'Added item '.$item->item_code.'.';
     }
 
     public function addLine(): void
@@ -149,6 +214,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     {
         $code = trim($this->lines[$index]['item_code'] ?? '');
         if ($code === '') {
+            $this->openItemBrowse($index);
+
             return;
         }
 
@@ -163,9 +230,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ->first();
 
         if (! $item) {
+            $this->lookupMessage = 'Item “'.$code.'” not found. Use Browse to pick from inventory.';
+            $this->openItemBrowse($index);
+            $this->itemBrowseSearch = $code;
+
             return;
         }
 
+        $this->fillLineFromItem($index, $item);
+        $this->lookupMessage = 'Loaded item '.$item->item_code.'.';
+    }
+
+    protected function fillLineFromItem(int $index, Item $item): void
+    {
         $supplierCost = $item->itemSuppliers()
             ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
             ->orderByDesc('is_default')
@@ -176,6 +253,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->lines[$index]['description'] = $item->description ?? '';
         $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
         $this->lines[$index]['unit_cost'] = (string) ($supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost);
+        if (! filled($this->lines[$index]['qty_ordered'] ?? null) || (float) $this->lines[$index]['qty_ordered'] <= 0) {
+            $this->lines[$index]['qty_ordered'] = '1';
+        }
     }
 
     public function save(): void
@@ -401,9 +481,17 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 <div class="entity-section" style="margin-top:0">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Order Lines</h3>
-                        <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                        <div class="flex gap-2">
+                            <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items</button>
+                            <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                        </div>
                     </div>
-                    <p class="item-hint" style="border-bottom:1px solid #e2e8f0">Enter item code or supplier SKU, then press Enter to look up.</p>
+                    <p class="item-hint" style="border-bottom:1px solid #e2e8f0">
+                        Type an existing <strong>Item Code</strong> or UPC and press <strong>Enter</strong>, or click <strong>Browse Items</strong> to pick from inventory.
+                    </p>
+                    @if ($lookupMessage)
+                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
+                    @endif
                     <div class="desk-grid item-lines-wrap">
                         <table class="desk-table item-lines-table po-lines-table">
                             <colgroup>
@@ -439,8 +527,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     wire:keydown.enter.prevent="lookupItem({{ $i }})"
                                                     class="so-input font-mono item-cell-ctl"
                                                     placeholder="Code + Enter"
+                                                    aria-label="Item code line {{ $i + 1 }}"
                                                 />
-                                                <button type="button" wire:click="lookupItem({{ $i }})" class="desk-btn desk-btn-sm" title="Lookup item">…</button>
+                                                <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" title="Browse items">…</button>
                                             </div>
                                         </td>
                                         <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" /></td>
@@ -507,4 +596,59 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             </div>
         </div>
     </form>
+
+    @if ($showItemBrowse)
+        <div class="desk-modal-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Browse items">
+            <div class="desk-modal" style="max-width:48rem">
+                <div class="desk-modal-head">
+                    <span>Browse Inventory Items</span>
+                    <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body">
+                    <div class="desk-toolbar" style="padding:0 0 0.75rem;border:0;background:transparent">
+                        <label class="desk-toolbar-label" for="po-item-browse">Search</label>
+                        <input
+                            id="po-item-browse"
+                            type="search"
+                            wire:model.live.debounce.250ms="itemBrowseSearch"
+                            class="desk-search"
+                            placeholder="Item code, description, UPC…"
+                            autofocus
+                        />
+                    </div>
+                    <div class="desk-grid" style="max-height:22rem;border:1px solid #e2e8f0;border-radius:8px">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="text-center">UOM</th>
+                                    <th class="desk-money">In Stock</th>
+                                    <th class="desk-money">Cost</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($browseItems as $bi)
+                                    <tr class="cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
+                                        <td class="desk-num">{{ $bi->item_code }}</td>
+                                        <td>{{ $bi->description }}</td>
+                                        <td class="text-center">{{ $bi->unit_of_measure }}</td>
+                                        <td class="desk-money">{{ number_format((float) $bi->quantity_in_stock, 2) }}</td>
+                                        <td class="desk-money">${{ number_format((float) ($bi->current_cost ?: $bi->standard_cost), 2) }}</td>
+                                        <td>
+                                            <button type="button" wire:click.stop="pickBrowseItem({{ $bi->id }})" class="desk-btn desk-btn-sm desk-btn-primary">Add</button>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr class="is-empty"><td colspan="6">No items found. Create items under Inventory → Items first.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="item-hint" style="padding:0.65rem 0 0">Click a row or <strong>Add</strong> to put that item on the purchase order.</p>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

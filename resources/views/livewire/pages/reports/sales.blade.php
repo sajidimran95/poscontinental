@@ -8,7 +8,6 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 new #[Layout('layouts.app'), Title('Sales Report')] class extends Component
@@ -132,7 +131,7 @@ new #[Layout('layouts.app'), Title('Sales Report')] class extends Component
         }, $filename, ['Content-Type' => 'text/csv']);
     }
 
-    public function downloadPdf(DocumentPdfService $pdfs): Response
+    public function downloadPdf(DocumentPdfService $pdfs): StreamedResponse
     {
         $companyId = auth()->user()->company_id;
 
@@ -160,13 +159,16 @@ new #[Layout('layouts.app'), Title('Sales Report')] class extends Component
             $grandTotal = $rows->sum(fn ($o) => (float) $o->total);
         }
 
-        return $pdfs->salesReportPdf([
-            'mode' => $this->viewMode,
-            'dateFrom' => $this->dateFrom,
-            'dateTo' => $this->dateTo,
-            'rows' => $rows,
-            'grandTotal' => $grandTotal,
-        ], auth()->user())->download('sales-report-'.$this->viewMode.'-'.now()->format('Ymd-His').'.pdf');
+        return $pdfs->streamDownload(
+            $pdfs->salesReportPdf([
+                'mode' => $this->viewMode,
+                'dateFrom' => $this->dateFrom,
+                'dateTo' => $this->dateTo,
+                'rows' => $rows,
+                'grandTotal' => $grandTotal,
+            ], auth()->user()),
+            'sales-report-'.$this->viewMode.'-'.now()->format('Ymd-His').'.pdf'
+        );
     }
 }; ?>
 

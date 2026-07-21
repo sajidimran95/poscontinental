@@ -10,9 +10,22 @@ use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DocumentPdfService
 {
+    /**
+     * Stream a DomPDF download so Livewire can base64 it (plain Response binaries break JSON).
+     */
+    public function streamDownload(object $pdf, string $filename): StreamedResponse
+    {
+        return response()->streamDownload(function () use ($pdf) {
+            echo $pdf->output();
+        }, $filename, [
+            'Content-Type' => 'application/pdf',
+        ]);
+    }
+
     public function invoicePdf(Invoice $invoice, ?User $user = null)
     {
         $invoice->load([
@@ -65,6 +78,22 @@ class DocumentPdfService
     public function downloadCreditMemo(CreditMemo $memo): Response
     {
         return $this->creditMemoPdf($memo)->download('credit-memo-'.$memo->memo_number.'.pdf');
+    }
+
+    public function streamInvoice(Invoice $invoice): StreamedResponse
+    {
+        return $this->streamDownload(
+            $this->invoicePdf($invoice),
+            'invoice-'.$invoice->invoice_number.'.pdf'
+        );
+    }
+
+    public function streamCreditMemo(CreditMemo $memo): StreamedResponse
+    {
+        return $this->streamDownload(
+            $this->creditMemoPdf($memo),
+            'credit-memo-'.$memo->memo_number.'.pdf'
+        );
     }
 
     public function emailInvoice(Invoice $invoice, string $recipient, User $user, ?string $subject = null): void

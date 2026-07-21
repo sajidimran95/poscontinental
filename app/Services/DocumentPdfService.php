@@ -15,12 +15,19 @@ class DocumentPdfService
 {
     public function invoicePdf(Invoice $invoice, ?User $user = null)
     {
-        $invoice->load(['customer', 'salesOrder.lines', 'salesOrder.salesRep', 'payments', 'credits']);
+        $invoice->load([
+            'customer',
+            'salesOrder.lines',
+            'salesOrder.salesRep',
+            'salesOrder.paymentTerm',
+            'payments',
+            'credits',
+        ]);
 
         return Pdf::loadView('pdf.invoice', [
             'invoice' => $invoice,
             'company' => $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company,
-        ]);
+        ])->setPaper('letter');
     }
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)

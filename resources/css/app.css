@@ -2652,6 +2652,21 @@
         line-height: 1.4;
     }
 
+    .cm-help {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        color: #1e3a8a;
+        border-radius: 8px;
+        padding: 0.7rem 0.85rem;
+        font-size: 13px;
+        line-height: 1.45;
+        margin-bottom: 0.85rem;
+    }
+
+    .cm-help strong {
+        font-weight: 700;
+    }
+
     @media (max-width: 980px) {
         .inv-top-grid,
         .inv-balance-row {

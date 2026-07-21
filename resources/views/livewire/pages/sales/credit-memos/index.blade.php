@@ -42,15 +42,30 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     {
         $companyId = auth()->user()->company_id;
 
+        $query = CreditMemo::query()
+            ->with('customer')
+            ->where('company_id', $companyId)
+            ->when($this->search !== '', function ($q) {
+                $term = '%'.$this->search.'%';
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('memo_number', 'like', $term)
+                        ->orWhere('comments', 'like', $term)
+                        ->orWhereHas('customer', fn ($c) => $c->where('company_name', 'like', $term)
+                            ->orWhere('customer_id', 'like', $term));
+                });
+            })
+            ->when($this->favorite === 'open', fn ($q) => $q->where('status', 'Open'))
+            ->when($this->favorite === 'applied', fn ($q) => $q->where('status', 'Applied'))
+            ->orderByDesc('id');
+
         return [
-            'memos' => CreditMemo::query()
-                ->with('customer')
-                ->where('company_id', $companyId)
-                ->when($this->search !== '', fn ($q) => $q->where('memo_number', 'like', '%'.$this->search.'%'))
-                ->orderByDesc('id')
-                ->paginate(50),
-            'customers' => Customer::query()->where('company_id', $companyId)->orderBy('company_name')->get(),
-            'favorites' => ['all' => 'All Credit Memos'],
+            'memos' => $query->paginate(50),
+            'customers' => Customer::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('company_name')->get(),
+            'favorites' => [
+                'all' => 'All Credit Memos',
+                'open' => 'Open',
+                'applied' => 'Applied',
+            ],
             'emailMemo' => $this->emailMemoId
                 ? CreditMemo::query()->with('customer')->find($this->emailMemoId)
                 : null,
@@ -60,9 +75,20 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         ];
     }
 
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedFavorite(): void
+    {
+        $this->resetPage();
+    }
+
     public function startNew(): void
     {
         $this->showForm = true;
+        $this->resetErrorBag();
         $this->memo_number = CreditMemo::nextNumber(auth()->user()->company_id);
         $this->memo_date = now()->toDateString();
         $this->customer_id = null;
@@ -70,6 +96,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->lines = [
             ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '1', 'price' => '0'],
         ];
+    }
+
+    public function cancelForm(): void
+    {
+        $this->showForm = false;
+        $this->resetErrorBag();
     }
 
     public function addLine(): void
@@ -135,10 +167,23 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
-        DB::transaction(function () use ($amount) {
+        $companyId = (int) auth()->user()->company_id;
+
+        DB::transaction(function () use ($amount, $companyId) {
+            $candidate = filled($this->memo_number) ? (string) $this->memo_number : CreditMemo::nextNumber($companyId);
+            if (
+                CreditMemo::query()
+                    ->where('company_id', $companyId)
+                    ->where('memo_number', $candidate)
+                    ->exists()
+            ) {
+                $candidate = CreditMemo::nextNumber($companyId);
+            }
+            $this->memo_number = $candidate;
+
             $memo = CreditMemo::query()->create([
-                'company_id' => auth()->user()->company_id,
-                'memo_number' => $this->memo_number,
+                'company_id' => $companyId,
+                'memo_number' => $candidate,
                 'memo_date' => $this->memo_date,
                 'customer_id' => $this->customer_id,
                 'amount' => $amount,
@@ -148,7 +193,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
             foreach (array_values($this->lines) as $i => $line) {
                 $item = Item::query()
-                    ->where('company_id', auth()->user()->company_id)
+                    ->where('company_id', $companyId)
                     ->where('item_code', $line['item_code'])
                     ->first();
                 $qty = (float) $line['qty'];
@@ -167,138 +212,195 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         });
 
         $this->showForm = false;
-        session()->flash('status', 'Credit memo created.');
+        session()->flash('status', 'Credit memo '.$this->memo_number.' created. Apply it from an unpaid invoice.');
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page relative">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
-        <x-action-bar title="Action" />
-        @if (session('status'))
-            <div class="mx-2 mt-1 border border-sky-400 bg-sky-50 px-2 py-1 text-xs" role="status">{{ session('status') }}</div>
-        @endif
-        @if ($showForm)
-            <form wire:submit="save" class="p-3 space-y-3 overflow-auto">
-                <x-desktop-form>
-                    <table class="desktop-form-table">
-                        <x-desktop-field-row label="Memo No.">
-                            <input wire:model="memo_number" class="chief-input w-40 font-mono" aria-label="Memo number" />
-                        </x-desktop-field-row>
-                        <x-desktop-field-row label="Memo Date">
-                            <input type="date" wire:model="memo_date" class="chief-input" aria-label="Memo date" />
-                        </x-desktop-field-row>
-                        <x-desktop-field-row label="Customer">
-                            <select wire:model="customer_id" class="chief-input w-64" aria-label="Customer">
-                                <option value="">—</option>
-                                @foreach ($customers as $c)<option value="{{ $c->id }}">{{ $c->company_name }}</option>@endforeach
-                            </select>
-                        </x-desktop-field-row>
-                        <x-desktop-field-row label="Comments">
-                            <textarea wire:model="comments" rows="2" class="chief-input w-80" aria-label="Comments"></textarea>
-                        </x-desktop-field-row>
-                    </table>
-                </x-desktop-form>
 
-                <div class="chief-grid border border-slate-400">
-                    <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-slate-100 flex justify-between items-center">
-                        <span>Credit Lines</span>
-                        <button type="button" wire:click="addLine" class="chief-btn text-xs">Add Line</button>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Description</th>
-                                <th>UOM</th>
-                                <th class="text-right">Qty</th>
-                                <th class="text-right">Price</th>
-                                <th class="text-right">Total</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($lines as $i => $line)
-                                <tr>
-                                    <td>
-                                        <input
-                                            wire:model.blur="lines.{{ $i }}.item_code"
-                                            wire:keydown.enter.prevent="lookupLineItem({{ $i }})"
-                                            class="chief-input font-mono w-28"
-                                            aria-label="Item code line {{ $i + 1 }}"
-                                        />
-                                    </td>
-                                    <td><input wire:model="lines.{{ $i }}.description" class="chief-input w-full min-w-[10rem]" aria-label="Description line {{ $i + 1 }}" /></td>
-                                    <td><input wire:model="lines.{{ $i }}.uom" class="chief-input w-16" aria-label="UOM line {{ $i + 1 }}" /></td>
-                                    <td><input wire:model.live="lines.{{ $i }}.qty" class="chief-input w-20 text-right" aria-label="Qty line {{ $i + 1 }}" /></td>
-                                    <td><input wire:model.live="lines.{{ $i }}.price" class="chief-input w-24 text-right" aria-label="Price line {{ $i + 1 }}" /></td>
-                                    <td class="text-right pe-2">${{ number_format(((float) $line['qty'] * (float) $line['price']), 2) }}</td>
-                                    <td><button type="button" wire:click="removeLine({{ $i }})" class="text-red-600 text-xs" aria-label="Remove line">×</button></td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                    @error('lines') <p class="px-2 py-1 text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
-                    <div class="px-2 py-1 text-right font-semibold border-t border-slate-300">Amount: ${{ number_format($lineTotal, 2) }}</div>
+    <div class="desk-main">
+        <x-action-bar :title="$showForm ? 'New Credit Memo' : 'Action'" />
+
+        @if (session('status'))
+            <div class="desk-flash" role="status">{{ session('status') }}</div>
+        @endif
+
+        @if ($showForm)
+            <form wire:submit="save" class="entity-body">
+                <div class="cm-help">
+                    <strong>What is a Credit Memo?</strong>
+                    A credit memo reduces what a customer owes (returns, price adjustments, allowances).
+                    Create it here as <em>Open</em>, then apply it on an invoice under <strong>Payments &amp; Credits</strong>.
                 </div>
 
-                <div class="flex gap-2">
-                    <button type="button" wire:click="$set('showForm', false)" class="chief-btn">Cancel</button>
-                    <button type="submit" class="chief-btn-primary">Save</button>
+                <div class="inv-top-grid" style="margin-bottom:1rem">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Memo header</div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="memo_number">Memo No.</label>
+                            <input id="memo_number" wire:model="memo_number" class="so-input font-mono" readonly title="Auto-generated" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="memo_date">Memo Date</label>
+                            <input id="memo_date" type="date" wire:model="memo_date" class="so-input" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="cm_customer_id">Customer</label>
+                            <select id="cm_customer_id" wire:model="customer_id" class="so-input">
+                                <option value="">— Select customer —</option>
+                                @foreach ($customers as $c)
+                                    <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        @error('customer_id') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
+                    </div>
+                    <div class="inv-card" style="grid-column: span 2">
+                        <div class="inv-card-title">Comments</div>
+                        <textarea wire:model="comments" rows="4" class="so-input so-input-area" placeholder="Reason for credit (return, price adjustment, etc.)"></textarea>
+                    </div>
+                </div>
+
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Credit Lines</h3>
+                        <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                    </div>
+                    <div class="desk-grid">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th>UOM</th>
+                                    <th class="desk-money">Qty</th>
+                                    <th class="desk-money">Price</th>
+                                    <th class="desk-money">Total</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($lines as $i => $line)
+                                    <tr>
+                                        <td>
+                                            <input
+                                                wire:model.blur="lines.{{ $i }}.item_code"
+                                                wire:keydown.enter.prevent="lookupLineItem({{ $i }})"
+                                                class="so-input font-mono"
+                                                style="width:7.5rem"
+                                                placeholder="Code + Enter"
+                                                aria-label="Item code line {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td><input wire:model="lines.{{ $i }}.description" class="so-input" style="min-width:12rem" aria-label="Description line {{ $i + 1 }}" /></td>
+                                        <td><input wire:model="lines.{{ $i }}.uom" class="so-input" style="width:4rem" aria-label="UOM line {{ $i + 1 }}" /></td>
+                                        <td><input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right" style="width:5rem" aria-label="Qty line {{ $i + 1 }}" /></td>
+                                        <td><input wire:model.live="lines.{{ $i }}.price" class="so-input text-right" style="width:6rem" aria-label="Price line {{ $i + 1 }}" /></td>
+                                        <td class="desk-money">${{ number_format(((float) $line['qty'] * (float) $line['price']), 2) }}</td>
+                                        <td><button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm" aria-label="Remove line">×</button></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    @error('lines') <p class="px-3 py-2 text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
+                    @error('lines.0.item_code') <p class="px-3 py-2 text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
+                    <div class="entity-section-head" style="border-top:1px solid #e2e8f0;border-bottom:none;justify-content:flex-end">
+                        <span class="entity-value">Credit Amount: ${{ number_format($lineTotal, 2) }}</span>
+                    </div>
+                </div>
+
+                <div class="entity-footer-actions" style="margin-top:1rem;justify-content:flex-end">
+                    <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
+                    <button type="submit" class="desk-btn desk-btn-primary">Save Credit Memo</button>
                 </div>
             </form>
         @else
-            <x-list-chrome label="Search Credit Memos:" model="search" />
-            <div class="px-2 py-1 font-semibold border-b border-slate-300">Credit Memos</div>
-            <div class="chief-grid flex-1 overflow-auto">
-                <table>
-                    <thead><tr><th>Memo No.</th><th>Date</th><th>Customer</th><th class="text-right">Amount</th><th>Status</th><th>Actions</th></tr></thead>
+            <x-list-chrome label="Search Credit Memos:" model="search" placeholder="Memo #, customer, comments…">
+                <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary ms-auto">New Credit Memo</button>
+            </x-list-chrome>
+
+            <div class="desk-titlebar">
+                <h2 class="desk-title">Credit Memos</h2>
+                <span class="desk-title-meta">{{ number_format($memos->total()) }} records</span>
+            </div>
+
+            <div class="cm-help" style="margin:0.65rem 0.85rem 0">
+                Credit memos lower a customer’s balance. Create one, then open an unpaid invoice → <strong>Apply Credit</strong>.
+            </div>
+
+            <div class="desk-grid">
+                <table class="desk-table">
+                    <thead>
+                        <tr>
+                            <th>Memo No.</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th class="desk-money">Amount</th>
+                            <th class="text-center">Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         @forelse ($memos as $m)
                             <tr>
-                                <td class="font-mono">{{ $m->memo_number }}</td>
+                                <td class="desk-num">{{ $m->memo_number }}</td>
                                 <td>{{ optional($m->memo_date)?->format('n/j/Y') }}</td>
                                 <td>{{ $m->customer?->company_name }}</td>
-                                <td class="text-right">${{ number_format($m->amount, 2) }}</td>
-                                <td>{{ $m->status }}</td>
-                                <td class="whitespace-nowrap">
-                                    <a href="{{ route('sales.credit-memos.pdf', $m) }}" class="text-sky-700 underline text-xs me-2" target="_blank">PDF</a>
-                                    <button type="button" wire:click="openEmail({{ $m->id }})" class="text-sky-700 underline text-xs">Email</button>
+                                <td class="desk-money">${{ number_format($m->amount, 2) }}</td>
+                                <td class="text-center">
+                                    <span @class([
+                                        'desk-pill',
+                                        'desk-pill-new' => $m->status === 'Open',
+                                        'desk-pill-invoiced' => $m->status === 'Applied',
+                                        'desk-pill-muted' => ! in_array($m->status, ['Open', 'Applied'], true),
+                                    ])>{{ $m->status }}</span>
+                                </td>
+                                <td>
+                                    <div class="flex gap-2">
+                                        <a href="{{ route('sales.credit-memos.pdf', $m) }}" class="desk-btn desk-btn-sm" target="_blank">PDF</a>
+                                        <button type="button" wire:click="openEmail({{ $m->id }})" class="desk-btn desk-btn-sm">Email</button>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="px-2 py-6 text-slate-500">No credit memos.</td></tr>
+                            <tr class="is-empty">
+                                <td colspan="6">No credit memos yet. Click <strong>New Credit Memo</strong> to create one.</td>
+                            </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
+
             <x-record-count :count="$memos->total()">
-                <button type="button" wire:click="startNew" class="chief-btn-primary">New Credit Memo</button>
+                <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary">New Credit Memo</button>
                 {{ $memos->links() }}
             </x-record-count>
         @endif
     </div>
 
     @if ($emailMemo)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeEmail" role="dialog" aria-modal="true" aria-label="Email credit memo">
-            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-md">
-                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
+        <div class="desk-modal-backdrop" wire:click.self="closeEmail" role="dialog" aria-modal="true" aria-label="Email credit memo">
+            <div class="desk-modal desk-modal-sm">
+                <div class="desk-modal-head">
                     <span>Email Credit Memo {{ $emailMemo->memo_number }}</span>
-                    <button type="button" wire:click="closeEmail" class="text-white hover:text-red-200" aria-label="Close">×</button>
+                    <button type="button" wire:click="closeEmail" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
-                <form method="POST" action="{{ route('sales.credit-memos.email', $emailMemo) }}" class="p-3 space-y-2 text-sm">
+                <form method="POST" action="{{ route('sales.credit-memos.email', $emailMemo) }}" class="desk-modal-body space-y-3">
                     @csrf
-                    <div>
-                        <label class="block text-xs mb-1" for="cm-email">Recipient</label>
-                        <input id="cm-email" name="email" type="email" value="{{ $emailTo }}" required class="chief-input w-full" />
+                    <p class="inv-email-note">Sends the credit memo PDF to the customer.</p>
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="cm-email">To</label>
+                        <input id="cm-email" name="email" type="email" value="{{ $emailTo }}" required class="so-input" placeholder="customer@email.com" />
                     </div>
-                    <div>
-                        <label class="block text-xs mb-1" for="cm-subject">Subject</label>
-                        <input id="cm-subject" name="subject" value="{{ $emailSubject }}" class="chief-input w-full" />
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="cm-subject">Subject</label>
+                        <input id="cm-subject" name="subject" value="{{ $emailSubject }}" class="so-input" />
                     </div>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <button type="button" wire:click="closeEmail" class="chief-btn">Cancel</button>
-                        <button type="submit" class="chief-btn-primary">Send</button>
+                    <div class="entity-footer-actions" style="justify-content:flex-end">
+                        <button type="button" wire:click="closeEmail" class="desk-btn">Cancel</button>
+                        <button type="submit" class="desk-btn desk-btn-primary">Send Email</button>
                     </div>
                 </form>
             </div>

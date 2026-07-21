@@ -460,9 +460,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 }; ?>
 
 <div class="so-page">
-    <form wire:submit="save" class="so-screen">
-        <x-action-bar title="Action" />
+    <x-action-bar title="Action" class="so-action-full" />
 
+    <form wire:submit="save" class="so-screen">
         @if (filled($customerAlert))
             <div class="mx-2 mt-1 border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-950" role="alert">
                 <strong>Alert:</strong> {{ $customerAlert }}

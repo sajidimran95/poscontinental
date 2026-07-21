@@ -9,6 +9,7 @@ use App\Models\CustomerLookupOption;
 use App\Models\Department;
 use App\Models\DiscountSchedule;
 use App\Models\Item;
+use App\Models\ItemType;
 use App\Models\PaymentTerm;
 use App\Models\PriceLevel;
 use App\Models\PricingMethod;
@@ -151,6 +152,18 @@ class DatabaseSeeder extends Seeder
             'code' => 'CARTON',
             'name' => 'Cartons',
         ]);
+
+        foreach ([
+            ['code' => 'STD', 'name' => 'Standard Item'],
+            ['code' => 'KIT', 'name' => 'Kit'],
+            ['code' => 'NONINV', 'name' => 'Non-Inventory'],
+            ['code' => 'SVC', 'name' => 'Service'],
+        ] as $type) {
+            ItemType::query()->firstOrCreate(
+                ['company_id' => $companyId, 'code' => $type['code']],
+                ['name' => $type['name'], 'is_active' => true]
+            );
+        }
 
         UomSchedule::query()->create([
             'company_id' => $companyId,

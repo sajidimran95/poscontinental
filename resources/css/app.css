@@ -2125,6 +2125,208 @@
         width: min(100%, 78rem);
     }
 
+    .item-form .inv-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+
+    .item-stack-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        width: 100%;
+    }
+
+    .item-stack-lbl {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: #334155;
+        line-height: 1.3;
+        white-space: normal;
+    }
+
+    .item-stack-field .so-input-area {
+        min-height: 8rem;
+        width: 100%;
+    }
+
+    .item-form .so-form-row-side {
+        column-gap: 0.85rem;
+        row-gap: 0.35rem;
+    }
+
+    .item-form .so-form-lbl {
+        min-width: 6.5rem;
+    }
+
+    .item-form .so-lookup-row {
+        gap: 0.5rem;
+    }
+
+    .item-form .inv-top-grid {
+        gap: 0.9rem;
+    }
+
+    .item-form .entity-section {
+        margin-top: 1.1rem;
+    }
+
+    .item-lines-wrap {
+        overflow: auto;
+        background: #fff;
+    }
+
+    .item-lines-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .item-lines-table thead th,
+    .item-lines-table tbody td {
+        padding: 0.7rem 0.85rem;
+        vertical-align: middle;
+    }
+
+    .item-lines-table tbody td {
+        white-space: normal;
+    }
+
+    .item-cell-ctl {
+        width: 100% !important;
+        max-width: 100%;
+        min-width: 0 !important;
+        box-sizing: border-box;
+    }
+
+    .item-cell-qty {
+        width: 5.25rem !important;
+        max-width: 100%;
+        margin: 0 auto;
+        display: inline-block;
+        box-sizing: border-box;
+    }
+
+    .item-cell-check {
+        width: 1.05rem;
+        height: 1.05rem;
+        margin: 0;
+        vertical-align: middle;
+    }
+
+    .item-cell-desc {
+        white-space: nowrap !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #334155;
+    }
+
+    /* Substitutes */
+    .item-sub-table .col-code { width: 10rem; }
+    .item-sub-table .col-desc { width: auto; }
+    .item-sub-table .col-qty { width: 7.5rem; }
+    .item-sub-table .col-force { width: 9.5rem; }
+    .item-sub-table .col-action { width: 6.5rem; }
+
+    /* Prices */
+    .item-price-table .col-uom { width: 7rem; }
+    .item-price-table .col-price { width: 8.5rem; }
+    .item-price-table .col-alias { width: auto; }
+    .item-price-table .col-action { width: 6.5rem; }
+
+    /* UPCs */
+    .item-upc-table .col-primary { width: 6rem; }
+    .item-upc-table .col-upc { width: auto; }
+    .item-upc-table .col-action { width: 6.5rem; }
+
+    /* Suppliers */
+    .item-sup-table .col-default { width: 5rem; }
+    .item-sup-table .col-supplier { width: 16rem; }
+    .item-sup-table .col-scode { width: 10rem; }
+    .item-sup-table .col-lead { width: 7rem; }
+    .item-sup-table .col-cost { width: 7.5rem; }
+    .item-sup-table .col-recv { width: 9.5rem; }
+    .item-sup-table .col-action { width: 6.5rem; }
+
+    .item-tab-grid {
+        margin-bottom: 1rem;
+    }
+
+    .item-price-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin-bottom: 0.85rem;
+    }
+
+    .item-price-stat {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        padding: 0.7rem 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        min-width: 0;
+    }
+
+    .item-price-stat span {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .item-price-stat strong {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #0f172a;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.2;
+    }
+
+    .so-input-ro {
+        background: #f8fafc !important;
+        color: #475569;
+    }
+
+    .item-flag-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-top: 0.35rem;
+        padding-top: 0.35rem;
+    }
+
+    .item-media-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+
+    .item-media-stack .item-media {
+        background: #fff;
+    }
+
+    .entity-body-pad {
+        padding: 0.75rem 0.85rem 0.9rem;
+        background: #fff;
+    }
+
+    @media (max-width: 980px) {
+        .item-price-summary {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .item-price-summary {
+            grid-template-columns: 1fr;
+        }
+    }
+
     .item-hint {
         margin: 0;
         padding: 0.55rem 0.75rem;

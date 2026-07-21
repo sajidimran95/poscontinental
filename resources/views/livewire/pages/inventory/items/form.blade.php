@@ -8,6 +8,7 @@ use App\Models\Item;
 use App\Models\ItemPrice;
 use App\Models\ItemSubstitute;
 use App\Models\ItemSupplier;
+use App\Models\ItemType;
 use App\Models\ItemUpc;
 use App\Models\PricingMethod;
 use App\Models\Site;
@@ -252,7 +253,17 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 ->when($this->item, fn ($q) => $q->where('id', '!=', $this->item->id))
                 ->orderBy('item_code')->limit(500)->get(['id', 'item_code', 'description']),
             'sites' => Site::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(),
-            'itemTypes' => ['Standard Item', 'Kit', 'Non-Inventory', 'Service'],
+            'itemTypes' => ItemType::query()
+                ->where('company_id', $companyId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->whenEmpty(fn () => collect([
+                    (object) ['name' => 'Standard Item'],
+                    (object) ['name' => 'Kit'],
+                    (object) ['name' => 'Non-Inventory'],
+                    (object) ['name' => 'Service'],
+                ])),
             'trackingOptions' => ['None', 'Serial', 'Lot'],
             'barcodeFormats' => ['UPC-A', 'UPC-E', 'EAN-13', 'EAN-8', 'Code128', 'Code39'],
             'tabs' => [
@@ -588,31 +599,36 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             @error('item_code') <p class="text-xs text-red-700 mb-2" role="alert">{{ $message }}</p> @enderror
 
             @if ($activeTab === 'general')
-                <div class="entity-grid-2">
-                    <div class="entity-col">
-                        <div class="so-form-row">
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Item identity</div>
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="item_type">Item Type</label>
-                            <select id="item_type" wire:model="item_type" class="so-input">
-                                @foreach ($itemTypes as $type)
-                                    <option value="{{ $type }}">{{ $type }}</option>
-                                @endforeach
-                            </select>
+                            <div class="so-lookup-row">
+                                <select id="item_type" wire:model="item_type" class="so-input">
+                                    @foreach ($itemTypes as $type)
+                                        <option value="{{ $type->name }}">{{ $type->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'item_types']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create item types in Lookups">+</a>
+                            </div>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="class">Class</label>
                             <input id="class" wire:model="class" class="so-input" />
                         </div>
-                        <div class="so-form-row so-form-row-top">
+                        <div class="so-form-row so-form-row-side so-form-row-top">
                             <label class="so-form-lbl" for="description">Description</label>
                             <textarea id="description" wire:model="description" rows="3" class="so-input so-input-area"></textarea>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="list_price_general">List Price</label>
-                            <input id="list_price_general" wire:model="list_price" class="so-input text-right" style="max-width:8rem" />
+                            <input id="list_price_general" wire:model.live="list_price" class="so-input text-right" style="max-width:8rem" />
                         </div>
                     </div>
-                    <div class="entity-col">
-                        <div class="so-form-row">
+                    <div class="inv-card" style="grid-column: span 2">
+                        <div class="inv-card-title">Classification</div>
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="department_id">Department</label>
                             <div class="so-lookup-row">
                                 <select id="department_id" wire:model.live="department_id" class="so-input">
@@ -624,7 +640,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <a href="{{ route('lookups.index', ['activeLookup' => 'departments']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create departments in Lookups">+</a>
                             </div>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="category_id">Category</label>
                             <div class="so-lookup-row">
                                 <select id="category_id" wire:model.live="category_id" class="so-input">
@@ -636,7 +652,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <a href="{{ route('lookups.index', ['activeLookup' => 'categories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create categories in Lookups">+</a>
                             </div>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="subcategory_id">Sub Category</label>
                             <div class="so-lookup-row">
                                 <select id="subcategory_id" wire:model="subcategory_id" class="so-input">
@@ -656,13 +672,18 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <h3 class="entity-section-title">Aliases / Primary UPC</h3>
                         <button type="button" wire:click="addUpc" class="desk-btn desk-btn-sm">Add UPC</button>
                     </div>
-                    <div class="desk-grid">
-                        <table class="desk-table">
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table item-upc-table">
+                            <colgroup>
+                                <col class="col-primary" />
+                                <col class="col-upc" />
+                                <col class="col-action" />
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width:5rem">Primary</th>
+                                    <th class="text-center">Primary</th>
                                     <th>UPC / Alias</th>
-                                    <th style="width:6rem"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -671,8 +692,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <td class="text-center">
                                             <input type="radio" name="primary_upc_radio" wire:click="setPrimaryUpc({{ $i }})" @checked($row['is_primary'] ?? false) aria-label="Primary UPC {{ $i + 1 }}" />
                                         </td>
-                                        <td><input wire:model="upcs.{{ $i }}.upc" class="so-input font-mono" style="min-width:14rem" /></td>
-                                        <td><button type="button" wire:click="removeUpc({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                        <td><input wire:model="upcs.{{ $i }}.upc" class="so-input font-mono item-cell-ctl" /></td>
+                                        <td class="text-center"><button type="button" wire:click="removeUpc({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -681,45 +702,48 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'inventory')
-                <div class="entity-grid-2">
-                    <div class="entity-col">
-                        <div class="so-form-row">
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Units</div>
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="uom_schedule_id">UOM Schedule</label>
-                            <select id="uom_schedule_id" wire:model="uom_schedule_id" class="so-input">
-                                <option value="">—</option>
-                                @foreach ($uomSchedules as $u)
-                                    <option value="{{ $u->id }}">{{ $u->name }}</option>
-                                @endforeach
-                            </select>
+                            <div class="so-lookup-row">
+                                <select id="uom_schedule_id" wire:model="uom_schedule_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($uomSchedules as $u)
+                                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                    @endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'uom_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="unit_of_measure">Unit of Measure</label>
                             <input id="unit_of_measure" wire:model="unit_of_measure" class="so-input" style="max-width:6rem" />
                         </div>
-                        <fieldset class="entity-fieldset">
-                            <legend>History</legend>
-                            <div class="so-form-row"><label class="so-form-lbl" for="last_received_at">Last Received</label><input id="last_received_at" type="date" wire:model="last_received_at" class="so-input" readonly /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="last_ordered_at">Last Ordered</label><input id="last_ordered_at" type="date" wire:model="last_ordered_at" class="so-input" readonly /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="last_sold_at">Last Sold</label><input id="last_sold_at" type="date" wire:model="last_sold_at" class="so-input" readonly /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="last_count_date">Last Count Date</label><input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" readonly /></div>
-                        </fieldset>
-                    </div>
-                    <div class="entity-col">
-                        <fieldset class="entity-fieldset">
-                            <legend>Reorder</legend>
-                            <div class="so-form-row"><label class="so-form-lbl" for="reorder_point">Reorder Point</label><input id="reorder_point" wire:model="reorder_point" class="so-input text-right" style="max-width:8rem" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="restock_level">Restock Level</label><input id="restock_level" wire:model="restock_level" class="so-input text-right" style="max-width:8rem" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="lead_time_days">Lead Time (days)</label><input id="lead_time_days" wire:model="lead_time_days" class="so-input text-right" style="max-width:8rem" /></div>
-                        </fieldset>
                         <div class="pt-2">
                             <button type="button" wire:click="openJournal" class="desk-btn" @disabled(! $item)>View Journal</button>
                         </div>
+                    </div>
+                    <div class="inv-card">
+                        <div class="inv-card-title">Reorder</div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="reorder_point">Reorder Point</label><input id="reorder_point" wire:model="reorder_point" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="restock_level">Restock Level</label><input id="restock_level" wire:model="restock_level" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="lead_time_days">Lead Time (days)</label><input id="lead_time_days" wire:model="lead_time_days" class="so-input text-right" style="max-width:8rem" /></div>
+                    </div>
+                    <div class="inv-card">
+                        <div class="inv-card-title">History</div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_received_at">Last Received</label><input id="last_received_at" type="date" wire:model="last_received_at" class="so-input" readonly /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_ordered_at">Last Ordered</label><input id="last_ordered_at" type="date" wire:model="last_ordered_at" class="so-input" readonly /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_sold_at">Last Sold</label><input id="last_sold_at" type="date" wire:model="last_sold_at" class="so-input" readonly /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_count_date">Last Count</label><input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" readonly /></div>
                     </div>
                 </div>
 
                 <div class="entity-section">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Current Quantities</h3>
+                        <span class="entity-value">Available {{ number_format($availableQty, 2) }}</span>
                     </div>
                     <div class="desk-grid">
                         <table class="desk-table">
@@ -755,36 +779,92 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
 
             @elseif ($activeTab === 'pricing')
-                <div class="entity-grid-2">
-                    <div class="entity-col">
-                        <div class="so-form-row"><label class="so-form-lbl" for="list_price">List Price</label><input id="list_price" wire:model="list_price" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="msrp">MSRP</label><input id="msrp" wire:model="msrp" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="standard_cost">Standard Cost</label><input id="standard_cost" wire:model="standard_cost" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="current_cost">Current Cost</label><input id="current_cost" wire:model="current_cost" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="last_cost">Last Cost</label><input id="last_cost" wire:model="last_cost" class="so-input text-right" style="max-width:8rem;background:#f8fafc" readonly /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="average_cost">Average Cost</label><input id="average_cost" wire:model="average_cost" class="so-input text-right" style="max-width:8rem;background:#f8fafc" readonly /></div>
+                <div class="item-price-summary">
+                    <div class="item-price-stat">
+                        <span>List Price</span>
+                        <strong>${{ number_format((float) $list_price, 2) }}</strong>
                     </div>
-                    <div class="entity-col">
-                        <div class="so-form-row">
+                    <div class="item-price-stat">
+                        <span>MSRP</span>
+                        <strong>${{ number_format((float) $msrp, 2) }}</strong>
+                    </div>
+                    <div class="item-price-stat">
+                        <span>Standard Cost</span>
+                        <strong>${{ number_format((float) $standard_cost, 2) }}</strong>
+                    </div>
+                    <div class="item-price-stat">
+                        <span>Margin</span>
+                        @php
+                            $list = (float) $list_price;
+                            $cost = (float) $standard_cost;
+                            $margin = $list > 0 ? (($list - $cost) / $list) * 100 : 0;
+                        @endphp
+                        <strong>{{ number_format($margin, 1) }}%</strong>
+                    </div>
+                </div>
+
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Sell prices</div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="list_price">List Price</label>
+                            <input id="list_price" wire:model.live="list_price" class="so-input text-right" style="max-width:8.5rem" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="msrp">MSRP</label>
+                            <input id="msrp" wire:model.live="msrp" class="so-input text-right" style="max-width:8.5rem" />
+                        </div>
+                    </div>
+                    <div class="inv-card">
+                        <div class="inv-card-title">Costs</div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="standard_cost">Standard Cost</label>
+                            <input id="standard_cost" wire:model.live="standard_cost" class="so-input text-right" style="max-width:8.5rem" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="current_cost">Current Cost</label>
+                            <input id="current_cost" wire:model="current_cost" class="so-input text-right" style="max-width:8.5rem" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="last_cost">Last Cost</label>
+                            <input id="last_cost" wire:model="last_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="average_cost">Average Cost</label>
+                            <input id="average_cost" wire:model="average_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly />
+                        </div>
+                    </div>
+                    <div class="inv-card">
+                        <div class="inv-card-title">Schedules</div>
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="tax_schedule_id">Tax Schedule</label>
-                            <select id="tax_schedule_id" wire:model="tax_schedule_id" class="so-input">
-                                <option value="">—</option>
-                                @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }}</option>@endforeach
-                            </select>
+                            <div class="so-lookup-row">
+                                <select id="tax_schedule_id" wire:model="tax_schedule_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }}</option>@endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'tax_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
                         </div>
-                        <div class="so-form-row">
-                            <label class="so-form-lbl" for="promotion_schedule_id">Promotion Schedule</label>
-                            <select id="promotion_schedule_id" wire:model="promotion_schedule_id" class="so-input">
-                                <option value="">—</option>
-                                @foreach ($promotionSchedules as $p)<option value="{{ $p->id }}">{{ $p->name }}</option>@endforeach
-                            </select>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="promotion_schedule_id">Promotion</label>
+                            <div class="so-lookup-row">
+                                <select id="promotion_schedule_id" wire:model="promotion_schedule_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($promotionSchedules as $p)<option value="{{ $p->id }}">{{ $p->name }}</option>@endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'discount_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pricing_method_id">Pricing Method</label>
-                            <select id="pricing_method_id" wire:model="pricing_method_id" class="so-input">
-                                <option value="">—</option>
-                                @foreach ($pricingMethods as $m)<option value="{{ $m->id }}">{{ $m->name }}</option>@endforeach
-                            </select>
+                            <div class="so-lookup-row">
+                                <select id="pricing_method_id" wire:model="pricing_method_id" class="so-input">
+                                    <option value="">—</option>
+                                    @foreach ($pricingMethods as $m)<option value="{{ $m->id }}">{{ $m->name }}</option>@endforeach
+                                </select>
+                                <a href="{{ route('lookups.index', ['activeLookup' => 'pricing_methods']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -794,43 +874,52 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <h3 class="entity-section-title">Prices by UOM</h3>
                         <button type="button" wire:click="addPrice" class="desk-btn desk-btn-sm">Add Price</button>
                     </div>
-                    <div class="desk-grid">
-                        <table class="desk-table">
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table item-price-table">
+                            <colgroup>
+                                <col class="col-uom" />
+                                <col class="col-price" />
+                                <col class="col-alias" />
+                                <col class="col-action" />
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th>U of M</th>
-                                    <th class="desk-money">Price</th>
+                                    <th class="text-center">Price</th>
                                     <th>Alias Code</th>
-                                    <th style="width:6rem"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($prices as $i => $row)
                                     <tr>
-                                        <td><input wire:model="prices.{{ $i }}.uom" class="so-input" style="width:5rem" /></td>
-                                        <td><input wire:model="prices.{{ $i }}.price" class="so-input text-right" style="width:7rem" /></td>
-                                        <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input" style="min-width:10rem" /></td>
-                                        <td><button type="button" wire:click="removePrice({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                        <td><input wire:model="prices.{{ $i }}.uom" class="so-input item-cell-ctl" /></td>
+                                        <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" /></td>
+                                        <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input item-cell-ctl" /></td>
+                                        <td class="text-center"><button type="button" wire:click="removePrice({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
+                    <p class="item-hint">Add box/case/pack prices here. List Price above is the default sell price.</p>
                 </div>
 
             @elseif ($activeTab === 'extended')
-                <div class="entity-grid-2">
-                    <div class="entity-col">
-                        <div class="so-form-row so-form-row-top">
-                            <label class="so-form-lbl" for="extended_description">Extended Description</label>
-                            <textarea id="extended_description" wire:model="extended_description" rows="8" class="so-input so-input-area"></textarea>
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card" style="grid-column: span 2">
+                        <div class="inv-card-title">Descriptions</div>
+                        <div class="item-stack-field">
+                            <label class="item-stack-lbl" for="extended_description">Extended Description</label>
+                            <textarea id="extended_description" wire:model="extended_description" rows="8" class="so-input so-input-area" placeholder="Full product description…"></textarea>
                         </div>
-                        <div class="so-form-row so-form-row-top">
-                            <label class="so-form-lbl" for="product_highlights">Product Highlights</label>
+                        <div class="item-stack-field">
+                            <label class="item-stack-lbl" for="product_highlights">Product Highlights</label>
                             <textarea id="product_highlights" wire:model="product_highlights" rows="6" class="so-input so-input-area" placeholder="One highlight per line"></textarea>
                         </div>
                     </div>
-                    <div class="entity-col">
+                    <div class="inv-card item-media-stack">
+                        <div class="inv-card-title">Media</div>
                         <div class="item-media">
                             <div class="item-media-label">Image</div>
                             <input type="file" wire:model="image_upload" accept="image/*" class="item-file" />
@@ -868,18 +957,28 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <h3 class="entity-section-title">Item Suppliers</h3>
                         <button type="button" wire:click="addSupplierRow" class="desk-btn desk-btn-sm">Add Supplier</button>
                     </div>
-                    <div class="desk-grid">
-                        <table class="desk-table">
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table item-sup-table">
+                            <colgroup>
+                                <col class="col-default" />
+                                <col class="col-supplier" />
+                                <col class="col-scode" />
+                                <col class="col-lead" />
+                                <col class="col-cost" />
+                                <col class="col-cost" />
+                                <col class="col-recv" />
+                                <col class="col-action" />
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width:4.5rem">Default</th>
+                                    <th class="text-center">Default</th>
                                     <th>Supplier</th>
                                     <th>Supplier Item Code</th>
-                                    <th class="desk-money">Lead Time</th>
-                                    <th class="desk-money">Last Cost</th>
-                                    <th class="desk-money">Avg Cost</th>
+                                    <th class="text-center">Lead Time</th>
+                                    <th class="text-center">Last Cost</th>
+                                    <th class="text-center">Avg Cost</th>
                                     <th>Last Received</th>
-                                    <th style="width:6rem"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -889,24 +988,25 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                             <input type="radio" name="default_supplier" wire:click="setDefaultSupplier({{ $i }})" @checked($row['is_default'] ?? false) aria-label="Default supplier {{ $i + 1 }}" />
                                         </td>
                                         <td>
-                                            <select wire:model="suppliers.{{ $i }}.supplier_id" class="so-input" style="min-width:14rem">
+                                            <select wire:model="suppliers.{{ $i }}.supplier_id" class="so-input item-cell-ctl">
                                                 <option value="">—</option>
                                                 @foreach ($supplierOptions as $sup)
                                                     <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
                                                 @endforeach
                                             </select>
                                         </td>
-                                        <td><input wire:model="suppliers.{{ $i }}.supplier_item_code" class="so-input font-mono" style="width:9rem" /></td>
-                                        <td><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right" style="width:5rem" /></td>
-                                        <td><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right" style="width:6rem;background:#f8fafc" readonly /></td>
-                                        <td><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right" style="width:6rem;background:#f8fafc" readonly /></td>
-                                        <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input" style="background:#f8fafc" readonly /></td>
-                                        <td><button type="button" wire:click="removeSupplierRow({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                        <td><input wire:model="suppliers.{{ $i }}.supplier_item_code" class="so-input font-mono item-cell-ctl" /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right item-cell-qty" /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
+                                        <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input so-input-ro item-cell-ctl" readonly /></td>
+                                        <td class="text-center"><button type="button" wire:click="removeSupplierRow({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
+                    <p class="item-hint">Set one default supplier. Lead time and costs update from purchasing.</p>
                 </div>
 
             @elseif ($activeTab === 'substitutes')
@@ -915,15 +1015,22 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <h3 class="entity-section-title">Substitutes</h3>
                         <button type="button" wire:click="addSubstitute" class="desk-btn desk-btn-sm">Add Substitute</button>
                     </div>
-                    <div class="desk-grid">
-                        <table class="desk-table">
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table item-sub-table">
+                            <colgroup>
+                                <col class="col-code" />
+                                <col class="col-desc" />
+                                <col class="col-qty" />
+                                <col class="col-force" />
+                                <col class="col-action" />
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th>Item Code</th>
                                     <th>Description</th>
-                                    <th class="desk-money">Quantity</th>
+                                    <th class="text-center">Quantity</th>
                                     <th class="text-center">Force Substitute</th>
-                                    <th style="width:6rem"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -931,65 +1038,86 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                     @php $sub = $substituteOptions->firstWhere('id', $row['substitute_item_id'] ?? null); @endphp
                                     <tr>
                                         <td>
-                                            <select wire:model.live="substitutes.{{ $i }}.substitute_item_id" class="so-input font-mono" style="min-width:9rem">
+                                            <select wire:model.live="substitutes.{{ $i }}.substitute_item_id" class="so-input font-mono item-cell-ctl">
                                                 <option value="">—</option>
                                                 @foreach ($substituteOptions as $opt)
                                                     <option value="{{ $opt->id }}">{{ $opt->item_code }}</option>
                                                 @endforeach
                                             </select>
                                         </td>
-                                        <td>{{ $sub?->description ?: '—' }}</td>
-                                        <td><input wire:model="substitutes.{{ $i }}.quantity" class="so-input text-right" style="width:5.5rem" /></td>
-                                        <td class="text-center"><input type="checkbox" wire:model="substitutes.{{ $i }}.force_substitute" aria-label="Force substitute {{ $i + 1 }}" /></td>
-                                        <td><button type="button" wire:click="removeSubstitute({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                        <td class="item-cell-desc" title="{{ $sub?->description }}">{{ $sub?->description ?: '—' }}</td>
+                                        <td class="text-center">
+                                            <input wire:model="substitutes.{{ $i }}.quantity" class="so-input text-right item-cell-qty" aria-label="Quantity {{ $i + 1 }}" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="checkbox" wire:model="substitutes.{{ $i }}.force_substitute" class="item-cell-check" aria-label="Force substitute {{ $i + 1 }}" />
+                                        </td>
+                                        <td class="text-center">
+                                            <button type="button" wire:click="removeSubstitute({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
+                    <p class="item-hint">Suggested replacements when this item is out of stock.</p>
                 </div>
 
             @else
-                <div class="entity-grid-2">
-                    <div class="entity-col">
-                        <div class="so-form-row">
+                <div class="inv-top-grid item-tab-grid">
+                    <div class="inv-card">
+                        <div class="inv-card-title">Flags</div>
+                        <div class="so-form-row so-form-row-side">
                             <span class="so-form-lbl">Status</span>
                             <div class="entity-status-btns">
                                 <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
                                 <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
                             </div>
                         </div>
-                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model.live="available_on_website" /> Available on website</label></div>
-                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="allow_back_order" /> Allow Back Order</label></div>
-                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="can_sell" /> Can Sell</label></div>
-                        <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="can_order" /> Can Order</label></div>
-                        <div class="so-form-row">
+                        <div class="item-flag-list">
+                            <label class="entity-check"><input type="checkbox" wire:model.live="available_on_website" /> Available on website</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="allow_back_order" /> Allow Back Order</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="can_sell" /> Can Sell</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="can_order" /> Can Order</label>
+                        </div>
+                    </div>
+                    <div class="inv-card">
+                        <div class="inv-card-title">Tracking & weight</div>
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="item_tracking">Item Tracking</label>
                             <select id="item_tracking" wire:model="item_tracking" class="so-input" style="max-width:10rem">
                                 @foreach ($trackingOptions as $opt)<option value="{{ $opt }}">{{ $opt }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="so-form-row">
+                        <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="barcode_format">Barcode Format</label>
                             <select id="barcode_format" wire:model="barcode_format" class="so-input" style="max-width:10rem">
                                 @foreach ($barcodeFormats as $fmt)<option value="{{ $fmt }}">{{ $fmt }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="item_line_message">Item Line Message</label><input id="item_line_message" wire:model="item_line_message" class="so-input" /></div>
-                        <div class="so-form-row so-form-row-top"><label class="so-form-lbl" for="comments">Comments</label><textarea id="comments" wire:model="comments" rows="4" class="so-input so-input-area"></textarea></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
                     </div>
-                    <div class="entity-col">
-                        <fieldset class="entity-fieldset">
-                            <legend>Manufacturer Promotion</legend>
-                            <div class="so-form-row"><label class="so-form-lbl" for="manu_product_id">Manu. Product ID</label><input id="manu_product_id" wire:model="manu_product_id" class="so-input" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_item">Manu. Promo Item</label><input id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_description">Manu. Promo Desc</label><input id="manu_promotion_description" wire:model="manu_promotion_description" class="so-input" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="manu_promotion_code">Manu. Promo Code</label><input id="manu_promotion_code" wire:model="manu_promotion_code" class="so-input" style="max-width:10rem" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="manu_base_count">Manu. Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" /></div>
-                        </fieldset>
+                    <div class="inv-card">
+                        <div class="inv-card-title">Notes</div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="item_line_message">Line Message</label><input id="item_line_message" wire:model="item_line_message" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side so-form-row-top"><label class="so-form-lbl" for="comments">Comments</label><textarea id="comments" wire:model="comments" rows="4" class="so-input so-input-area"></textarea></div>
+                    </div>
+                </div>
+
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Manufacturer Promotion</h3>
+                    </div>
+                    <div class="entity-body-pad">
+                        <div class="inv-top-grid" style="margin:0">
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_product_id">Product ID</label><input id="manu_product_id" wire:model="manu_product_id" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_item">Promo Item</label><input id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_code">Promo Code</label><input id="manu_promotion_code" wire:model="manu_promotion_code" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-side" style="grid-column:span 2"><label class="so-form-lbl" for="manu_promotion_description">Promo Desc</label><input id="manu_promotion_description" wire:model="manu_promotion_description" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_base_count">Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" /></div>
+                        </div>
                     </div>
                 </div>
             @endif

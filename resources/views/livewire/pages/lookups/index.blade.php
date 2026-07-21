@@ -4,6 +4,7 @@ use App\Models\Category;
 use App\Models\CigaretteTaxClass;
 use App\Models\Department;
 use App\Models\DiscountSchedule;
+use App\Models\ItemType;
 use App\Models\PaymentTerm;
 use App\Models\PriceLevel;
 use App\Models\PricingMethod;
@@ -36,6 +37,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'departments' => Department::class,
             'categories' => Category::class,
             'subcategories' => Subcategory::class,
+            'item_types' => ItemType::class,
             'uom_schedules' => UomSchedule::class,
             'delivery_routes' => RouteLookup::class,
             'tax_schedules' => TaxSchedule::class,
@@ -64,6 +66,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'departments' => 'Departments',
             'categories' => 'Categories',
             'subcategories' => 'Sub Categories',
+            'item_types' => 'Item Types',
             'uom_schedules' => 'UOM Schedules',
             'delivery_routes' => 'Delivery Routes',
             'tax_schedules' => 'Tax Schedules',
@@ -94,6 +97,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 'departments' => 'Top-level item group (example: TOB — Tobacco). Create this first.',
                 'categories' => 'Belongs to a Department (example: CIG — Cigarettes under Tobacco).',
                 'subcategories' => 'Belongs to a Category (optional finer group under Cigarettes).',
+                'item_types' => 'Appears in the Item Type dropdown on New Item (example: STD — Standard Item). Code is short; Name is what users see.',
                 default => 'Shared setup values used across sales and inventory screens.',
             },
         ];

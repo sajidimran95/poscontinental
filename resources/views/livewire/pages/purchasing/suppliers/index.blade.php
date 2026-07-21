@@ -14,6 +14,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
     #[Url]
     public string $search = '';
 
+    #[Url]
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
@@ -28,20 +29,31 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                     $inner->where('supplier_id', 'like', $term)
                         ->orWhere('name', 'like', $term)
                         ->orWhere('email', 'like', $term)
-                        ->orWhere('phone1', 'like', $term);
+                        ->orWhere('phone1', 'like', $term)
+                        ->orWhere('contact_name', 'like', $term);
                 });
             })
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderByDesc('updated_at');
+            ->when($this->favorite === 'tobacco', fn ($q) => $q->where('is_tobacco_supplier', true))
+            ->orderBy('supplier_id');
+
+        $listTitle = match ($this->favorite) {
+            'active' => 'Active Suppliers',
+            'inactive' => 'Inactive Suppliers',
+            'tobacco' => 'Tobacco Suppliers',
+            default => 'Suppliers',
+        };
 
         return [
-            'suppliers' => $query->paginate(25),
+            'suppliers' => $query->paginate(50),
             'favorites' => [
                 'all' => 'All Suppliers',
                 'active' => 'Active Suppliers',
                 'inactive' => 'Inactive Suppliers',
+                'tobacco' => 'Tobacco Suppliers',
             ],
+            'listTitle' => $listTitle,
         ];
     }
 
@@ -53,6 +65,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
     public function updatedFavorite(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
     }
 
     public function selectRow(int $id): void
@@ -68,67 +81,75 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
+    <div class="desk-main">
         <x-action-bar title="Action" />
-        <x-list-chrome label="Search Suppliers:" model="search" />
 
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Suppliers List</div>
+        <x-list-chrome label="Search Suppliers:" model="search" placeholder="ID, name, phone, email…">
+            <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-primary ms-auto">New Supplier</a>
+        </x-list-chrome>
 
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+        <div class="desk-titlebar">
+            <h2 class="desk-title">{{ $listTitle }}</h2>
+            <span class="desk-title-meta">{{ number_format($suppliers->total()) }} records</span>
+        </div>
+
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Supplier ID</th>
                         <th>Company Name</th>
                         <th>Address</th>
                         <th>Telephone</th>
-                        <th>Email Address</th>
-                        <th>Web Site</th>
-                        <th class="text-center">Inactive</th>
+                        <th>Email</th>
+                        <th class="text-center">Status</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($suppliers as $supplier)
                         <tr
                             wire:click="selectRow({{ $supplier->id }})"
-                            @class(['chief-selected-row' => $selectedId === $supplier->id, 'cursor-pointer'])
+                            @class(['is-selected' => $selectedId === $supplier->id, 'cursor-pointer'])
                         >
-                            <td class="font-mono">
-                                <a href="{{ route('purchasing.suppliers.edit', $supplier) }}" wire:navigate class="hover:underline">{{ $supplier->supplier_id }}</a>
+                            <td class="desk-num">
+                                <a href="{{ route('purchasing.suppliers.edit', $supplier) }}" wire:navigate wire:click.stop>{{ $supplier->supplier_id }}</a>
                             </td>
                             <td>{{ $supplier->name }}</td>
-                            <td>{{ $supplier->address }}</td>
+                            <td title="{{ $supplier->address }}">{{ \Illuminate\Support\Str::limit($supplier->address, 36) }}</td>
                             <td>{{ $supplier->phone1 }}</td>
                             <td>{{ $supplier->email }}</td>
-                            <td>
-                                @if ($supplier->web_page)
-                                    <a href="{{ Str::startsWith($supplier->web_page, 'http') ? $supplier->web_page : 'https://'.$supplier->web_page }}" target="_blank" class="text-sky-700 underline" wire:click.stop>
-                                        {{ $supplier->web_page }}
-                                    </a>
-                                @endif
-                            </td>
                             <td class="text-center" wire:click.stop>
                                 <button
                                     type="button"
                                     wire:click="toggleInactive({{ $supplier->id }})"
-                                    class="px-1 text-base leading-none hover:scale-110"
+                                    @class([
+                                        'desk-pill',
+                                        'desk-pill-muted' => $supplier->is_inactive,
+                                        'desk-pill-invoiced' => ! $supplier->is_inactive,
+                                    ])
                                     title="{{ $supplier->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
                                     aria-label="Toggle inactive"
-                                >{{ $supplier->is_inactive ? '☑' : '☐' }}</button>
+                                >{{ $supplier->is_inactive ? 'Inactive' : 'Active' }}</button>
+                            </td>
+                            <td wire:click.stop>
+                                <a href="{{ route('purchasing.suppliers.edit', $supplier) }}" wire:navigate class="desk-btn desk-btn-sm">Edit</a>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-2 py-6 text-slate-500">No suppliers found.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="7">No suppliers found. Click <strong>New Supplier</strong> to create one.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
         <x-record-count :count="$suppliers->total()">
-            <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="chief-btn-primary">New Supplier</a>
+            <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Supplier</a>
             {{ $suppliers->links() }}
         </x-record-count>
     </div>

@@ -2322,6 +2322,17 @@
     .rtv-lines-table .col-ext { width: 7.5rem; }
     .rtv-lines-table .col-action { width: 6.5rem; }
 
+    .sup-contact-table .col-dept { width: 10rem; }
+    .sup-contact-table .col-name { width: auto; }
+    .sup-contact-table .col-title { width: 9rem; }
+    .sup-contact-table .col-phone { width: 9rem; }
+    .sup-contact-table .col-ext { width: 5rem; }
+    .sup-contact-table .col-action { width: 6.5rem; }
+
+    .sc-field-city {
+        grid-template-columns: 8.5rem minmax(0, 1fr) 3.25rem 3.75rem 2.5rem 6rem !important;
+    }
+
     .sc-general-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);

@@ -2314,6 +2314,14 @@
     .rcv-lines-table .col-cost { width: 7.5rem; }
     .rcv-lines-table .col-ext { width: 7.5rem; }
 
+    .rtv-lines-table .col-code { width: 11rem; }
+    .rtv-lines-table .col-desc { width: auto; }
+    .rtv-lines-table .col-uom { width: 4.5rem; }
+    .rtv-lines-table .col-qty { width: 7rem; }
+    .rtv-lines-table .col-cost { width: 7.25rem; }
+    .rtv-lines-table .col-ext { width: 7.5rem; }
+    .rtv-lines-table .col-action { width: 6.5rem; }
+
     .sc-general-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);

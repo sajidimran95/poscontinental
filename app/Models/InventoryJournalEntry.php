@@ -25,4 +25,9 @@ class InventoryJournalEntry extends Model
     {
         return $this->belongsTo(Item::class);
     }
+
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
 }

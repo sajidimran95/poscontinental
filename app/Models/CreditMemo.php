@@ -25,6 +25,11 @@ class CreditMemo extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function salesOrder(): BelongsTo
+    {
+        return $this->belongsTo(SalesOrder::class);
+    }
+
     public static function nextNumber(int $companyId): string
     {
         $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('memo_number');

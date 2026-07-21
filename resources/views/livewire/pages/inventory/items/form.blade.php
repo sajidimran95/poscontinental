@@ -3,6 +3,7 @@
 use App\Models\Category;
 use App\Models\Department;
 use App\Models\DiscountSchedule;
+use App\Models\InventoryJournalEntry;
 use App\Models\Item;
 use App\Models\ItemPrice;
 use App\Models\ItemSubstitute;
@@ -146,6 +147,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     /** @var array<int, array{substitute_item_id:?int,quantity:string,force_substitute:bool}> */
     public array $substitutes = [];
 
+    public bool $showJournal = false;
+
     public function mount(?Item $item = null): void
     {
         if ($item?->exists) {
@@ -262,7 +265,29 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'options' => 'Options & Comments',
             ],
             'availableQty' => (float) $this->quantity_in_stock - (float) $this->allocated_qty,
+            'journalEntries' => ($this->showJournal && $this->item)
+                ? InventoryJournalEntry::query()
+                    ->where('company_id', $companyId)
+                    ->where('item_id', $this->item->id)
+                    ->with('site')
+                    ->orderByDesc('id')
+                    ->limit(200)
+                    ->get()
+                : collect(),
         ];
+    }
+
+    public function openJournal(): void
+    {
+        if (! $this->item) {
+            return;
+        }
+        $this->showJournal = true;
+    }
+
+    public function closeJournal(): void
+    {
+        $this->showJournal = false;
     }
 
     public function updatedDepartmentId(): void
@@ -693,7 +718,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </div>
                         </fieldset>
                         <div class="pt-3">
-                            <button type="button" class="chief-btn" disabled title="Available after inventory journal is built">View Journal</button>
+                            <button type="button" wire:click="openJournal" class="chief-btn" @disabled(! $item)>View Journal</button>
                         </div>
                     </div>
                 </div>
@@ -1044,4 +1069,49 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             </div>
         </div>
     </form>
+
+    @if ($showJournal && $item)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeJournal">
+            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-auto">
+                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
+                    <span>Inventory Journal — {{ $item->item_code }}</span>
+                    <button type="button" wire:click="closeJournal" class="text-white hover:text-red-200">×</button>
+                </div>
+                <div class="p-3">
+                    <div class="chief-grid border border-slate-300 overflow-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Site</th>
+                                    <th>Source</th>
+                                    <th>Reference</th>
+                                    <th class="text-right">Qty Change</th>
+                                    <th class="text-right">Qty After</th>
+                                    <th class="text-right">Unit Cost</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($journalEntries as $entry)
+                                    <tr>
+                                        <td>{{ optional($entry->created_at)?->format('n/j/Y g:ia') }}</td>
+                                        <td class="font-mono">{{ $entry->site?->code ?: '—' }}</td>
+                                        <td>{{ $entry->source_type }}</td>
+                                        <td class="font-mono">{{ $entry->reference }}</td>
+                                        <td class="text-right">{{ number_format($entry->qty_change, 2) }}</td>
+                                        <td class="text-right">{{ number_format($entry->qty_after, 2) }}</td>
+                                        <td class="text-right">${{ number_format((float) $entry->unit_cost, 4) }}</td>
+                                        <td>{{ $entry->notes }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="8" class="text-slate-500 px-2 py-4">No journal entries for this item.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

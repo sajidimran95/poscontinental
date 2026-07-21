@@ -74,14 +74,18 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         ]);
 
         $remaining = (float) $this->pay_amount;
-        $ids = collect($this->selected)->filter()->keys()->sort()->all();
+        $ids = collect($this->selected)->filter()->keys()->all();
+        $invoices = Invoice::query()
+            ->whereIn('id', $ids)
+            ->orderBy('invoice_date')
+            ->orderBy('id')
+            ->get();
 
-        foreach ($ids as $id) {
+        foreach ($invoices as $invoice) {
             if ($remaining <= 0) {
                 break;
             }
-            $invoice = Invoice::query()->find($id);
-            if (! $invoice || $invoice->company_id !== auth()->user()->company_id) {
+            if ($invoice->company_id !== auth()->user()->company_id) {
                 continue;
             }
             $due = $invoice->invoice_balance;

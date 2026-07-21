@@ -2,6 +2,7 @@
 
 use App\Models\CigaretteTaxClass;
 use App\Models\Customer;
+use App\Models\CustomerLookupOption;
 use App\Models\CustomerShippingAddress;
 use App\Models\DiscountSchedule;
 use App\Models\PaymentTerm;
@@ -172,6 +173,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             $this->shippingAddresses = $customer->shippingAddresses->map(fn (CustomerShippingAddress $a) => [
                 'name' => $a->name ?? '',
                 'address' => $a->address ?? '',
+                'city' => $a->city ?? '',
+                'state' => $a->state ?? '',
+                'zip' => $a->zip ?? '',
                 'telephone' => $a->telephone ?? '',
                 'fax' => $a->fax ?? '',
                 'class' => $a->class ?? '',
@@ -181,7 +185,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
         if ($this->shippingAddresses === []) {
             $this->shippingAddresses[] = [
-                'name' => '', 'address' => '', 'telephone' => '', 'fax' => '', 'class' => '', 'is_primary' => true,
+                'name' => '', 'address' => '', 'city' => '', 'state' => '', 'zip' => '',
+                'telephone' => '', 'fax' => '', 'class' => '', 'is_primary' => true,
             ];
         }
     }
@@ -198,6 +203,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'salesReps' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'leadSources' => CustomerLookupOption::optionsFor($companyId, 'lead_source'),
+            'customerCategories' => CustomerLookupOption::optionsFor($companyId, 'customer_category'),
+            'accountTypes' => CustomerLookupOption::optionsFor($companyId, 'account_type'),
             'orderDays' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
             'tabs' => [
                 'name' => 'Name & Address',
@@ -212,7 +220,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     public function addShipTo(): void
     {
         $this->shippingAddresses[] = [
-            'name' => '', 'address' => '', 'telephone' => '', 'fax' => '', 'class' => '', 'is_primary' => false,
+            'name' => '', 'address' => '', 'city' => '', 'state' => '', 'zip' => '',
+            'telephone' => '', 'fax' => '', 'class' => '', 'is_primary' => false,
         ];
     }
 
@@ -358,6 +367,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 $customer->shippingAddresses()->create([
                     'name' => $row['name'] ?: null,
                     'address' => $row['address'] ?: null,
+                    'city' => $row['city'] ?: null,
+                    'state' => $row['state'] ?: null,
+                    'zip' => $row['zip'] ?: null,
                     'telephone' => $row['telephone'] ?: null,
                     'fax' => $row['fax'] ?: null,
                     'class' => $row['class'] ?: null,
@@ -422,6 +434,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                     <th class="w-14 text-center">Primary</th>
                                     <th>Name</th>
                                     <th>Address</th>
+                                    <th>City</th>
+                                    <th>State</th>
+                                    <th>ZIP</th>
                                     <th>Telephone</th>
                                     <th>Fax No.</th>
                                     <th>Class</th>
@@ -433,10 +448,13 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                     <tr>
                                         <td class="text-center"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
                                         <td><input wire:model="shippingAddresses.{{ $i }}.name" class="chief-input w-full" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="chief-input w-full min-w-[12rem]" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="chief-input w-32" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="chief-input w-28" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="chief-input w-24" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="chief-input w-full min-w-[10rem]" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="chief-input w-28" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="chief-input w-16" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="chief-input w-20" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="chief-input w-28" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="chief-input w-24" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="chief-input w-20" /></td>
                                         <td><button type="button" wire:click="removeShipTo({{ $i }})" class="text-xs text-red-700 hover:underline">Remove</button></td>
                                     </tr>
                                 @endforeach
@@ -478,7 +496,12 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         </div>
                         <div class="chief-field">
                             <label>Lead Source</label>
-                            <input wire:model="lead_source" class="chief-input w-64" />
+                            <select wire:model="lead_source" class="chief-input w-64">
+                                <option value="">—</option>
+                                @foreach ($leadSources as $opt)
+                                    <option value="{{ $opt->name }}">{{ $opt->name }}</option>
+                                @endforeach
+                            </select>
                         </div>
                         <div class="chief-field">
                             <label>Sales Rep</label>
@@ -489,7 +512,12 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         </div>
                         <div class="chief-field">
                             <label>Category</label>
-                            <input wire:model="customer_category" class="chief-input w-64" />
+                            <select wire:model="customer_category" class="chief-input w-64">
+                                <option value="">—</option>
+                                @foreach ($customerCategories as $opt)
+                                    <option value="{{ $opt->name }}">{{ $opt->name }}</option>
+                                @endforeach
+                            </select>
                         </div>
                     </div>
                     <div class="space-y-2">
@@ -511,7 +539,15 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             @elseif ($activeTab === 'account')
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
                     <div class="space-y-1">
-                        <div class="chief-field"><label>Account Type</label><input wire:model="account_type" class="chief-input w-56" /></div>
+                        <div class="chief-field">
+                            <label>Account Type</label>
+                            <select wire:model="account_type" class="chief-input w-56">
+                                <option value="">—</option>
+                                @foreach ($accountTypes as $opt)
+                                    <option value="{{ $opt->name }}">{{ $opt->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
                         <div class="chief-field"><label>FEIN No.</label><input wire:model="fein_no" class="chief-input w-56 font-mono" /></div>
                         <div class="chief-field">
                             <label>Payment Terms</label>

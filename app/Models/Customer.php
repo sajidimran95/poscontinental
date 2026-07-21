@@ -110,6 +110,16 @@ class Customer extends Model
         return $this->belongsTo(PriceLevel::class);
     }
 
+    public function paymentTerm(): BelongsTo
+    {
+        return $this->belongsTo(PaymentTerm::class);
+    }
+
+    public function deliveryRoute(): BelongsTo
+    {
+        return $this->belongsTo(RouteLookup::class, 'delivery_route_id');
+    }
+
     public function shippingAddresses(): HasMany
     {
         return $this->hasMany(CustomerShippingAddress::class)->orderBy('sort_order');

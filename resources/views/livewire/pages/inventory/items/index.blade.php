@@ -92,6 +92,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <th class="text-right">Standard Cost</th>
                         <th class="text-right">Qty In Stock</th>
                         <th class="text-right">Available</th>
+                        <th class="text-center">New</th>
                         <th class="text-center">Can Sell</th>
                         <th class="text-center">Inactive</th>
                     </tr>
@@ -111,11 +112,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             <td class="text-right">${{ number_format($item->standard_cost, 2) }}</td>
                             <td class="text-right">{{ number_format($item->quantity_in_stock, 2) }}</td>
                             <td class="text-right">{{ number_format($item->available_quantity, 2) }}</td>
+                            <td class="text-center">{{ $item->created_at && $item->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
                             <td class="text-center">{{ $item->can_sell ? '☑' : '☐' }}</td>
                             <td class="text-center">{{ $item->is_inactive ? '☑' : '☐' }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="9" class="px-2 py-6 text-slate-500">No items found.</td></tr>
+                        <tr><td colspan="10" class="px-2 py-6 text-slate-500">No items found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Category;
 use App\Models\CigaretteTaxClass;
 use App\Models\Company;
+use App\Models\CustomerLookupOption;
 use App\Models\Department;
 use App\Models\DiscountSchedule;
 use App\Models\Item;
@@ -213,5 +214,23 @@ class DatabaseSeeder extends Seeder
             'code' => 'NONE',
             'name' => 'No Limit',
         ]);
+
+        $lookups = [
+            'lead_source' => ['Walk-in', 'Referral', 'Website', 'Trade Show', 'Sales Call'],
+            'customer_category' => ['Wholesale', 'Retail', 'Chain', 'Convenience', 'Distributor'],
+            'account_type' => ['Open Account', 'COD', 'Credit Card', 'Cash'],
+        ];
+
+        foreach ($lookups as $type => $names) {
+            foreach ($names as $name) {
+                CustomerLookupOption::query()->create([
+                    'company_id' => $companyId,
+                    'type' => $type,
+                    'code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 12)) ?: null,
+                    'name' => $name,
+                    'is_active' => true,
+                ]);
+            }
+        }
     }
 }

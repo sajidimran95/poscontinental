@@ -55,6 +55,36 @@ class SalesOrder extends Model
         return $this->belongsTo(User::class, 'sales_rep_id');
     }
 
+    public function paymentTerm(): BelongsTo
+    {
+        return $this->belongsTo(PaymentTerm::class);
+    }
+
+    public function route(): BelongsTo
+    {
+        return $this->belongsTo(RouteLookup::class, 'route_id');
+    }
+
+    public function shipVia(): BelongsTo
+    {
+        return $this->belongsTo(ShipVia::class);
+    }
+
+    public function shipFromSite(): BelongsTo
+    {
+        return $this->belongsTo(Site::class, 'ship_from_site_id');
+    }
+
+    public function shipToAddress(): BelongsTo
+    {
+        return $this->belongsTo(CustomerShippingAddress::class, 'ship_to_address_id');
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function invoice(): HasOne
     {
         return $this->hasOne(Invoice::class);

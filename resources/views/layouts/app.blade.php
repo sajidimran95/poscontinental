@@ -12,7 +12,7 @@
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
         <div class="h-screen flex flex-col overflow-hidden">
-            <nav class="chief-menu select-none">
+            <nav class="chief-menu select-none" role="navigation" aria-label="Main menu">
                 <div class="flex items-center gap-0.5 px-2 py-0.5">
                     <span class="px-2 py-1 font-semibold text-slate-800">Chief 5.0</span>
                     @foreach ([
@@ -49,6 +49,10 @@
                             ['Sales Report', 'reports.sales'],
                             ['Price List', 'reports.price-list'],
                             ['Bulk Pricing', 'inventory.bulk-pricing'],
+                        ],
+                        'Tobacco' => [
+                            ['Stamp Inventory', 'tobacco.stamp-inventory'],
+                            ['XML Filing', 'tobacco.filing'],
                         ],
                         'Help' => [],
                     ] as $menu => $items)
@@ -107,6 +111,13 @@
                     'purchasing.receivings.edit' => 'Receiving',
                     'purchasing.rtv.index' => 'RTV',
                     'lookups.index' => 'Lookups',
+                    'reports.sales' => 'Sales Report',
+                    'reports.price-list' => 'Price List',
+                    'inventory.bulk-pricing' => 'Bulk Pricing',
+                    'inquiries.stock-status' => 'Stock Status',
+                    'inquiries.item-velocity' => 'Item Velocity',
+                    'tobacco.stamp-inventory' => 'Stamp Inventory',
+                    'tobacco.filing' => 'Tobacco Filing',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {
@@ -145,11 +156,11 @@
                 @endforeach
             </div>
 
-            <main class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;">
+            <main class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;" role="main" id="main-content" aria-label="Document content">
                 {{ $slot }}
             </main>
 
-            <footer class="chief-status-bar">
+            <footer class="chief-status-bar" role="contentinfo" aria-label="Status bar">
                 <span>User: <strong>{{ auth()->user()?->name ?? '—' }}@if(auth()->user()?->role) — {{ auth()->user()->role->label }}@endif</strong></span>
                 <span>Site: <strong>{{ session('site_code', auth()->user()?->site?->code ?? 'WS') }}</strong></span>
                 <span>Company: <strong>{{ session('company_name', auth()->user()?->company?->name ?? '—') }}</strong></span>

@@ -25,6 +25,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $showBrowse = false;
 
+    public bool $browseNewOnly = false;
+
     public string $favorite = 'new';
 
     public string $order_number = '';
@@ -109,7 +111,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $customerAlert = '';
 
-    /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,price:string,discount:string}> */
+    public string $creditWarning = '';
+
+    public string $taxExemptWarning = '';
+
+    public string $lineWarning = '';
+
+    public bool $showCustomerBrowse = false;
+
+    public string $customerSearch = '';
+
+    public bool $showShipBrowse = false;
+
+    public bool $taxManual = false;
+
+    public float $pendingTradePercent = 0;
+
+    /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_shipped:string,price:string,discount:string}> */
     public array $lines = [];
 
     /** @var array<int, array{box_number:string,tracking_number:string}> */
@@ -117,6 +135,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function mount(?SalesOrder $salesOrder = null): void
     {
+        if ($this->activeTab === 'expand') {
+            $this->activeTab = 'items';
+        }
+
         $companyId = auth()->user()->company_id;
 
         if ($salesOrder?->exists) {
@@ -134,13 +156,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->order_date = optional($salesOrder->order_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($salesOrder->required_date)?->format('Y-m-d') ?? '';
             $this->ship_date = optional($salesOrder->ship_date)?->format('Y-m-d') ?? '';
+            $this->no_of_boxes = (string) ($salesOrder->no_of_boxes ?? 0);
+            $this->no_of_pallets = (string) ($salesOrder->no_of_pallets ?? 0);
             $this->customerAlert = $salesOrder->customer?->messages_alerts ?? '';
+            $this->taxManual = true;
             $this->lines = $salesOrder->lines->map(fn ($l) => [
                 'item_id' => $l->item_id,
                 'item_code' => $l->item_code ?? '',
                 'description' => $l->description ?? '',
                 'uom' => $l->uom ?? '',
                 'qty_ordered' => (string) $l->qty_ordered,
+                'qty_shipped' => (string) ($l->qty_shipped ?? 0),
                 'price' => (string) $l->price,
                 'discount' => (string) $l->discount,
             ])->all();
@@ -148,10 +174,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'box_number' => $b->box_number ?? '',
                 'tracking_number' => $b->tracking_number ?? '',
             ])->all();
+            $this->refreshCreditWarning();
         } else {
             $this->order_number = SalesOrder::nextNumber($companyId);
             $this->order_date = now()->toDateString();
             $this->required_date = now()->toDateString();
+            $this->ship_date = now()->toDateString();
             $this->sales_rep_id = auth()->id();
             $this->ship_from_site_id = auth()->user()->site_id;
         }
@@ -165,7 +193,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         return [
             'item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '',
-            'qty_ordered' => '1', 'price' => '0', 'discount' => '0',
+            'qty_ordered' => '1', 'qty_shipped' => '0', 'price' => '0', 'discount' => '0',
         ];
     }
 
@@ -174,25 +202,59 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $companyId = auth()->user()->company_id;
         $filledLines = collect($this->lines)->filter(fn ($l) => filled($l['item_code'] ?? null));
         $subtotal = $filledLines->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+        if ($this->pendingTradePercent > 0 && $subtotal > 0) {
+            $this->trade_discount = number_format($subtotal * ($this->pendingTradePercent / 100), 2, '.', '');
+        }
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
 
+        $customerQuery = Customer::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->orderBy('company_name');
+
+        $browseCustomers = collect();
+        if ($this->showCustomerBrowse) {
+            $browseCustomers = (clone $customerQuery)
+                ->when(filled($this->customerSearch), function ($q) {
+                    $term = '%'.$this->customerSearch.'%';
+                    $q->where(function ($inner) use ($term) {
+                        $inner->where('customer_id', 'like', $term)
+                            ->orWhere('company_name', 'like', $term)
+                            ->orWhere('contact', 'like', $term)
+                            ->orWhere('telephone', 'like', $term);
+                    });
+                })
+                ->limit(80)
+                ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'city', 'state']);
+        }
+
         return [
-            'customers' => Customer::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('company_name')->get(),
-            'selectedCustomer' => $this->customer_id ? Customer::query()->with('shippingAddresses')->find($this->customer_id) : null,
+            'customers' => $customerQuery->get(['id', 'customer_id', 'company_name']),
+            'selectedCustomer' => $this->customer_id
+                ? Customer::query()->with('shippingAddresses')->find($this->customer_id)
+                : null,
             'salesReps' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'shipVias' => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
             'browseItems' => $this->showBrowse
-                ? Item::query()->where('company_id', $companyId)->where('is_inactive', false)->where('can_sell', true)->orderBy('item_code')->limit(80)->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price'])
+                ? Item::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_inactive', false)
+                    ->where('can_sell', true)
+                    ->when($this->browseNewOnly, fn ($q) => $q->newItems())
+                    ->orderBy('item_code')
+                    ->limit(80)
+                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'created_at'])
                 : collect(),
+            'browseCustomers' => $browseCustomers,
             'subtotal' => $subtotal,
             'orderTotal' => $total,
             'totalLines' => $filledLines->count(),
             'totalItems' => $filledLines->count(),
             'totalQty' => $filledLines->sum(fn ($l) => (float) $l['qty_ordered']),
-            'totalShipped' => 0,
+            'totalShipped' => $filledLines->sum(fn ($l) => (float) ($l['qty_shipped'] ?? 0)),
             'totalDiscounts' => $filledLines->sum(fn ($l) => (float) $l['discount']),
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
@@ -215,6 +277,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $customer = Customer::query()->with('shippingAddresses')->find($value);
         if (! $customer) {
+            $this->customerAlert = '';
+            $this->creditWarning = '';
+            $this->taxExemptWarning = '';
+
             return;
         }
         $this->customerAlert = $customer->messages_alerts ?? '';
@@ -228,11 +294,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->sales_rep_id = $customer->sales_rep_id ?: $this->sales_rep_id;
         $this->route_id = $customer->delivery_route_id;
 
+        if ($customer->discount_schedule_id) {
+            $schedule = \App\Models\DiscountSchedule::query()->find($customer->discount_schedule_id);
+            if ($schedule && (float) $schedule->percent > 0) {
+                // Soft-apply as percent of current subtotal (recomputed in with()); seed from schedule percent of 0 until lines exist
+                $this->trade_discount = '0';
+                $this->pendingTradePercent = (float) $schedule->percent;
+            }
+        }
+
+        $this->refreshTaxExemptWarning($customer);
+
         $ship = $customer->shippingAddresses->firstWhere('is_primary', true) ?? $customer->shippingAddresses->first();
         if ($ship) {
             $this->ship_to_address_id = $ship->id;
             $this->applyShipAddress($ship);
         } else {
+            $this->ship_to_address_id = null;
             $this->ship_to_name = $this->bill_to_name;
             $this->ship_to_phone = $this->bill_to_phone;
             $this->ship_to_address = $this->bill_to_address;
@@ -240,6 +318,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->ship_to_state = $this->bill_to_state;
             $this->ship_to_zip = $this->bill_to_zip;
         }
+
+        $this->showCustomerBrowse = false;
+        $this->refreshCreditWarning();
+        $this->suggestTax();
     }
 
     public function updatedShipToAddressId($value): void
@@ -252,6 +334,51 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($ship) {
             $this->applyShipAddress($ship);
             $this->addressTab = 'ship';
+            $this->showShipBrowse = false;
+        }
+    }
+
+    public function updatedTradeDiscount(): void
+    {
+        $this->pendingTradePercent = 0;
+        $this->refreshCreditWarning();
+        $this->suggestTax();
+    }
+
+    public function updatedFreight(): void
+    {
+        $this->refreshCreditWarning();
+    }
+
+    public function updatedMiscellaneous(): void
+    {
+        $this->refreshCreditWarning();
+    }
+
+    public function markTaxManual(): void
+    {
+        $this->taxManual = true;
+        $this->refreshCreditWarning();
+    }
+
+    public function updatedLines(): void
+    {
+        $this->refreshCreditWarning();
+        $this->suggestTax();
+    }
+
+    protected function refreshTaxExemptWarning($customer): void
+    {
+        $this->taxExemptWarning = '';
+        if (! $customer?->is_tax_exempt || ! $customer->tax_certificate_exp) {
+            return;
+        }
+        $exp = $customer->tax_certificate_exp->copy()->startOfDay();
+        $today = now()->startOfDay();
+        if ($exp->lt($today)) {
+            $this->taxExemptWarning = 'Tax exemption certificate expired on '.$exp->format('n/j/Y').'.';
+        } elseif ($exp->lte($today->copy()->addDays(30))) {
+            $this->taxExemptWarning = 'Tax exemption certificate expires on '.$exp->format('n/j/Y').' (within 30 days).';
         }
     }
 
@@ -260,9 +387,103 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->ship_to_name = $ship->name ?? '';
         $this->ship_to_phone = $ship->telephone ?? '';
         $this->ship_to_address = $ship->address ?? '';
-        $this->ship_to_city = '';
-        $this->ship_to_state = '';
-        $this->ship_to_zip = '';
+        $this->ship_to_city = $ship->city ?? '';
+        $this->ship_to_state = $ship->state ?? '';
+        $this->ship_to_zip = $ship->zip ?? '';
+    }
+
+    protected function orderTotalAmount(): float
+    {
+        $subtotal = collect($this->lines)
+            ->filter(fn ($l) => filled($l['item_code'] ?? null))
+            ->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+
+        return $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
+    }
+
+    protected function refreshCreditWarning(): void
+    {
+        $this->creditWarning = '';
+        if (! $this->customer_id) {
+            return;
+        }
+        $customer = Customer::query()->find($this->customer_id);
+        if (! $customer || (float) $customer->credit_limit <= 0) {
+            return;
+        }
+        $available = (float) $customer->available_credit;
+        $total = $this->orderTotalAmount();
+        if ($total > $available) {
+            $this->creditWarning = sprintf(
+                'Order total $%s exceeds available credit $%s (limit $%s − balance $%s).',
+                number_format($total, 2),
+                number_format($available, 2),
+                number_format((float) $customer->credit_limit, 2),
+                number_format((float) $customer->balance, 2),
+            );
+        }
+    }
+
+    protected function suggestTax(): void
+    {
+        if ($this->taxManual) {
+            return;
+        }
+        $filled = collect($this->lines)->filter(fn ($l) => filled($l['item_code'] ?? null) && ! empty($l['item_id']));
+        if ($filled->isEmpty()) {
+            return;
+        }
+        $itemIds = $filled->pluck('item_id')->filter()->unique()->all();
+        $items = Item::query()->with('taxSchedule')->whereIn('id', $itemIds)->get()->keyBy('id');
+        $taxable = 0.0;
+        $weighted = 0.0;
+        foreach ($filled as $line) {
+            $item = $items->get($line['item_id']);
+            $rate = (float) ($item?->taxSchedule?->rate ?? 0);
+            $lineNet = ((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'];
+            $taxable += $lineNet;
+            $weighted += $lineNet * ($rate / 100);
+        }
+        $taxable = max(0, $taxable - (float) $this->trade_discount);
+        if ($taxable <= 0) {
+            $this->tax = '0';
+
+            return;
+        }
+        // Scale suggested tax after trade discount proportionally
+        $gross = $filled->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+        $suggested = $gross > 0 ? $weighted * ($taxable / $gross) : 0;
+        $this->tax = number_format($suggested, 2, '.', '');
+    }
+
+    public function toggleCustomerBrowse(): void
+    {
+        $this->showCustomerBrowse = ! $this->showCustomerBrowse;
+        $this->showShipBrowse = false;
+        if ($this->showCustomerBrowse) {
+            $this->customerSearch = '';
+        }
+    }
+
+    public function pickCustomer(int $customerId): void
+    {
+        $this->customer_id = $customerId;
+        $this->updatedCustomerId($customerId);
+    }
+
+    public function toggleShipBrowse(): void
+    {
+        if (! $this->customer_id) {
+            return;
+        }
+        $this->showShipBrowse = ! $this->showShipBrowse;
+        $this->showCustomerBrowse = false;
+    }
+
+    public function pickShipTo(int $addressId): void
+    {
+        $this->ship_to_address_id = $addressId;
+        $this->updatedShipToAddressId($addressId);
     }
 
     public function addLine(): void
@@ -274,6 +495,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
+        $this->refreshCreditWarning();
+        $this->suggestTax();
     }
 
     public function lookupItem(int $index): void
@@ -308,7 +531,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function pickBrowseItem(int $itemId): void
     {
-        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
+        $item = Item::query()->with(['prices', 'taxSchedule'])->where('company_id', auth()->user()->company_id)->find($itemId);
         if (! $item) {
             return;
         }
@@ -321,27 +544,58 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function toggleBrowse(): void
     {
         $this->showBrowse = ! $this->showBrowse;
+        $this->showCustomerBrowse = false;
+        $this->showShipBrowse = false;
     }
 
     protected function findItem(string $code): ?Item
     {
         return Item::query()
+            ->with(['prices', 'taxSchedule'])
             ->where('company_id', auth()->user()->company_id)
             ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)->orWhere('primary_upc', $code);
+                $q->where('item_code', $code)
+                    ->orWhere('primary_upc', $code)
+                    ->orWhereHas('prices', fn ($p) => $p->where('alias_code', $code));
             })
             ->first();
     }
 
+    protected function resolveItemPrice(Item $item): string
+    {
+        $uom = $item->unit_of_measure ?? '';
+        $prices = $item->relationLoaded('prices') ? $item->prices : $item->prices()->get();
+        if ($uom !== '') {
+            $match = $prices->firstWhere('uom', $uom);
+            if ($match) {
+                return (string) $match->price;
+            }
+        }
+        $first = $prices->first();
+        if ($first) {
+            return (string) $first->price;
+        }
+
+        return (string) $item->list_price;
+    }
+
     protected function fillLineFromItem(int $index, Item $item): void
     {
+        $desc = trim((string) ($item->description ?? ''));
+        if (filled($item->item_line_message)) {
+            $desc = trim($desc.($desc !== '' ? ' | ' : '').$item->item_line_message);
+        }
         $this->lines[$index]['item_id'] = $item->id;
         $this->lines[$index]['item_code'] = $item->item_code;
-        $this->lines[$index]['description'] = trim(($item->description ?? '').($item->item_line_message ? ' | '.$item->item_line_message : ''));
+        $this->lines[$index]['description'] = $desc;
         $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $this->lines[$index]['price'] = (string) $item->list_price;
+        $this->lines[$index]['price'] = $this->resolveItemPrice($item);
         $this->lines[$index]['qty_ordered'] = $this->lines[$index]['qty_ordered'] ?: '1';
+        $this->lines[$index]['qty_shipped'] = $this->lines[$index]['qty_shipped'] ?? '0';
         $this->lines[$index]['discount'] = $this->lines[$index]['discount'] ?: '0';
+        $this->taxManual = false;
+        $this->refreshCreditWarning();
+        $this->suggestTax();
     }
 
     public function addBox(): void
@@ -362,8 +616,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'customer_id' => 'required|integer|exists:customers,id',
         ]);
 
+        $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty_ordered'] ?? 0) > 0);
+        $this->lineWarning = $hasLines ? '' : 'Order saved without line items.';
+
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
-        $subtotal = collect($this->lines)->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+        $subtotal = collect($this->lines)->sum(fn ($l) => filled($l['item_code'] ?? null)
+            ? (((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount'])
+            : 0);
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
 
         $data = [
@@ -436,6 +695,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'description' => $line['description'] ?: null,
                     'uom' => $line['uom'] ?: null,
                     'qty_ordered' => $qty,
+                    'qty_shipped' => (float) ($line['qty_shipped'] ?? 0),
                     'price' => $price,
                     'discount' => $discount,
                     'line_total' => ($qty * $price) - $discount,
@@ -455,6 +715,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
         });
 
+        if ($this->lineWarning !== '') {
+            session()->flash('status', $this->lineWarning);
+        }
+
         $this->redirect(route('sales.orders.index'), navigate: true);
     }
 }; ?>
@@ -468,9 +732,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <strong>Alert:</strong> {{ $customerAlert }}
             </div>
         @endif
+        @if (filled($creditWarning))
+            <div class="mx-2 mt-1 border border-orange-500 bg-orange-50 px-2 py-1 text-xs text-orange-950" role="alert">
+                <strong>Credit:</strong> {{ $creditWarning }}
+            </div>
+        @endif
+        @if (filled($taxExemptWarning))
+            <div class="mx-2 mt-1 border border-red-500 bg-red-50 px-2 py-1 text-xs text-red-950" role="alert">
+                <strong>Tax Exempt:</strong> {{ $taxExemptWarning }}
+            </div>
+        @endif
+        @error('customer_id')
+            <div class="mx-2 mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
+        @enderror
 
         <div class="so-body">
-            <div @class(['so-header', 'so-header-expand' => $activeTab === 'expand'])>
+            @if ($activeTab === 'general')
+            <div class="so-header">
                 {{-- Labels above fields --}}
                 <div class="so-header-grid">
                     <div class="so-field-stack">
@@ -514,7 +792,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" class="so-icon-btn" title="Favorite" tabindex="-1" aria-label="Favorite">
                                 <svg viewBox="0 0 12 12" fill="currentColor"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
                             </button>
-                            <button type="button" class="so-icon-btn" title="Search" tabindex="-1" aria-label="Search">
+                            <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Search" aria-label="Search">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3.2"/><path d="M7.5 7.5L10.5 10.5"/></svg>
                             </button>
                             <a href="{{ route('sales.customers.create') }}" wire:navigate class="so-icon-btn" title="New" aria-label="New customer">
@@ -523,10 +801,36 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" class="so-icon-btn" title="Info" tabindex="-1" aria-label="Info">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="4.2"/><path d="M6 5.2V8.5M6 3.6h.01"/></svg>
                             </button>
-                            <button type="button" class="so-icon-btn" title="Browse" tabindex="-1" aria-label="Browse">
+                            <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Browse" aria-label="Browse">
                                 <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
                             </button>
                         </div>
+                        @if ($showCustomerBrowse)
+                            <div class="so-lookup-panel">
+                                <div class="so-lookup-panel-head">
+                                    <input type="text" wire:model.live.debounce.200ms="customerSearch" class="so-input" placeholder="Search customer ID, name, phone…" />
+                                    <button type="button" wire:click="$set('showCustomerBrowse', false)" class="so-icon-btn" title="Close">×</button>
+                                </div>
+                                <table class="so-lookup-table">
+                                    <thead>
+                                        <tr><th>ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>City</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($browseCustomers as $bc)
+                                            <tr wire:click="pickCustomer({{ $bc->id }})" class="cursor-pointer hover:bg-sky-100">
+                                                <td class="font-mono">{{ $bc->customer_id }}</td>
+                                                <td>{{ $bc->company_name }}</td>
+                                                <td>{{ $bc->contact }}</td>
+                                                <td>{{ $bc->telephone }}</td>
+                                                <td>{{ $bc->city }}{{ $bc->state ? ', '.$bc->state : '' }}</td>
+                                            </tr>
+                                        @empty
+                                            <tr><td colspan="5" class="text-slate-500 px-2 py-2">No customers found.</td></tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
                     </div>
                     <div class="so-field-stack">
                         <label class="so-lbl">Order Date:</label>
@@ -548,13 +852,39 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @endforeach
                                 @endif
                             </select>
-                            <button type="button" class="so-icon-btn" title="Browse" tabindex="-1" aria-label="Browse ship-to">
+                            <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="Browse" aria-label="Browse ship-to" @disabled(! $customer_id)>
                                 <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
                             </button>
-                            <button type="button" class="so-icon-btn" title="More" tabindex="-1" aria-label="More">
+                            <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="More" aria-label="More" @disabled(! $customer_id)>
                                 <svg viewBox="0 0 12 12" fill="currentColor"><path d="M2 4l4 4 4-4"/></svg>
                             </button>
                         </div>
+                        @if ($showShipBrowse && $selectedCustomer)
+                            <div class="so-lookup-panel">
+                                <div class="so-lookup-panel-head">
+                                    <span class="text-xs font-semibold text-slate-700">Ship-to addresses</span>
+                                    <button type="button" wire:click="$set('showShipBrowse', false)" class="so-icon-btn" title="Close">×</button>
+                                </div>
+                                <table class="so-lookup-table">
+                                    <thead>
+                                        <tr><th>Name</th><th>Address</th><th>City</th><th>Phone</th><th></th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($selectedCustomer->shippingAddresses as $addr)
+                                            <tr wire:click="pickShipTo({{ $addr->id }})" class="cursor-pointer hover:bg-sky-100">
+                                                <td>{{ $addr->name }}@if ($addr->is_primary) <span class="text-green-700">●</span>@endif</td>
+                                                <td>{{ $addr->address }}</td>
+                                                <td>{{ collect([$addr->city, $addr->state, $addr->zip])->filter()->implode(', ') }}</td>
+                                                <td>{{ $addr->telephone }}</td>
+                                                <td class="text-sky-700 underline text-xs">Select</td>
+                                            </tr>
+                                        @empty
+                                            <tr><td colspan="5" class="text-slate-500 px-2 py-2">No ship-to addresses for this customer.</td></tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
                     </div>
                     <div class="so-field-stack">
                         <label class="so-lbl">Customer PO No.:</label>
@@ -627,9 +957,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                 </div>
             </div>
-
-            @if ($activeTab !== 'shipping')
-                <div @class(['so-items-wrap', 'so-items-wrap-tall' => $activeTab === 'expand'])>
+            @elseif ($activeTab === 'items')
+                <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
                         <table class="w-full">
@@ -689,26 +1018,72 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <button type="button" wire:click="toggleBrowse" class="so-browse-btn">Browse</button>
                     </div>
                     @if ($showBrowse)
-                        <div class="max-h-40 overflow-auto bg-white">
+                        <div class="border-t border-slate-300 bg-white">
+                            <label class="flex items-center gap-2 px-2 py-1 text-xs border-b border-slate-200">
+                                <input type="checkbox" wire:model.live="browseNewOnly" />
+                                New Items only (last 30 days)
+                            </label>
+                            <div class="max-h-40 overflow-auto">
                             <table class="w-full text-xs">
-                                <thead><tr class="bg-slate-100"><th class="px-2 py-1 text-left">Code</th><th class="px-2 py-1 text-left">Description</th><th class="px-2 py-1 text-right">Price</th></tr></thead>
+                                <thead><tr class="bg-slate-100"><th class="px-2 py-1 text-left">Code</th><th class="px-2 py-1 text-left">Description</th><th class="px-2 py-1 text-right">Price</th><th class="px-2 py-1 text-left">New</th></tr></thead>
                                 <tbody>
                                     @foreach ($browseItems as $bi)
                                         <tr class="hover:bg-sky-50 cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
                                             <td class="px-2 py-0.5 font-mono">{{ $bi->item_code }}</td>
                                             <td class="px-2 py-0.5">{{ $bi->description }}</td>
                                             <td class="px-2 py-0.5 text-right">${{ number_format($bi->list_price, 2) }}</td>
+                                            <td class="px-2 py-0.5">{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
                                         </tr>
                                     @endforeach
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     @endif
                 </div>
-            @else
+
+                <div class="so-footer">
+                    <div class="so-counters">
+                        <div class="so-counter-line">
+                            <span>Total Lines: <strong>{{ $totalLines }}</strong></span>
+                            <span>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></span>
+                        </div>
+                        <div class="so-counter-line">
+                            <span>Total Items: <strong>{{ $totalItems }}</strong></span>
+                            <span>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></span>
+                        </div>
+                        <div class="so-counter-line">
+                            <span>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></span>
+                        </div>
+                        <div class="so-counter-line">
+                            <span>Total items Shipped: <strong>{{ $totalShipped }}</strong></span>
+                        </div>
+                    </div>
+                    <div class="so-totals">
+                        <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
+                        <div class="so-totals-row">
+                            <span class="so-totals-lbl">Trade Discount:</span>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" /></label>
+                        </div>
+                        <div class="so-totals-row">
+                            <span class="so-totals-lbl">Freight:</span>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" /></label>
+                        </div>
+                        <div class="so-totals-row">
+                            <span class="so-totals-lbl">Miscellaneous:</span>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" /></label>
+                        </div>
+                        <div class="so-totals-row">
+                            <span class="so-totals-lbl">Tax:</span>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" class="so-totals-input" /></label>
+                        </div>
+                        <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
+                    </div>
+                </div>
+            @elseif ($activeTab === 'shipping')
                 <div class="so-ship-panel">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-0.5">
-                        <div>
+                    <div class="so-ship-grid">
+                        <div class="so-ship-col">
                             <div class="so-field"><label>Payment Terms:</label>
                                 <select wire:model="payment_term_id" class="so-input" style="max-width:14rem">
                                     <option value="">—</option>
@@ -733,54 +1108,54 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @foreach ($sites as $s)<option value="{{ $s->id }}">{{ $s->code }}</option>@endforeach
                                 </select>
                             </div>
+                            <div class="so-field"><label>Ship Date:</label>
+                                <input type="date" wire:model="ship_date" class="so-input" style="max-width:10rem" />
+                            </div>
+                            <div class="so-field"><label>No. of Boxes:</label>
+                                <input type="number" min="0" wire:model="no_of_boxes" class="so-input" style="max-width:6rem" />
+                            </div>
+                            <div class="so-field"><label>No. of Pallets:</label>
+                                <input type="number" min="0" wire:model="no_of_pallets" class="so-input" style="max-width:6rem" />
+                            </div>
                         </div>
-                        <div>
+                        <div class="so-ship-col">
                             <div class="so-field"><label>Custom Field 1:</label><input wire:model="custom_field_1" class="so-input" /></div>
                             <div class="so-field"><label>Custom Field 2:</label><input wire:model="custom_field_2" class="so-input" /></div>
+                            <div class="so-field"><label>Custom Field 3:</label><textarea wire:model="custom_field_3" rows="2" class="so-input" style="height:auto"></textarea></div>
+                            <div class="so-field"><label>Custom Field 4:</label><input wire:model="custom_field_4" class="so-input" /></div>
+                            <div class="so-field"><label>Custom Field 5:</label><input wire:model="custom_field_5" class="so-input" /></div>
                             <div class="so-field"><label>Comments:</label><textarea wire:model="comments" rows="3" class="so-input" style="height:auto"></textarea></div>
                         </div>
                     </div>
+
+                    <div class="so-box-block">
+                        <div class="so-box-head">
+                            <span class="so-items-title" style="padding:0">Box Number / Tracking Number</span>
+                            <button type="button" wire:click="addBox" class="so-browse-btn">Add Box</button>
+                        </div>
+                        <table class="so-box-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40%">Box Number</th>
+                                    <th>Tracking Number</th>
+                                    <th style="width:4rem"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($boxes as $bi => $box)
+                                    <tr>
+                                        <td><input wire:model="boxes.{{ $bi }}.box_number" class="so-input w-full" /></td>
+                                        <td><input wire:model="boxes.{{ $bi }}.tracking_number" class="so-input w-full" /></td>
+                                        <td class="text-center">
+                                            <button type="button" wire:click="removeBox({{ $bi }})" class="text-xs text-red-700 hover:underline">Remove</button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             @endif
-
-            <div class="so-footer">
-                <div class="so-counters">
-                    <div class="so-counter-line">
-                        <span>Total Lines: <strong>{{ $totalLines }}</strong></span>
-                        <span>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></span>
-                    </div>
-                    <div class="so-counter-line">
-                        <span>Total Items: <strong>{{ $totalItems }}</strong></span>
-                        <span>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></span>
-                    </div>
-                    <div class="so-counter-line">
-                        <span>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></span>
-                    </div>
-                    <div class="so-counter-line">
-                        <span>Total items Shipped: <strong>{{ $totalShipped }}</strong></span>
-                    </div>
-                </div>
-                <div class="so-totals">
-                    <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
-                    <div class="so-totals-row">
-                        <span class="so-totals-lbl">Trade Discount:</span>
-                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" /></label>
-                    </div>
-                    <div class="so-totals-row">
-                        <span class="so-totals-lbl">Freight:</span>
-                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" /></label>
-                    </div>
-                    <div class="so-totals-row">
-                        <span class="so-totals-lbl">Miscellaneous:</span>
-                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" /></label>
-                    </div>
-                    <div class="so-totals-row">
-                        <span class="so-totals-lbl">Tax:</span>
-                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" class="so-totals-input" /></label>
-                    </div>
-                    <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
-                </div>
-            </div>
         </div>
 
     </form>
@@ -791,8 +1166,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <button type="button" wire:click="$set('activeTab', 'general')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'general'])>
                     @if ($activeTab === 'general')<span class="so-mode-check">●</span>@endif General
                 </button>
-                <button type="button" wire:click="$set('activeTab', 'expand')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'expand'])>Expand</button>
-                <button type="button" wire:click="$set('activeTab', 'shipping')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'shipping'])>Shipping info.</button>
+                <button type="button" wire:click="$set('activeTab', 'items')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'items'])>
+                    @if ($activeTab === 'items')<span class="so-mode-check">●</span>@endif Items
+                </button>
+                <button type="button" wire:click="$set('activeTab', 'shipping')" @class(['so-mode-tab', 'so-mode-tab-active' => $activeTab === 'shipping'])>
+                    @if ($activeTab === 'shipping')<span class="so-mode-check">●</span>@endif Shipping info.
+                </button>
             </div>
         </div>
         <div class="so-bottom-actions">

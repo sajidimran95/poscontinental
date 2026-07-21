@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DiscountSchedule extends Model
 {
-    protected $fillable = ['company_id', 'code', 'name', 'is_active'];
+    protected $fillable = ['company_id', 'code', 'name', 'percent', 'is_active'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return [
+            'is_active' => 'boolean',
+            'percent' => 'decimal:4',
+        ];
     }
 
     public function company(): BelongsTo

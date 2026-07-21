@@ -454,14 +454,14 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                 @foreach ($shippingAddresses as $i => $row)
                                     <tr>
                                         <td class="text-center"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.name" class="so-input" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="so-input min-w-[10rem]" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="so-input" style="width:7rem" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="so-input" style="width:3.5rem" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="so-input" style="width:5rem" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="so-input" style="width:7.5rem" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="so-input" style="width:6.5rem" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="so-input" style="width:5rem" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.name" class="so-input ship-col-name" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="so-input ship-col-address" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="so-input ship-col-city" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="so-input ship-col-state" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="so-input ship-col-zip" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="so-input ship-col-phone" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="so-input ship-col-fax" /></td>
+                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="so-input ship-col-class" /></td>
                                         <td><button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach

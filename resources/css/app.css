@@ -2201,6 +2201,15 @@
         background: #fff;
     }
 
+    .entity-ship-grid .ship-col-name { width: 14rem; min-width: 12rem; }
+    .entity-ship-grid .ship-col-address { width: 20rem; min-width: 16rem; }
+    .entity-ship-grid .ship-col-city { width: 11rem; min-width: 10rem; }
+    .entity-ship-grid .ship-col-state { width: 7rem; min-width: 6rem; }
+    .entity-ship-grid .ship-col-zip { width: 7.5rem; min-width: 7rem; }
+    .entity-ship-grid .ship-col-phone { width: 9rem; min-width: 8rem; }
+    .entity-ship-grid .ship-col-fax { width: 9rem; min-width: 8rem; }
+    .entity-ship-grid .ship-col-class { width: 7.5rem; min-width: 7rem; }
+
     .entity-fieldset {
         border: 1px solid #e2e8f0;
         border-radius: 8px;

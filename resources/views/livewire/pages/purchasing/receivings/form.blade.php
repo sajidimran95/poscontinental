@@ -30,7 +30,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
     public function mount(InventoryReceiving $receiving): void
     {
         abort_unless($receiving->company_id === auth()->user()->company_id, 403);
-        $this->receiving = $receiving->load(['lines', 'purchaseOrder', 'supplier']);
+        $this->receiving = $receiving->load(['lines', 'purchaseOrder', 'supplier', 'site']);
         $this->receipt_number = $receiving->receipt_number;
         $this->receipt_date = optional($receiving->receipt_date)?->format('Y-m-d') ?? '';
         $this->reference_no = $receiving->reference_no ?? '';
@@ -47,6 +47,20 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
             'qty_received' => (string) $l->qty_received,
             'unit_cost' => (string) $l->unit_cost,
         ])->all();
+    }
+
+    public function with(): array
+    {
+        $totalOrdered = collect($this->lines)->sum(fn ($l) => (float) $l['qty_ordered']);
+        $totalReceived = collect($this->lines)->sum(fn ($l) => (float) $l['qty_received']);
+        $lineTotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty_received'] * (float) $l['unit_cost']);
+
+        return [
+            'isProcessed' => $this->status === 'Processed',
+            'totalOrdered' => $totalOrdered,
+            'totalReceived' => $totalReceived,
+            'lineTotal' => $lineTotal,
+        ];
     }
 
     public function save(): void
@@ -81,65 +95,165 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
     }
 }; ?>
 
-<div>
-    <form wire:submit="save" class="chief-panel bg-white flex flex-col min-h-[70vh]">
+<div class="desk-page entity-page">
+    <form wire:submit="save" class="desk-main entity-form item-form">
         <x-action-bar title="Inventory Receiving — {{ $receipt_number }}" />
 
-        <div class="flex-1 p-3 space-y-3">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
-                <div class="space-y-1">
-                    <div class="chief-field"><label>Receipt No.</label><input value="{{ $receipt_number }}" class="chief-input w-44 font-mono bg-slate-50" readonly /></div>
-                    <div class="chief-field"><label>Receipt Date</label><input type="date" wire:model="receipt_date" class="chief-input" @disabled($status === 'Processed') /></div>
-                    <div class="chief-field"><label>Purchase Ord. #</label><span class="font-mono">{{ $receiving->purchaseOrder?->po_number }}</span></div>
-                    <div class="chief-field"><label>Reference No.</label><input wire:model="reference_no" class="chief-input w-44" @disabled($status === 'Processed') /></div>
-                    <div class="chief-field"><label>Status</label><span class="font-semibold">{{ $status }}</span></div>
+        @if (session('status'))
+            <div class="desk-flash" role="status">{{ session('status') }}</div>
+        @endif
+
+        <div class="entity-body">
+            <div class="entity-header">
+                <div class="so-form-row so-form-row-pair entity-header-row">
+                    <label class="so-form-lbl" for="receipt_number">Receipt No.</label>
+                    <input id="receipt_number" value="{{ $receipt_number }}" class="so-input font-mono so-input-ro" readonly />
+                    <span class="so-form-lbl">Status</span>
+                    <span @class([
+                        'desk-pill',
+                        'desk-pill-new' => $status === 'New',
+                        'desk-pill-invoiced' => $status === 'Processed',
+                        'desk-pill-muted' => ! in_array($status, ['New', 'Processed'], true),
+                    ])>{{ $status }}</span>
                 </div>
-                <div class="space-y-1">
-                    <div class="chief-field"><label>Supplier</label><span>{{ $receiving->supplier?->name }}</span></div>
-                    <div class="chief-field"><label>Received By</label><input wire:model="received_by" class="chief-input w-48" @disabled($status === 'Processed') /></div>
-                    <div class="chief-field"><label>Shipping Carrier</label><input wire:model="shipping_carrier" class="chief-input w-48" @disabled($status === 'Processed') /></div>
-                    <div class="chief-field chief-field-top"><label>Comments</label><textarea wire:model="comments" rows="3" class="chief-input w-full max-w-md" @disabled($status === 'Processed')></textarea></div>
+                <div class="entity-balance">Received: <strong>{{ number_format($totalReceived, 2) }}</strong></div>
+            </div>
+
+            <div class="item-price-summary" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 36rem;">
+                <div class="item-price-stat">
+                    <span>Qty Ordered</span>
+                    <strong>{{ number_format($totalOrdered, 2) }}</strong>
+                </div>
+                <div class="item-price-stat">
+                    <span>Qty Received</span>
+                    <strong>{{ number_format($totalReceived, 2) }}</strong>
+                </div>
+                <div class="item-price-stat">
+                    <span>Line Total</span>
+                    <strong>${{ number_format($lineTotal, 2) }}</strong>
                 </div>
             </div>
 
-            <div class="chief-grid border border-slate-300 overflow-auto">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Item Code</th>
-                            <th>Description</th>
-                            <th>U of M</th>
-                            <th class="text-right">Qty Ordered</th>
-                            <th class="text-right">Qty Received</th>
-                            <th class="text-right">Cost</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($lines as $i => $line)
+            <div class="sc-general-grid">
+                <div class="inv-card">
+                    <div class="inv-card-title">Receipt header</div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl" for="receipt_date">Receipt Date</label>
+                        <input id="receipt_date" type="date" wire:model="receipt_date" class="so-input sc-date" @disabled($isProcessed) />
+                    </div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl">Purchase Ord. #</label>
+                        <span class="desk-num" style="padding:0.35rem 0">
+                            @if ($receiving->purchaseOrder)
+                                <a href="{{ route('purchasing.orders.edit', $receiving->purchaseOrder) }}" wire:navigate>{{ $receiving->purchaseOrder->po_number }}</a>
+                            @else
+                                —
+                            @endif
+                        </span>
+                    </div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl" for="reference_no">Reference No.</label>
+                        <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($isProcessed) />
+                    </div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl">Site</label>
+                        <span style="padding:0.35rem 0">{{ $receiving->site?->code ?: '—' }}</span>
+                    </div>
+                </div>
+
+                <div class="inv-card">
+                    <div class="inv-card-title">Supplier & shipping</div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl">Supplier</label>
+                        <span style="padding:0.35rem 0">{{ $receiving->supplier?->name ?: '—' }}</span>
+                    </div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl" for="received_by">Received By</label>
+                        <input id="received_by" wire:model="received_by" class="so-input" @disabled($isProcessed) />
+                    </div>
+                    <div class="so-form-row so-form-row-side sc-field">
+                        <label class="so-form-lbl" for="shipping_carrier">Shipping Carrier</label>
+                        <input id="shipping_carrier" wire:model="shipping_carrier" class="so-input" @disabled($isProcessed) />
+                    </div>
+                    <div class="so-form-row so-form-row-side so-form-row-top sc-field">
+                        <label class="so-form-lbl" for="comments">Comments</label>
+                        <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area" @disabled($isProcessed) placeholder="Optional notes…"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="entity-section">
+                <div class="entity-section-head">
+                    <h3 class="entity-section-title">Receiving Lines</h3>
+                    <span class="item-hint" style="padding:0">Enter <strong>Qty Received</strong> for each item, then Process.</span>
+                </div>
+                <div class="desk-grid item-lines-wrap">
+                    <table class="desk-table item-lines-table rcv-lines-table">
+                        <colgroup>
+                            <col class="col-code" />
+                            <col class="col-desc" />
+                            <col class="col-uom" />
+                            <col class="col-qty" />
+                            <col class="col-qty" />
+                            <col class="col-cost" />
+                            <col class="col-ext" />
+                        </colgroup>
+                        <thead>
                             <tr>
-                                <td class="font-mono">{{ $line['item_code'] }}</td>
-                                <td>{{ $line['description'] }}</td>
-                                <td>{{ $line['uom'] }}</td>
-                                <td class="text-right">{{ number_format((float) $line['qty_ordered'], 2) }}</td>
-                                <td>
-                                    <input wire:model="lines.{{ $i }}.qty_received" class="chief-input w-24 text-right" @disabled($status === 'Processed') />
-                                </td>
-                                <td>
-                                    <input wire:model="lines.{{ $i }}.unit_cost" class="chief-input w-24 text-right" @disabled($status === 'Processed') />
-                                </td>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th class="text-center">UOM</th>
+                                <th class="text-center">Qty Ordered</th>
+                                <th class="text-center">Qty Received</th>
+                                <th class="text-center">Cost</th>
+                                <th class="text-center">Extended</th>
                             </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @forelse ($lines as $i => $line)
+                                <tr>
+                                    <td class="desk-num">{{ $line['item_code'] }}</td>
+                                    <td class="item-cell-desc" title="{{ $line['description'] }}">{{ $line['description'] ?: '—' }}</td>
+                                    <td class="text-center">{{ $line['uom'] ?: '—' }}</td>
+                                    <td class="desk-money">{{ number_format((float) $line['qty_ordered'], 2) }}</td>
+                                    <td class="text-center">
+                                        <input
+                                            wire:model.live="lines.{{ $i }}.qty_received"
+                                            class="so-input text-right item-cell-qty"
+                                            @disabled($isProcessed)
+                                            aria-label="Qty received line {{ $i + 1 }}"
+                                        />
+                                    </td>
+                                    <td class="text-center">
+                                        <input
+                                            wire:model.live="lines.{{ $i }}.unit_cost"
+                                            class="so-input text-right item-cell-qty"
+                                            @disabled($isProcessed)
+                                            aria-label="Unit cost line {{ $i + 1 }}"
+                                        />
+                                    </td>
+                                    <td class="desk-money">${{ number_format((float) $line['qty_received'] * (float) $line['unit_cost'], 2) }}</td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty"><td colspan="7">No lines on this receiving.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
-        <div class="flex justify-end gap-2 px-3 py-2 border-t border-slate-300 bg-slate-100">
-            <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="chief-btn">Cancel</a>
-            @if ($status !== 'Processed')
-                <button type="submit" class="chief-btn">Save</button>
-                <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="chief-btn-primary">Process Receiving</button>
-            @endif
+        <div class="entity-footer">
+            <div class="entity-tabs" role="tablist" aria-label="Receiving">
+                <span class="entity-tab is-active">Receiving</span>
+            </div>
+            <div class="entity-footer-actions">
+                <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="desk-btn">Cancel</a>
+                @unless ($isProcessed)
+                    <button type="submit" class="desk-btn">Save</button>
+                    <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="desk-btn desk-btn-primary">Process Receiving</button>
+                @endunless
+            </div>
         </div>
     </form>
 </div>

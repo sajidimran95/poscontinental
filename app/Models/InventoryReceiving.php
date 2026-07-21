@@ -37,6 +37,11 @@ class InventoryReceiving extends Model
         return $this->belongsTo(Supplier::class);
     }
 
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
+
     public static function nextNumber(int $companyId): string
     {
         $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('receipt_number');

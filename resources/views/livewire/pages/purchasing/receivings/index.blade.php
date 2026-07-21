@@ -16,6 +16,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
     #[Url]
     public string $search = '';
 
+    #[Url]
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
@@ -27,16 +28,26 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $companyId = auth()->user()->company_id;
 
         $query = InventoryReceiving::query()
-            ->with(['supplier', 'purchaseOrder'])
+            ->with(['supplier', 'purchaseOrder', 'site'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
                 $q->where(function ($inner) use ($term) {
                     $inner->where('receipt_number', 'like', $term)
-                        ->orWhere('reference_no', 'like', $term);
+                        ->orWhere('reference_no', 'like', $term)
+                        ->orWhereHas('purchaseOrder', fn ($p) => $p->where('po_number', 'like', $term))
+                        ->orWhereHas('supplier', fn ($s) => $s->where('name', 'like', $term));
                 });
             })
+            ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
+            ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
             ->orderByDesc('id');
+
+        $listTitle = match ($this->favorite) {
+            'new' => 'New Receivings',
+            'processed' => 'Processed Receivings',
+            default => 'Inventory Receivings',
+        };
 
         return [
             'receivings' => $query->paginate(50),
@@ -48,8 +59,22 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                 ->get(),
             'favorites' => [
                 'all' => 'All Receivings',
+                'new' => 'New',
+                'processed' => 'Processed',
             ],
+            'listTitle' => $listTitle,
         ];
+    }
+
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedFavorite(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
     }
 
     public function createReceiving(): void
@@ -96,7 +121,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $receiving = InventoryReceiving::query()->findOrFail($id);
         abort_unless($receiving->company_id === auth()->user()->company_id, 403);
         app(InventoryService::class)->processReceiving($receiving);
-        session()->flash('status', 'Receiving processed.');
+        session()->flash('status', 'Receiving '.$receiving->receipt_number.' processed.');
     }
 
     public function selectRow(int $id): void
@@ -105,36 +130,40 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
     }
 }; ?>
 
-<div class="flex gap-2 h-full">
+<div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
+    <div class="desk-main">
         <x-action-bar title="Action" />
-        <x-list-chrome label="Search Receivings:" model="search" />
 
-        <div class="px-2 py-2 border-b border-slate-300 bg-slate-50 flex flex-wrap items-end gap-2">
-            <div>
-                <label class="block text-xs">Create from Purchase Order</label>
-                <select wire:model="createFromPo" class="chief-input w-72">
-                    <option value="">— Select open PO —</option>
-                    @foreach ($openPos as $po)
-                        <option value="{{ $po->id }}">{{ $po->po_number }} — {{ $po->status }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <button type="button" wire:click="createReceiving" class="chief-btn-primary">New Receiving</button>
+        @if (session('status'))
+            <div class="desk-flash" role="status">{{ session('status') }}</div>
+        @endif
+
+        <x-list-chrome label="Search Receivings:" model="search" placeholder="Receipt #, PO #, supplier…">
+            <label class="desk-toolbar-label" for="createFromPo">From PO</label>
+            <select id="createFromPo" wire:model="createFromPo" class="desk-select" style="min-width:14rem">
+                <option value="">— Select open PO —</option>
+                @foreach ($openPos as $po)
+                    <option value="{{ $po->id }}">{{ $po->po_number }} — {{ $po->status }}</option>
+                @endforeach
+            </select>
+            <button type="button" wire:click="createReceiving" class="desk-btn desk-btn-primary">New Receiving</button>
+        </x-list-chrome>
+
+        <div class="desk-titlebar">
+            <h2 class="desk-title">{{ $listTitle }}</h2>
+            <span class="desk-title-meta">{{ number_format($receivings->total()) }} records</span>
         </div>
 
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Inventory Receivings</div>
-
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Receipt No.</th>
                         <th>Receipt Date</th>
                         <th>PO #</th>
-                        <th>Status</th>
+                        <th class="text-center">Status</th>
                         <th>Supplier</th>
                         <th>Site</th>
                         <th></th>
@@ -142,23 +171,45 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                 </thead>
                 <tbody>
                     @forelse ($receivings as $rec)
-                        <tr wire:click="selectRow({{ $rec->id }})" @class(['chief-selected-row' => $selectedId === $rec->id, 'cursor-pointer'])>
-                            <td class="font-mono">
-                                <a href="{{ route('purchasing.receivings.edit', $rec) }}" wire:navigate class="hover:underline">{{ $rec->receipt_number }}</a>
+                        <tr
+                            wire:click="selectRow({{ $rec->id }})"
+                            @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
+                        >
+                            <td class="desk-num">
+                                <a href="{{ route('purchasing.receivings.edit', $rec) }}" wire:navigate wire:click.stop>{{ $rec->receipt_number }}</a>
                             </td>
                             <td>{{ optional($rec->receipt_date)?->format('n/j/Y') }}</td>
-                            <td class="font-mono">{{ $rec->purchaseOrder?->po_number }}</td>
-                            <td>{{ $rec->status }}</td>
+                            <td class="desk-num">{{ $rec->purchaseOrder?->po_number }}</td>
+                            <td class="text-center">
+                                <span @class([
+                                    'desk-pill',
+                                    'desk-pill-new' => $rec->status === 'New',
+                                    'desk-pill-invoiced' => $rec->status === 'Processed',
+                                    'desk-pill-muted' => ! in_array($rec->status, ['New', 'Processed'], true),
+                                ])>{{ $rec->status }}</span>
+                            </td>
                             <td>{{ $rec->supplier?->name }}</td>
-                            <td>{{ $rec->site_id }}</td>
-                            <td>
-                                @if ($rec->status !== 'Processed')
-                                    <button type="button" wire:click="process({{ $rec->id }})" class="chief-btn text-xs" wire:confirm="Process this receiving and update stock?">Process</button>
-                                @endif
+                            <td class="desk-num">{{ $rec->site?->code ?: '—' }}</td>
+                            <td wire:click.stop>
+                                <div class="flex gap-2">
+                                    <a href="{{ route('purchasing.receivings.edit', $rec) }}" wire:navigate class="desk-btn desk-btn-sm">
+                                        {{ $rec->status === 'Processed' ? 'View' : 'Edit' }}
+                                    </a>
+                                    @if ($rec->status !== 'Processed')
+                                        <button
+                                            type="button"
+                                            wire:click="process({{ $rec->id }})"
+                                            class="desk-btn desk-btn-sm desk-btn-primary"
+                                            wire:confirm="Process this receiving and update stock?"
+                                        >Process</button>
+                                    @endif
+                                </div>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-2 py-6 text-slate-500">No receivings found.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="7">No receivings found. Select an open PO above and click <strong>New Receiving</strong>.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>

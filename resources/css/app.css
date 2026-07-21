@@ -2307,6 +2307,13 @@
         margin-top: 0.15rem;
     }
 
+    .rcv-lines-table .col-code { width: 9.5rem; }
+    .rcv-lines-table .col-desc { width: auto; }
+    .rcv-lines-table .col-uom { width: 4.5rem; }
+    .rcv-lines-table .col-qty { width: 7.5rem; }
+    .rcv-lines-table .col-cost { width: 7.5rem; }
+    .rcv-lines-table .col-ext { width: 7.5rem; }
+
     .sc-general-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);

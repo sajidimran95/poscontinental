@@ -112,61 +112,91 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
     }
 }; ?>
 
-<div class="chief-panel bg-white min-h-[70vh] flex flex-col">
-    <x-action-bar title="Payments — Customer First" />
-    <div class="p-3 space-y-3 flex-1">
-        <div class="chief-field max-w-xl">
-            <label>Customer</label>
-            <select wire:model.live="customer_id" class="chief-input w-80">
-                <option value="">— Select customer —</option>
-                @foreach ($customers as $c)
-                    <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
-                @endforeach
-            </select>
-        </div>
+<div class="desk-page entity-page">
+    <div class="desk-main entity-form" style="width:min(100%,70rem)">
+        <x-action-bar title="Payments — Customer First" />
 
-        @if ($customer_id)
-            <div class="chief-grid border border-slate-300 overflow-auto">
-                <table>
-                    <thead>
-                        <tr>
-                            <th class="w-10"></th>
-                            <th>Invoice No.</th>
-                            <th>Invoice Date</th>
-                            <th>Order No.</th>
-                            <th class="text-right">Invoice Total</th>
-                            <th class="text-right">Balance Due</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse ($openInvoices as $inv)
-                            <tr>
-                                <td class="text-center"><input type="checkbox" wire:model.live="selected.{{ $inv->id }}" /></td>
-                                <td class="font-mono">{{ $inv->invoice_number }}</td>
-                                <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
-                                <td class="font-mono">{{ $inv->salesOrder?->order_number }}</td>
-                                <td class="text-right">${{ number_format($inv->invoice_total, 2) }}</td>
-                                <td class="text-right font-semibold">${{ number_format($inv->invoice_balance, 2) }}</td>
-                            </tr>
-                        @empty
-                            <tr><td colspan="6" class="px-2 py-4 text-slate-500">No unpaid invoices for this customer.</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
+        <div class="entity-body">
+            @if (session('status'))
+                <div class="desk-flash" role="status">{{ session('status') }}</div>
+            @endif
+
+            <div class="so-form-row" style="max-width:36rem;margin-bottom:1rem">
+                <label class="so-form-lbl" for="payment_customer_id">Customer</label>
+                <select id="payment_customer_id" wire:model.live="customer_id" class="so-input">
+                    <option value="">— Select customer —</option>
+                    @foreach ($customers as $c)
+                        <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
+                    @endforeach
+                </select>
             </div>
 
-            <div class="flex flex-wrap items-end gap-3 border border-slate-300 p-3 bg-slate-50 max-w-3xl">
-                <div><label class="block text-xs">Payment Date</label><input type="date" wire:model="pay_date" class="chief-input" /></div>
-                <div>
-                    <label class="block text-xs">Payment Method</label>
-                    <select wire:model="pay_method" class="chief-input">
-                        <option>Cash</option><option>Credit Card</option><option>Check</option>
-                    </select>
+            @if ($customer_id)
+                <div class="entity-section">
+                    <div class="entity-section-head">
+                        <h3 class="entity-section-title">Open Invoices</h3>
+                        <span class="desk-title-meta">Select invoices to pay (oldest first)</span>
+                    </div>
+                    <div class="desk-grid" style="max-height:22rem">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th class="text-center" style="width:2.5rem"></th>
+                                    <th>Invoice No.</th>
+                                    <th>Invoice Date</th>
+                                    <th>Order No.</th>
+                                    <th class="text-right">Invoice Total</th>
+                                    <th class="text-right">Balance Due</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($openInvoices as $inv)
+                                    <tr>
+                                        <td class="text-center"><input type="checkbox" wire:model.live="selected.{{ $inv->id }}" aria-label="Select invoice {{ $inv->invoice_number }}" /></td>
+                                        <td class="desk-num">{{ $inv->invoice_number }}</td>
+                                        <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
+                                        <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
+                                        <td class="desk-money">${{ number_format($inv->invoice_total, 2) }}</td>
+                                        <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr class="is-empty">
+                                        <td colspan="6">No unpaid invoices for this customer.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div><label class="block text-xs">Payment Amount</label><input wire:model="pay_amount" class="chief-input w-32 text-right" /></div>
-                <div class="text-sm pb-1">Checked total: <strong>${{ number_format($checkedTotal, 2) }}</strong></div>
-                <button type="button" wire:click="applyPayment" class="chief-btn-primary">Apply Payment</button>
-            </div>
-        @endif
+
+                <div class="entity-fieldset" style="margin-top:1rem;max-width:48rem">
+                    <legend>Apply Payment</legend>
+                    <div class="entity-grid-2" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.75rem">
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="pay_date_cf">Date</label>
+                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="pay_method_cf">Method</label>
+                            <select id="pay_method_cf" wire:model="pay_method" class="so-input">
+                                <option>Cash</option>
+                                <option>Credit Card</option>
+                                <option>Check</option>
+                            </select>
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="pay_amount_cf">Amount</label>
+                            <input id="pay_amount_cf" wire:model="pay_amount" class="so-input text-right" />
+                        </div>
+                    </div>
+                    <div class="entity-footer-actions" style="margin-top:0.85rem;justify-content:space-between">
+                        <div class="entity-value">Checked total: ${{ number_format($checkedTotal, 2) }}</div>
+                        <button type="button" wire:click="applyPayment" class="desk-btn desk-btn-primary">Apply Payment</button>
+                    </div>
+                </div>
+            @else
+                <div class="desk-empty-hint">Select a customer to view unpaid invoices and apply payments.</div>
+            @endif
+        </div>
     </div>
 </div>

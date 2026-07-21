@@ -1983,10 +1983,11 @@
 
     .desk-table {
         width: 100%;
-        border-collapse: separate;
+        border-collapse: collapse;
         border-spacing: 0;
         font-size: 13px;
         color: #0f172a;
+        table-layout: auto;
     }
 
     .desk-table thead th {
@@ -2002,6 +2003,19 @@
         padding: 0.6rem 0.75rem;
         white-space: nowrap;
         letter-spacing: 0.01em;
+        vertical-align: middle;
+    }
+
+    .desk-table thead th.text-right,
+    .desk-table thead th.desk-money,
+    .desk-table tbody td.text-right,
+    .desk-table tbody td.desk-money {
+        text-align: right !important;
+    }
+
+    .desk-table thead th.text-center,
+    .desk-table tbody td.text-center {
+        text-align: center !important;
     }
 
     .desk-table tbody td {
@@ -2009,6 +2023,7 @@
         border-bottom: 1px solid #f1f5f9;
         white-space: nowrap;
         vertical-align: middle;
+        text-align: left;
     }
 
     .desk-table tbody tr:hover td {
@@ -2089,6 +2104,7 @@
         font-variant-numeric: tabular-nums;
         font-weight: 600;
         text-align: right;
+        white-space: nowrap;
     }
 
     .desk-table tbody tr.is-selected td {
@@ -2304,6 +2320,349 @@
 
         .entity-form {
             width: 100%;
+        }
+    }
+
+    /* Modals / invoice detail */
+    .desk-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.45);
+    }
+
+    .desk-modal-top {
+        z-index: 60;
+    }
+
+    .desk-modal {
+        width: 100%;
+        background: #fff;
+        border: 1px solid #d5dbe3;
+        border-radius: 10px;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+        overflow: hidden;
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .desk-modal-lg { max-width: 56rem; }
+    .desk-modal-sm { max-width: 26rem; }
+
+    .desk-modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        background: var(--chief-action);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .desk-modal-head-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .desk-modal-head-actions .desk-btn {
+        background: #fff;
+        color: #334155;
+        border-color: #cbd5e1;
+    }
+
+    .desk-modal-close {
+        background: transparent;
+        border: none;
+        color: #fff;
+        font-size: 1.35rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.25rem;
+    }
+
+    .desk-modal-close:hover {
+        color: #fecaca;
+    }
+
+    .desk-modal-body {
+        padding: 0.85rem 1rem 1rem;
+        overflow: auto;
+        font-size: 13px;
+        color: #0f172a;
+    }
+
+    .desk-info-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .desk-info-block {
+        min-width: 0;
+        line-height: 1.45;
+    }
+
+    .desk-info-title {
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+
+    .desk-stat-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+        gap: 0.45rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 0.65rem;
+        margin-bottom: 0.75rem;
+        background: #fff;
+    }
+
+    .desk-stat {
+        text-align: right;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .desk-stat span {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 600;
+    }
+
+    .desk-stat strong {
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .desk-stat-alert strong {
+        color: #b91c1c;
+    }
+
+    .desk-modal-form-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.65rem;
+        padding: 0.65rem 0.75rem;
+        border-top: 1px solid #e2e8f0;
+        background: #f8fafc;
+    }
+
+    .desk-modal-form-row .so-form-row-side {
+        min-width: 14rem;
+        flex: 1 1 14rem;
+    }
+
+    .desk-empty-hint {
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+        color: #64748b;
+        background: #f8fafc;
+        font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+        .desk-info-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .inv-modal-title {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+
+    .inv-modal-title .desk-pill {
+        background: rgba(255, 255, 255, 0.18);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .inv-modal-title .desk-pill-invoiced {
+        background: #bbf7d0;
+        color: #166534;
+        border-color: transparent;
+    }
+
+    .inv-modal-title .desk-pill-new {
+        background: #dbeafe;
+        color: #1e40af;
+        border-color: transparent;
+    }
+
+    .inv-top-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+    }
+
+    .inv-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 0.75rem 0.85rem;
+        min-width: 0;
+    }
+
+    .inv-card-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 0.45rem;
+    }
+
+    .inv-kv {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-size: 13px;
+        padding: 0.18rem 0;
+        line-height: 1.35;
+    }
+
+    .inv-kv span {
+        color: #64748b;
+        flex-shrink: 0;
+    }
+
+    .inv-kv strong {
+        text-align: right;
+        color: #0f172a;
+        font-weight: 600;
+    }
+
+    .inv-billto {
+        font-size: 13px;
+        line-height: 1.45;
+        color: #334155;
+    }
+
+    .inv-billto strong {
+        display: block;
+        color: #0f172a;
+        margin-bottom: 0.2rem;
+    }
+
+    .inv-driver {
+        margin-top: 0.55rem;
+        padding-top: 0.55rem;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .inv-driver label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 0.15rem;
+    }
+
+    .inv-driver-hint {
+        margin: 0 0 0.4rem;
+        font-size: 11px;
+        color: #64748b;
+        line-height: 1.35;
+    }
+
+    .inv-driver-row {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+    }
+
+    .inv-driver-row .so-input {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .inv-driver-saved {
+        margin-top: 0.35rem;
+        font-size: 11px;
+        font-weight: 600;
+        color: #166534;
+    }
+
+    .inv-balance-row {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.45rem;
+        margin-bottom: 0.85rem;
+    }
+
+    .inv-metric {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #fff;
+        padding: 0.55rem 0.6rem;
+        text-align: right;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .inv-metric span {
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+    }
+
+    .inv-metric strong {
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+        color: #0f172a;
+    }
+
+    .inv-metric-balance {
+        background: #fef2f2;
+        border-color: #fecaca;
+    }
+
+    .inv-metric-balance strong {
+        color: #b91c1c;
+        font-size: 15px;
+    }
+
+    .inv-email-note {
+        margin: 0;
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.4;
+    }
+
+    @media (max-width: 980px) {
+        .inv-top-grid,
+        .inv-balance-row {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .inv-top-grid,
+        .inv-balance-row {
+            grid-template-columns: 1fr;
         }
     }
 }

@@ -48,6 +48,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public bool $showEmailForm = false;
 
+    public string $driverSavedAt = '';
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -151,9 +153,20 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->modalInvoiceId = null;
         $this->showPayForm = false;
         $this->showEmailForm = false;
+        $this->driverSavedAt = '';
     }
 
     public function updatedDriver(): void
+    {
+        $this->persistDriver();
+    }
+
+    public function saveDriver(): void
+    {
+        $this->persistDriver();
+    }
+
+    protected function persistDriver(): void
     {
         if (! $this->modalInvoiceId) {
             return;
@@ -162,7 +175,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         if (! $invoice || $invoice->company_id !== auth()->user()->company_id) {
             return;
         }
-        $invoice->update(['driver' => $this->driver !== '' ? $this->driver : null]);
+        $invoice->update(['driver' => $this->driver !== '' ? trim($this->driver) : null]);
+        $this->driverSavedAt = now()->format('g:i:s A');
     }
 
     public function openPayForm(): void
@@ -234,21 +248,28 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     }
 }; ?>
 
-<div class="flex gap-2 h-full relative">
+<div class="desk-page relative">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
-    <div class="flex-1 chief-panel flex flex-col min-w-0">
+
+    <div class="desk-main">
         <x-action-bar title="Action" />
-        <x-list-chrome label="Search Invoices:" model="search">
-            <label class="text-sm text-slate-700 whitespace-nowrap ms-2">Status:</label>
-            <select wire:model.live="statusFilter" class="chief-input w-36">
+
+        <x-list-chrome label="Search Invoices:" model="search" placeholder="Invoice #, order #, customer…">
+            <label class="desk-toolbar-label" for="invoice-status-filter">Status</label>
+            <select id="invoice-status-filter" wire:model.live="statusFilter" class="desk-select" aria-label="Filter by status">
                 <option value="">All</option>
                 <option value="NOT PAID">NOT PAID</option>
                 <option value="PAID">PAID</option>
             </select>
         </x-list-chrome>
-        <div class="px-2 py-1 font-semibold border-b border-slate-300 bg-white">Invoices List</div>
-        <div class="chief-grid flex-1 overflow-auto">
-            <table>
+
+        <div class="desk-titlebar">
+            <h2 class="desk-title">Invoices List</h2>
+            <span class="desk-title-meta">{{ number_format($invoices->total()) }} records</span>
+        </div>
+
+        <div class="desk-grid">
+            <table class="desk-table">
                 <thead>
                     <tr>
                         <th>Invoice No</th>
@@ -256,127 +277,152 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <th>Order No</th>
                         <th>Customer ID</th>
                         <th>Bill to</th>
-                        <th class="text-right">Subtotal</th>
-                        <th class="text-right">Total Discount</th>
-                        <th class="text-right">Trade Discount</th>
-                        <th class="text-right">Freight</th>
-                        <th class="text-right">Misc</th>
-                        <th class="text-right">Invoice Total</th>
-                        <th class="text-right">Payments</th>
-                        <th class="text-right">Credits</th>
-                        <th class="text-right">Balance</th>
-                        <th>Status</th>
+                        <th class="desk-money">Subtotal</th>
+                        <th class="desk-money">Total Discount</th>
+                        <th class="desk-money">Trade Discount</th>
+                        <th class="desk-money">Freight</th>
+                        <th class="desk-money">Misc</th>
+                        <th class="desk-money">Invoice Total</th>
+                        <th class="desk-money">Payments</th>
+                        <th class="desk-money">Credits</th>
+                        <th class="desk-money">Balance</th>
+                        <th class="text-center">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($invoices as $inv)
-                        <tr class="cursor-pointer" wire:click="openPayments({{ $inv->id }})" @class(['chief-selected-row' => $modalInvoiceId === $inv->id])>
-                            <td class="font-mono">{{ $inv->invoice_number }}</td>
+                        <tr class="cursor-pointer" wire:click="openPayments({{ $inv->id }})" @class(['is-selected' => $modalInvoiceId === $inv->id])>
+                            <td class="desk-num">{{ $inv->invoice_number }}</td>
                             <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
-                            <td class="font-mono">{{ $inv->salesOrder?->order_number }}</td>
-                            <td class="font-mono">{{ $inv->customer?->customer_id }}</td>
+                            <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
+                            <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
                             <td>{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
-                            <td class="text-right">${{ number_format($inv->subtotal, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->total_discount, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->trade_discount, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->freight, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->miscellaneous, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->invoice_total, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->total_payments, 2) }}</td>
-                            <td class="text-right">${{ number_format($inv->total_credits, 2) }}</td>
-                            <td class="text-right font-semibold">${{ number_format($inv->invoice_balance, 2) }}</td>
-                            <td>{{ $inv->status }}</td>
+                            <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->total_discount, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->trade_discount, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->freight, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->miscellaneous, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->invoice_total, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->total_payments, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->total_credits, 2) }}</td>
+                            <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
+                            <td class="text-center">
+                                <span @class([
+                                    'desk-pill',
+                                    'desk-pill-new' => $inv->status === 'NOT PAID',
+                                    'desk-pill-invoiced' => $inv->status === 'PAID',
+                                    'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
+                                ])>{{ $inv->status }}</span>
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="15" class="px-2 py-6 text-slate-500">No invoices. Invoice a sales order from the Orders list.</td></tr>
+                        <tr class="is-empty">
+                            <td colspan="15">No invoices. Invoice a sales order from the Orders list.</td>
+                        </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+
         <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>
     </div>
 
     @if ($modalInvoice)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeModal">
-            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-4xl max-h-[92vh] overflow-auto">
-                <div class="chief-action-bar px-3 py-1.5 flex justify-between items-center gap-2">
-                    <span>Payments & Credits — Invoice {{ $modalInvoice->invoice_number }}</span>
-                    <div class="flex items-center gap-2">
-                        <a href="{{ route('sales.invoices.pdf', $modalInvoice) }}" class="chief-btn text-xs !text-slate-800 bg-white border border-slate-400 px-2 py-0.5 rounded-sm" target="_blank">Print PDF</a>
-                        <button type="button" wire:click="$set('showEmailForm', true)" class="chief-btn text-xs !text-slate-800 bg-white border border-slate-400 px-2 py-0.5 rounded-sm">Email</button>
-                        <button type="button" wire:click="closeModal" class="text-white hover:text-red-200" aria-label="Close">×</button>
+        <div class="desk-modal-backdrop" wire:click.self="closeModal" role="dialog" aria-modal="true" aria-label="Invoice payments">
+            <div class="desk-modal desk-modal-lg inv-modal">
+                <div class="desk-modal-head">
+                    <div class="inv-modal-title">
+                        <span>Invoice {{ $modalInvoice->invoice_number }}</span>
+                        <span @class([
+                            'desk-pill',
+                            'desk-pill-new' => $modalInvoice->status === 'NOT PAID',
+                            'desk-pill-invoiced' => $modalInvoice->status === 'PAID',
+                        ])>{{ $modalInvoice->status }}</span>
+                    </div>
+                    <div class="desk-modal-head-actions">
+                        <a href="{{ route('sales.invoices.pdf', $modalInvoice) }}" class="desk-btn desk-btn-sm" target="_blank">Print PDF</a>
+                        <button type="button" wire:click="$set('showEmailForm', true)" class="desk-btn desk-btn-sm">Email Invoice</button>
+                        <button type="button" wire:click="closeModal" class="desk-modal-close" aria-label="Close">×</button>
                     </div>
                 </div>
-                <div class="p-3 space-y-3 text-sm">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 border border-slate-300 p-2 bg-slate-50">
-                        <div class="space-y-0.5">
-                            <div>Order No: <strong class="font-mono">{{ $modalInvoice->salesOrder?->order_number }}</strong></div>
-                            <div>Order Date: {{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') }}</div>
-                            <div>Invoice No: <strong class="font-mono">{{ $modalInvoice->invoice_number }}</strong></div>
-                            <div>Invoice Date: {{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</div>
+                <div class="desk-modal-body inv-modal-body">
+                    <div class="inv-top-grid">
+                        <div class="inv-card">
+                            <div class="inv-card-title">Document</div>
+                            <div class="inv-kv"><span>Order No</span><strong class="desk-num">{{ $modalInvoice->salesOrder?->order_number ?: '—' }}</strong></div>
+                            <div class="inv-kv"><span>Order Date</span><strong>{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</strong></div>
+                            <div class="inv-kv"><span>Invoice No</span><strong class="desk-num">{{ $modalInvoice->invoice_number }}</strong></div>
+                            <div class="inv-kv"><span>Invoice Date</span><strong>{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</strong></div>
                         </div>
-                        <div class="space-y-0.5">
-                            <div class="font-semibold">Bill To</div>
-                            <div>{{ $modalInvoice->salesOrder?->bill_to_name ?: $modalInvoice->customer?->company_name }}</div>
-                            <div>{{ $modalInvoice->salesOrder?->bill_to_address }}</div>
-                            @if ($modalInvoice->salesOrder?->bill_to_city || $modalInvoice->salesOrder?->bill_to_state || $modalInvoice->salesOrder?->bill_to_zip)
-                                <div>
-                                    {{ collect([$modalInvoice->salesOrder?->bill_to_city, $modalInvoice->salesOrder?->bill_to_state, $modalInvoice->salesOrder?->bill_to_zip])->filter()->implode(', ') }}
+                        <div class="inv-card">
+                            <div class="inv-card-title">Bill To</div>
+                            <div class="inv-billto">
+                                <strong>{{ $modalInvoice->salesOrder?->bill_to_name ?: $modalInvoice->customer?->company_name ?: '—' }}</strong>
+                                <div>{{ $modalInvoice->salesOrder?->bill_to_address }}</div>
+                                @if ($modalInvoice->salesOrder?->bill_to_city || $modalInvoice->salesOrder?->bill_to_state || $modalInvoice->salesOrder?->bill_to_zip)
+                                    <div>{{ collect([$modalInvoice->salesOrder?->bill_to_city, $modalInvoice->salesOrder?->bill_to_state, $modalInvoice->salesOrder?->bill_to_zip])->filter()->implode(', ') }}</div>
+                                @endif
+                                <div>{{ $modalInvoice->salesOrder?->bill_to_phone }}</div>
+                            </div>
+                        </div>
+                        <div class="inv-card">
+                            <div class="inv-card-title">Details</div>
+                            <div class="inv-kv"><span>Sales Rep</span><strong>{{ $modalInvoice->salesOrder?->salesRep?->name ?: '—' }}</strong></div>
+                            <div class="inv-kv"><span>Terms</span><strong>{{ $modalInvoice->salesOrder?->paymentTerm?->name ?: '—' }}</strong></div>
+                            <div class="inv-driver">
+                                <label for="invoice-driver">Delivery Driver</label>
+                                <p class="inv-driver-hint">Who delivers this order / invoice. Saved when you leave the field or click Save.</p>
+                                <div class="inv-driver-row">
+                                    <input id="invoice-driver" wire:model.live="driver" wire:blur="saveDriver" class="so-input" placeholder="Driver name" autocomplete="off" />
+                                    <button type="button" wire:click="saveDriver" class="desk-btn desk-btn-sm">Save</button>
                                 </div>
-                            @endif
-                            <div>{{ $modalInvoice->salesOrder?->bill_to_phone }}</div>
-                        </div>
-                        <div class="space-y-1">
-                            <div>Sales Rep: <strong>{{ $modalInvoice->salesOrder?->salesRep?->name ?: '—' }}</strong></div>
-                            <div>Status: <strong>{{ $modalInvoice->status }}</strong></div>
-                            <div>Terms: <strong>{{ $modalInvoice->salesOrder?->paymentTerm?->name ?: '—' }}</strong></div>
-                            <div class="chief-field !ms-0">
-                                <label class="!w-auto !min-w-0 me-2">Driver</label>
-                                <input wire:model.blur="driver" class="chief-input w-40" />
+                                @if ($driverSavedAt !== '')
+                                    <div class="inv-driver-saved">Saved at {{ $driverSavedAt }}</div>
+                                @endif
                             </div>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2 text-right border border-slate-300 p-2 text-xs">
-                        <div>Subtotal<br><strong class="text-sm">${{ number_format($modalInvoice->subtotal, 2) }}</strong></div>
-                        <div>Trade Discount<br><strong class="text-sm">${{ number_format($modalInvoice->trade_discount, 2) }}</strong></div>
-                        <div>Freight<br><strong class="text-sm">${{ number_format($modalInvoice->freight, 2) }}</strong></div>
-                        <div>Misc<br><strong class="text-sm">${{ number_format($modalInvoice->miscellaneous, 2) }}</strong></div>
-                        <div>Total<br><strong class="text-sm">${{ number_format($modalInvoice->invoice_total, 2) }}</strong></div>
-                        <div>New Total<br><strong class="text-sm">${{ number_format($modalInvoice->invoice_total, 2) }}</strong></div>
-                        <div>Total Credits<br><strong class="text-sm">${{ number_format($modalInvoice->total_credits, 2) }}</strong></div>
-                        <div>Total Payments<br><strong class="text-sm">${{ number_format($modalInvoice->total_payments, 2) }}</strong></div>
-                        <div>Invoice Balance<br><strong class="text-sm text-red-700">${{ number_format($modalInvoice->invoice_balance, 2) }}</strong></div>
+                    <div class="inv-balance-row">
+                        <div class="inv-metric"><span>Subtotal</span><strong>${{ number_format($modalInvoice->subtotal, 2) }}</strong></div>
+                        <div class="inv-metric"><span>Discounts</span><strong>${{ number_format((float) $modalInvoice->trade_discount + (float) $modalInvoice->total_discount, 2) }}</strong></div>
+                        <div class="inv-metric"><span>Freight / Misc</span><strong>${{ number_format((float) $modalInvoice->freight + (float) $modalInvoice->miscellaneous, 2) }}</strong></div>
+                        <div class="inv-metric"><span>Invoice Total</span><strong>${{ number_format($modalInvoice->invoice_total, 2) }}</strong></div>
+                        <div class="inv-metric"><span>Payments</span><strong>${{ number_format($modalInvoice->total_payments, 2) }}</strong></div>
+                        <div class="inv-metric"><span>Credits</span><strong>${{ number_format($modalInvoice->total_credits, 2) }}</strong></div>
+                        <div class="inv-metric inv-metric-balance"><span>Balance Due</span><strong>${{ number_format($modalInvoice->invoice_balance, 2) }}</strong></div>
                     </div>
 
-                    <div>
-                        <div class="flex items-center justify-between mb-1">
-                            <h3 class="font-semibold">Collected Payments</h3>
-                            <button type="button" wire:click="openPayForm" class="chief-btn-primary text-xs">Enter Payment</button>
+                    <div class="entity-section">
+                        <div class="entity-section-head">
+                            <h3 class="entity-section-title">Collected Payments</h3>
+                            <button type="button" wire:click="openPayForm" class="desk-btn desk-btn-primary desk-btn-sm">Enter Payment</button>
                         </div>
-                        <div class="chief-grid border border-slate-300 mb-2">
-                            <table>
+                        <div class="desk-grid" style="max-height:12rem">
+                            <table class="desk-table">
                                 <thead><tr><th>Date</th><th>Method</th><th class="text-right">Amount</th><th>Comments</th></tr></thead>
                                 <tbody>
                                     @forelse ($modalInvoice->payments as $p)
                                         <tr>
                                             <td>{{ optional($p->payment_date)?->format('n/j/Y') }}</td>
                                             <td>{{ $p->payment_method }}</td>
-                                            <td class="text-right">${{ number_format($p->amount, 2) }}</td>
+                                            <td class="desk-money">${{ number_format($p->amount, 2) }}</td>
                                             <td>{{ $p->comments }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="4" class="text-slate-500">No payments yet.</td></tr>
+                                        <tr class="is-empty"><td colspan="4">No payments yet.</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <div>
-                        <h3 class="font-semibold mb-1">Applied Credits</h3>
-                        <div class="chief-grid border border-slate-300 mb-2">
-                            <table>
+                    <div class="entity-section" style="margin-top:0.75rem">
+                        <div class="entity-section-head">
+                            <h3 class="entity-section-title">Applied Credits</h3>
+                        </div>
+                        <div class="desk-grid" style="max-height:10rem">
+                            <table class="desk-table">
                                 <thead>
                                     <tr>
                                         <th>Memo No</th>
@@ -390,32 +436,35 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                 <tbody>
                                     @forelse ($modalInvoice->credits as $c)
                                         <tr>
-                                            <td class="font-mono">{{ $c->creditMemo?->memo_number }}</td>
+                                            <td class="desk-num">{{ $c->creditMemo?->memo_number }}</td>
                                             <td>{{ optional($c->creditMemo?->memo_date)?->format('n/j/Y') }}</td>
                                             @if ($hasCreditSalesOrder)
-                                                <td class="font-mono">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
+                                                <td class="desk-num">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
                                             @endif
-                                            <td class="text-right">${{ number_format($c->amount, 2) }}</td>
+                                            <td class="desk-money">${{ number_format($c->amount, 2) }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}" class="text-slate-500">No credits applied.</td></tr>
+                                        <tr class="is-empty"><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}">No credits applied.</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
                         </div>
                         @if ($openCredits->count())
-                            <div class="flex flex-wrap items-end gap-2">
-                                <div>
-                                    <label class="block text-xs">Open Credit Memo</label>
-                                    <select wire:model="applyCreditId" class="chief-input w-48">
+                            <div class="desk-modal-form-row">
+                                <div class="so-form-row so-form-row-side">
+                                    <label class="so-form-lbl" for="applyCreditId">Open Credit</label>
+                                    <select id="applyCreditId" wire:model="applyCreditId" class="so-input">
                                         <option value="">—</option>
                                         @foreach ($openCredits as $cm)
                                             <option value="{{ $cm->id }}">{{ $cm->memo_number }} — ${{ number_format($cm->amount, 2) }}</option>
                                         @endforeach
                                     </select>
                                 </div>
-                                <div><label class="block text-xs">Amount</label><input wire:model="applyCreditAmount" class="chief-input w-28 text-right" /></div>
-                                <button type="button" wire:click="applyCredit" class="chief-btn">Apply Credit</button>
+                                <div class="so-form-row so-form-row-side">
+                                    <label class="so-form-lbl" for="applyCreditAmount">Amount</label>
+                                    <input id="applyCreditAmount" wire:model="applyCreditAmount" class="so-input text-right" />
+                                </div>
+                                <button type="button" wire:click="applyCredit" class="desk-btn">Apply Credit</button>
                             </div>
                         @endif
                     </div>
@@ -425,25 +474,26 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     @endif
 
     @if ($showEmailForm && $modalInvoice)
-        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" wire:click.self="$set('showEmailForm', false)">
-            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-md">
-                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
-                    <span>Email Invoice</span>
-                    <button type="button" wire:click="$set('showEmailForm', false)" class="text-white hover:text-red-200" aria-label="Close">×</button>
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="$set('showEmailForm', false)" role="dialog" aria-modal="true" aria-label="Email invoice">
+            <div class="desk-modal desk-modal-sm">
+                <div class="desk-modal-head">
+                    <span>Email Invoice {{ $modalInvoice->invoice_number }}</span>
+                    <button type="button" wire:click="$set('showEmailForm', false)" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
-                <form method="POST" action="{{ route('sales.invoices.email', $modalInvoice) }}" class="p-3 space-y-2 text-sm">
+                <form method="POST" action="{{ route('sales.invoices.email', $modalInvoice) }}" class="desk-modal-body space-y-3">
                     @csrf
-                    <div>
-                        <label class="block text-xs mb-1" for="inv-email">Recipient</label>
-                        <input id="inv-email" name="email" type="email" value="{{ $emailTo }}" required class="chief-input w-full" />
+                    <p class="inv-email-note">Sends the invoice PDF to the customer email address.</p>
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="inv-email">To</label>
+                        <input id="inv-email" name="email" type="email" value="{{ $emailTo }}" required class="so-input" placeholder="customer@email.com" />
                     </div>
-                    <div>
-                        <label class="block text-xs mb-1" for="inv-subject">Subject</label>
-                        <input id="inv-subject" name="subject" value="{{ $emailSubject }}" class="chief-input w-full" />
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="inv-subject">Subject</label>
+                        <input id="inv-subject" name="subject" value="{{ $emailSubject }}" class="so-input" />
                     </div>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <button type="button" wire:click="$set('showEmailForm', false)" class="chief-btn">Cancel</button>
-                        <button type="submit" class="chief-btn-primary">Send</button>
+                    <div class="entity-footer-actions" style="justify-content:flex-end">
+                        <button type="button" wire:click="$set('showEmailForm', false)" class="desk-btn">Cancel</button>
+                        <button type="submit" class="desk-btn desk-btn-primary">Send Email</button>
                     </div>
                 </form>
             </div>
@@ -451,37 +501,37 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     @endif
 
     @if ($showPayForm && $modalInvoice)
-        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" wire:click.self="$set('showPayForm', false)">
-            <div class="bg-white border border-slate-500 shadow-xl w-full max-w-md">
-                <div class="chief-action-bar px-3 py-1.5 flex justify-between">
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="$set('showPayForm', false)" role="dialog" aria-modal="true" aria-label="Enter payment">
+            <div class="desk-modal desk-modal-sm">
+                <div class="desk-modal-head">
                     <span>Enter Payment</span>
-                    <button type="button" wire:click="$set('showPayForm', false)" class="text-white hover:text-red-200">×</button>
+                    <button type="button" wire:click="$set('showPayForm', false)" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
-                <div class="p-3 space-y-2 text-sm">
-                    <div class="chief-field !ms-0 flex-col items-stretch gap-1">
-                        <label>Payment Date</label>
-                        <input type="date" wire:model="pay_date" class="chief-input w-full" />
+                <div class="desk-modal-body space-y-3">
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="pay_date">Payment Date</label>
+                        <input id="pay_date" type="date" wire:model="pay_date" class="so-input" />
                     </div>
-                    <div class="chief-field !ms-0 flex-col items-stretch gap-1">
-                        <label>Method</label>
-                        <select wire:model="pay_method" class="chief-input w-full">
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="pay_method">Method</label>
+                        <select id="pay_method" wire:model="pay_method" class="so-input">
                             <option>Cash</option>
                             <option>Credit Card</option>
                             <option>Check</option>
                             <option>ACH</option>
                         </select>
                     </div>
-                    <div class="chief-field !ms-0 flex-col items-stretch gap-1">
-                        <label>Amount</label>
-                        <input wire:model="pay_amount" class="chief-input w-full text-right" />
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="pay_amount">Amount</label>
+                        <input id="pay_amount" wire:model="pay_amount" class="so-input text-right" />
                     </div>
-                    <div class="chief-field !ms-0 flex-col items-stretch gap-1">
-                        <label>Comments</label>
-                        <input wire:model="pay_comments" class="chief-input w-full" />
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="pay_comments">Comments</label>
+                        <input id="pay_comments" wire:model="pay_comments" class="so-input" />
                     </div>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <button type="button" wire:click="$set('showPayForm', false)" class="chief-btn">Cancel</button>
-                        <button type="button" wire:click="savePayment" class="chief-btn-primary">Save &amp; Print</button>
+                    <div class="entity-footer-actions" style="justify-content:flex-end">
+                        <button type="button" wire:click="$set('showPayForm', false)" class="desk-btn">Cancel</button>
+                        <button type="button" wire:click="savePayment" class="desk-btn desk-btn-primary">Save &amp; Print</button>
                     </div>
                 </div>
             </div>

@@ -10,8 +10,8 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
     </head>
-    <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm">
-        <div class="min-h-screen flex flex-col">
+    <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
+        <div class="h-screen flex flex-col overflow-hidden">
             <nav class="chief-menu select-none">
                 <div class="flex items-center gap-0.5 px-2 py-0.5">
                     <span class="px-2 py-1 font-semibold text-slate-800">Chief 5.0</span>
@@ -145,7 +145,7 @@
                 @endforeach
             </div>
 
-            <main class="flex-1 overflow-y-auto overflow-x-hidden bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;">
+            <main class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;">
                 {{ $slot }}
             </main>
 

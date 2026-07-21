@@ -570,53 +570,51 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="$set('addressTab', 'bill')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'bill'])>Bill To Address</button>
                             <button type="button" wire:click="$set('addressTab', 'ship')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'ship'])>Ship To Address</button>
                         </div>
-                        @if ($addressTab === 'bill')
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Name:</label>
-                                <input wire:model="bill_to_name" class="so-input so-w-addr" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Phone No.:</label>
-                                <input wire:model="bill_to_phone" class="so-input so-w-phone" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Address:</label>
-                                <input wire:model="bill_to_address" class="so-input so-w-addr" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">City:</label>
-                                <div class="so-lookup-row">
-                                    <input wire:model="bill_to_city" class="so-input so-w-city" />
-                                    <span class="so-inline-lbl">State:</span>
-                                    <input wire:model="bill_to_state" class="so-input so-w-state" />
-                                    <span class="so-inline-lbl">ZIP code:</span>
-                                    <input wire:model="bill_to_zip" class="so-input so-w-zip" />
-                                </div>
-                            </div>
-                        @else
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Name:</label>
-                                <input wire:model="ship_to_name" class="so-input so-w-addr" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Phone No.:</label>
-                                <input wire:model="ship_to_phone" class="so-input so-w-phone" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">Address:</label>
-                                <input wire:model="ship_to_address" class="so-input so-w-addr" />
-                            </div>
-                            <div class="so-addr-row">
-                                <label class="so-lbl">City:</label>
-                                <div class="so-lookup-row">
-                                    <input wire:model="ship_to_city" class="so-input so-w-city" />
-                                    <span class="so-inline-lbl">State:</span>
-                                    <input wire:model="ship_to_state" class="so-input so-w-state" />
-                                    <span class="so-inline-lbl">ZIP code:</span>
-                                    <input wire:model="ship_to_zip" class="so-input so-w-zip" />
-                                </div>
-                            </div>
-                        @endif
+                        <table class="so-addr-table">
+                            @if ($addressTab === 'bill')
+                                <tr>
+                                    <td class="so-addr-lbl">Name:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_name" class="so-input" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">Phone No.:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_phone" class="so-input so-w-phone" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">Address:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_address" class="so-input" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">City:</td>
+                                    <td class="so-addr-ctl"><input wire:model="bill_to_city" class="so-input so-w-city" /></td>
+                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
+                                    <td class="so-addr-ctl"><input wire:model="bill_to_state" class="so-input so-w-state" /></td>
+                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
+                                    <td class="so-addr-ctl"><input wire:model="bill_to_zip" class="so-input so-w-zip" /></td>
+                                </tr>
+                            @else
+                                <tr>
+                                    <td class="so-addr-lbl">Name:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_name" class="so-input" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">Phone No.:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_phone" class="so-input so-w-phone" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">Address:</td>
+                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_address" class="so-input" /></td>
+                                </tr>
+                                <tr>
+                                    <td class="so-addr-lbl">City:</td>
+                                    <td class="so-addr-ctl"><input wire:model="ship_to_city" class="so-input so-w-city" /></td>
+                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
+                                    <td class="so-addr-ctl"><input wire:model="ship_to_state" class="so-input so-w-state" /></td>
+                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
+                                    <td class="so-addr-ctl"><input wire:model="ship_to_zip" class="so-input so-w-zip" /></td>
+                                </tr>
+                            @endif
+                        </table>
                     </div>
                     <label class="so-lbl so-rep-lbl">Sales Rep.:</label>
                     <div class="so-ctl so-rep-ctl">
@@ -658,7 +656,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         <td><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right" style="width:4.5rem" /></td>
                                         <td><input wire:model.live="lines.{{ $i }}.price" class="so-input text-right" style="width:5rem" /></td>
                                         <td><input wire:model.live="lines.{{ $i }}.discount" class="so-input text-right" style="width:4.5rem" /></td>
-                                        <td class="text-right pe-2 text-sm">${{ number_format(((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'], 2) }}</td>
+                                        <td class="so-line-total text-right pe-2">${{ number_format(((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'], 2) }}</td>
                                         <td><button type="button" wire:click="removeLine({{ $i }})" class="text-red-600 text-xs px-1">×</button></td>
                                     </tr>
                                 @endforeach
@@ -674,8 +672,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             wire:model="itemEntry"
                             wire:keydown.enter.prevent="addItemFromEntry"
                             wire:keydown.f2.prevent="toggleBrowse"
-                            class="so-input"
-                            style="max-width:12rem"
+                            class="so-input so-entry-input"
                         />
                         <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
@@ -748,36 +745,40 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             <div class="so-footer">
                 <div class="so-counters">
-                    <div>
-                        <div>Total Lines: <strong>{{ $totalLines }}</strong></div>
-                        <div>Total Items: <strong>{{ $totalItems }}</strong></div>
-                        <div>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></div>
-                        <div>Total items Shipped: <strong>{{ $totalShipped }}</strong></div>
+                    <div class="so-counter-line">
+                        <span>Total Lines: <strong>{{ $totalLines }}</strong></span>
+                        <span>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></span>
                     </div>
-                    <div>
-                        <div>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></div>
-                        <div>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></div>
+                    <div class="so-counter-line">
+                        <span>Total Items: <strong>{{ $totalItems }}</strong></span>
+                        <span>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></span>
+                    </div>
+                    <div class="so-counter-line">
+                        <span>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></span>
+                    </div>
+                    <div class="so-counter-line">
+                        <span>Total items Shipped: <strong>{{ $totalShipped }}</strong></span>
                     </div>
                 </div>
                 <div class="so-totals">
-                    <div class="so-totals-row"><span>Subtotal:</span><span>${{ number_format($subtotal, 2) }}</span></div>
+                    <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
                     <div class="so-totals-row">
-                        <span>Trade Discount:</span>
-                        <span class="so-money"><span class="so-money-prefix">$</span><input wire:model.live="trade_discount" class="so-input text-right" style="width:4.5rem" /></span>
+                        <span class="so-totals-lbl">Trade Discount:</span>
+                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" /></label>
                     </div>
                     <div class="so-totals-row">
-                        <span>Freight:</span>
-                        <span class="so-money"><span class="so-money-prefix">$</span><input wire:model.live="freight" class="so-input text-right" style="width:4.5rem" /></span>
+                        <span class="so-totals-lbl">Freight:</span>
+                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" /></label>
                     </div>
                     <div class="so-totals-row">
-                        <span>Miscellaneous:</span>
-                        <span class="so-money"><span class="so-money-prefix">$</span><input wire:model.live="miscellaneous" class="so-input text-right" style="width:4.5rem" /></span>
+                        <span class="so-totals-lbl">Miscellaneous:</span>
+                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" /></label>
                     </div>
                     <div class="so-totals-row">
-                        <span>Tax:</span>
-                        <span class="so-money"><span class="so-money-prefix">$</span><input wire:model.live="tax" class="so-input text-right" style="width:4.5rem" /></span>
+                        <span class="so-totals-lbl">Tax:</span>
+                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" class="so-totals-input" /></label>
                     </div>
-                    <div class="so-totals-row so-totals-final"><span>Total:</span><strong>${{ number_format($orderTotal, 2) }}</strong></div>
+                    <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                 </div>
             </div>
         </div>

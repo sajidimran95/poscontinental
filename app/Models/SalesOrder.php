@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 class SalesOrder extends Model
 {
@@ -92,8 +93,29 @@ class SalesOrder extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('order_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 243074;
+        $query = static::query()
+            ->where('company_id', $companyId)
+            ->orderByDesc('id');
+
+        if (DB::transactionLevel() > 0) {
+            $query->lockForUpdate();
+        }
+
+        $last = $query->value('order_number');
+
+        $n = $last ? ((int) preg_replace('/\D/', '', (string) $last)) + 1 : 243074;
+        if ($n < 1) {
+            $n = 243074;
+        }
+
+        while (
+            static::query()
+                ->where('company_id', $companyId)
+                ->where('order_number', (string) $n)
+                ->exists()
+        ) {
+            $n++;
+        }
 
         return (string) $n;
     }

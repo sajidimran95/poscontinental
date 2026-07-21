@@ -199,6 +199,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
     }
 
+    public function regenerateOrderNumber(): void
+    {
+        if ($this->salesOrder?->exists) {
+            return;
+        }
+
+        $this->order_number = SalesOrder::nextNumber((int) auth()->user()->company_id);
+    }
+
     protected function emptyLine(): array
     {
         return [
@@ -742,8 +751,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             : 0);
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
 
+        $companyId = (int) auth()->user()->company_id;
+
         $data = [
-            'company_id' => auth()->user()->company_id,
+            'company_id' => $companyId,
             'order_number' => $this->order_number,
             'order_type' => $this->order_type,
             'status' => $this->status,
@@ -789,13 +800,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'created_by' => $this->salesOrder?->created_by ?? auth()->id(),
         ];
 
-        DB::transaction(function () use ($data) {
+        DB::transaction(function () use (&$data, $companyId) {
             if ($this->salesOrder) {
                 $this->salesOrder->update($data);
                 $order = $this->salesOrder->fresh();
                 $order->lines()->delete();
                 $order->boxes()->delete();
             } else {
+                // Always assign a fresh number on create to avoid duplicates.
+                $data['order_number'] = SalesOrder::nextNumber($companyId);
+                $this->order_number = $data['order_number'];
                 $order = SalesOrder::query()->create($data);
             }
 
@@ -871,32 +885,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         <div class="so-body">
             @if ($activeTab === 'general')
             <div class="so-header" id="mode-panel-general" role="tabpanel" aria-labelledby="mode-tab-general">
-                <div class="so-header-split">
-                    <table class="so-left-table" aria-label="Order customer and address">
-                        <tbody>
-                            <tr>
-                                <th scope="row">Order Type:</th>
-                                <td>
-                                    <select wire:model="order_type" class="so-input so-w-ordertype" aria-label="Order Type">
-                                        <option>Sales Order</option>
-                                        <option>Return</option>
-                                    </select>
-                                </td>
-                                <th scope="row">Order No:</th>
-                                <td>
-                                    <div class="so-lookup-row">
-                                        <input wire:model="order_number" class="so-input font-mono so-w-orderno" aria-label="Order Number" @disabled($salesOrder) />
-                                        <button type="button" class="so-icon-btn" title="Lookup" tabindex="-1" aria-label="Lookup order">
+                <div class="so-form-card">
+                    <div class="so-form-layout">
+                        <div class="so-form-main" aria-label="Order customer and address">
+                            <div class="so-form-row so-form-row-pair">
+                                <label class="so-form-lbl" for="order_type">Order Type</label>
+                                <select id="order_type" wire:model="order_type" class="so-input" aria-label="Order Type">
+                                    <option>Sales Order</option>
+                                    <option>Return</option>
+                                </select>
+                                <label class="so-form-lbl" for="order_number">Order No</label>
+                                <div class="so-lookup-row">
+                                    <input id="order_number" wire:model="order_number" class="so-input font-mono" aria-label="Order Number" readonly title="Auto-generated" />
+                                    @unless ($salesOrder?->exists)
+                                        <button type="button" wire:click="regenerateOrderNumber" class="so-icon-btn" title="Generate next number" aria-label="Generate next order number">
                                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h8M6 2v8"/></svg>
                                         </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Customer:</th>
-                                <td colspan="3">
+                                    @endunless
+                                </div>
+                            </div>
+
+                            <div class="so-form-row">
+                                <label class="so-form-lbl" for="customer_id">Customer</label>
+                                <div class="so-form-ctl">
                                     <div class="so-lookup-row">
-                                        <select wire:model.live="customer_id" class="so-input so-w-customer" aria-label="Customer">
+                                        <select id="customer_id" wire:model.live="customer_id" class="so-input" aria-label="Customer">
                                             <option value="">—</option>
                                             @foreach ($customers as $c)
                                                 <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
@@ -941,13 +954,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             </table>
                                         </div>
                                     @endif
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Ship to:</th>
-                                <td colspan="3">
+                                </div>
+                            </div>
+
+                            <div class="so-form-row">
+                                <label class="so-form-lbl" for="ship_to_address_id">Ship to</label>
+                                <div class="so-form-ctl">
                                     <div class="so-lookup-row">
-                                        <select wire:model.live="ship_to_address_id" class="so-input so-w-customer" aria-label="Ship to">
+                                        <select id="ship_to_address_id" wire:model.live="ship_to_address_id" class="so-input" aria-label="Ship to">
                                             <option value="">—</option>
                                             @if ($selectedCustomer)
                                                 @foreach ($selectedCustomer->shippingAddresses as $addr)
@@ -985,112 +999,102 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             </table>
                                         </div>
                                     @endif
-                                </td>
-                            </tr>
-                            <tr>
-                                <td colspan="4" class="!p-0">
-                                    <div class="so-addr-block">
-                                        <div class="so-addr-tabs" role="tablist" aria-label="Address type">
-                                            <button type="button" role="tab" aria-selected="{{ $addressTab === 'bill' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'bill')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'bill'])>Bill To Address</button>
-                                            <button type="button" role="tab" aria-selected="{{ $addressTab === 'ship' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'ship')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'ship'])>Ship To Address</button>
-                                        </div>
-                                        <table class="so-addr-table">
-                                            @if ($addressTab === 'bill')
-                                                <tr>
-                                                    <td class="so-addr-lbl">Name:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_name" class="so-input" aria-label="Bill to name" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">Phone No.:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_phone" class="so-input so-w-phone" aria-label="Bill to phone" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">Address:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="bill_to_address" class="so-input" aria-label="Bill to address" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">City:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="bill_to_city" class="so-input so-w-city" aria-label="Bill to city" /></td>
-                                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="bill_to_state" class="so-input so-w-state" aria-label="Bill to state" /></td>
-                                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="bill_to_zip" class="so-input so-w-zip" aria-label="Bill to ZIP" /></td>
-                                                </tr>
-                                            @else
-                                                <tr>
-                                                    <td class="so-addr-lbl">Name:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_name" class="so-input" aria-label="Ship to name" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">Phone No.:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_phone" class="so-input so-w-phone" aria-label="Ship to phone" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">Address:</td>
-                                                    <td class="so-addr-ctl" colspan="5"><input wire:model="ship_to_address" class="so-input" aria-label="Ship to address" /></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="so-addr-lbl">City:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="ship_to_city" class="so-input so-w-city" aria-label="Ship to city" /></td>
-                                                    <td class="so-addr-lbl so-addr-lbl-inline">State:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="ship_to_state" class="so-input so-w-state" aria-label="Ship to state" /></td>
-                                                    <td class="so-addr-lbl so-addr-lbl-inline">ZIP code:</td>
-                                                    <td class="so-addr-ctl"><input wire:model="ship_to_zip" class="so-input so-w-zip" aria-label="Ship to ZIP" /></td>
-                                                </tr>
-                                            @endif
-                                        </table>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                                </div>
+                            </div>
 
-                    <div class="so-right-fields" aria-label="Order status and dates">
-                        <table class="so-right-table">
-                            <tbody>
-                                <tr>
-                                    <th scope="row">Order Status:</th>
-                                    <td><input wire:model="status" class="so-input so-w-status" readonly aria-label="Order Status" /></td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Priority:</th>
-                                    <td>
-                                        <select wire:model="priority" class="so-input so-w-status" aria-label="Priority">
-                                            <option>Normal</option>
-                                            <option>High</option>
-                                            <option>Low</option>
-                                        </select>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Order Date:</th>
-                                    <td><input type="date" wire:model="order_date" class="so-input so-w-date" aria-label="Order Date" /></td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Required Date:</th>
-                                    <td><input type="date" wire:model="required_date" class="so-input so-w-date" aria-label="Required Date" /></td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Customer PO No.:</th>
-                                    <td><input wire:model="customer_po_no" class="so-input so-w-date" aria-label="Customer PO Number" /></td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Reference No:</th>
-                                    <td><input wire:model="reference_no" class="so-input so-w-date" aria-label="Reference Number" /></td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Sales Rep.:</th>
-                                    <td>
-                                        <select wire:model="sales_rep_id" class="so-input so-w-rep" aria-label="Sales Rep">
-                                            <option value="">—</option>
-                                            @foreach ($salesReps as $r)
-                                                <option value="{{ $r->id }}">{{ $r->name }}</option>
-                                            @endforeach
-                                        </select>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                            <div class="so-addr-block">
+                                <div class="so-addr-tabs" role="tablist" aria-label="Address type">
+                                    <button type="button" role="tab" aria-selected="{{ $addressTab === 'bill' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'bill')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'bill'])>Bill To Address</button>
+                                    <button type="button" role="tab" aria-selected="{{ $addressTab === 'ship' ? 'true' : 'false' }}" wire:click="$set('addressTab', 'ship')" @class(['so-addr-tab', 'so-addr-tab-active' => $addressTab === 'ship'])>Ship To Address</button>
+                                </div>
+                                <div class="so-addr-fields">
+                                    @if ($addressTab === 'bill')
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="bill_to_name">Name</label>
+                                            <input id="bill_to_name" wire:model="bill_to_name" class="so-input" aria-label="Bill to name" />
+                                        </div>
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="bill_to_phone">Phone No.</label>
+                                            <input id="bill_to_phone" wire:model="bill_to_phone" class="so-input" aria-label="Bill to phone" />
+                                        </div>
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="bill_to_address">Address</label>
+                                            <input id="bill_to_address" wire:model="bill_to_address" class="so-input" aria-label="Bill to address" />
+                                        </div>
+                                        <div class="so-form-row so-form-row-city">
+                                            <label class="so-form-lbl" for="bill_to_city">City</label>
+                                            <input id="bill_to_city" wire:model="bill_to_city" class="so-input" aria-label="Bill to city" />
+                                            <label class="so-form-lbl so-form-lbl-sm" for="bill_to_state">State</label>
+                                            <input id="bill_to_state" wire:model="bill_to_state" class="so-input so-w-state" aria-label="Bill to state" />
+                                            <label class="so-form-lbl so-form-lbl-sm" for="bill_to_zip">ZIP</label>
+                                            <input id="bill_to_zip" wire:model="bill_to_zip" class="so-input so-w-zip" aria-label="Bill to ZIP" />
+                                        </div>
+                                    @else
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="ship_to_name">Name</label>
+                                            <input id="ship_to_name" wire:model="ship_to_name" class="so-input" aria-label="Ship to name" />
+                                        </div>
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="ship_to_phone">Phone No.</label>
+                                            <input id="ship_to_phone" wire:model="ship_to_phone" class="so-input" aria-label="Ship to phone" />
+                                        </div>
+                                        <div class="so-form-row">
+                                            <label class="so-form-lbl" for="ship_to_address">Address</label>
+                                            <input id="ship_to_address" wire:model="ship_to_address" class="so-input" aria-label="Ship to address" />
+                                        </div>
+                                        <div class="so-form-row so-form-row-city">
+                                            <label class="so-form-lbl" for="ship_to_city">City</label>
+                                            <input id="ship_to_city" wire:model="ship_to_city" class="so-input" aria-label="Ship to city" />
+                                            <label class="so-form-lbl so-form-lbl-sm" for="ship_to_state">State</label>
+                                            <input id="ship_to_state" wire:model="ship_to_state" class="so-input so-w-state" aria-label="Ship to state" />
+                                            <label class="so-form-lbl so-form-lbl-sm" for="ship_to_zip">ZIP</label>
+                                            <input id="ship_to_zip" wire:model="ship_to_zip" class="so-input so-w-zip" aria-label="Ship to ZIP" />
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside class="so-form-side" aria-label="Order status and dates">
+                            <div class="so-side-title">Order details</div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="status">Status</label>
+                                <input id="status" wire:model="status" class="so-input" readonly aria-label="Order Status" />
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="priority">Priority</label>
+                                <select id="priority" wire:model="priority" class="so-input" aria-label="Priority">
+                                    <option>Normal</option>
+                                    <option>High</option>
+                                    <option>Low</option>
+                                </select>
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="order_date">Order Date</label>
+                                <input id="order_date" type="date" wire:model="order_date" class="so-input" aria-label="Order Date" />
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="required_date">Required</label>
+                                <input id="required_date" type="date" wire:model="required_date" class="so-input" aria-label="Required Date" />
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="customer_po_no">Customer PO</label>
+                                <input id="customer_po_no" wire:model="customer_po_no" class="so-input" aria-label="Customer PO Number" />
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="reference_no">Reference</label>
+                                <input id="reference_no" wire:model="reference_no" class="so-input" aria-label="Reference Number" />
+                            </div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="sales_rep_id">Sales Rep</label>
+                                <select id="sales_rep_id" wire:model="sales_rep_id" class="so-input" aria-label="Sales Rep">
+                                    <option value="">—</option>
+                                    @foreach ($salesReps as $r)
+                                        <option value="{{ $r->id }}">{{ $r->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </aside>
                     </div>
                 </div>
             </div>
@@ -1221,47 +1225,72 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
                     <div class="so-ship-grid">
                         <div class="so-ship-col">
-                            <div class="so-field"><label>Payment Terms:</label>
-                                <select wire:model="payment_term_id" class="so-input" style="max-width:14rem">
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="payment_term_id">Payment Terms:</label>
+                                <select id="payment_term_id" wire:model="payment_term_id" class="so-input">
                                     <option value="">—</option>
                                     @foreach ($paymentTerms as $pt)<option value="{{ $pt->id }}">{{ $pt->name }}</option>@endforeach
                                 </select>
                             </div>
-                            <div class="so-field"><label>Route:</label>
-                                <select wire:model="route_id" class="so-input" style="max-width:14rem">
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="route_id">Route:</label>
+                                <select id="route_id" wire:model="route_id" class="so-input">
                                     <option value="">—</option>
                                     @foreach ($routes as $route)<option value="{{ $route->id }}">{{ $route->name }}</option>@endforeach
                                 </select>
                             </div>
-                            <div class="so-field"><label>Ship Via:</label>
-                                <select wire:model="ship_via_id" class="so-input" style="max-width:14rem">
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="ship_via_id">Ship Via:</label>
+                                <select id="ship_via_id" wire:model="ship_via_id" class="so-input">
                                     <option value="">—</option>
                                     @foreach ($shipVias as $sv)<option value="{{ $sv->id }}">{{ $sv->name }}</option>@endforeach
                                 </select>
                             </div>
-                            <div class="so-field"><label>Ship From:</label>
-                                <select wire:model="ship_from_site_id" class="so-input" style="max-width:8rem">
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="ship_from_site_id">Ship From:</label>
+                                <select id="ship_from_site_id" wire:model="ship_from_site_id" class="so-input">
                                     <option value="">—</option>
                                     @foreach ($sites as $s)<option value="{{ $s->id }}">{{ $s->code }}</option>@endforeach
                                 </select>
                             </div>
-                            <div class="so-field"><label>Ship Date:</label>
-                                <input type="date" wire:model="ship_date" class="so-input" style="max-width:10rem" />
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="ship_date">Ship Date:</label>
+                                <input id="ship_date" type="date" wire:model="ship_date" class="so-input" />
                             </div>
-                            <div class="so-field"><label>No. of Boxes:</label>
-                                <input type="number" min="0" wire:model="no_of_boxes" class="so-input" style="max-width:6rem" />
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="no_of_boxes">No. of Boxes:</label>
+                                <input id="no_of_boxes" type="number" min="0" wire:model="no_of_boxes" class="so-input so-w-num" />
                             </div>
-                            <div class="so-field"><label>No. of Pallets:</label>
-                                <input type="number" min="0" wire:model="no_of_pallets" class="so-input" style="max-width:6rem" />
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="no_of_pallets">No. of Pallets:</label>
+                                <input id="no_of_pallets" type="number" min="0" wire:model="no_of_pallets" class="so-input so-w-num" />
                             </div>
                         </div>
                         <div class="so-ship-col">
-                            <div class="so-field"><label>Custom Field 1:</label><input wire:model="custom_field_1" class="so-input" /></div>
-                            <div class="so-field"><label>Custom Field 2:</label><input wire:model="custom_field_2" class="so-input" /></div>
-                            <div class="so-field"><label>Custom Field 3:</label><textarea wire:model="custom_field_3" rows="2" class="so-input" style="height:auto"></textarea></div>
-                            <div class="so-field"><label>Custom Field 4:</label><input wire:model="custom_field_4" class="so-input" /></div>
-                            <div class="so-field"><label>Custom Field 5:</label><input wire:model="custom_field_5" class="so-input" /></div>
-                            <div class="so-field"><label>Comments:</label><textarea wire:model="comments" rows="3" class="so-input" style="height:auto"></textarea></div>
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="custom_field_1">Custom Field 1:</label>
+                                <input id="custom_field_1" wire:model="custom_field_1" class="so-input" />
+                            </div>
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="custom_field_2">Custom Field 2:</label>
+                                <input id="custom_field_2" wire:model="custom_field_2" class="so-input" />
+                            </div>
+                            <div class="so-ship-row so-ship-row-top">
+                                <label class="so-ship-lbl" for="custom_field_3">Custom Field 3:</label>
+                                <textarea id="custom_field_3" wire:model="custom_field_3" rows="2" class="so-input so-input-area"></textarea>
+                            </div>
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="custom_field_4">Custom Field 4:</label>
+                                <input id="custom_field_4" wire:model="custom_field_4" class="so-input" />
+                            </div>
+                            <div class="so-ship-row">
+                                <label class="so-ship-lbl" for="custom_field_5">Custom Field 5:</label>
+                                <input id="custom_field_5" wire:model="custom_field_5" class="so-input" />
+                            </div>
+                            <div class="so-ship-row so-ship-row-top">
+                                <label class="so-ship-lbl" for="comments">Comments:</label>
+                                <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area"></textarea>
+                            </div>
                         </div>
                     </div>
 

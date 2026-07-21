@@ -471,17 +471,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         <div class="so-body">
             <div @class(['so-header', 'so-header-expand' => $activeTab === 'expand'])>
-                {{-- Fixed 8-col grid: left fields + right fields align on every row --}}
+                {{-- Labels above fields --}}
                 <div class="so-header-grid">
-                    <label class="so-lbl">Order Type:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Order Type:</label>
                         <select wire:model="order_type" class="so-input so-w-ordertype">
                             <option>Sales Order</option>
                             <option>Return</option>
                         </select>
                     </div>
-                    <label class="so-lbl">Order No:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Order No:</label>
                         <div class="so-lookup-row">
                             <input wire:model="order_number" class="so-input font-mono so-w-orderno" @disabled($salesOrder) />
                             <button type="button" class="so-icon-btn" title="Lookup" tabindex="-1" aria-label="Lookup">
@@ -489,12 +489,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </button>
                         </div>
                     </div>
-                    <label class="so-lbl">Order Status:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Order Status:</label>
                         <input wire:model="status" class="so-input so-w-status" readonly />
                     </div>
-                    <label class="so-lbl">Priority:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Priority:</label>
                         <select wire:model="priority" class="so-input so-w-status">
                             <option>Normal</option>
                             <option>High</option>
@@ -502,8 +502,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </select>
                     </div>
 
-                    <label class="so-lbl">Customer:</label>
-                    <div class="so-ctl so-span-left">
+                    <div class="so-field-stack so-field-wide">
+                        <label class="so-lbl">Customer:</label>
                         <div class="so-lookup-row">
                             <select wire:model.live="customer_id" class="so-input so-w-customer">
                                 <option value="">—</option>
@@ -528,17 +528,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </button>
                         </div>
                     </div>
-                    <label class="so-lbl">Order Date:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Order Date:</label>
                         <input type="date" wire:model="order_date" class="so-input so-w-date" />
                     </div>
-                    <label class="so-lbl">Required Date:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Required Date:</label>
                         <input type="date" wire:model="required_date" class="so-input so-w-date" />
                     </div>
 
-                    <label class="so-lbl">Ship to:</label>
-                    <div class="so-ctl so-span-left">
+                    <div class="so-field-stack so-field-wide">
+                        <label class="so-lbl">Ship to:</label>
                         <div class="so-lookup-row">
                             <select wire:model.live="ship_to_address_id" class="so-input so-w-customer">
                                 <option value="">—</option>
@@ -556,12 +556,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </button>
                         </div>
                     </div>
-                    <label class="so-lbl">Customer PO No.:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Customer PO No.:</label>
                         <input wire:model="customer_po_no" class="so-input so-w-date" />
                     </div>
-                    <label class="so-lbl">Reference No:</label>
-                    <div class="so-ctl">
+                    <div class="so-field-stack">
+                        <label class="so-lbl">Reference No:</label>
                         <input wire:model="reference_no" class="so-input so-w-date" />
                     </div>
 
@@ -616,8 +616,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             @endif
                         </table>
                     </div>
-                    <label class="so-lbl so-rep-lbl">Sales Rep.:</label>
-                    <div class="so-ctl so-rep-ctl">
+                    <div class="so-field-stack so-field-rep">
+                        <label class="so-lbl">Sales Rep.:</label>
                         <select wire:model="sales_rep_id" class="so-input so-w-rep">
                             <option value="">—</option>
                             @foreach ($salesReps as $r)

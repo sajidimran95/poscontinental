@@ -341,38 +341,44 @@
 
     .so-header-grid {
         display: grid;
-        grid-template-columns:
-            7.5rem
-            minmax(11rem, 1.15fr)
-            6.75rem
-            9.75rem
-            9.25rem
-            minmax(9.5rem, 1fr)
-            8.75rem
-            minmax(9.5rem, 1fr);
-        column-gap: 0.4rem;
-        row-gap: 0.28rem;
-        align-items: center;
+        grid-template-columns: 1.15fr 1fr 1fr 1fr;
+        column-gap: 1rem;
+        row-gap: 0.75rem;
+        align-items: start;
         width: 100%;
         background: #ececec;
     }
 
-    .so-header-grid > .so-lbl {
-        justify-self: start;
-        margin: 0;
-    }
-
-    .so-ctl {
+    .so-field-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
         min-width: 0;
     }
 
-    .so-span-left {
-        grid-column: 2 / 5;
+    .so-field-stack > .so-lbl {
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    .so-field-stack > .so-input,
+    .so-field-stack > .so-lookup-row {
+        width: 100%;
+    }
+
+    .so-field-wide {
+        grid-column: span 2;
+    }
+
+    .so-field-rep {
+        grid-column: 3 / 5;
+        align-self: start;
+        padding-top: 0.15rem;
     }
 
     .so-addr-block {
-        grid-column: 1 / 5;
-        grid-row: span 4;
+        grid-column: 1 / 3;
         align-self: start;
         display: flex;
         flex-direction: column;
@@ -382,7 +388,7 @@
         background: #ececec;
         border: 1px solid #888;
         width: 100%;
-        max-width: 32rem;
+        max-width: none;
     }
 
     .so-addr-tabs {
@@ -395,7 +401,7 @@
     }
 
     .so-addr-tab {
-        padding: 0.28rem 0.75rem;
+        padding: 0.4rem 0.9rem;
         font-size: 13px;
         color: #334155;
         background: #d8d8d8;
@@ -419,7 +425,7 @@
     }
 
     .so-addr-table td {
-        padding: 0.12rem 0.3rem;
+        padding: 0.28rem 0.45rem;
         vertical-align: middle;
         border: none;
         background: #ececec;
@@ -431,12 +437,12 @@
         font-size: 13px;
         font-weight: 600;
         color: #1e293b;
-        padding-right: 0.25rem !important;
+        padding-right: 0.45rem !important;
     }
 
     .so-addr-lbl-inline {
-        padding-left: 0.35rem !important;
-        padding-right: 0.2rem !important;
+        padding-left: 0.55rem !important;
+        padding-right: 0.35rem !important;
     }
 
     .so-addr-ctl {
@@ -444,21 +450,9 @@
     }
 
     .so-addr-table .so-input {
-        height: 1.55rem;
+        height: 1.7rem;
         font-size: 13px;
-        padding: 0.12rem 0.3rem;
-    }
-
-    .so-rep-lbl {
-        grid-column: 5;
-        align-self: start;
-        padding-top: 0.25rem;
-    }
-
-    .so-rep-ctl {
-        grid-column: 6 / 9;
-        align-self: start;
-        padding-top: 0.1rem;
+        padding: 0.18rem 0.35rem;
     }
 
     .so-lbl {
@@ -497,25 +491,25 @@
     input.so-input:read-only,
     input.so-input:disabled {
         border: 1px solid #9ca3af;
-        padding: 0.28rem 0.45rem;
+        padding: 0.32rem 0.5rem;
         font-size: 14px;
         width: 100%;
         border-radius: 0;
         background-color: #ffffff !important;
         color: #1e293b !important;
-        height: 1.85rem;
+        height: 2rem;
         line-height: 1.25;
         -webkit-appearance: none;
         appearance: none;
         box-shadow: none;
     }
 
-    .so-w-ordertype { width: 11rem; max-width: 100%; }
-    .so-w-orderno { width: 7.5rem; }
-    .so-w-status { width: 6.5rem; }
-    .so-w-customer { width: 16.5rem; max-width: 100%; }
-    .so-w-date { width: 100%; min-width: 9.5rem; }
-    .so-w-rep { width: 16rem; max-width: 100%; }
+    .so-w-ordertype { width: 100%; max-width: 12rem; }
+    .so-w-orderno { width: 8rem; }
+    .so-w-status { width: 100%; max-width: 8rem; }
+    .so-w-customer { width: 16.5rem; max-width: 100%; flex: 1 1 auto; }
+    .so-w-date { width: 100%; min-width: 0; }
+    .so-w-rep { width: 100%; max-width: 18rem; }
     .so-w-phone { width: 9.5rem; max-width: 100%; }
     .so-w-city { width: 7.5rem; }
     .so-w-state { width: 2.75rem; }
@@ -538,7 +532,7 @@
     .so-lookup-row {
         display: flex;
         align-items: center;
-        gap: 0.2rem;
+        gap: 0.35rem;
     }
 
     .so-icon-btn {
@@ -549,8 +543,8 @@
         color: #1e293b;
         flex-shrink: 0;
         background: #f3f3f3;
-        width: 1.85rem;
-        height: 1.85rem;
+        width: 2rem;
+        height: 2rem;
         font-size: 0.8rem;
         text-decoration: none;
         padding: 0;
@@ -592,19 +586,19 @@
         width: 100%;
         background: #ececec;
         flex: 1 1 auto;
-        min-height: 16rem;
+        min-height: 18rem;
         height: auto;
         max-height: none;
     }
 
     .so-items-wrap-tall {
-        min-height: 22rem;
+        min-height: 24rem;
     }
 
     .so-items-title {
         font-size: 15px;
         font-weight: 600;
-        padding: 0.25rem 0.15rem;
+        padding: 0.4rem 0.35rem;
         color: #334155;
         background: #ececec;
         flex-shrink: 0;
@@ -622,7 +616,7 @@
         text-align: left;
         font-size: 14px;
         font-weight: 600;
-        padding: 0.35rem 0.5rem;
+        padding: 0.45rem 0.55rem;
         border-bottom: 1px solid #c0c0c0;
         position: sticky;
         top: 0;
@@ -630,7 +624,7 @@
     }
 
     .so-items-grid td {
-        padding: 0.2rem 0.3rem;
+        padding: 0.3rem 0.4rem;
         border-bottom: 1px solid #e8e8e8;
         font-size: 14px;
         vertical-align: middle;
@@ -638,7 +632,7 @@
 
     .so-items-grid .so-input {
         font-size: 14px;
-        height: 1.85rem;
+        height: 2rem;
     }
 
     .so-items-empty {
@@ -655,8 +649,8 @@
     .so-entry {
         display: flex;
         align-items: center;
-        gap: 0.4rem;
-        padding: 0.4rem 0.15rem;
+        gap: 0.5rem;
+        padding: 0.55rem 0.35rem;
         border: none;
         flex-shrink: 0;
         background: #ececec;
@@ -664,7 +658,7 @@
 
     .so-entry .so-input {
         font-size: 14px;
-        height: 1.85rem;
+        height: 2rem;
         max-width: 14rem;
     }
 
@@ -682,9 +676,10 @@
     .so-footer {
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 2.5rem;
+        gap: 3rem;
         flex-shrink: 0;
-        padding-top: 0.45rem;
+        padding-top: 0.75rem;
+        margin-top: 0.25rem;
         background: #ececec;
         width: 100%;
         align-items: start;
@@ -693,7 +688,7 @@
     .so-counters {
         display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 0.2rem;
         font-size: 16px;
         color: #1e293b;
         min-width: 28rem;
@@ -702,11 +697,11 @@
     .so-counter-line {
         display: grid;
         grid-template-columns: minmax(14rem, auto) minmax(12rem, auto);
-        column-gap: 2.25rem;
+        column-gap: 2.5rem;
         align-items: baseline;
         white-space: nowrap;
-        line-height: 1.22;
-        padding: 0.02rem 0;
+        line-height: 1.4;
+        padding: 0.12rem 0;
     }
 
     .so-counter-line span {
@@ -728,10 +723,10 @@
         flex-wrap: nowrap;
         justify-content: space-between;
         align-items: center;
-        gap: 1.75rem;
+        gap: 2rem;
         white-space: nowrap;
-        line-height: 1.22;
-        padding: 0.04rem 0;
+        line-height: 1.4;
+        padding: 0.18rem 0;
         border-bottom: 1px solid #c8c8c8;
     }
 
@@ -796,10 +791,11 @@
         align-items: center;
         justify-content: space-between;
         border: none;
-        padding: 0.2rem 0.4rem;
+        padding: 0.45rem 0.5rem;
         flex-shrink: 0;
         background: #ececec;
         width: 100%;
+        margin-top: 0.25rem;
     }
 
     .so-mode-tabs {

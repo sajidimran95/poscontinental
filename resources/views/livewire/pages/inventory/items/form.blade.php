@@ -733,10 +733,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                     <div class="inv-card">
                         <div class="inv-card-title">History</div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_received_at">Last Received</label><input id="last_received_at" type="date" wire:model="last_received_at" class="so-input" readonly /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_ordered_at">Last Ordered</label><input id="last_ordered_at" type="date" wire:model="last_ordered_at" class="so-input" readonly /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_sold_at">Last Sold</label><input id="last_sold_at" type="date" wire:model="last_sold_at" class="so-input" readonly /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_count_date">Last Count</label><input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" readonly /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_received_at">Last Received</label><input id="last_received_at" type="date" wire:model="last_received_at" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_ordered_at">Last Ordered</label><input id="last_ordered_at" type="date" wire:model="last_ordered_at" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_sold_at">Last Sold</label><input id="last_sold_at" type="date" wire:model="last_sold_at" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="last_count_date">Last Count</label><input id="last_count_date" type="date" wire:model="last_count_date" class="so-input" /></div>
                     </div>
                 </div>
 
@@ -999,7 +999,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <td class="text-center"><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right item-cell-qty" /></td>
                                         <td class="text-center"><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
                                         <td class="text-center"><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
-                                        <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input so-input-ro item-cell-ctl" readonly /></td>
+                                        <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input item-cell-ctl" /></td>
                                         <td class="text-center"><button type="button" wire:click="removeSupplierRow({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach

@@ -381,7 +381,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                             <input id="status" wire:model="status" class="so-input so-input-ro sc-date" readonly />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="buyer_id">Buyer</label>
+                            <label class="so-form-lbl" for="buyer_id">Buyer / Requester</label>
                             <select id="buyer_id" wire:model="buyer_id" class="so-input">
                                 <option value="">—</option>
                                 @foreach ($buyers as $b)
@@ -417,6 +417,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 </select>
                                 <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-sm" title="New supplier">+</a>
                             </div>
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl">Supplier ID</label>
+                            <input
+                                type="text"
+                                class="so-input so-input-ro"
+                                readonly
+                                value="{{ $selectedSupplier?->supplier_id ?: '—' }}"
+                                aria-label="Supplier ID"
+                            />
                         </div>
                         @if ($selectedSupplier)
                             <div class="so-form-row so-form-row-side sc-field">
@@ -458,6 +468,28 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         <div class="so-form-row so-form-row-side so-form-row-top sc-field">
                             <label class="so-form-lbl" for="comments">Comments</label>
                             <textarea id="comments" wire:model="comments" rows="4" class="so-input so-input-area" placeholder="Optional notes…"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="inv-card" style="grid-column:1 / -1">
+                        <div class="inv-card-title">Order totals</div>
+                        <div class="sc-general-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:0.75rem 1.25rem">
+                            <div class="so-form-row so-form-row-side sc-field" style="display:block">
+                                <label class="so-form-lbl">Order Subtotal</label>
+                                <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field" style="display:block">
+                                <label class="so-form-lbl" for="trade_discount_general">Discount</label>
+                                <input id="trade_discount_general" wire:model.live="trade_discount" class="so-input text-right" />
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field" style="display:block">
+                                <label class="so-form-lbl" for="freight_general">Freight</label>
+                                <input id="freight_general" wire:model.live="freight" class="so-input text-right" />
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field" style="display:block">
+                                <label class="so-form-lbl">Order Total</label>
+                                <strong class="entity-value text-right" style="display:block;width:100%;font-size:1.1rem">${{ number_format($orderTotal, 2) }}</strong>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -554,7 +586,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                             <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="trade_discount">Trade Discount</label>
+                            <label class="so-form-lbl" for="trade_discount">Discount</label>
                             <input id="trade_discount" wire:model.live="trade_discount" class="so-input text-right sc-date" />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">

@@ -22,6 +22,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public string $favorite = 'all';
 
+    public ?int $selectedId = null;
+
     public ?int $modalInvoiceId = null;
 
     public bool $showPayForm = false;
@@ -96,6 +98,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 'not_paid' => 'NOT PAID',
                 'paid' => 'PAID',
             ],
+            'listTitle' => match (true) {
+                $this->statusFilter === 'NOT PAID', $this->favorite === 'not_paid' => 'Invoices List (NOT PAID)',
+                $this->statusFilter === 'PAID', $this->favorite === 'paid' => 'Invoices List (PAID)',
+                default => 'Invoices List',
+            },
             'modalInvoice' => $modalInvoice,
             'openCredits' => $modalInvoice
                 ? CreditMemo::query()
@@ -112,6 +119,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function updatedFavorite(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
         if ($this->favorite === 'not_paid') {
             $this->statusFilter = 'NOT PAID';
         } elseif ($this->favorite === 'paid') {
@@ -124,6 +132,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function updatedStatusFilter(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
         $this->favorite = match ($this->statusFilter) {
             'NOT PAID' => 'not_paid',
             'PAID' => 'paid',
@@ -131,8 +140,81 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         };
     }
 
+    public function selectRow(int $id): void
+    {
+        $this->selectedId = $id;
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->resetPage();
+    }
+
+    public function newSearch(): void
+    {
+        $this->search = '';
+        $this->statusFilter = '';
+        $this->favorite = 'all';
+        $this->selectedId = null;
+        $this->resetPage();
+    }
+
+    public function refreshList(): void
+    {
+        $this->resetPage();
+    }
+
+    public function viewSelectedPdf(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $invoice) {
+            session()->flash('status', 'Invoice not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-invoice-pdf', url: route('sales.invoices.pdf', $invoice));
+    }
+
+    public function editSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $this->openPayments($this->selectedId);
+    }
+
+    public function markSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $this->openPayments($this->selectedId);
+        $invoice = Invoice::query()->find($this->selectedId);
+        if ($invoice && $invoice->status !== 'PAID' && $invoice->invoice_balance > 0) {
+            $this->openPayForm();
+        }
+    }
+
     public function openPayments(int $id): void
     {
+        $this->selectedId = $id;
         $this->modalInvoiceId = $id;
         $this->showPayForm = false;
         $invoice = Invoice::query()->find($id);
@@ -251,80 +333,165 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 <div class="desk-page relative">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="desk-main">
+    <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Action" />
 
-        <x-list-chrome label="Search Invoices:" model="search" placeholder="Invoice #, order #, customer…">
-            <label class="desk-toolbar-label" for="invoice-status-filter">Status</label>
-            <select id="invoice-status-filter" wire:model.live="statusFilter" class="desk-select" aria-label="Filter by status">
-                <option value="">All</option>
-                <option value="NOT PAID">NOT PAID</option>
-                <option value="PAID">PAID</option>
-            </select>
-        </x-list-chrome>
+        <div class="desk-main-split">
+            <div class="desk-main-body">
+                @if (session('status'))
+                    <div class="desk-flash" role="status">{{ session('status') }}</div>
+                @endif
 
-        <div class="desk-titlebar">
-            <h2 class="desk-title">Invoices List</h2>
-            <span class="desk-title-meta">{{ number_format($invoices->total()) }} records</span>
+                <div class="desk-toolbar orders-toolbar">
+                    <label class="desk-toolbar-label" for="invoices-search">Search Invoices:</label>
+                    <input
+                        id="invoices-search"
+                        type="search"
+                        wire:model.live.debounce.300ms="search"
+                        placeholder="Invoice #, order #, customer…"
+                        class="desk-search orders-search-input"
+                        aria-label="Search Invoices"
+                    />
+
+                    <div class="orders-toolbar-right">
+                        <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
+                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                            </svg>
+                            New Search
+                        </button>
+                        <select
+                            id="invoice-status-filter"
+                            wire:model.live="statusFilter"
+                            class="desk-select orders-status-select"
+                            aria-label="Filter by status"
+                        >
+                            <option value="">All</option>
+                            <option value="NOT PAID">NOT PAID</option>
+                            <option value="PAID">PAID</option>
+                        </select>
+                        <button
+                            type="button"
+                            wire:click="clearSearch"
+                            class="so-icon-btn"
+                            title="Clear search"
+                            aria-label="Clear search"
+                        >
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="desk-titlebar">
+                    <h2 class="desk-title">{{ $listTitle }}</h2>
+                    <span class="desk-title-meta">{{ number_format($invoices->total()) }} records</span>
+                </div>
+
+                <div class="desk-grid">
+                    <table class="desk-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center" style="width:2rem"></th>
+                                <th>Invoice No</th>
+                                <th>Invoice Date</th>
+                                <th>Order No</th>
+                                <th>Customer ID</th>
+                                <th>Bill to</th>
+                                <th class="desk-money">Subtotal</th>
+                                <th class="desk-money">Total Discount</th>
+                                <th class="desk-money">Trade Discount</th>
+                                <th class="desk-money">Freight</th>
+                                <th class="desk-money">Misc</th>
+                                <th class="desk-money">Invoice Total</th>
+                                <th class="desk-money">Payments</th>
+                                <th class="desk-money">Credits</th>
+                                <th class="desk-money">Balance</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($invoices as $inv)
+                                <tr
+                                    wire:click="selectRow({{ $inv->id }})"
+                                    wire:dblclick="openPayments({{ $inv->id }})"
+                                    class="cursor-pointer"
+                                    @class(['is-selected' => $selectedId === $inv->id || $modalInvoiceId === $inv->id])
+                                >
+                                    <td class="text-center" wire:click.stop>
+                                        <input
+                                            type="radio"
+                                            name="invoice_select"
+                                            value="{{ $inv->id }}"
+                                            @checked($selectedId === $inv->id)
+                                            wire:click="selectRow({{ $inv->id }})"
+                                            aria-label="Select invoice {{ $inv->invoice_number }}"
+                                        />
+                                    </td>
+                                    <td class="desk-num">{{ $inv->invoice_number }}</td>
+                                    <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
+                                    <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
+                                    <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
+                                    <td>{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
+                                    <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->total_discount, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->trade_discount, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->freight, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->miscellaneous, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->invoice_total, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->total_payments, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->total_credits, 2) }}</td>
+                                    <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
+                                    <td class="text-center">
+                                        <span @class([
+                                            'desk-pill',
+                                            'desk-pill-new' => $inv->status === 'NOT PAID',
+                                            'desk-pill-invoiced' => $inv->status === 'PAID',
+                                            'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
+                                        ])>{{ $inv->status }}</span>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty">
+                                    <td colspan="16">No invoices. Invoice a sales order from the Orders list.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>
+            </div>
+
+            {{-- Right icons (screenshot): document, pen, cross-pen, mark, refresh --}}
+            <aside class="desk-rail" aria-label="Invoice actions">
+                <button type="button" wire:click="viewSelectedPdf" class="desk-rail-btn" title="View PDF" aria-label="View PDF" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
+                        <path d="M9.5 2.5V6H13"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Open invoice" aria-label="Open invoice" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="Enter payment" aria-label="Enter payment" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
+                        <path d="M5 8.2l2.1 2.1L11.2 6" stroke-width="1.7"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M13 8a5 5 0 11-1.2-3.3"/>
+                        <path d="M13 3v3h-3"/>
+                    </svg>
+                </button>
+            </aside>
         </div>
-
-        <div class="desk-grid">
-            <table class="desk-table">
-                <thead>
-                    <tr>
-                        <th>Invoice No</th>
-                        <th>Invoice Date</th>
-                        <th>Order No</th>
-                        <th>Customer ID</th>
-                        <th>Bill to</th>
-                        <th class="desk-money">Subtotal</th>
-                        <th class="desk-money">Total Discount</th>
-                        <th class="desk-money">Trade Discount</th>
-                        <th class="desk-money">Freight</th>
-                        <th class="desk-money">Misc</th>
-                        <th class="desk-money">Invoice Total</th>
-                        <th class="desk-money">Payments</th>
-                        <th class="desk-money">Credits</th>
-                        <th class="desk-money">Balance</th>
-                        <th class="text-center">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($invoices as $inv)
-                        <tr class="cursor-pointer" wire:click="openPayments({{ $inv->id }})" @class(['is-selected' => $modalInvoiceId === $inv->id])>
-                            <td class="desk-num">{{ $inv->invoice_number }}</td>
-                            <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
-                            <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
-                            <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
-                            <td>{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
-                            <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->total_discount, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->trade_discount, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->freight, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->miscellaneous, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->invoice_total, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->total_payments, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->total_credits, 2) }}</td>
-                            <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
-                            <td class="text-center">
-                                <span @class([
-                                    'desk-pill',
-                                    'desk-pill-new' => $inv->status === 'NOT PAID',
-                                    'desk-pill-invoiced' => $inv->status === 'PAID',
-                                    'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
-                                ])>{{ $inv->status }}</span>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr class="is-empty">
-                            <td colspan="15">No invoices. Invoice a sales order from the Orders list.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-
-        <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>
     </div>
 
     @if ($modalInvoice)
@@ -538,3 +705,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         </div>
     @endif
 </div>
+
+@script
+<script>
+    $wire.on('open-invoice-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (url) window.open(url, '_blank');
+    });
+</script>
+@endscript

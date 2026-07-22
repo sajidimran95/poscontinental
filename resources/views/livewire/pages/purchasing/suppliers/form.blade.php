@@ -177,7 +177,7 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                 <div class="inv-card">
                     <div class="inv-card-title">Company</div>
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="name">Name</label>
+                        <label class="so-form-lbl" for="name">Company Name</label>
                         <input id="name" wire:model="name" class="so-input" />
                     </div>
                     @error('name') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
@@ -211,7 +211,7 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                     </div>
                     @error('fein_no') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="phone1">Phone 1</label>
+                        <label class="so-form-lbl" for="phone1">Telephone</label>
                         <input id="phone1" wire:model="phone1" class="so-input" placeholder="( ) -" />
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
@@ -223,12 +223,12 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                         <input id="fax" wire:model="fax" class="so-input" placeholder="( ) -" />
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="email">Email</label>
+                        <label class="so-form-lbl" for="email">Email Address</label>
                         <input id="email" type="email" wire:model="email" class="so-input" />
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="web_page">Web page</label>
-                        <input id="web_page" wire:model="web_page" class="so-input" />
+                        <label class="so-form-lbl" for="web_page">Web Site</label>
+                        <input id="web_page" wire:model="web_page" class="so-input" placeholder="www.example.com" />
                     </div>
                 </div>
             </div>

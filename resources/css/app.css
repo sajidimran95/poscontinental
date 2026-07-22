@@ -2268,6 +2268,67 @@
         accent-color: #1e3a5f;
     }
 
+    /* Inquiry pages (Stock Status / Item Velocity) */
+    .inq-detail-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.65rem;
+        padding: 0.55rem 0.85rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+        flex-shrink: 0;
+    }
+
+    .inq-detail {
+        min-width: 7rem;
+        padding: 0.35rem 0.65rem;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.35rem;
+    }
+
+    .inq-detail-lbl {
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .inq-detail-val {
+        display: block;
+        margin-top: 0.1rem;
+        font-size: 13px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .inq-site-name {
+        margin-left: 0.45rem;
+        color: #475569;
+    }
+
+    .inq-low { color: #b91c1c; }
+
+    .inq-lookup-row {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        width: 100%;
+    }
+
+    .inq-lookup-row .desk-search {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .inq-lookup-row .so-icon-btn {
+        flex-shrink: 0;
+        width: 2rem;
+        height: 2rem;
+    }
+
     .desk-table tbody tr.is-selected td {
         background: #e0f2fe;
     }

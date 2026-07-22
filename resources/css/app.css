@@ -536,10 +536,9 @@
         max-width: min(36rem, calc(100% - 2.3rem));
         padding: 0.55rem 0.7rem 0.55rem 0.55rem;
         border-radius: 14px;
-        background: rgba(255, 255, 255, 0.82);
-        border: 1px solid rgba(248, 113, 113, 0.45);
-        box-shadow: 0 10px 24px rgba(185, 28, 28, 0.12);
-        backdrop-filter: blur(10px);
+        background: transparent;
+        border: none;
+        box-shadow: none;
         color: #c62828;
         font-size: 1.02rem;
         font-weight: 600;

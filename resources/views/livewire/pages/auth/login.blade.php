@@ -4,9 +4,10 @@ use App\Livewire\Forms\LoginForm;
 use App\Models\Company;
 use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.guest')] class extends Component
+new #[Layout('layouts.pos-login'), Title('Sign in')] class extends Component
 {
     public LoginForm $form;
 
@@ -38,52 +39,96 @@ new #[Layout('layouts.guest')] class extends Component
     }
 }; ?>
 
-<div>
-    <div class="mb-6 text-center">
-        <h1 class="text-xl font-semibold text-slate-800">Continental Wholesale POS</h1>
-        <p class="mt-1 text-sm text-slate-500">Sign in to continue</p>
+<div class="pos-login">
+    <div class="pos-login-stage" aria-hidden="true"></div>
+
+    <div class="pos-login-window" role="dialog" aria-labelledby="pos-login-title">
+        <div class="pos-login-chrome">
+            <div class="pos-login-dots" aria-hidden="true">
+                <span></span><span></span><span></span>
+            </div>
+            <div class="pos-login-chrome-title">JAPS POS</div>
+            <div class="pos-login-chrome-spacer"></div>
+        </div>
+
+        <div class="pos-login-body-grid">
+            <aside class="pos-login-brand">
+                <div class="pos-login-brand-mark">J</div>
+                <h1 id="pos-login-title" class="pos-login-brand-name">JAPS POS</h1>
+                <p class="pos-login-brand-tag">Wholesale desk terminal</p>
+                <ul class="pos-login-brand-points">
+                    <li>Sales, inventory & purchasing</li>
+                    <li>On-premises company workspace</li>
+                    <li>Session locked to site & user</li>
+                </ul>
+            </aside>
+
+            <section class="pos-login-panel">
+                <div class="pos-login-panel-head">
+                    <h2>Sign in</h2>
+                    <p>Select your company, then enter your User ID and password.</p>
+                </div>
+
+                <x-auth-session-status class="pos-login-status" :status="session('status')" />
+
+                <form wire:submit="login" class="pos-login-form">
+                    <div class="pos-login-field">
+                        <label for="company_id">Company</label>
+                        <select wire:model="form.company_id" id="company_id" name="company_id" required>
+                            <option value="">Select company…</option>
+                            @foreach ($companies as $company)
+                                <option value="{{ $company->id }}">{{ $company->name }}</option>
+                            @endforeach
+                        </select>
+                        <x-input-error :messages="$errors->get('form.company_id')" class="pos-login-error" />
+                    </div>
+
+                    <div class="pos-login-field">
+                        <label for="username">User ID</label>
+                        <input
+                            wire:model="form.username"
+                            id="username"
+                            type="text"
+                            name="username"
+                            required
+                            autofocus
+                            autocomplete="username"
+                            placeholder="e.g. yimran"
+                        />
+                        <x-input-error :messages="$errors->get('form.username')" class="pos-login-error" />
+                    </div>
+
+                    <div class="pos-login-field">
+                        <label for="password">Password</label>
+                        <input
+                            wire:model="form.password"
+                            id="password"
+                            type="password"
+                            name="password"
+                            required
+                            autocomplete="current-password"
+                            placeholder="••••••••"
+                        />
+                        <x-input-error :messages="$errors->get('form.password')" class="pos-login-error" />
+                    </div>
+
+                    <div class="pos-login-actions">
+                        <label class="pos-login-remember" for="remember">
+                            <input wire:model="form.remember" id="remember" type="checkbox" name="remember">
+                            <span>Keep me signed in</span>
+                        </label>
+
+                        <button type="submit" class="pos-login-submit">
+                            <span wire:loading.remove wire:target="login">Open workstation</span>
+                            <span wire:loading wire:target="login">Signing in…</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="pos-login-footer">
+                    <span>On-premises · Continental Wholesale</span>
+                </div>
+            </section>
+        </div>
     </div>
-
-    <x-auth-session-status class="mb-4" :status="session('status')" />
-
-    <form wire:submit="login" class="space-y-4">
-        <div>
-            <x-input-label for="company_id" :value="__('Company')" />
-            <select wire:model="form.company_id" id="company_id" name="company_id" required
-                class="mt-1 block w-full rounded-md border-gray-300 bg-white text-slate-900 shadow-sm focus:border-sky-500 focus:ring-sky-500">
-                <option value="">Select company…</option>
-                @foreach ($companies as $company)
-                    <option value="{{ $company->id }}">{{ $company->name }}</option>
-                @endforeach
-            </select>
-            <x-input-error :messages="$errors->get('form.company_id')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="username" :value="__('User ID')" />
-            <x-text-input wire:model="form.username" id="username" class="block mt-1 w-full" type="text" name="username" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('form.username')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="password" :value="__('Password')" />
-            <x-text-input wire:model="form.password" id="password" class="block mt-1 w-full" type="password" name="password" required autocomplete="current-password" />
-            <x-input-error :messages="$errors->get('form.password')" class="mt-2" />
-        </div>
-
-        <div class="flex items-center justify-between">
-            <label for="remember" class="inline-flex items-center">
-                <input wire:model="form.remember" id="remember" type="checkbox" class="rounded border-gray-300 text-sky-600 shadow-sm focus:ring-sky-500" name="remember">
-                <span class="ms-2 text-sm text-gray-600">{{ __('Remember me') }}</span>
-            </label>
-
-            <x-primary-button>
-                {{ __('Log in') }}
-            </x-primary-button>
-        </div>
-
-        <p class="mt-4 text-center text-xs text-slate-500">
-            <a href="{{ route('admin.panel.login') }}" class="text-sky-700 hover:underline" wire:navigate>Platform Admin login</a>
-        </p>
-    </form>
 </div>

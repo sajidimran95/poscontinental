@@ -3949,4 +3949,328 @@
         .admin-grid { grid-template-columns: 1fr; }
         .admin-form-grid { grid-template-columns: 1fr; }
     }
+
+    /* POS desktop login */
+    .pos-login-body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+        color: #0f172a;
+        background: #1e293b;
+    }
+
+    .pos-login {
+        position: relative;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        overflow: hidden;
+    }
+
+    .pos-login-stage {
+        position: absolute;
+        inset: 0;
+        background:
+            radial-gradient(900px 520px at 12% 18%, rgba(56, 189, 248, 0.18), transparent 55%),
+            radial-gradient(700px 480px at 88% 78%, rgba(14, 116, 144, 0.22), transparent 50%),
+            linear-gradient(145deg, #0f172a 0%, #1e3a5f 48%, #0b1220 100%);
+    }
+
+    .pos-login-stage::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.35;
+        background-image:
+            linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 28px 28px;
+        mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+    }
+
+    .pos-login-window {
+        position: relative;
+        z-index: 1;
+        width: min(920px, 100%);
+        border-radius: 14px;
+        overflow: hidden;
+        background: #f8fafc;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        box-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.35) inset,
+            0 28px 60px rgba(2, 6, 23, 0.45);
+        animation: pos-login-in 0.45s ease-out both;
+    }
+
+    @keyframes pos-login-in {
+        from { opacity: 0; transform: translateY(12px) scale(0.985); }
+        to { opacity: 1; transform: none; }
+    }
+
+    .pos-login-chrome {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.55rem 0.85rem;
+        background: linear-gradient(180deg, #eef2f7 0%, #e2e8f0 100%);
+        border-bottom: 1px solid #cbd5e1;
+    }
+
+    .pos-login-dots {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .pos-login-dots span {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #cbd5e1;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+    }
+
+    .pos-login-dots span:nth-child(1) { background: #f87171; }
+    .pos-login-dots span:nth-child(2) { background: #fbbf24; }
+    .pos-login-dots span:nth-child(3) { background: #34d399; }
+
+    .pos-login-chrome-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #475569;
+    }
+
+    .pos-login-chrome-spacer { min-height: 1px; }
+
+    .pos-login-body-grid {
+        display: grid;
+        grid-template-columns: 1.05fr 1.15fr;
+        min-height: 460px;
+    }
+
+    .pos-login-brand {
+        padding: 2rem 1.75rem 1.75rem;
+        background:
+            linear-gradient(160deg, #0c4a6e 0%, #155e75 42%, #0f172a 100%);
+        color: #e0f2fe;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .pos-login-brand-mark {
+        width: 3.1rem;
+        height: 3.1rem;
+        border-radius: 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.35rem;
+        color: #082f49;
+        background: linear-gradient(145deg, #7dd3fc, #38bdf8);
+        box-shadow: 0 10px 24px rgba(8, 47, 73, 0.35);
+        margin-bottom: 1rem;
+    }
+
+    .pos-login-brand-name {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: #f0f9ff;
+        line-height: 1.1;
+    }
+
+    .pos-login-brand-tag {
+        margin: 0.45rem 0 1.35rem;
+        color: #bae6fd;
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .pos-login-brand-points {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.88rem;
+        color: #e0f2fe;
+    }
+
+    .pos-login-brand-points li {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .pos-login-brand-points li::before {
+        content: "";
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: #38bdf8;
+        flex-shrink: 0;
+    }
+
+    .pos-login-panel {
+        padding: 1.85rem 1.85rem 1.35rem;
+        background: #ffffff;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .pos-login-panel-head h2 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: -0.02em;
+    }
+
+    .pos-login-panel-head p {
+        margin: 0.35rem 0 0;
+        color: #64748b;
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    .pos-login-form {
+        margin-top: 1.35rem;
+        display: grid;
+        gap: 0.95rem;
+    }
+
+    .pos-login-field label {
+        display: block;
+        margin-bottom: 0.35rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .pos-login-field input,
+    .pos-login-field select {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.65rem;
+        background: #f8fafc;
+        color: #0f172a;
+        padding: 0.7rem 0.85rem;
+        font-size: 0.95rem;
+        outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .pos-login-field input:focus,
+    .pos-login-field select:focus {
+        border-color: #0284c7;
+        background: #fff;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+    }
+
+    .pos-login-error {
+        margin-top: 0.35rem;
+        font-size: 0.8rem;
+        color: #b91c1c;
+    }
+
+    .pos-login-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.85rem;
+        margin-top: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .pos-login-remember {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.88rem;
+        color: #475569;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .pos-login-remember input {
+        width: 1rem;
+        height: 1rem;
+        accent-color: #0284c7;
+    }
+
+    .pos-login-submit {
+        border: 0;
+        border-radius: 0.7rem;
+        padding: 0.72rem 1.2rem;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: #fff;
+        cursor: pointer;
+        background: linear-gradient(180deg, #0ea5e9 0%, #0369a1 100%);
+        box-shadow: 0 8px 18px rgba(3, 105, 161, 0.28);
+        transition: transform 0.12s ease, filter 0.12s ease;
+    }
+
+    .pos-login-submit:hover {
+        filter: brightness(1.05);
+        transform: translateY(-1px);
+    }
+
+    .pos-login-submit:active {
+        transform: none;
+    }
+
+    .pos-login-footer {
+        margin-top: auto;
+        padding-top: 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        font-size: 0.78rem;
+        color: #94a3b8;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .pos-login-footer a {
+        color: #0369a1;
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    .pos-login-footer a:hover { text-decoration: underline; }
+
+    .pos-login-status {
+        margin-top: 0.85rem;
+    }
+
+    @media (max-width: 820px) {
+        .pos-login-body-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .pos-login-brand {
+            padding: 1.5rem 1.35rem 1.25rem;
+            min-height: auto;
+        }
+
+        .pos-login-brand-name { font-size: 1.55rem; }
+
+        .pos-login-brand-points { display: none; }
+
+        .pos-login-panel { padding: 1.35rem; }
+
+        .pos-login-actions { flex-direction: column; align-items: stretch; }
+
+        .pos-login-submit { width: 100%; }
+    }
 }

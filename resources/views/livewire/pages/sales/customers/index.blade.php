@@ -30,6 +30,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = Customer::query()
+            ->with('salesRep')
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -193,6 +194,17 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $customer->update(['is_inactive' => ! $customer->is_inactive]);
         $this->selectedId = $id;
     }
+
+    public function toggleOptOut(int $id, string $field): void
+    {
+        if (! in_array($field, ['opt_out_telemarketing', 'opt_out_email'], true)) {
+            return;
+        }
+
+        $customer = Customer::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
+        $customer->update([$field => ! $customer->{$field}]);
+        $this->selectedId = $id;
+    }
 }; ?>
 
 <div class="desk-page">
@@ -221,8 +233,9 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                     <div class="orders-toolbar-right">
                         <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
                             <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                <path d="M3 13h4l6.2-6.2a1.5 1.5 0 00-2.1-2.1L5 10.9V13z"/>
-                                <path d="M10.5 5.5l2 2"/>
+                                <rect x="2.5" y="2.5" width="8" height="10" rx="1"/>
+                                <circle cx="11" cy="11" r="2.5"/>
+                                <path d="M12.8 12.8L14.5 14.5"/>
                             </svg>
                             New Search
                         </button>
@@ -262,12 +275,16 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
                                 <th>Customer ID</th>
-                                <th>Contact</th>
+                                <th>Name</th>
                                 <th>Company</th>
                                 <th>Address</th>
                                 <th>Telephone</th>
                                 <th>Email</th>
+                                <th>Sales Rep</th>
                                 <th class="text-right">Balance</th>
+                                <th class="text-center">Don't Call</th>
+                                <th class="text-center">Don't Email</th>
+                                <th>Comments</th>
                                 <th class="text-center">Status</th>
                             </tr>
                         </thead>
@@ -295,8 +312,34 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                     <td>{{ $customer->company_name }}</td>
                                     <td class="max-w-[12rem] truncate" title="{{ $customer->address }}">{{ $customer->address }}</td>
                                     <td>{{ $customer->telephone }}</td>
-                                    <td>{{ $customer->email }}</td>
+                                    <td>
+                                        @if ($customer->email)
+                                            <a href="mailto:{{ $customer->email }}" wire:click.stop>{{ $customer->email }}</a>
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td>{{ $customer->salesRep?->name ?: '—' }}</td>
                                     <td class="desk-money">${{ number_format($customer->balance, 2) }}</td>
+                                    <td class="text-center" wire:click.stop>
+                                        <input
+                                            type="checkbox"
+                                            @checked($customer->opt_out_telemarketing)
+                                            wire:click="toggleOptOut({{ $customer->id }}, 'opt_out_telemarketing')"
+                                            aria-label="Don't call for {{ $customer->customer_id }}"
+                                            title="Don't call"
+                                        />
+                                    </td>
+                                    <td class="text-center" wire:click.stop>
+                                        <input
+                                            type="checkbox"
+                                            @checked($customer->opt_out_email)
+                                            wire:click="toggleOptOut({{ $customer->id }}, 'opt_out_email')"
+                                            aria-label="Don't email for {{ $customer->customer_id }}"
+                                            title="Don't email"
+                                        />
+                                    </td>
+                                    <td class="max-w-[12rem] truncate" title="{{ $customer->comments }}">{{ $customer->comments ?: '—' }}</td>
                                     <td class="text-center" wire:click.stop>
                                         <button
                                             type="button"
@@ -309,7 +352,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="9">No customers found.</td>
+                                    <td colspan="13">No customers found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -333,8 +376,9 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                 </button>
                 <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search" aria-label="New Search">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                        <path d="M3 13h4l6.2-6.2a1.5 1.5 0 00-2.1-2.1L5 10.9V13z"/>
-                        <path d="M10.5 5.5l2 2"/>
+                        <rect x="2.5" y="2.5" width="8" height="10" rx="1"/>
+                        <circle cx="11" cy="11" r="2.5"/>
+                        <path d="M12.8 12.8L14.5 14.5"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
@@ -351,8 +395,10 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                     aria-label="Delete selected"
                     @disabled(! $selectedId)
                 >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                        <path d="M4 4l8 8M12 4l-8 8"/>
+                    {{-- Crossed pen (cancel/delete) --}}
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                        <path d="M3 13.5l10-10" stroke-width="1.7"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>

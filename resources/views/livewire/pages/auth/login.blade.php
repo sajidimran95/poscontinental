@@ -81,5 +81,9 @@ new #[Layout('layouts.guest')] class extends Component
                 {{ __('Log in') }}
             </x-primary-button>
         </div>
+
+        <p class="mt-4 text-center text-xs text-slate-500">
+            <a href="{{ route('admin.panel.login') }}" class="text-sky-700 hover:underline" wire:navigate>Platform Admin login</a>
+        </p>
     </form>
 </div>

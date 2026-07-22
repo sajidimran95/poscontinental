@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\Customer\AuthController as CustomerAuthController;
+use App\Http\Controllers\Api\Customer\ItemController as CustomerItemController;
+use App\Http\Controllers\Api\Customer\OrderController as CustomerOrderController;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrder;
@@ -9,6 +12,11 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 
+/*
+|--------------------------------------------------------------------------
+| Staff / Sales Rep API (existing — for future §11.9 Sales Rep app)
+|--------------------------------------------------------------------------
+*/
 Route::post('/login', function (Request $request) {
     $request->validate([
         'email' => 'required|email',
@@ -19,6 +27,10 @@ Route::post('/login', function (Request $request) {
     $user = User::query()->where('email', $request->email)->first();
     if (! $user || ! Hash::check($request->password, $user->password)) {
         throw ValidationException::withMessages(['email' => ['Invalid credentials.']]);
+    }
+
+    if (isset($user->is_active) && ! $user->is_active) {
+        return response()->json(['message' => 'User account is inactive.'], 403);
     }
 
     $token = $user->createToken($request->string('device_name', 'mobile'))->plainTextToken;
@@ -46,6 +58,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/customers', function (Request $request) {
         $user = $request->user();
+        abort_unless($user instanceof User, 403, 'Staff token required.');
+
         $q = Customer::query()
             ->where('company_id', $user->company_id)
             ->where('is_inactive', false)
@@ -62,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/customers/{customer}', function (Request $request, Customer $customer) {
+        abort_unless($request->user() instanceof User, 403, 'Staff token required.');
         abort_unless($customer->company_id === $request->user()->company_id, 403);
 
         return [
@@ -71,6 +86,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/sales-orders', function (Request $request) {
+        abort_unless($request->user() instanceof User, 403, 'Staff token required.');
+
         $data = $request->validate([
             'customer_id' => 'required|exists:customers,id',
             'lines' => 'required|array|min:1',
@@ -129,12 +146,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/sales-orders/{salesOrder}', function (Request $request, SalesOrder $salesOrder) {
+        abort_unless($request->user() instanceof User, 403, 'Staff token required.');
         abort_unless($salesOrder->company_id === $request->user()->company_id, 403);
 
         return $salesOrder->load(['customer:id,customer_id,company_name', 'lines']);
     });
 
     Route::get('/invoices', function (Request $request) {
+        abort_unless($request->user() instanceof User, 403, 'Staff token required.');
+
         $rows = \App\Models\Invoice::query()
             ->with(['customer:id,customer_id,company_name', 'payments', 'credits'])
             ->where('company_id', $request->user()->company_id)
@@ -156,5 +176,25 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         return $rows;
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Customer Mobile App API — Brief §11.7
+|--------------------------------------------------------------------------
+*/
+Route::prefix('customer')->group(function () {
+    Route::post('/login', [CustomerAuthController::class, 'login']);
+
+    Route::middleware(['auth:sanctum', 'customer.portal'])->group(function () {
+        Route::post('/logout', [CustomerAuthController::class, 'logout']);
+        Route::get('/me', [CustomerAuthController::class, 'me']);
+        Route::get('/items', [CustomerItemController::class, 'index']);
+        Route::get('/items/{id}', [CustomerItemController::class, 'show'])->whereNumber('id');
+        Route::get('/orders', [CustomerOrderController::class, 'index']);
+        Route::post('/orders', [CustomerOrderController::class, 'store']);
+        Route::get('/orders/{id}', [CustomerOrderController::class, 'show'])->whereNumber('id');
+        Route::get('/invoices', [CustomerOrderController::class, 'invoices']);
     });
 });

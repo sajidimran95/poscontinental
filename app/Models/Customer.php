@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Laravel\Sanctum\HasApiTokens;
 
-class Customer extends Model
+class Customer extends Authenticatable
 {
+    use HasApiTokens;
+
     protected $fillable = [
         'company_id',
         'customer_id',
@@ -24,6 +27,9 @@ class Customer extends Model
         'mobile',
         'fax',
         'email',
+        'portal_email',
+        'portal_password',
+        'portal_active',
         'web_page',
         'price_level_id',
         'cigarette_tax_class_id',
@@ -72,10 +78,17 @@ class Customer extends Model
         'owner_email',
     ];
 
+    protected $hidden = [
+        'portal_password',
+        'owner_ssn',
+    ];
+
     protected function casts(): array
     {
         return [
             'is_inactive' => 'boolean',
+            'portal_active' => 'boolean',
+            'portal_password' => 'hashed',
             'is_tax_exempt' => 'boolean',
             'certificate_on_file' => 'boolean',
             'drivers_accept_returns' => 'boolean',
@@ -93,6 +106,11 @@ class Customer extends Model
             'last_order_on' => 'date',
             'owner_ssn' => 'encrypted',
         ];
+    }
+
+    public function getAuthPassword(): string
+    {
+        return (string) $this->portal_password;
     }
 
     public function company(): BelongsTo
@@ -123,6 +141,11 @@ class Customer extends Model
     public function shippingAddresses(): HasMany
     {
         return $this->hasMany(CustomerShippingAddress::class)->orderBy('sort_order');
+    }
+
+    public function salesOrders(): HasMany
+    {
+        return $this->hasMany(SalesOrder::class);
     }
 
     public function getAvailableCreditAttribute(): float

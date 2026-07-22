@@ -66,6 +66,7 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('password'),
             'email_verified_at' => now(),
             'is_active' => true,
+            'is_platform_admin' => false,
         ]);
 
         User::query()->create([
@@ -78,7 +79,23 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('password'),
             'email_verified_at' => now(),
             'is_active' => true,
+            'is_platform_admin' => false,
         ]);
+
+        User::query()->updateOrCreate(
+            ['email' => 'admin@gmail.com'],
+            [
+                'company_id' => null,
+                'site_id' => null,
+                'role_id' => $adminRole->id,
+                'name' => 'Platform Admin',
+                'username' => 'platform_admin',
+                'password' => 'password',
+                'email_verified_at' => now(),
+                'is_active' => true,
+                'is_platform_admin' => true,
+            ]
+        );
 
         $this->seedLookups($company->id);
         $this->seedSampleItems($company->id);

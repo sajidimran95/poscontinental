@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Company extends Model
 {
-    protected $fillable = ['code', 'name', 'is_active'];
+    protected $fillable = ['code', 'name', 'is_active', 'customer_app_api_active'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return [
+            'is_active' => 'boolean',
+            'customer_app_api_active' => 'boolean',
+        ];
     }
 
     public function sites(): HasMany

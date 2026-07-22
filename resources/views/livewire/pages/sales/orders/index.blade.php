@@ -268,10 +268,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
                     <div class="orders-toolbar-right">
                         <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                <rect x="2.5" y="2.5" width="8" height="10" rx="1"/>
-                                <circle cx="11" cy="11" r="2.5"/>
-                                <path d="M12.8 12.8L14.5 14.5"/>
+                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
                             </svg>
                             New Search
                         </button>
@@ -388,7 +387,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 </x-record-count>
             </div>
 
-            {{-- Right icon rail — starts below Action bar --}}
+            {{-- Right icon rail — matches Chief: grid, cross-pen (new search), pen (edit), X, print, refresh, + --}}
             <aside class="desk-rail" aria-label="Order actions">
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -398,14 +397,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search" aria-label="New Search">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                        <rect x="2.5" y="2.5" width="8" height="10" rx="1"/>
-                        <circle cx="11" cy="11" r="2.5"/>
-                        <path d="M12.8 12.8L14.5 14.5"/>
+                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
+                    {{-- Cross pen --}}
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                    {{-- Pen only --}}
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
@@ -419,9 +419,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     aria-label="Delete selected"
                     @disabled(! $selectedId)
                 >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3 13.5l10-10" stroke-width="1.7"/>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
+                        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>

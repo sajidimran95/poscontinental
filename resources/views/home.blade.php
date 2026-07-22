@@ -1,10 +1,13 @@
 @php
     $companyId = auth()->user()->company_id;
 
-    $lowStockCount = \App\Models\Item::query()
+    $lowStockItems = \App\Models\Item::query()
         ->where('company_id', $companyId)
         ->lowStock()
-        ->count();
+        ->orderBy('item_code')
+        ->get(['id', 'item_code', 'description', 'quantity_in_stock', 'reorder_point']);
+
+    $lowStockCount = $lowStockItems->count();
 
     $modules = [
         [
@@ -138,9 +141,22 @@
                     <rect x="11" y="17" width="2" height="2" fill="#c62828"/>
                 </svg>
             </span>
-            <span class="home-chief-alert-text">{{ $lowStockCount }} item(s) running low and should be ordered soon</span>
-            @if (Route::has('inquiries.stock-status'))
-                <a href="{{ route('inquiries.stock-status') }}" wire:navigate class="home-chief-alert-go">View</a>
+            @if ($lowStockCount > 0)
+                <span class="home-chief-alert-text">
+                    {{ number_format($lowStockCount) }}
+                    {{ $lowStockCount === 1 ? 'item' : 'items' }}
+                    running low and should be ordered soon
+                    @if ($lowStockItems->isNotEmpty())
+                        <span class="home-chief-alert-codes">
+                            ({{ $lowStockItems->take(3)->pluck('item_code')->implode(', ') }}{{ $lowStockCount > 3 ? '…' : '' }})
+                        </span>
+                    @endif
+                </span>
+                @if (Route::has('inventory.items.index'))
+                    <a href="{{ route('inventory.items.index', ['favorite' => 'low_stock']) }}" wire:navigate class="home-chief-alert-go">View</a>
+                @endif
+            @else
+                <span class="home-chief-alert-text">All stock levels look good — no items at reorder point</span>
             @endif
         </aside>
     </div>

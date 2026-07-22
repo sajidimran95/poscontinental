@@ -309,11 +309,11 @@
         min-height: 100%;
         padding: 1.35rem 0.85rem 1.25rem;
         border-radius: 20px;
-        background: rgba(255, 255, 255, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 0.28);
+        border: 1px solid rgba(255, 255, 255, 0.45);
         box-shadow:
-            0 12px 30px rgba(15, 23, 42, 0.06),
-            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            0 12px 30px rgba(15, 23, 42, 0.05),
+            inset 0 1px 0 rgba(255, 255, 255, 0.55);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
@@ -323,10 +323,10 @@
 
     .home-chief-col:hover {
         transform: translateY(-4px);
-        background: rgba(255, 255, 255, 0.78);
+        background: rgba(255, 255, 255, 0.42);
         box-shadow:
-            0 20px 40px rgba(15, 23, 42, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            0 20px 40px rgba(15, 23, 42, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.7);
     }
 
     @keyframes home-chief-col {
@@ -527,6 +527,11 @@
         flex: 1;
         min-width: 0;
         line-height: 1.25;
+    }
+
+    .home-chief-alert-codes {
+        opacity: 0.85;
+        font-weight: 600;
     }
 
     .home-chief-alert-go {

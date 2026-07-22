@@ -25,6 +25,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public ?int $selectedId = null;
 
+    public bool $compactView = false;
+
+    public string $statusFilter = '';
+
     public bool $showForm = false;
 
     public ?ReturnToVendor $rtv = null;
@@ -63,35 +67,59 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
+        $hasSearch = $this->search !== '';
 
         $query = ReturnToVendor::query()
-            ->with('supplier')
+            ->with(['supplier', 'requestedBy'])
             ->where('company_id', $companyId)
-            ->when($this->search !== '', function ($q) {
+            ->when($hasSearch, function ($q) {
                 $term = '%'.$this->search.'%';
                 $q->where(function ($inner) use ($term) {
                     $inner->where('rtv_number', 'like', $term)
                         ->orWhere('reference_no', 'like', $term)
-                        ->orWhereHas('supplier', fn ($s) => $s->where('name', 'like', $term));
+                        ->orWhere('status', 'like', $term)
+                        ->orWhereHas('supplier', fn ($s) => $s->where('name', 'like', $term)->orWhere('supplier_id', 'like', $term))
+                        ->orWhereHas('requestedBy', fn ($u) => $u->where('name', 'like', $term));
                 });
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'returned', fn ($q) => $q->where('status', 'Returned'))
+            ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
+            ->when($this->statusFilter === 'Returned', fn ($q) => $q->where('status', 'Returned'))
+            ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
-        $listTitle = match ($this->favorite) {
-            'new' => 'New RTVs',
-            'returned' => 'Returned RTVs',
-            default => 'Return To Vendor',
+        if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '' && ! $this->showForm) {
+            $records = $query->limit(10)->get();
+            $total = $records->count();
+            $footerNote = '10 most recently updated records with no search criteria.';
+            $isPaginated = false;
+        } else {
+            $records = $query->paginate(50);
+            $total = $records->total();
+            $footerNote = null;
+            $isPaginated = true;
+        }
+
+        $listTitle = match (true) {
+            $this->statusFilter === 'New', $this->favorite === 'new' => 'Return To Vendor (RTVs) List (New)',
+            $this->statusFilter === 'Returned', $this->favorite === 'returned' => 'Return To Vendor (RTVs) List (Returned)',
+            default => 'Return To Vendor (RTVs) List',
         };
 
         $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty'] * (float) $l['unit_cost']);
 
         return [
-            'records' => $query->paginate(50),
+            'records' => $records,
+            'total' => $total,
+            'footerNote' => $footerNote,
+            'isPaginated' => $isPaginated,
             'suppliers' => Supplier::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('name')->get(),
-            'users' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'users' => User::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(),
             'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
+            'selectedSupplier' => $this->supplier_id
+                ? Supplier::query()->find($this->supplier_id)
+                : null,
             'favorites' => [
                 'all' => 'All RTVs',
                 'new' => 'New',
@@ -123,12 +151,107 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public function updatingSearch(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
     }
 
     public function updatedFavorite(): void
     {
         $this->resetPage();
         $this->selectedId = null;
+        $this->statusFilter = match ($this->favorite) {
+            'new' => 'New',
+            'returned' => 'Returned',
+            default => $this->statusFilter,
+        };
+    }
+
+    public function updatedStatusFilter(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
+        $this->favorite = match ($this->statusFilter) {
+            'New' => 'new',
+            'Returned' => 'returned',
+            default => 'all',
+        };
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->resetPage();
+    }
+
+    public function newSearch(): void
+    {
+        $this->search = '';
+        $this->statusFilter = '';
+        $this->favorite = 'all';
+        $this->selectedId = null;
+        $this->resetPage();
+    }
+
+    public function toggleCompactView(): void
+    {
+        $this->compactView = ! $this->compactView;
+    }
+
+    public function refreshList(): void
+    {
+        $this->resetPage();
+    }
+
+    public function editSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an RTV first.');
+
+            return;
+        }
+
+        $this->edit($this->selectedId);
+    }
+
+    public function deleteSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an RTV first.');
+
+            return;
+        }
+
+        $rtv = ReturnToVendor::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $rtv) {
+            session()->flash('status', 'RTV not found.');
+
+            return;
+        }
+
+        if ($rtv->status === 'Returned') {
+            session()->flash('status', 'Returned RTVs cannot be deleted.');
+
+            return;
+        }
+
+        $rtv->lines()->delete();
+        $rtv->delete();
+        $this->selectedId = null;
+        session()->flash('status', 'RTV deleted.');
+    }
+
+    public function printSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an RTV first.');
+
+            return;
+        }
+
+        $this->edit($this->selectedId);
+        $this->dispatch('print-rtv');
     }
 
     protected function emptyLine(): array
@@ -376,7 +499,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         <x-favorite-list :favorites="$favorites" :active="$favorite" />
     @endunless
 
-    <div class="desk-main {{ $showForm ? 'entity-form item-form' : '' }}">
+    <div class="desk-main {{ $showForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}">
         <x-action-bar :title="$showForm ? ($rtv ? 'RTV '.$rtv_number : 'New RTV') : 'Action'" />
 
         @if (session('status'))
@@ -426,12 +549,16 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <div class="inv-card-title">Supplier</div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="supplier_id">Supplier</label>
-                                <select id="supplier_id" wire:model="supplier_id" class="so-input" @disabled($isReturned)>
+                                <select id="supplier_id" wire:model.live="supplier_id" class="so-input" @disabled($isReturned)>
                                     <option value="">— Select supplier —</option>
                                     @foreach ($suppliers as $s)
                                         <option value="{{ $s->id }}">{{ $s->supplier_id }} — {{ $s->name }}</option>
                                     @endforeach
                                 </select>
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl">Supplier ID</label>
+                                <input type="text" class="so-input so-input-ro" readonly value="{{ $selectedSupplier?->supplier_id ?: '—' }}" />
                             </div>
                             @error('supplier_id') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
@@ -524,7 +651,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                         <div class="inv-card po-totals-card">
                             <div class="inv-card-title">Totals</div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl">Subtotal</label>
+                                <label class="so-form-lbl">RTV Subtotal</label>
                                 <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
@@ -536,7 +663,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" @disabled($isReturned) />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field po-total-row">
-                                <label class="so-form-lbl">Total</label>
+                                <label class="so-form-lbl">RTV Total</label>
                                 <strong class="entity-value text-right" style="display:block;width:100%;font-size:1.15rem">${{ number_format($orderTotal, 2) }}</strong>
                             </div>
                         </div>
@@ -554,76 +681,185 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 </div>
             </form>
         @else
-            <x-list-chrome label="Search RTVs:" model="search" placeholder="RTV #, supplier, reference…">
-                <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary ms-auto">New RTV</button>
-            </x-list-chrome>
+            <div class="desk-main-split">
+                <div class="desk-main-body">
+                    <div class="desk-toolbar orders-toolbar">
+                        <label class="desk-toolbar-label" for="rtv-search">Search RTVs:</label>
+                        <input
+                            id="rtv-search"
+                            type="search"
+                            wire:model.live.debounce.300ms="search"
+                            placeholder="RTV #, supplier, reference…"
+                            class="desk-search orders-search-input"
+                            aria-label="Search RTVs"
+                        />
 
-            <div class="desk-titlebar">
-                <h2 class="desk-title">{{ $listTitle }}</h2>
-                <span class="desk-title-meta">{{ number_format($records->total()) }} records</span>
-            </div>
-
-            <div class="desk-grid">
-                <table class="desk-table">
-                    <thead>
-                        <tr>
-                            <th>RTV Number</th>
-                            <th>RTV Date</th>
-                            <th class="text-center">Status</th>
-                            <th>Supplier</th>
-                            <th class="desk-money">RTV Total</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse ($records as $rec)
-                            <tr
-                                wire:click="selectRow({{ $rec->id }})"
-                                @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
+                        <div class="orders-toolbar-right">
+                            <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
+                                <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                                    <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                                    <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                                </svg>
+                                New Search
+                            </button>
+                            <select
+                                id="rtv-status-filter"
+                                wire:model.live="statusFilter"
+                                class="desk-select orders-status-select"
+                                aria-label="Status filter"
                             >
-                                <td class="desk-num">
-                                    <button type="button" wire:click.stop="edit({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
-                                </td>
-                                <td>{{ optional($rec->rtv_date)?->format('n/j/Y') }}</td>
-                                <td class="text-center">
-                                    <span @class([
-                                        'desk-pill',
-                                        'desk-pill-new' => $rec->status === 'New',
-                                        'desk-pill-invoiced' => $rec->status === 'Returned',
-                                        'desk-pill-muted' => ! in_array($rec->status, ['New', 'Returned'], true),
-                                    ])>{{ $rec->status }}</span>
-                                </td>
-                                <td>{{ $rec->supplier?->name }}</td>
-                                <td class="desk-money">${{ number_format($rec->total, 2) }}</td>
-                                <td wire:click.stop>
-                                    <div class="flex gap-2">
-                                        <button type="button" wire:click="edit({{ $rec->id }})" class="desk-btn desk-btn-sm">
-                                            {{ $rec->status === 'Returned' ? 'View' : 'Edit' }}
-                                        </button>
-                                        @if ($rec->status !== 'Returned')
-                                            <button
-                                                type="button"
-                                                wire:click="process({{ $rec->id }})"
-                                                wire:confirm="Process RTV and decrement stock?"
-                                                class="desk-btn desk-btn-sm desk-btn-primary"
-                                            >Process</button>
-                                        @endif
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr class="is-empty">
-                                <td colspan="6">No RTVs found. Click <strong>New RTV</strong> to create one.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+                                <option value="">All</option>
+                                <option value="New">New</option>
+                                <option value="Returned">Returned</option>
+                            </select>
+                            <button
+                                type="button"
+                                wire:click="clearSearch"
+                                class="so-icon-btn"
+                                title="Clear search"
+                                aria-label="Clear search"
+                            >
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                    <path d="M4 4l8 8M12 4l-8 8"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
 
-            <x-record-count :count="$records->total()">
-                <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary">New RTV</button>
-                {{ $records->links() }}
-            </x-record-count>
+                    <div class="desk-titlebar">
+                        <h2 class="desk-title">{{ $listTitle }}</h2>
+                        <span class="desk-title-meta">{{ number_format($total) }} records</span>
+                    </div>
+
+                    <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th class="text-center" style="width:2rem"></th>
+                                    <th>RTV Number</th>
+                                    <th>RTV Date</th>
+                                    <th class="text-center">Status</th>
+                                    <th>Reference No.</th>
+                                    <th>Supplier ID</th>
+                                    <th>Supplier</th>
+                                    <th>Requested By</th>
+                                    <th class="desk-money">RTV Subtotal</th>
+                                    <th class="desk-money">Discount</th>
+                                    <th class="desk-money">Freight</th>
+                                    <th class="desk-money">RTV Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($records as $rec)
+                                    <tr
+                                        wire:click="selectRow({{ $rec->id }})"
+                                        wire:dblclick="edit({{ $rec->id }})"
+                                        @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
+                                    >
+                                        <td class="text-center" wire:click.stop>
+                                            <input
+                                                type="radio"
+                                                name="rtv_select"
+                                                value="{{ $rec->id }}"
+                                                @checked($selectedId === $rec->id)
+                                                wire:click="selectRow({{ $rec->id }})"
+                                                aria-label="Select RTV {{ $rec->rtv_number }}"
+                                            />
+                                        </td>
+                                        <td class="desk-num">
+                                            <button type="button" wire:click.stop="edit({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
+                                        </td>
+                                        <td>{{ optional($rec->rtv_date)?->format('n/j/Y') }}</td>
+                                        <td class="text-center">
+                                            <span @class([
+                                                'desk-pill',
+                                                'desk-pill-new' => $rec->status === 'New',
+                                                'desk-pill-invoiced' => $rec->status === 'Returned',
+                                                'desk-pill-muted' => ! in_array($rec->status, ['New', 'Returned'], true),
+                                            ])>{{ $rec->status }}</span>
+                                        </td>
+                                        <td>{{ $rec->reference_no ?: '' }}</td>
+                                        <td class="desk-num">{{ $rec->supplier?->supplier_id ?: '—' }}</td>
+                                        <td>{{ $rec->supplier?->name ?: '—' }}</td>
+                                        <td>{{ $rec->requestedBy?->name ?: '—' }}</td>
+                                        <td class="desk-money">${{ number_format($rec->subtotal, 2) }}</td>
+                                        <td class="desk-money">${{ number_format($rec->discount, 2) }}</td>
+                                        <td class="desk-money">${{ number_format($rec->freight, 2) }}</td>
+                                        <td class="desk-money">${{ number_format($rec->total, 2) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr class="is-empty">
+                                        <td colspan="12">No RTVs found. Use the <strong>+</strong> button to create one.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <x-record-count :count="$total">
+                        @if ($footerNote)
+                            <span class="text-xs text-slate-600 me-auto">{{ $footerNote }}</span>
+                        @endif
+                        <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary">New RTV</button>
+                        @if ($isPaginated)
+                            {{ $records->links() }}
+                        @endif
+                    </x-record-count>
+                </div>
+
+                <aside class="desk-rail" aria-label="RTV actions">
+                    <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <rect x="2" y="2" width="5" height="5" rx="0.5"/>
+                            <rect x="9" y="2" width="5" height="5" rx="0.5"/>
+                            <rect x="2" y="9" width="5" height="5" rx="0.5"/>
+                            <rect x="9" y="9" width="5" height="5" rx="0.5"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                            <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                            <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="deleteSelected"
+                        wire:confirm="Delete the selected RTV? This cannot be undone."
+                        class="desk-rail-btn desk-rail-btn-danger"
+                        title="Delete selected"
+                        aria-label="Delete selected"
+                        @disabled(! $selectedId)
+                    >
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
+                            <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
+                            <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M13 8a5 5 0 11-1.2-3.3"/>
+                            <path d="M13 3v3h-3"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="startNew" class="desk-rail-btn desk-rail-btn-primary" title="New RTV" aria-label="New RTV">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path d="M8 3v10M3 8h10"/>
+                        </svg>
+                    </button>
+                </aside>
+            </div>
         @endif
     </div>
 
@@ -682,3 +918,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         </div>
     @endif
 </div>
+
+@script
+<script>
+    $wire.on('print-rtv', () => {
+        setTimeout(() => { try { window.print(); } catch (e) {} }, 400);
+    });
+</script>
+@endscript

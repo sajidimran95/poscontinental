@@ -214,8 +214,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         $this->validate([
             'stock_count_no' => 'required|string|max:64',
-            'site_id' => 'nullable|integer',
-            'processed_by' => 'nullable|integer',
+            'site_id' => 'required|integer|exists:sites,id',
+            'processed_by' => 'nullable|integer|exists:users,id',
+            'date_created' => 'nullable|date',
+        ], [
+            'stock_count_no.required' => 'Count number is required.',
+            'site_id.required' => 'Site is required.',
+            'site_id.exists' => 'Select a valid site.',
         ]);
 
         $data = [
@@ -289,8 +294,11 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl" for="stock_count_no">Count No.</label>
-                    <input id="stock_count_no" wire:model="stock_count_no" class="so-input font-mono" @disabled($stockCount) />
+                    <label class="so-form-lbl so-field-req" for="stock_count_no">Count No.</label>
+                    <div class="so-form-ctl">
+                        <input id="stock_count_no" wire:model="stock_count_no" class="so-input font-mono @error('stock_count_no') is-invalid @enderror" @disabled($stockCount) />
+                        @error('stock_count_no') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                    </div>
                     <span class="so-form-lbl">Status</span>
                     <span @class([
                         'desk-pill',
@@ -337,13 +345,16 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                     <div class="inv-card">
                         <div class="inv-card-title">Site & description</div>
                         <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="site_id">Site</label>
-                            <select id="site_id" wire:model="site_id" class="so-input" @disabled($isProcessed)>
-                                <option value="">—</option>
-                                @foreach ($sites as $s)
-                                    <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name ?? $s->code }}</option>
-                                @endforeach
-                            </select>
+                            <label class="so-form-lbl so-field-req" for="site_id">Site</label>
+                            <div class="so-form-ctl">
+                                <select id="site_id" wire:model="site_id" class="so-input @error('site_id') is-invalid @enderror" @disabled($isProcessed)>
+                                    <option value="">—</option>
+                                    @foreach ($sites as $s)
+                                        <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name ?? $s->code }}</option>
+                                    @endforeach
+                                </select>
+                                @error('site_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                            </div>
                         </div>
                         <div class="so-form-row so-form-row-side so-form-row-top sc-field">
                             <label class="so-form-lbl" for="description">Description</label>

@@ -105,7 +105,11 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
             'contacts.*.contact_name' => 'nullable|string|max:255',
         ];
 
-        $this->validate($rules);
+        $this->validate($rules, [
+            'supplier_id.required' => 'Supplier ID is required.',
+            'name.required' => 'Company name is required.',
+            'fein_no.required' => 'FEIN No. is required for tobacco suppliers.',
+        ]);
 
         $data = [
             'company_id' => auth()->user()->company_id,
@@ -155,8 +159,8 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
             <div class="entity-header">
                 <div class="sup-header-bar">
                     <div class="sup-header-id">
-                        <label class="so-form-lbl" for="supplier_id">Supplier ID</label>
-                        <input id="supplier_id" wire:model="supplier_id" class="so-input font-mono" style="width:10rem" @disabled($supplier) />
+                        <label class="so-form-lbl so-field-req" for="supplier_id">Supplier ID</label>
+                        <input id="supplier_id" wire:model="supplier_id" class="so-input font-mono @error('supplier_id') is-invalid @enderror" style="width:10rem" @disabled($supplier) />
                     </div>
                     <div class="sup-header-status">
                         <span class="sup-status-lbl">Status</span>
@@ -171,16 +175,16 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                     </label>
                 </div>
             </div>
-            @error('supplier_id') <p class="text-xs text-red-700 mb-2" role="alert">{{ $message }}</p> @enderror
+            @error('supplier_id') <p class="so-field-error mb-2" role="alert">{{ $message }}</p> @enderror
 
             <div class="sc-general-grid">
                 <div class="inv-card">
                     <div class="inv-card-title">Company</div>
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="name">Company Name</label>
-                        <input id="name" wire:model="name" class="so-input" />
+                        <label class="so-form-lbl so-field-req" for="name">Company Name</label>
+                        <input id="name" wire:model="name" class="so-input @error('name') is-invalid @enderror" />
                     </div>
-                    @error('name') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
+                    @error('name') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="contact_name">Contact Name</label>
                         <input id="contact_name" wire:model="contact_name" class="so-input" />
@@ -206,10 +210,10 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                 <div class="inv-card">
                     <div class="inv-card-title">Contact & tax</div>
                     <div class="so-form-row so-form-row-side sc-field">
-                        <label class="so-form-lbl" for="fein_no">FEIN No.</label>
-                        <input id="fein_no" wire:model="fein_no" class="so-input" />
+                        <label @class(['so-form-lbl', 'so-field-req' => $is_tobacco_supplier]) for="fein_no">FEIN No.</label>
+                        <input id="fein_no" wire:model="fein_no" class="so-input @error('fein_no') is-invalid @enderror" />
                     </div>
-                    @error('fein_no') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
+                    @error('fein_no') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="phone1">Telephone</label>
                         <input id="phone1" wire:model="phone1" class="so-input" placeholder="( ) -" />

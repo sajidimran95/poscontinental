@@ -83,6 +83,33 @@
         font-size: 12px;
     }
 
+    /* Field validation — show under each invalid field */
+    .so-field-error {
+        display: block;
+        margin-top: 0.2rem;
+        margin-bottom: 0.15rem;
+        font-size: 0.75rem;
+        line-height: 1.25;
+        color: #b91c1c;
+        font-weight: 500;
+    }
+
+    .so-field-error:empty {
+        display: none;
+    }
+
+    .so-input.is-invalid,
+    .so-input.border-red-500 {
+        border-color: #ef4444 !important;
+        box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25);
+    }
+
+    .so-field-req::after {
+        content: ' *';
+        color: #dc2626;
+        font-weight: 700;
+    }
+
     .chief-action-bar {
         @apply flex items-center justify-start px-2 py-1.5 text-white text-sm;
         background: var(--chief-action);
@@ -2442,6 +2469,106 @@
         height: 1rem;
         cursor: pointer;
         accent-color: #1e3a5f;
+    }
+
+    .bp-tabs {
+        margin: 0.5rem 0.85rem 0;
+    }
+
+    .bp-toolbar-adjust {
+        margin-top: 0.35rem;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+
+    .bp-targets {
+        min-width: 18rem;
+    }
+
+    .bp-target-checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem 1rem;
+        padding-top: 0.15rem;
+    }
+
+    .bp-delta {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .bp-confirm-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.45);
+    }
+
+    .bp-confirm-card {
+        width: min(720px, 100%);
+        max-height: min(85vh, 640px);
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25);
+        padding: 1.1rem 1.25rem 1.2rem;
+    }
+
+    .bp-confirm-title {
+        margin: 0 0 0.45rem;
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+
+    .bp-confirm-lead {
+        margin: 0 0 0.65rem;
+        font-size: 13px;
+        color: #334155;
+        line-height: 1.45;
+    }
+
+    .bp-confirm-note {
+        margin: 0 0 0.35rem;
+        font-size: 12px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .bp-confirm-grid {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.35rem;
+        max-height: 280px;
+        overflow: auto;
+        margin-bottom: 0.9rem;
+    }
+
+    .bp-confirm-desc {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+    }
+
+    .bp-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
+    .bp-history-detail {
+        margin: 0.85rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.45rem;
+        background: #f8fafc;
+        padding-bottom: 0.5rem;
     }
 
     /* Inquiry pages (Stock Status / Item Velocity) */

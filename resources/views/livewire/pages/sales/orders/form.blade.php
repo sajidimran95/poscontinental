@@ -751,13 +751,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function save(): void
     {
-        $this->validate([
-            'order_number' => 'required',
-            'customer_id' => 'required|integer|exists:customers,id',
-        ]);
+        try {
+            $this->validate([
+                'order_number' => 'required|string|max:64',
+                'customer_id' => 'required|integer|exists:customers,id',
+                'order_date' => 'required|date',
+                'order_type' => 'required|string|max:64',
+            ], [
+                'order_number.required' => 'Order number is required.',
+                'customer_id.required' => 'Customer is required.',
+                'customer_id.exists' => 'Select a valid customer.',
+                'order_date.required' => 'Order date is required.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->activeTab = 'general';
+            throw $e;
+        }
 
         $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty_ordered'] ?? 0) > 0);
-        $this->lineWarning = $hasLines ? '' : 'Order saved without line items.';
+        if (! $hasLines) {
+            $this->addError('lines', 'Add at least one line item with an item code and quantity.');
+            $this->activeTab = 'items';
+
+            return;
+        }
+        $this->lineWarning = '';
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
         $subtotal = collect($this->lines)->sum(fn ($l) => filled($l['item_code'] ?? null)
@@ -900,7 +918,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 {{ $lineWarning }}
             </div>
         @endif
-        @error('customer_id')
+        @error('lines')
             <div class="mx-2 mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
         @enderror
 
@@ -916,9 +934,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     <option>Sales Order</option>
                                     <option>Return</option>
                                 </select>
-                                <label class="so-form-lbl" for="order_number">Order No</label>
+                                <label class="so-form-lbl so-field-req" for="order_number">Order No</label>
                                 <div class="so-lookup-row">
-                                    <input id="order_number" wire:model="order_number" class="so-input font-mono" aria-label="Order Number" readonly title="Auto-generated" />
+                                    <input id="order_number" wire:model="order_number" class="so-input font-mono @error('order_number') is-invalid @enderror" aria-label="Order Number" readonly title="Auto-generated" />
                                     <button
                                         type="button"
                                         wire:click="regenerateOrderNumber"
@@ -931,12 +949,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     </button>
                                 </div>
                             </div>
+                            @error('order_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
 
                             <div class="so-form-row">
-                                <label class="so-form-lbl" for="customer_id">Customer</label>
+                                <label class="so-form-lbl so-field-req" for="customer_id">Customer</label>
                                 <div class="so-form-ctl">
                                     <div class="so-lookup-row">
-                                        <select id="customer_id" wire:model.live="customer_id" class="so-input" aria-label="Customer">
+                                        <select id="customer_id" wire:model.live="customer_id" class="so-input @error('customer_id') is-invalid @enderror" aria-label="Customer">
                                             <option value="">—</option>
                                             @foreach ($customers as $c)
                                                 <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
@@ -955,6 +974,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
                                         </button>
                                     </div>
+                                    @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                                     @if ($showCustomerBrowse)
                                         <div class="so-lookup-panel" role="dialog" aria-label="Customer browse">
                                             <div class="so-lookup-panel-head">
@@ -1097,8 +1117,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 </select>
                             </div>
                             <div class="so-form-row so-form-row-side">
-                                <label class="so-form-lbl" for="order_date">Order Date</label>
-                                <input id="order_date" type="date" wire:model="order_date" class="so-input" aria-label="Order Date" />
+                                <label class="so-form-lbl so-field-req" for="order_date">Order Date</label>
+                                <div class="so-form-ctl">
+                                    <input id="order_date" type="date" wire:model="order_date" class="so-input @error('order_date') is-invalid @enderror" aria-label="Order Date" />
+                                    @error('order_date') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                </div>
                             </div>
                             <div class="so-form-row so-form-row-side">
                                 <label class="so-form-lbl" for="required_date">Required</label>

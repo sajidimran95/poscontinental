@@ -416,9 +416,22 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         }
 
         $this->validate([
-            'rtv_number' => 'required',
+            'rtv_number' => 'required|string|max:64',
             'supplier_id' => 'required|integer|exists:suppliers,id',
+            'rtv_date' => 'required|date',
+        ], [
+            'rtv_number.required' => 'RTV number is required.',
+            'supplier_id.required' => 'Supplier is required.',
+            'supplier_id.exists' => 'Select a valid supplier.',
+            'rtv_date.required' => 'RTV date is required.',
         ]);
+
+        $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty'] ?? 0) > 0);
+        if (! $hasLines) {
+            $this->addError('lines', 'Add at least one return line with an item code and quantity.');
+
+            return;
+        }
 
         $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty'] * (float) $l['unit_cost']);
         $total = $subtotal - (float) $this->discount + (float) $this->freight;
@@ -511,8 +524,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 <div class="entity-body">
                     <div class="entity-header">
                         <div class="so-form-row so-form-row-pair entity-header-row">
-                            <label class="so-form-lbl" for="rtv_number">RTV No.</label>
-                            <input id="rtv_number" wire:model="rtv_number" class="so-input font-mono" @disabled($rtv) />
+                            <label class="so-form-lbl so-field-req" for="rtv_number">RTV No.</label>
+                            <div class="so-form-ctl">
+                                <input id="rtv_number" wire:model="rtv_number" class="so-input font-mono @error('rtv_number') is-invalid @enderror" @disabled($rtv) />
+                                @error('rtv_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                            </div>
                             <span class="so-form-lbl">Status</span>
                             <span @class([
                                 'desk-pill',
@@ -521,6 +537,9 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 'desk-pill-muted' => ! in_array($status, ['New', 'Returned'], true),
                             ])>{{ $status }}</span>
                         </div>
+                        @error('lines')
+                            <div class="mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
+                        @enderror
                         <div class="entity-balance">Total: <strong>${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>
 
@@ -528,8 +547,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                         <div class="inv-card">
                             <div class="inv-card-title">RTV header</div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="rtv_date">RTV Date</label>
-                                <input id="rtv_date" type="date" wire:model="rtv_date" class="so-input sc-date" @disabled($isReturned) />
+                                <label class="so-form-lbl so-field-req" for="rtv_date">RTV Date</label>
+                                <div class="so-form-ctl">
+                                    <input id="rtv_date" type="date" wire:model="rtv_date" class="so-input sc-date @error('rtv_date') is-invalid @enderror" @disabled($isReturned) />
+                                    @error('rtv_date') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                </div>
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="reference_no">Reference No.</label>
@@ -548,19 +570,21 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                         <div class="inv-card">
                             <div class="inv-card-title">Supplier</div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="supplier_id">Supplier</label>
-                                <select id="supplier_id" wire:model.live="supplier_id" class="so-input" @disabled($isReturned)>
-                                    <option value="">— Select supplier —</option>
-                                    @foreach ($suppliers as $s)
-                                        <option value="{{ $s->id }}">{{ $s->supplier_id }} — {{ $s->name }}</option>
-                                    @endforeach
-                                </select>
+                                <label class="so-form-lbl so-field-req" for="supplier_id">Supplier</label>
+                                <div class="so-form-ctl">
+                                    <select id="supplier_id" wire:model.live="supplier_id" class="so-input @error('supplier_id') is-invalid @enderror" @disabled($isReturned)>
+                                        <option value="">— Select supplier —</option>
+                                        @foreach ($suppliers as $s)
+                                            <option value="{{ $s->id }}">{{ $s->supplier_id }} — {{ $s->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('supplier_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                </div>
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl">Supplier ID</label>
                                 <input type="text" class="so-input so-input-ro" readonly value="{{ $selectedSupplier?->supplier_id ?: '—' }}" />
                             </div>
-                            @error('supplier_id') <p class="text-xs text-red-700" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="requested_by_id">Requested By</label>
                                 <select id="requested_by_id" wire:model="requested_by_id" class="so-input" @disabled($isReturned)>

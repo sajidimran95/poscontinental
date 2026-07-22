@@ -32,6 +32,7 @@
                 ['Items', 'inventory.items.index', true],
                 ['Transfers', null, false],
                 ['Stock Counts', 'inventory.stock-counts.index', true],
+                ['Bulk Pricing', 'inventory.bulk-pricing', true],
                 ['New Item', 'inventory.items.create', true],
             ],
         ],

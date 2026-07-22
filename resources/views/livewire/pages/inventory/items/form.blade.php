@@ -409,28 +409,42 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function save(): void
     {
-        $this->validate([
-            'item_code' => 'required|string|max:64',
-            'description' => 'nullable|string',
-            'list_price' => 'numeric',
-            'msrp' => 'numeric',
-            'standard_cost' => 'numeric',
-            'current_cost' => 'numeric',
-            'reorder_point' => 'numeric',
-            'restock_level' => 'numeric',
-            'lead_time_days' => 'integer|min:0',
-            'shipping_weight' => 'numeric',
-            'tare_weight' => 'numeric',
-            'image_upload' => 'nullable|image|max:4096',
-            'thumbnail_upload' => 'nullable|image|max:2048',
-            'upcs.*.upc' => 'nullable|string|max:64',
-            'prices.*.uom' => 'nullable|string|max:16',
-            'prices.*.price' => 'nullable|numeric',
-            'suppliers.*.supplier_id' => 'nullable|integer|exists:suppliers,id',
-            'substitutes.*.substitute_item_id' => 'nullable|integer|exists:items,id',
-            'substitutes.*.quantity' => 'nullable|numeric',
-        ]);
-
+        try {
+            $this->validate([
+                'item_code' => 'required|string|max:64',
+                'description' => 'required|string|max:2000',
+                'unit_of_measure' => 'required|string|max:16',
+                'list_price' => 'nullable|numeric|min:0',
+                'msrp' => 'nullable|numeric|min:0',
+                'standard_cost' => 'nullable|numeric|min:0',
+                'current_cost' => 'nullable|numeric|min:0',
+                'reorder_point' => 'nullable|numeric|min:0',
+                'restock_level' => 'nullable|numeric|min:0',
+                'lead_time_days' => 'nullable|integer|min:0',
+                'shipping_weight' => 'nullable|numeric|min:0',
+                'tare_weight' => 'nullable|numeric|min:0',
+                'image_upload' => 'nullable|image|max:4096',
+                'thumbnail_upload' => 'nullable|image|max:2048',
+                'upcs.*.upc' => 'nullable|string|max:64',
+                'prices.*.uom' => 'nullable|string|max:16',
+                'prices.*.price' => 'nullable|numeric',
+                'suppliers.*.supplier_id' => 'nullable|integer|exists:suppliers,id',
+                'substitutes.*.substitute_item_id' => 'nullable|integer|exists:items,id',
+                'substitutes.*.quantity' => 'nullable|numeric',
+            ], [
+                'item_code.required' => 'Item Code is required.',
+                'description.required' => 'Description is required.',
+                'unit_of_measure.required' => 'Unit of Measure is required.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $keys = array_keys($e->errors());
+            if (array_intersect($keys, ['item_code', 'description', 'list_price'])) {
+                $this->activeTab = 'general';
+            } elseif (array_intersect($keys, ['unit_of_measure', 'reorder_point', 'restock_level'])) {
+                $this->activeTab = 'inventory';
+            }
+            throw $e;
+        }
         $primary = collect($this->upcs)->firstWhere('is_primary', true);
         if ($primary && filled($primary['upc'] ?? null)) {
             $this->primary_upc = $primary['upc'];
@@ -581,8 +595,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl" for="item_code">Item Code</label>
-                    <input id="item_code" wire:model="item_code" class="so-input font-mono" @disabled($item) />
+                    <label class="so-form-lbl so-field-req" for="item_code">Item Code</label>
+                    <input id="item_code" wire:model="item_code" class="so-input font-mono @error('item_code') is-invalid @enderror" @disabled($item) />
                     <span class="so-form-lbl">Status</span>
                     <div class="entity-status-btns">
                         <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
@@ -596,7 +610,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 @endif
             </div>
 
-            @error('item_code') <p class="text-xs text-red-700 mb-2" role="alert">{{ $message }}</p> @enderror
+            @error('item_code') <p class="so-field-error mb-2" role="alert">{{ $message }}</p> @enderror
 
             @if ($activeTab === 'general')
                 <div class="inv-top-grid item-tab-grid">
@@ -618,13 +632,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             <input id="class" wire:model="class" class="so-input" />
                         </div>
                         <div class="so-form-row so-form-row-side so-form-row-top">
-                            <label class="so-form-lbl" for="description">Description</label>
-                            <textarea id="description" wire:model="description" rows="3" class="so-input so-input-area"></textarea>
+                            <label class="so-form-lbl so-field-req" for="description">Description</label>
+                            <textarea id="description" wire:model="description" rows="3" class="so-input so-input-area @error('description') is-invalid @enderror"></textarea>
                         </div>
+                        @error('description') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="list_price_general">List Price</label>
-                            <input id="list_price_general" wire:model.live="list_price" class="so-input text-right" style="max-width:8rem" />
+                            <input id="list_price_general" wire:model.live="list_price" class="so-input text-right @error('list_price') is-invalid @enderror" style="max-width:8rem" />
                         </div>
+                        @error('list_price') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                     </div>
                     <div class="inv-card" style="grid-column: span 2">
                         <div class="inv-card-title">Classification</div>
@@ -718,9 +734,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="unit_of_measure">Unit of Measure</label>
-                            <input id="unit_of_measure" wire:model="unit_of_measure" class="so-input" style="max-width:6rem" />
+                            <label class="so-form-lbl so-field-req" for="unit_of_measure">Unit of Measure</label>
+                            <input id="unit_of_measure" wire:model="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:6rem" />
                         </div>
+                        @error('unit_of_measure') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="pt-2">
                             <button type="button" wire:click="openJournal" class="desk-btn" @disabled(! $item)>View Journal</button>
                         </div>

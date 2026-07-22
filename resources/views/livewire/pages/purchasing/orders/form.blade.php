@@ -260,13 +260,32 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function save(): void
     {
-        $this->validate([
-            'po_number' => 'required|string|max:64',
-            'supplier_id' => 'required|integer|exists:suppliers,id',
-            'lines.*.item_code' => 'nullable|string|max:64',
-            'lines.*.qty_ordered' => 'nullable|numeric',
-            'lines.*.unit_cost' => 'nullable|numeric',
-        ]);
+        try {
+            $this->validate([
+                'po_number' => 'required|string|max:64',
+                'supplier_id' => 'required|integer|exists:suppliers,id',
+                'requisition_date' => 'nullable|date',
+                'required_date' => 'nullable|date',
+                'lines.*.item_code' => 'nullable|string|max:64',
+                'lines.*.qty_ordered' => 'nullable|numeric',
+                'lines.*.unit_cost' => 'nullable|numeric',
+            ], [
+                'po_number.required' => 'PO number is required.',
+                'supplier_id.required' => 'Supplier is required.',
+                'supplier_id.exists' => 'Select a valid supplier.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->activeTab = 'general';
+            throw $e;
+        }
+
+        $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty_ordered'] ?? 0) > 0);
+        if (! $hasLines) {
+            $this->addError('lines', 'Add at least one line item with an item code and quantity.');
+            $this->activeTab = 'items';
+
+            return;
+        }
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
         $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty_ordered'] * (float) $l['unit_cost']);
@@ -341,8 +360,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl" for="po_number">PO No.</label>
-                    <input id="po_number" wire:model="po_number" class="so-input font-mono" @disabled($purchaseOrder) />
+                    <label class="so-form-lbl so-field-req" for="po_number">PO No.</label>
+                    <div class="so-form-ctl">
+                        <input id="po_number" wire:model="po_number" class="so-input font-mono @error('po_number') is-invalid @enderror" @disabled($purchaseOrder) />
+                        @error('po_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                    </div>
                     <span class="so-form-lbl">Status</span>
                     <span @class([
                         'desk-pill',
@@ -351,6 +373,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         'desk-pill-muted' => ! in_array($status, ['New', 'Partially Received', 'Received'], true),
                     ])>{{ $status }}</span>
                 </div>
+                @error('lines')
+                    <div class="mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
+                @enderror
                 @if ($activeTab === 'items')
                     <div class="entity-balance">Total: <strong>${{ number_format($orderTotal, 2) }}</strong></div>
                 @endif
@@ -407,15 +432,18 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                     <div class="inv-card">
                         <div class="inv-card-title">Supplier & shipping</div>
                         <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="supplier_id">Supplier</label>
-                            <div class="so-lookup-row">
-                                <select id="supplier_id" wire:model.live="supplier_id" class="so-input">
-                                    <option value="">— Select supplier —</option>
-                                    @foreach ($suppliers as $sup)
-                                        <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
-                                    @endforeach
-                                </select>
-                                <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-sm" title="New supplier">+</a>
+                            <label class="so-form-lbl so-field-req" for="supplier_id">Supplier</label>
+                            <div class="so-form-ctl">
+                                <div class="so-lookup-row">
+                                    <select id="supplier_id" wire:model.live="supplier_id" class="so-input @error('supplier_id') is-invalid @enderror">
+                                        <option value="">— Select supplier —</option>
+                                        @foreach ($suppliers as $sup)
+                                            <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-sm" title="New supplier">+</a>
+                                </div>
+                                @error('supplier_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">

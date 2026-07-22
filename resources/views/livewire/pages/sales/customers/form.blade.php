@@ -271,12 +271,35 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function save(): void
     {
-        $this->validate([
-            'customer_id' => 'required|string|max:64',
-            'company_name' => 'nullable|string|max:255',
-            'credit_limit' => 'numeric',
-            'email' => 'nullable|email',
-        ]);
+        try {
+            $this->validate([
+                'customer_id' => 'required|string|max:64',
+                'company_name' => 'required|string|max:255',
+                'contact' => 'nullable|string|max:255',
+                'telephone' => 'nullable|string|max:40',
+                'email' => 'nullable|email|max:255',
+                'credit_limit' => 'nullable|numeric|min:0',
+                'fein_no' => 'nullable|string|max:32',
+                'tax_certificate_no' => $this->is_tax_exempt ? 'required|string|max:64' : 'nullable|string|max:64',
+                'tax_certificate_exp' => $this->is_tax_exempt ? 'required|date' : 'nullable|date',
+            ], [
+                'customer_id.required' => 'Customer ID is required.',
+                'company_name.required' => 'Company name is required.',
+                'email.email' => 'Enter a valid email address.',
+                'tax_certificate_no.required' => 'Certificate No. is required for tax-exempt customers.',
+                'tax_certificate_exp.required' => 'Certificate expiry date is required for tax-exempt customers.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $keys = array_keys($e->errors());
+            if (array_intersect($keys, ['customer_id', 'company_name', 'contact', 'telephone', 'email'])) {
+                $this->activeTab = 'name';
+            } elseif (array_intersect($keys, ['fein_no', 'credit_limit'])) {
+                $this->activeTab = 'account';
+            } elseif (array_intersect($keys, ['tax_certificate_no', 'tax_certificate_exp'])) {
+                $this->activeTab = 'other';
+            }
+            throw $e;
+        }
 
         if ($this->reveal_ssn || (! str_contains($this->owner_ssn_display, '*') && filled($this->owner_ssn_display))) {
             $this->owner_ssn = $this->owner_ssn_display;
@@ -390,14 +413,15 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl" for="customer_id">Customer ID</label>
-                    <input id="customer_id" wire:model="customer_id" class="so-input font-mono" @disabled($customer) />
+                    <label class="so-form-lbl so-field-req" for="customer_id">Customer ID</label>
+                    <input id="customer_id" wire:model="customer_id" class="so-input font-mono @error('customer_id') is-invalid @enderror" @disabled($customer) />
                     <span class="so-form-lbl">Status</span>
                     <div class="entity-status-btns">
                         <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
                         <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
                     </div>
                 </div>
+                @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                 @if ($activeTab === 'account')
                     <div class="entity-balance">Balance: <strong>${{ number_format((float) $balance, 2) }}</strong></div>
                 @endif
@@ -407,7 +431,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 <div class="entity-grid-2">
                     <div class="entity-col">
                         <div class="so-form-row"><label class="so-form-lbl" for="contact">Contact</label><input id="contact" wire:model="contact" class="so-input" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="company_name">Company</label><input id="company_name" wire:model="company_name" class="so-input" /></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl so-field-req" for="company_name">Company</label>
+                            <input id="company_name" wire:model="company_name" class="so-input @error('company_name') is-invalid @enderror" />
+                        </div>
+                        @error('company_name') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row"><label class="so-form-lbl" for="address">Address</label><input id="address" wire:model="address" class="so-input" /></div>
                         <div class="so-form-row so-form-row-city">
                             <label class="so-form-lbl" for="city">City</label>
@@ -424,7 +452,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         <div class="so-form-row"><label class="so-form-lbl" for="telephone2">2nd phone</label><input id="telephone2" wire:model="telephone2" class="so-input" placeholder="( ) -" /></div>
                         <div class="so-form-row"><label class="so-form-lbl" for="mobile">Mobile</label><input id="mobile" wire:model="mobile" class="so-input" placeholder="( ) -" /></div>
                         <div class="so-form-row"><label class="so-form-lbl" for="fax">Fax number</label><input id="fax" wire:model="fax" class="so-input" placeholder="( ) -" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="email">Email</label><input id="email" wire:model="email" type="email" class="so-input" /></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="email">Email</label>
+                            <input id="email" wire:model="email" type="email" class="so-input @error('email') is-invalid @enderror" />
+                        </div>
+                        @error('email') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row"><label class="so-form-lbl" for="web_page">Web page</label><input id="web_page" wire:model="web_page" class="so-input" /></div>
                     </div>
                 </div>
@@ -555,7 +587,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                 @endforeach
                             </select>
                         </div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="fein_no">FEIN No.</label><input id="fein_no" wire:model="fein_no" class="so-input font-mono" /></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="fein_no">FEIN No.</label>
+                            <input id="fein_no" wire:model="fein_no" class="so-input font-mono @error('fein_no') is-invalid @enderror" />
+                        </div>
+                        @error('fein_no') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row">
                             <label class="so-form-lbl" for="payment_term_id">Payment Terms</label>
                             <select id="payment_term_id" wire:model="payment_term_id" class="so-input">
@@ -605,8 +641,16 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="drivers_accept_returns" /> Drivers Accept Returns</label></div>
                         <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model.live="is_tax_exempt" /> Customer is Tax Exempt</label></div>
                         @if ($is_tax_exempt)
-                            <div class="so-form-row"><label class="so-form-lbl" for="tax_certificate_no">Certificate No.</label><input id="tax_certificate_no" wire:model="tax_certificate_no" class="so-input" /></div>
-                            <div class="so-form-row"><label class="so-form-lbl" for="tax_certificate_exp">Exp. Date</label><input id="tax_certificate_exp" type="date" wire:model="tax_certificate_exp" class="so-input" /></div>
+                            <div class="so-form-row">
+                                <label class="so-form-lbl so-field-req" for="tax_certificate_no">Certificate No.</label>
+                                <input id="tax_certificate_no" wire:model="tax_certificate_no" class="so-input @error('tax_certificate_no') is-invalid @enderror" />
+                            </div>
+                            @error('tax_certificate_no') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                            <div class="so-form-row">
+                                <label class="so-form-lbl so-field-req" for="tax_certificate_exp">Exp. Date</label>
+                                <input id="tax_certificate_exp" type="date" wire:model="tax_certificate_exp" class="so-input @error('tax_certificate_exp') is-invalid @enderror" />
+                            </div>
+                            @error('tax_certificate_exp') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="certificate_on_file" /> Certificate on File</label></div>
                         @endif
                         <div class="so-form-row"><span class="so-form-lbl"></span><label class="entity-check"><input type="checkbox" wire:model="is_employee" /> Customer is an Employee</label></div>

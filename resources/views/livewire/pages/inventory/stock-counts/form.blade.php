@@ -3,6 +3,7 @@
 use App\Models\Item;
 use App\Models\Site;
 use App\Models\StockCount;
+use App\Models\User;
 use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -33,6 +34,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public string $comments = '';
 
+    public ?int $processed_by = null;
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
     public array $lines = [];
 
@@ -42,9 +45,9 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         if ($stockCount?->exists) {
             abort_unless($stockCount->company_id === $companyId, 403);
-            $this->stockCount = $stockCount->load('lines');
+            $this->stockCount = $stockCount->load(['lines', 'processedByUser']);
             $this->fill($stockCount->only([
-                'stock_count_no', 'status', 'site_id', 'description', 'shared_count', 'comments',
+                'stock_count_no', 'status', 'site_id', 'description', 'shared_count', 'comments', 'processed_by',
             ]));
             $this->date_created = optional($stockCount->date_created)?->format('Y-m-d') ?? '';
             $this->last_count_date = optional($stockCount->last_count_date)?->format('Y-m-d');
@@ -63,6 +66,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             $this->stock_count_no = StockCount::nextNumber($companyId);
             $this->date_created = now()->toDateString();
             $this->site_id = auth()->user()->site_id;
+            $this->processed_by = null;
             $prev = StockCount::query()
                 ->where('company_id', $companyId)
                 ->where('status', 'Processed')
@@ -92,8 +96,20 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public function with(): array
     {
+        $companyId = auth()->user()->company_id;
+
         return [
-            'sites' => Site::query()->where('company_id', auth()->user()->company_id)->orderBy('code')->get(),
+            'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
+            'users' => User::query()
+                ->where('company_id', $companyId)
+                ->where(function ($q) {
+                    $q->where('is_active', true);
+                    if ($this->processed_by) {
+                        $q->orWhere('id', $this->processed_by);
+                    }
+                })
+                ->orderBy('name')
+                ->get(),
             'tabs' => [
                 'general' => 'General',
                 'expand' => 'Expand',
@@ -159,15 +175,47 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
     }
 
+    public function updatedProcessedBy(): void
+    {
+        if (! $this->stockCount?->exists) {
+            return;
+        }
+
+        $userId = $this->processed_by ?: null;
+        if ($userId) {
+            $exists = User::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->where('id', $userId)
+                ->exists();
+            if (! $exists) {
+                $this->processed_by = $this->stockCount->processed_by;
+                session()->flash('status', 'Invalid user selected.');
+
+                return;
+            }
+        }
+
+        $this->stockCount->update(['processed_by' => $userId]);
+        session()->flash('status', 'Processed By updated.');
+    }
+
     public function save(bool $redirect = true): void
     {
         if ($this->status === 'Processed') {
+            if ($this->stockCount?->exists) {
+                $this->updatedProcessedBy();
+            }
+            if ($redirect) {
+                $this->redirect(route('inventory.stock-counts.index'), navigate: true);
+            }
+
             return;
         }
 
         $this->validate([
             'stock_count_no' => 'required|string|max:64',
             'site_id' => 'nullable|integer',
+            'processed_by' => 'nullable|integer',
         ]);
 
         $data = [
@@ -177,6 +225,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             'status' => $this->status,
             'last_count_date' => $this->last_count_date ?: null,
             'date_processed' => $this->date_processed ?: null,
+            'processed_by' => $this->processed_by ?: null,
             'site_id' => $this->site_id ?: null,
             'description' => $this->description,
             'shared_count' => $this->shared_count,
@@ -189,6 +238,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 $count = $this->stockCount->fresh();
                 $count->lines()->delete();
             } else {
+                $data['date_entered'] = now();
                 $count = StockCount::query()->create($data);
             }
 
@@ -233,6 +283,10 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         <x-action-bar :title="$stockCount ? 'Stock Count '.$stock_count_no : 'New Stock Count'" />
 
         <div class="entity-body">
+            @if (session('status'))
+                <div class="desk-flash" role="status">{{ session('status') }}</div>
+            @endif
+
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
                     <label class="so-form-lbl" for="stock_count_no">Count No.</label>
@@ -269,6 +323,15 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                         <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="date_processed">Date Processed</label>
                             <input id="date_processed" type="date" wire:model="date_processed" class="so-input sc-date" @disabled($isProcessed) />
+                        </div>
+                        <div class="so-form-row so-form-row-side sc-field">
+                            <label class="so-form-lbl" for="processed_by">Processed By</label>
+                            <select id="processed_by" wire:model.live="processed_by" class="so-input">
+                                <option value="">—</option>
+                                @foreach ($users as $user)
+                                    <option value="{{ $user->id }}">{{ $user->name }}</option>
+                                @endforeach
+                            </select>
                         </div>
                     </div>
                     <div class="inv-card">

@@ -10,15 +10,17 @@ class StockCount extends Model
 {
     protected $fillable = [
         'company_id', 'stock_count_no', 'date_created', 'status', 'last_count_date',
-        'date_processed', 'site_id', 'description', 'shared_count', 'comments',
+        'date_entered', 'date_processed', 'processed_by', 'site_id', 'description',
+        'shared_count', 'comments',
     ];
 
     protected function casts(): array
     {
         return [
-            'date_created' => 'date',
-            'last_count_date' => 'date',
-            'date_processed' => 'date',
+            'date_created' => 'datetime',
+            'last_count_date' => 'datetime',
+            'date_entered' => 'datetime',
+            'date_processed' => 'datetime',
             'shared_count' => 'boolean',
         ];
     }
@@ -31,6 +33,11 @@ class StockCount extends Model
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    public function processedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'processed_by');
     }
 
     public static function nextNumber(int $companyId): string

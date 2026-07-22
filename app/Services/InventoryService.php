@@ -180,7 +180,8 @@ class InventoryService
 
             $count->update([
                 'status' => 'Processed',
-                'date_processed' => now()->toDateString(),
+                'date_processed' => now(),
+                'processed_by' => auth()->id(),
             ]);
         });
     }

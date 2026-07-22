@@ -765,7 +765,7 @@
     }
 
     .so-form-row-pair {
-        grid-template-columns: 6.75rem minmax(0, 1fr) 5.5rem minmax(8rem, 11rem);
+        grid-template-columns: 6.75rem minmax(0, 1fr) 6.75rem minmax(9rem, 13rem);
     }
 
     .so-form-row-city {
@@ -3089,13 +3089,21 @@
 
     .entity-header-row {
         flex: 1 1 auto;
-        max-width: 36rem;
+        max-width: min(48rem, 100%);
         margin: 0;
+        min-width: 0;
+    }
+
+    .entity-header-row .so-form-lbl {
+        overflow: visible;
+        text-overflow: clip;
     }
 
     .entity-status-btns {
         display: inline-flex;
         gap: 0.35rem;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
 
     .desk-btn.is-on {

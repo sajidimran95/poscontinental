@@ -77,10 +77,10 @@
                     @endforeach
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
-                        <a href="{{ route('lookups.index') }}" wire:navigate class="text-xs text-slate-600 hover:text-slate-900">Lookups</a>
+                        <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
-                            <button type="submit" class="text-xs text-slate-600 hover:text-slate-900">Logout</button>
+                            <button type="submit" class="text-sm font-medium text-slate-700 hover:text-slate-900">Logout</button>
                         </form>
                     </div>
                 </div>

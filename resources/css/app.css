@@ -29,19 +29,37 @@
     }
 
     .chief-tabs {
-        @apply flex items-end gap-px pt-1 border-b border-slate-400;
+        display: flex;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 1px;
+        height: 2rem;
+        min-height: 2rem;
+        padding: 0 0.5rem 0 0.5rem;
+        margin: 0;
+        border-bottom: 1px solid #94a3b8;
         background: var(--chief-chrome);
-        /* Align with SO form / Action bar left edge */
-        padding-left: 0.9rem;
-        padding-right: 0.5rem;
+        box-sizing: border-box;
     }
 
     .chief-tab {
-        @apply inline-flex items-center gap-1.5 px-3 py-1 text-[13px] border border-b-0 border-slate-400 rounded-t-sm;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        height: 100%;
+        align-self: stretch;
+        padding: 0 1rem;
+        margin: 0;
+        font-size: 13px;
+        line-height: 1;
+        border: none;
+        border-right: 1px solid #94a3b8;
+        border-radius: 0;
         background: #d8d8d8;
         color: #334155;
-        margin-bottom: -1px;
         text-decoration: none;
+        box-sizing: border-box;
     }
 
     .chief-tab:hover {
@@ -55,12 +73,13 @@
         color: #111827 !important;
         font-weight: 600;
         border-color: #c9a012;
-        border-bottom-color: transparent;
         z-index: 1;
     }
 
     .chief-tab-close {
-        @apply ms-0.5 text-slate-600 leading-none;
+        margin-inline-start: 0.15rem;
+        color: #475569;
+        line-height: 1;
         font-size: 12px;
     }
 

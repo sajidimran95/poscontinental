@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
-        <title>{{ $title ?? ($pageTitle ?? config('app.name', 'Continental Wholesale')) }} — Chief POS</title>
+        <title>{{ $title ?? ($pageTitle ?? config('app.name', 'Continental Wholesale')) }} — JAPS POS</title>
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500&display=swap" rel="stylesheet" />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -15,7 +15,7 @@
         <div class="h-screen flex flex-col overflow-hidden">
             <nav class="chief-menu select-none" role="navigation" aria-label="Main menu">
                 <div class="flex items-center gap-0.5 px-2 py-0.5">
-                    <span class="px-2 py-1 font-semibold text-slate-800">Chief 5.0</span>
+                    <span class="px-2 py-1 font-semibold text-slate-800">JAPS POS</span>
                     @foreach ([
                         'File' => [
                             ['Users & Roles', 'admin.users.index'],

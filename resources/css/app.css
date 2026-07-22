@@ -1758,13 +1758,14 @@
     /* Shared modern desktop list pages */
     .desk-page {
         display: flex;
+        align-items: stretch;
         gap: 0.75rem;
         height: 100%;
         min-height: 0;
         width: 100%;
         box-sizing: border-box;
         background: #eef1f4;
-        padding: 0.15rem 0 0;
+        padding: 0;
     }
 
     .desk-sidebar {
@@ -1781,7 +1782,12 @@
     }
 
     .desk-sidebar-head {
-        padding: 0.65rem 0.75rem;
+        display: flex;
+        align-items: center;
+        height: 2.35rem;
+        min-height: 2.35rem;
+        padding: 0 0.75rem;
+        box-sizing: border-box;
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.05em;
@@ -1837,9 +1843,16 @@
         overflow: hidden;
     }
 
-    .desk-main > .chief-action-bar {
+    .desk-main > .chief-action-bar,
+    .desk-main-rail-layout > .chief-action-bar,
+    .desk-main-body > .chief-action-bar {
         border-radius: 0;
         flex-shrink: 0;
+        height: 2.35rem;
+        min-height: 2.35rem;
+        box-sizing: border-box;
+        padding-top: 0;
+        padding-bottom: 0;
     }
 
     .desk-main-with-rail {
@@ -1853,8 +1866,6 @@
 
     .desk-main-rail-layout > .chief-action-bar {
         width: 100%;
-        border-radius: 0;
-        flex-shrink: 0;
     }
 
     .desk-main-split {
@@ -1875,11 +1886,6 @@
         overflow: hidden;
     }
 
-    .desk-main-body > .chief-action-bar {
-        border-radius: 0;
-        flex-shrink: 0;
-    }
-
     .desk-rail {
         display: flex;
         flex-direction: column;
@@ -1887,7 +1893,7 @@
         gap: 0.4rem;
         flex-shrink: 0;
         width: 2.95rem;
-        padding: 2.75rem 0.35rem 0.45rem;
+        padding: 4.25rem 0.35rem 0.45rem;
         border-left: 1px solid #d5dbe3;
         background: #f7f9fb;
     }

@@ -17,7 +17,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public string $favorite = 'all';
 
+    /** '' | not_invoiced | Invoiced */
     public string $statusFilter = '';
+
+    public ?int $selectedId = null;
+
+    public bool $compactView = false;
 
     public function updatedSearch(): void
     {
@@ -27,11 +32,112 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public function updatedFavorite(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
     }
 
     public function updatedStatusFilter(): void
     {
         $this->resetPage();
+        $this->selectedId = null;
+    }
+
+    public function selectRow(int $id): void
+    {
+        $this->selectedId = $id;
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->resetPage();
+    }
+
+    public function newSearch(): void
+    {
+        $this->search = '';
+        $this->statusFilter = '';
+        $this->selectedId = null;
+        $this->resetPage();
+    }
+
+    public function toggleCompactView(): void
+    {
+        $this->compactView = ! $this->compactView;
+    }
+
+    public function refreshList(): void
+    {
+        $this->resetPage();
+    }
+
+    public function editSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return null;
+        }
+
+        return $this->openOrder($this->selectedId);
+    }
+
+    public function openOrder(int $id): mixed
+    {
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return null;
+        }
+
+        $this->selectedId = $id;
+
+        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
+    }
+
+    public function deleteSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return;
+        }
+
+        $order = SalesOrder::query()
+            ->with('invoice')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return;
+        }
+
+        if ($order->status === 'Invoiced' || $order->invoice) {
+            session()->flash('status', 'Invoiced orders cannot be deleted.');
+
+            return;
+        }
+
+        $order->lines()->delete();
+        $order->delete();
+        $this->selectedId = null;
+        session()->flash('status', 'Order deleted.');
+    }
+
+    public function printSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return;
+        }
+
+        $this->dispatch('print-order', id: $this->selectedId);
     }
 
     public function with(): array
@@ -53,10 +159,27 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
+            ->when($this->favorite === 'invoiced', fn ($q) => $q->where('status', 'Invoiced'))
             ->when($this->favorite === 'month', fn ($q) => $q->where('order_date', '>=', now()->startOfMonth()))
             ->when($this->favorite === 'today', fn ($q) => $q->whereDate('order_date', '>=', now()->subDay()))
-            ->when($this->statusFilter !== '', fn ($q) => $q->where('status', $this->statusFilter))
+            ->when($this->statusFilter === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
+            ->when($this->statusFilter === 'Invoiced', fn ($q) => $q->where('status', 'Invoiced'))
             ->orderByDesc('id');
+
+        $listTitle = match ($this->favorite) {
+            'new' => 'Orders List (New)',
+            'not_invoiced' => 'Orders List (Not Invoiced)',
+            'invoiced' => 'Orders List (Invoiced)',
+            'month' => 'Orders List (This Month)',
+            'today' => 'Orders List (Today & Yesterday)',
+            default => 'Orders List',
+        };
+
+        if ($this->statusFilter === 'not_invoiced') {
+            $listTitle = 'Orders List (Not Invoiced)';
+        } elseif ($this->statusFilter === 'Invoiced') {
+            $listTitle = 'Orders List (Invoiced)';
+        }
 
         return [
             'orders' => $query->paginate(50),
@@ -64,10 +187,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'all' => 'All Orders',
                 'new' => 'New Orders',
                 'not_invoiced' => 'Not Invoiced',
+                'invoiced' => 'Invoiced',
                 'month' => 'This Month',
                 'today' => 'Today & Yesterday',
             ],
-            'statusOptions' => ['New', 'Invoiced'],
+            'listTitle' => $listTitle,
+            'selectedOrder' => $this->selectedId
+                ? SalesOrder::query()->where('company_id', $companyId)->find($this->selectedId)
+                : null,
         ];
     }
 
@@ -119,94 +246,214 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
-    <div class="desk-main">
+    <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Action" />
 
-        @if (session('status'))
-            <div class="desk-flash" role="status">{{ session('status') }}</div>
-        @endif
+        <div class="desk-main-split">
+            <div class="desk-main-body">
+                @if (session('status'))
+                    <div class="desk-flash" role="status">{{ session('status') }}</div>
+                @endif
 
-        <x-list-chrome label="Search Orders:" model="search" placeholder="Order #, customer, phone…">
-            <label class="desk-toolbar-label" for="orders-status-filter">Status</label>
-            <select id="orders-status-filter" wire:model.live="statusFilter" class="desk-select" aria-label="Filter by status">
-                <option value="">All Statuses</option>
-                @foreach ($statusOptions as $st)
-                    <option value="{{ $st }}">{{ $st === 'New' ? 'Not Invoiced (New)' : $st }}</option>
-                @endforeach
-            </select>
-            <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary ms-auto">New Sales Order</a>
-        </x-list-chrome>
+                <div class="desk-toolbar orders-toolbar">
+                    <label class="desk-toolbar-label" for="orders-search">Search Orders:</label>
+                    <input
+                        id="orders-search"
+                        type="search"
+                        wire:model.live.debounce.300ms="search"
+                        placeholder="Order #, customer, phone…"
+                        class="desk-search orders-search-input"
+                        aria-label="Search Orders"
+                    />
 
-        <div class="desk-titlebar">
-            <h2 class="desk-title">Orders List</h2>
-            <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
+                    <div class="orders-toolbar-right">
+                        <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
+                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                <path d="M3 13h4l6.2-6.2a1.5 1.5 0 00-2.1-2.1L5 10.9V13z"/>
+                                <path d="M10.5 5.5l2 2"/>
+                            </svg>
+                            New Search
+                        </button>
+                        <select
+                            id="orders-status-filter"
+                            wire:model.live="statusFilter"
+                            class="desk-select orders-status-select"
+                            aria-label="Invoiced filter"
+                            title="Invoiced / Not Invoiced"
+                        >
+                            <option value="">All</option>
+                            <option value="not_invoiced">Not Invoiced</option>
+                            <option value="Invoiced">Invoiced</option>
+                        </select>
+                        <button
+                            type="button"
+                            wire:click="clearSearch"
+                            class="so-icon-btn"
+                            title="Clear search"
+                            aria-label="Clear search"
+                        >
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="desk-titlebar">
+                    <h2 class="desk-title">{{ $listTitle }}</h2>
+                    <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
+                </div>
+
+                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                    <table class="desk-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center" style="width:2rem"></th>
+                                <th>Order #</th>
+                                <th>Type</th>
+                                <th>Order Date</th>
+                                <th>Ship Date</th>
+                                <th>Status</th>
+                                <th>Customer ID</th>
+                                <th>Name</th>
+                                <th>Company</th>
+                                <th>Address</th>
+                                <th>Telephone</th>
+                                <th>User Name</th>
+                                <th>Last Updated</th>
+                                <th>Req. Delivery</th>
+                                <th class="text-right">Total</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($orders as $order)
+                                <tr
+                                    wire:click="selectRow({{ $order->id }})"
+                                    wire:dblclick="openOrder({{ $order->id }})"
+                                    @class(['is-selected' => $selectedId === $order->id, 'cursor-pointer'])
+                                >
+                                    <td class="text-center" wire:click.stop>
+                                        <input
+                                            type="radio"
+                                            name="order_select"
+                                            value="{{ $order->id }}"
+                                            @checked($selectedId === $order->id)
+                                            wire:click="selectRow({{ $order->id }})"
+                                            aria-label="Select order {{ $order->order_number }}"
+                                        />
+                                    </td>
+                                    <td class="desk-num">
+                                        <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+                                    </td>
+                                    <td>{{ $order->order_type }}</td>
+                                    <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
+                                    <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
+                                    <td>
+                                        <span @class([
+                                            'desk-pill',
+                                            'desk-pill-new' => $order->status === 'New',
+                                            'desk-pill-invoiced' => $order->status === 'Invoiced',
+                                            'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
+                                        ])>{{ $order->status }}</span>
+                                    </td>
+                                    <td class="desk-num">{{ $order->customer?->customer_id }}</td>
+                                    <td>{{ $order->customer?->contact }}</td>
+                                    <td>{{ $order->customer?->company_name }}</td>
+                                    <td class="max-w-[10rem] truncate" title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
+                                    <td>{{ $order->customer?->telephone }}</td>
+                                    <td>{{ $order->createdBy?->name }}</td>
+                                    <td>{{ optional($order->updated_at)?->format('n/j/Y g:i A') }}</td>
+                                    <td>{{ optional($order->required_date)?->format('n/j/Y') }}</td>
+                                    <td class="desk-money">${{ number_format($order->total, 2) }}</td>
+                                    <td wire:click.stop>
+                                        @if ($order->status !== 'Invoiced')
+                                            <button type="button" wire:click="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty">
+                                    <td colspan="16">No orders found.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <x-record-count :count="$orders->total()">
+                    <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Sales Order</a>
+                    {{ $orders->links() }}
+                </x-record-count>
+            </div>
+
+            {{-- Right icon rail — starts below Action bar --}}
+            <aside class="desk-rail" aria-label="Order actions">
+                <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <rect x="2" y="2" width="5" height="5" rx="0.5"/>
+                        <rect x="9" y="2" width="5" height="5" rx="0.5"/>
+                        <rect x="2" y="9" width="5" height="5" rx="0.5"/>
+                        <rect x="9" y="9" width="5" height="5" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search" aria-label="New Search">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M3 13h4l6.2-6.2a1.5 1.5 0 00-2.1-2.1L5 10.9V13z"/>
+                        <path d="M10.5 5.5l2 2"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    wire:click="deleteSelected"
+                    wire:confirm="Delete the selected order? This cannot be undone."
+                    class="desk-rail-btn desk-rail-btn-danger"
+                    title="Delete selected"
+                    aria-label="Delete selected"
+                    @disabled(! $selectedId)
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <path d="M4 4l8 8M12 4l-8 8"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
+                        <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M13 8a5 5 0 11-1.2-3.3"/>
+                        <path d="M13 3v3h-3"/>
+                    </svg>
+                </button>
+                <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-rail-btn desk-rail-btn-primary" title="New Sales Order" aria-label="New Sales Order">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path d="M8 3v10M3 8h10"/>
+                    </svg>
+                </a>
+            </aside>
         </div>
-
-        <div class="desk-grid">
-            <table class="desk-table">
-                <thead>
-                    <tr>
-                        <th>Order #</th>
-                        <th>Type</th>
-                        <th>Order Date</th>
-                        <th>Ship Date</th>
-                        <th>Status</th>
-                        <th>Customer ID</th>
-                        <th>Name</th>
-                        <th>Company</th>
-                        <th>Address</th>
-                        <th>Telephone</th>
-                        <th>User Name</th>
-                        <th>Last Updated</th>
-                        <th>Req. Delivery</th>
-                        <th class="text-right">Total</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($orders as $order)
-                        <tr>
-                            <td class="desk-num">
-                                <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate>{{ $order->order_number }}</a>
-                            </td>
-                            <td>{{ $order->order_type }}</td>
-                            <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
-                            <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
-                            <td>
-                                <span @class([
-                                    'desk-pill',
-                                    'desk-pill-new' => $order->status === 'New',
-                                    'desk-pill-invoiced' => $order->status === 'Invoiced',
-                                    'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
-                                ])>{{ $order->status }}</span>
-                            </td>
-                            <td class="desk-num">{{ $order->customer?->customer_id }}</td>
-                            <td>{{ $order->customer?->contact }}</td>
-                            <td>{{ $order->customer?->company_name }}</td>
-                            <td class="max-w-[10rem] truncate" title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
-                            <td>{{ $order->customer?->telephone }}</td>
-                            <td>{{ $order->createdBy?->name }}</td>
-                            <td>{{ optional($order->updated_at)?->format('n/j/Y g:i A') }}</td>
-                            <td>{{ optional($order->required_date)?->format('n/j/Y') }}</td>
-                            <td class="desk-money">${{ number_format($order->total, 2) }}</td>
-                            <td>
-                                @if ($order->status !== 'Invoiced')
-                                    <button type="button" wire:click="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
-                                @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr class="is-empty">
-                            <td colspan="15">No orders found.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-
-        <x-record-count :count="$orders->total()">
-            <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Sales Order</a>
-            {{ $orders->links() }}
-        </x-record-count>
     </div>
 </div>
+@script
+<script>
+    $wire.on('print-order', (payload) => {
+        const id = payload?.id ?? payload?.[0]?.id;
+        if (!id) return;
+        const url = @js(url('/sales/orders')) + '/' + id + '/edit';
+        const w = window.open(url, '_blank');
+        if (w) {
+            w.addEventListener('load', () => {
+                try { w.print(); } catch (e) {}
+            });
+        }
+    });
+</script>
+@endscript

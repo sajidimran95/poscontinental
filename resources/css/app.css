@@ -1842,6 +1842,117 @@
         flex-shrink: 0;
     }
 
+    .desk-main-with-rail {
+        flex-direction: row;
+        align-items: stretch;
+    }
+
+    .desk-main-rail-layout {
+        flex-direction: column;
+    }
+
+    .desk-main-rail-layout > .chief-action-bar {
+        width: 100%;
+        border-radius: 0;
+        flex-shrink: 0;
+    }
+
+    .desk-main-split {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .desk-main-body {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .desk-main-body > .chief-action-bar {
+        border-radius: 0;
+        flex-shrink: 0;
+    }
+
+    .desk-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.4rem;
+        flex-shrink: 0;
+        width: 2.95rem;
+        padding: 2.75rem 0.35rem 0.45rem;
+        border-left: 1px solid #d5dbe3;
+        background: #f7f9fb;
+    }
+
+    .desk-rail-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 5px;
+        background: #fff;
+        color: #334155;
+        padding: 0;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.12s ease, border-color 0.12s ease;
+    }
+
+    .desk-rail-btn:hover:not(:disabled) {
+        background: #f1f5f9;
+        border-color: #94a3b8;
+    }
+
+    .desk-rail-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .desk-rail-btn svg {
+        width: 15px;
+        height: 15px;
+        display: block;
+    }
+
+    .desk-rail-btn-danger {
+        color: #b91c1c;
+        border-color: #fca5a5;
+    }
+
+    .desk-rail-btn-danger:hover:not(:disabled) {
+        background: #fef2f2;
+        border-color: #f87171;
+    }
+
+    .desk-rail-btn-primary {
+        background: #1e3a5f;
+        border-color: #1e3a5f;
+        color: #fff;
+    }
+
+    .desk-rail-btn-primary:hover {
+        background: #16304f;
+        border-color: #16304f;
+        color: #fff;
+    }
+
+    .desk-grid.is-compact .desk-table thead th,
+    .desk-grid.is-compact .desk-table tbody td {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+        font-size: 12px;
+    }
+
     .desk-toolbar {
         display: flex;
         flex-wrap: wrap;
@@ -1877,6 +1988,41 @@
         outline: none;
         border-color: #3b82f6;
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+    }
+
+    .orders-toolbar .orders-search-input {
+        flex: 0 1 auto;
+        width: 18rem;
+        min-width: 14rem;
+        max-width: 22rem;
+    }
+
+    .orders-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .orders-toolbar-right .desk-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        white-space: nowrap;
+    }
+
+    .orders-toolbar-ico {
+        width: 13px;
+        height: 13px;
+        display: block;
+        flex-shrink: 0;
+    }
+
+    .orders-status-select {
+        min-width: 9.5rem;
+        width: 10.5rem;
     }
 
     .desk-select {

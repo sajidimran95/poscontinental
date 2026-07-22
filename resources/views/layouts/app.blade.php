@@ -162,7 +162,7 @@
                 @endforeach
             </div>
 
-            <main class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" style="padding-left: 0.9rem; padding-right: 0.5rem;" role="main" id="main-content" aria-label="Document content">
+            <main class="chief-main flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" role="main" id="main-content" aria-label="Document content">
                 {{ $slot }}
             </main>
 

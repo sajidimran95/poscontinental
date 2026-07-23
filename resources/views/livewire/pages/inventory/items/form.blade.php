@@ -481,17 +481,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'current_cost' => $this->current_cost,
             'last_cost' => $this->last_cost,
             'average_cost' => $this->average_cost,
-            'quantity_in_stock' => $this->quantity_in_stock,
-            'allocated_qty' => $this->allocated_qty,
-            'on_order_qty' => $this->on_order_qty,
-            'back_order_qty' => $this->back_order_qty,
             'reorder_point' => $this->reorder_point,
             'restock_level' => $this->restock_level,
             'lead_time_days' => (int) $this->lead_time_days,
-            'last_received_at' => $this->last_received_at ?: null,
-            'last_ordered_at' => $this->last_ordered_at ?: null,
-            'last_sold_at' => $this->last_sold_at ?: null,
-            'last_count_date' => $this->last_count_date ?: null,
             'department_id' => $nullableId($this->department_id),
             'category_id' => $nullableId($this->category_id),
             'subcategory_id' => $nullableId($this->subcategory_id),
@@ -525,6 +517,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 $this->item->update($data);
                 $item = $this->item->fresh();
             } else {
+                $data['quantity_in_stock'] = $this->quantity_in_stock;
+                $data['allocated_qty'] = $this->allocated_qty;
+                $data['on_order_qty'] = $this->on_order_qty;
+                $data['back_order_qty'] = $this->back_order_qty;
+                $data['last_received_at'] = $this->last_received_at ?: null;
+                $data['last_ordered_at'] = $this->last_ordered_at ?: null;
+                $data['last_sold_at'] = $this->last_sold_at ?: null;
+                $data['last_count_date'] = $this->last_count_date ?: null;
                 $item = Item::query()->create($data);
             }
 

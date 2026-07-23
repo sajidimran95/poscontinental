@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\CreditMemo;
 use App\Models\InventoryJournalEntry;
 use App\Models\InventoryReceiving;
+use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnToVendor;
+use App\Models\SalesOrder;
 use App\Models\StockCount;
 use Illuminate\Support\Facades\DB;
 
@@ -184,5 +187,93 @@ class InventoryService
                 'processed_by' => auth()->id(),
             ]);
         });
+    }
+
+    /**
+     * Decrease on-hand when a sales order is invoiced (shipped qty, else ordered).
+     */
+    public function applyInvoiceStock(SalesOrder $order, Invoice $invoice): void
+    {
+        $order->loadMissing('lines');
+
+        foreach ($order->lines as $line) {
+            if (! $line->item_id) {
+                continue;
+            }
+
+            $qty = (float) $line->qty_shipped;
+            if ($qty <= 0) {
+                $qty = (float) $line->qty_ordered;
+            }
+            if ($qty <= 0) {
+                continue;
+            }
+
+            $item = Item::query()->lockForUpdate()->find($line->item_id);
+            if (! $item) {
+                continue;
+            }
+
+            $newQty = max(0, (float) $item->quantity_in_stock - $qty);
+            $item->update([
+                'quantity_in_stock' => $newQty,
+                'last_sold_at' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
+            ]);
+
+            if ((float) $line->qty_shipped <= 0) {
+                $line->update(['qty_shipped' => $qty]);
+            }
+
+            InventoryJournalEntry::query()->create([
+                'company_id' => $order->company_id,
+                'item_id' => $item->id,
+                'site_id' => $order->ship_from_site_id,
+                'source_type' => Invoice::class,
+                'source_id' => $invoice->id,
+                'reference' => $invoice->invoice_number,
+                'qty_change' => -$qty,
+                'qty_after' => $newQty,
+                'unit_cost' => $item->current_cost,
+                'user_id' => auth()->id(),
+                'notes' => 'Sales Invoice '.$invoice->invoice_number.' (SO '.$order->order_number.')',
+            ]);
+        }
+    }
+
+    /**
+     * Increase on-hand when a credit memo is created (customer return / restock).
+     */
+    public function applyCreditMemoStock(CreditMemo $memo): void
+    {
+        $memo->loadMissing('lines');
+
+        foreach ($memo->lines as $line) {
+            if (! $line->item_id || (float) $line->qty <= 0) {
+                continue;
+            }
+
+            $item = Item::query()->lockForUpdate()->find($line->item_id);
+            if (! $item) {
+                continue;
+            }
+
+            $qty = (float) $line->qty;
+            $newQty = (float) $item->quantity_in_stock + $qty;
+            $item->update(['quantity_in_stock' => $newQty]);
+
+            InventoryJournalEntry::query()->create([
+                'company_id' => $memo->company_id,
+                'item_id' => $item->id,
+                'site_id' => null,
+                'source_type' => CreditMemo::class,
+                'source_id' => $memo->id,
+                'reference' => $memo->memo_number,
+                'qty_change' => $qty,
+                'qty_after' => $newQty,
+                'unit_cost' => $item->current_cost,
+                'user_id' => auth()->id(),
+                'notes' => 'Credit Memo restock',
+            ]);
+        }
     }
 }

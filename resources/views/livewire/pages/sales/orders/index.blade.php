@@ -2,6 +2,8 @@
 
 use App\Models\Invoice;
 use App\Models\SalesOrder;
+use App\Services\InventoryService;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -206,40 +208,44 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
-        $lineDiscount = (float) $order->lines->sum('discount');
-        Invoice::query()->create([
-            'company_id' => $order->company_id,
-            'invoice_number' => Invoice::nextNumber($order->company_id),
-            'invoice_date' => now()->toDateString(),
-            'sales_order_id' => $order->id,
-            'customer_id' => $order->customer_id,
-            'status' => 'NOT PAID',
-            'subtotal' => $order->subtotal,
-            'total_discount' => $lineDiscount,
-            'trade_discount' => $order->trade_discount,
-            'freight' => $order->freight,
-            'miscellaneous' => $order->miscellaneous,
-            'tax' => $order->tax,
-            'invoice_total' => $order->total,
-            'driver' => null,
-        ]);
-
-        $order->update(['status' => 'Invoiced']);
-
-        if ($order->customer && blank($order->customer->customer_since)) {
-            $order->customer->update([
-                'customer_since' => $order->order_date ?? now()->toDateString(),
+        DB::transaction(function () use ($order) {
+            $lineDiscount = (float) $order->lines->sum('discount');
+            $invoice = Invoice::query()->create([
+                'company_id' => $order->company_id,
+                'invoice_number' => Invoice::nextNumber($order->company_id),
+                'invoice_date' => now()->toDateString(),
+                'sales_order_id' => $order->id,
+                'customer_id' => $order->customer_id,
+                'status' => 'NOT PAID',
+                'subtotal' => $order->subtotal,
+                'total_discount' => $lineDiscount,
+                'trade_discount' => $order->trade_discount,
+                'freight' => $order->freight,
+                'miscellaneous' => $order->miscellaneous,
+                'tax' => $order->tax,
+                'invoice_total' => $order->total,
+                'driver' => null,
             ]);
-        }
-        if ($order->customer) {
-            $order->customer->update([
-                'last_order_on' => $order->order_date ?? now()->toDateString(),
-                'number_of_orders' => (int) $order->customer->number_of_orders + 1,
-                'total_sales' => (float) $order->customer->total_sales + (float) $order->total,
-            ]);
-        }
 
-        session()->flash('status', 'Invoice created.');
+            app(InventoryService::class)->applyInvoiceStock($order, $invoice);
+
+            $order->update(['status' => 'Invoiced']);
+
+            if ($order->customer && blank($order->customer->customer_since)) {
+                $order->customer->update([
+                    'customer_since' => $order->order_date ?? now()->toDateString(),
+                ]);
+            }
+            if ($order->customer) {
+                $order->customer->update([
+                    'last_order_on' => $order->order_date ?? now()->toDateString(),
+                    'number_of_orders' => (int) $order->customer->number_of_orders + 1,
+                    'total_sales' => (float) $order->customer->total_sales + (float) $order->total,
+                ]);
+            }
+        });
+
+        session()->flash('status', 'Invoice created. Stock quantities updated.');
     }
 }; ?>
 

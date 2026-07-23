@@ -3,6 +3,7 @@
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Item;
+use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -209,10 +210,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     'line_no' => $i + 1,
                 ]);
             }
+
+            app(InventoryService::class)->applyCreditMemoStock($memo->fresh('lines'));
         });
 
         $this->showForm = false;
-        session()->flash('status', 'Credit memo '.$this->memo_number.' created. Apply it from an unpaid invoice.');
+        session()->flash('status', 'Credit memo '.$this->memo_number.' created. Stock restocked. Apply it from an unpaid invoice.');
     }
 }; ?>
 

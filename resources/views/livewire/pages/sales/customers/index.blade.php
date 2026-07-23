@@ -179,13 +179,38 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
     public function printSelected(): void
     {
-        if (! $this->selectedId) {
-            session()->flash('status', 'Select a customer first.');
+        // Selected customer → full detail sheet; otherwise print all filtered customers.
+        $params = array_filter([
+            'search' => $this->search !== '' ? $this->search : null,
+            'favorite' => $this->favorite !== 'all' ? $this->favorite : null,
+            'status' => $this->statusFilter !== '' ? $this->statusFilter : null,
+            'customer_id' => $this->selectedId ?: null,
+            'title' => $this->selectedId ? 'Customer Detail' : $this->listTitleForPrint(),
+        ]);
 
-            return;
+        $this->dispatch('open-customers-print', url: route('sales.customers.print', $params));
+    }
+
+    public function printList(): void
+    {
+        $this->dispatch('open-customers-print', url: route('sales.customers.print', array_filter([
+            'search' => $this->search !== '' ? $this->search : null,
+            'favorite' => $this->favorite !== 'all' ? $this->favorite : null,
+            'status' => $this->statusFilter !== '' ? $this->statusFilter : null,
+            'title' => $this->listTitleForPrint(),
+        ])));
+    }
+
+    protected function listTitleForPrint(): string
+    {
+        if ($this->favorite === 'active' || $this->statusFilter === 'active') {
+            return 'Customers List (Active)';
+        }
+        if ($this->favorite === 'inactive' || $this->statusFilter === 'inactive') {
+            return 'Customers List (Inactive)';
         }
 
-        $this->dispatch('print-customer', id: $this->selectedId);
+        return 'Customers List';
     }
 
     public function toggleInactive(int $id): void
@@ -398,10 +423,16 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="printList" class="desk-rail-btn" title="Print all filtered customers" aria-label="Print customers list">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="{{ $selectedId ? 'Print selected customer detail' : 'Select a customer to print detail' }}" aria-label="Print selected customer" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
+                        <path d="M3 2.5h10v11H3z"/>
+                        <path d="M5 5h6M5 7.5h6M5 10h4"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
@@ -422,15 +453,10 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
 @script
 <script>
-    $wire.on('print-customer', (payload) => {
-        const id = payload?.id ?? payload?.[0]?.id;
-        if (!id) return;
-        const url = @js(url('/sales/customers')) + '/' + id + '/edit';
-        const w = window.open(url, '_blank');
-        if (w) {
-            w.addEventListener('load', () => {
-                try { w.print(); } catch (e) {}
-            });
+    $wire.on('open-customers-print', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (url) {
+            window.open(url, '_blank', 'noopener');
         }
     });
 </script>

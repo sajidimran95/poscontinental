@@ -112,6 +112,15 @@ class DocumentPdfService
         ])->setPaper('letter', 'landscape');
     }
 
+    public function customersListPdf(iterable $customers, ?User $user = null, ?string $title = null)
+    {
+        return Pdf::loadView('pdf.customers-list', [
+            'customers' => collect($customers),
+            'title' => $title ?? 'Customers List',
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
     public function salesReportPdf(array $payload, ?User $user = null)
     {
         return Pdf::loadView('pdf.sales-report', [

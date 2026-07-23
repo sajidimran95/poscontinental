@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CreditMemo;
+use App\Models\Customer;
 use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\Item;
@@ -162,5 +163,49 @@ class DocumentPdfController extends Controller
             null,
             $levelIds
         )->stream('price-list-'.now()->format('Ymd-His').'.pdf');
+    }
+
+    public function customersList(Request $request, DocumentPdfService $pdfs): Response
+    {
+        $companyId = auth()->user()->company_id;
+        $data = $request->validate([
+            'search' => 'nullable|string|max:255',
+            'favorite' => 'nullable|string|max:64',
+            'status' => 'nullable|string|in:active,inactive',
+            'customer_id' => 'nullable|integer',
+            'title' => 'nullable|string|max:120',
+        ]);
+
+        $query = Customer::query()
+            ->with(['salesRep', 'priceLevel', 'paymentTerm', 'deliveryRoute'])
+            ->where('company_id', $companyId);
+
+        if (! empty($data['customer_id'])) {
+            $query->whereKey((int) $data['customer_id']);
+        } else {
+            $search = $data['search'] ?? '';
+            $favorite = $data['favorite'] ?? 'all';
+            $status = $data['status'] ?? '';
+
+            $query
+                ->when($search !== '', function ($q) use ($search) {
+                    $term = '%'.$search.'%';
+                    $q->where(function ($inner) use ($term) {
+                        $inner->where('customer_id', 'like', $term)
+                            ->orWhere('company_name', 'like', $term)
+                            ->orWhere('contact', 'like', $term)
+                            ->orWhere('telephone', 'like', $term)
+                            ->orWhere('email', 'like', $term);
+                    });
+                })
+                ->when($favorite === 'active' || $status === 'active', fn ($q) => $q->where('is_inactive', false))
+                ->when($favorite === 'inactive' || $status === 'inactive', fn ($q) => $q->where('is_inactive', true));
+        }
+
+        $customers = $query->orderBy('company_name')->limit(500)->get();
+        $title = $data['title'] ?: (! empty($data['customer_id']) ? 'Customer Detail' : 'Customers List');
+
+        return $pdfs->customersListPdf($customers, auth()->user(), $title)
+            ->stream('customers-'.now()->format('Ymd-His').'.pdf');
     }
 }

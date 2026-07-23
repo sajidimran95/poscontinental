@@ -15,14 +15,14 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 new #[Layout('layouts.app'), Title('Price List')] class extends Component
 {
-    /** @var array<int, int|string> */
-    public array $department_ids = [];
+    #[Url]
+    public ?int $department_id = null;
 
-    /** @var array<int, int|string> */
-    public array $category_ids = [];
+    #[Url]
+    public ?int $category_id = null;
 
-    /** @var array<int, int|string> */
-    public array $price_level_ids = [];
+    #[Url]
+    public ?int $price_level_id = null;
 
     #[Url]
     public string $search = '';
@@ -37,19 +37,21 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
     public string $emailSubject = 'Price List';
 
+    public ?int $selectedId = null;
+
+    /** @var array<int, int|string> */
+    public array $selectedIds = [];
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
-        $deptIds = $this->normalizedIds($this->department_ids);
-        $catIds = $this->normalizedIds($this->category_ids);
-        $levelIds = $this->normalizedIds($this->price_level_ids);
 
         $items = Item::query()
             ->with(['prices', 'department', 'category'])
             ->where('company_id', $companyId)
             ->when(! $this->includeInactive, fn ($q) => $q->where('is_inactive', false))
-            ->when($deptIds !== [], fn ($q) => $q->whereIn('department_id', $deptIds))
-            ->when($catIds !== [], fn ($q) => $q->whereIn('category_id', $catIds))
+            ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
+            ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
                 $q->where(function ($inner) use ($term) {
@@ -61,120 +63,119 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             ->orderBy('item_code')
             ->limit(500)
             ->get()
-            ->map(function (Item $item) use ($levelIds) {
-                if ($levelIds === []) {
-                    $item->setAttribute(
-                        'display_price',
-                        ItemPricing::resolve($item, null, $item->unit_of_measure ?: null)
-                    );
-                    $item->setAttribute('level_prices', []);
-                } else {
-                    $levelPrices = [];
-                    foreach ($levelIds as $levelId) {
-                        $levelPrices[$levelId] = ItemPricing::resolve(
-                            $item,
-                            $levelId,
-                            $item->unit_of_measure ?: null
-                        );
-                    }
-                    $item->setAttribute('level_prices', $levelPrices);
-                    $item->setAttribute('display_price', reset($levelPrices) ?: (float) $item->list_price);
-                }
+            ->map(function (Item $item) {
+                $item->setAttribute(
+                    'display_price',
+                    ItemPricing::resolve($item, $this->price_level_id, $item->unit_of_measure ?: null)
+                );
 
                 return $item;
             });
 
-        $departments = Department::query()->where('company_id', $companyId)->orderBy('name')->get();
-        $priceLevels = PriceLevel::query()->where('company_id', $companyId)->orderBy('name')->get();
+        $pageIds = $items->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $selected = $this->normalizedSelectedIds();
+        $allSelected = $pageIds !== [] && count(array_intersect($selected, $pageIds)) === count($pageIds);
+        $selectedSet = array_fill_keys($selected, true);
 
         return [
-            'departments' => $departments,
+            'departments' => Department::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'categories' => Category::query()
                 ->where('company_id', $companyId)
-                ->when($deptIds !== [], fn ($q) => $q->whereIn('department_id', $deptIds))
+                ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
                 ->orderBy('name')
                 ->get(),
-            'priceLevels' => $priceLevels,
-            'selectedLevels' => $priceLevels->whereIn('id', $levelIds)->values(),
+            'priceLevels' => PriceLevel::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'customers' => Customer::query()
                 ->where('company_id', $companyId)
                 ->where('is_inactive', false)
                 ->orderBy('company_name')
                 ->get(['id', 'customer_id', 'company_name', 'email', 'price_level_id']),
             'items' => $items,
-            'deptIds' => $deptIds,
-            'catIds' => $catIds,
-            'levelIds' => $levelIds,
+            'pageIds' => $pageIds,
+            'allSelected' => $allSelected,
+            'selectedCount' => count($selected),
+            'selectedSet' => $selectedSet,
         ];
     }
 
-    /** @param  array<int, int|string>  $ids */
-    protected function normalizedIds(array $ids): array
+    /** @return array<int, int> */
+    public function normalizedSelectedIds(): array
     {
-        return array_values(array_unique(array_filter(array_map('intval', $ids))));
+        return array_values(array_unique(array_filter(array_map('intval', $this->selectedIds))));
     }
 
-    public function updatedDepartmentIds(): void
+    public function updatedDepartmentId(): void
     {
-        $valid = Category::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->when($this->normalizedIds($this->department_ids) !== [], fn ($q) => $q->whereIn(
-                'department_id',
-                $this->normalizedIds($this->department_ids)
-            ))
+        $this->category_id = null;
+        $this->clearSelection();
+    }
+
+    public function updatedCategoryId(): void
+    {
+        $this->clearSelection();
+    }
+
+    public function updatedPriceLevelId(): void
+    {
+        $this->clearSelection();
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->clearSelection();
+    }
+
+    public function selectRow(int $id): void
+    {
+        $ids = $this->normalizedSelectedIds();
+        if (in_array($id, $ids, true)) {
+            $ids = array_values(array_filter($ids, fn ($x) => $x !== $id));
+        } else {
+            $ids[] = $id;
+        }
+        $this->selectedIds = array_map('strval', $ids);
+        $this->selectedId = $ids[0] ?? null;
+    }
+
+    public function toggleSelectAll(): void
+    {
+        $companyId = auth()->user()->company_id;
+        $pageIds = Item::query()
+            ->where('company_id', $companyId)
+            ->when(! $this->includeInactive, fn ($q) => $q->where('is_inactive', false))
+            ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
+            ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
+            ->when($this->search !== '', function ($q) {
+                $term = '%'.$this->search.'%';
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('item_code', 'like', $term)
+                        ->orWhere('description', 'like', $term)
+                        ->orWhere('primary_upc', 'like', $term);
+                });
+            })
+            ->orderBy('item_code')
+            ->limit(500)
             ->pluck('id')
+            ->map(fn ($id) => (int) $id)
             ->all();
 
-        $this->category_ids = array_values(array_intersect(
-            $this->normalizedIds($this->category_ids),
-            array_map('intval', $valid)
-        ));
+        $selected = $this->normalizedSelectedIds();
+        $allSelected = $pageIds !== [] && count(array_intersect($selected, $pageIds)) === count($pageIds);
+
+        if ($allSelected) {
+            $this->clearSelection();
+
+            return;
+        }
+
+        $this->selectedIds = array_map('strval', $pageIds);
+        $this->selectedId = $pageIds[0] ?? null;
     }
 
-    public function selectAllDepartments(): void
+    public function clearSelection(): void
     {
-        $this->department_ids = Department::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-        $this->updatedDepartmentIds();
-    }
-
-    public function clearDepartments(): void
-    {
-        $this->department_ids = [];
-        $this->category_ids = [];
-    }
-
-    public function selectAllCategories(): void
-    {
-        $deptIds = $this->normalizedIds($this->department_ids);
-        $this->category_ids = Category::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->when($deptIds !== [], fn ($q) => $q->whereIn('department_id', $deptIds))
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-    }
-
-    public function clearCategories(): void
-    {
-        $this->category_ids = [];
-    }
-
-    public function selectAllPriceLevels(): void
-    {
-        $this->price_level_ids = PriceLevel::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-    }
-
-    public function clearPriceLevels(): void
-    {
-        $this->price_level_ids = [];
+        $this->selectedId = null;
+        $this->selectedIds = [];
     }
 
     public function updatedEmailCustomerId($value): void
@@ -182,19 +183,41 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         $customer = Customer::query()->find($value);
         if ($customer) {
             $this->emailTo = $customer->email ?? '';
-            if ($customer->price_level_id && $this->normalizedIds($this->price_level_ids) === []) {
-                $this->price_level_ids = [(string) $customer->price_level_id];
+            if ($customer->price_level_id && ! $this->price_level_id) {
+                $this->price_level_id = $customer->price_level_id;
             }
         }
     }
 
     public function clearFilters(): void
     {
-        $this->department_ids = [];
-        $this->category_ids = [];
-        $this->price_level_ids = [];
-        $this->search = '';
-        $this->includeInactive = false;
+        $this->reset(['department_id', 'category_id', 'price_level_id', 'search', 'includeInactive', 'selectedId', 'selectedIds']);
+    }
+
+    public function openSelectedItem(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an item first.');
+
+            return null;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $item) {
+            session()->flash('status', 'Item not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('inventory.items.show', $item), navigate: true);
+    }
+
+    public function refreshList(): void
+    {
+        $this->clearSelection();
     }
 
     public function openEmailModal(): void
@@ -211,12 +234,9 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     protected function priceListTitle(): string
     {
         $title = 'Price List';
-        $levelIds = $this->normalizedIds($this->price_level_ids);
-        if ($levelIds !== []) {
-            $names = PriceLevel::query()->whereIn('id', $levelIds)->orderBy('name')->pluck('name')->all();
-            if ($names !== []) {
-                $title .= ' — '.implode(', ', $names);
-            }
+        if ($this->price_level_id) {
+            $level = PriceLevel::query()->find($this->price_level_id);
+            $title .= $level ? ' — '.$level->name : '';
         } else {
             $title .= ' — List Price';
         }
@@ -227,9 +247,9 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     protected function printQuery(): array
     {
         return array_filter([
-            'department_ids' => $this->normalizedIds($this->department_ids) ?: null,
-            'category_ids' => $this->normalizedIds($this->category_ids) ?: null,
-            'price_level_ids' => $this->normalizedIds($this->price_level_ids) ?: null,
+            'department_ids' => $this->department_id ? [$this->department_id] : null,
+            'category_ids' => $this->category_id ? [$this->category_id] : null,
+            'price_level_ids' => $this->price_level_id ? [$this->price_level_id] : null,
             'search' => $this->search !== '' ? $this->search : null,
             'include_inactive' => $this->includeInactive ? 1 : null,
             'title' => $this->priceListTitle(),
@@ -243,19 +263,24 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
     public function downloadPdf(DocumentPdfService $pdfs): StreamedResponse
     {
-        $levelIds = $this->normalizedIds($this->price_level_ids);
         $items = $pdfs->queryPriceListItems(
             auth()->user()->company_id,
-            null,
-            null,
+            $this->department_id,
+            $this->category_id,
             $this->search,
             $this->includeInactive,
-            $this->normalizedIds($this->department_ids),
-            $this->normalizedIds($this->category_ids),
+            $this->department_id ? [$this->department_id] : [],
+            $this->category_id ? [$this->category_id] : [],
         );
 
         return $pdfs->streamDownload(
-            $pdfs->priceListPdf($items, auth()->user(), $this->priceListTitle(), null, $levelIds),
+            $pdfs->priceListPdf(
+                $items,
+                auth()->user(),
+                $this->priceListTitle(),
+                $this->price_level_id,
+                $this->price_level_id ? [$this->price_level_id] : []
+            ),
             'price-list-'.now()->format('Ymd-His').'.pdf'
         );
     }
@@ -263,34 +288,22 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     public function downloadCsv(): StreamedResponse
     {
         $companyId = auth()->user()->company_id;
-        $departmentIds = $this->normalizedIds($this->department_ids);
-        $categoryIds = $this->normalizedIds($this->category_ids);
+        $departmentId = $this->department_id;
+        $categoryId = $this->category_id;
         $search = $this->search;
         $includeInactive = $this->includeInactive;
-        $priceLevelIds = $this->normalizedIds($this->price_level_ids);
-        $levels = $priceLevelIds === []
-            ? collect()
-            : PriceLevel::query()->whereIn('id', $priceLevelIds)->orderBy('name')->get(['id', 'name']);
+        $priceLevelId = $this->price_level_id;
 
-        return response()->streamDownload(function () use ($companyId, $departmentIds, $categoryIds, $search, $includeInactive, $priceLevelIds, $levels) {
+        return response()->streamDownload(function () use ($companyId, $departmentId, $categoryId, $search, $includeInactive, $priceLevelId) {
             $out = fopen('php://output', 'w');
-            $header = ['Item Code', 'Description', 'UPC', 'Department', 'Category', 'UOM'];
-            if ($levels->isEmpty()) {
-                $header[] = 'Price';
-            } else {
-                foreach ($levels as $level) {
-                    $header[] = $level->name;
-                }
-            }
-            $header = array_merge($header, ['MSRP', 'Std Cost']);
-            fputcsv($out, $header);
+            fputcsv($out, ['Item Code', 'Description', 'UPC', 'Department', 'Category', 'UOM', 'Price', 'MSRP', 'Std Cost']);
 
             Item::query()
                 ->with(['department', 'category', 'prices'])
                 ->where('company_id', $companyId)
                 ->when(! $includeInactive, fn ($q) => $q->where('is_inactive', false))
-                ->when($departmentIds !== [], fn ($q) => $q->whereIn('department_id', $departmentIds))
-                ->when($categoryIds !== [], fn ($q) => $q->whereIn('category_id', $categoryIds))
+                ->when($departmentId, fn ($q) => $q->where('department_id', $departmentId))
+                ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
                 ->when($search !== '', function ($q) use ($search) {
                     $term = '%'.$search.'%';
                     $q->where(function ($inner) use ($term) {
@@ -300,36 +313,20 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                     });
                 })
                 ->orderBy('item_code')
-                ->chunk(200, function ($rows) use ($out, $priceLevelIds, $levels) {
+                ->chunk(200, function ($rows) use ($out, $priceLevelId) {
                     foreach ($rows as $item) {
-                        $row = [
+                        $price = ItemPricing::resolve($item, $priceLevelId, $item->unit_of_measure ?: null);
+                        fputcsv($out, [
                             $item->item_code,
                             $item->description,
                             $item->primary_upc,
                             $item->department?->name,
                             $item->category?->name,
                             $item->unit_of_measure,
-                        ];
-                        if ($levels->isEmpty()) {
-                            $row[] = number_format(
-                                ItemPricing::resolve($item, null, $item->unit_of_measure ?: null),
-                                2,
-                                '.',
-                                ''
-                            );
-                        } else {
-                            foreach ($levels as $level) {
-                                $row[] = number_format(
-                                    ItemPricing::resolve($item, (int) $level->id, $item->unit_of_measure ?: null),
-                                    2,
-                                    '.',
-                                    ''
-                                );
-                            }
-                        }
-                        $row[] = number_format((float) $item->msrp, 2, '.', '');
-                        $row[] = number_format((float) $item->standard_cost, 2, '.', '');
-                        fputcsv($out, $row);
+                            number_format($price, 2, '.', ''),
+                            number_format((float) $item->msrp, 2, '.', ''),
+                            number_format((float) $item->standard_cost, 2, '.', ''),
+                        ]);
                     }
                 });
 
@@ -344,15 +341,14 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             'emailSubject' => 'nullable|string|max:255',
         ]);
 
-        $levelIds = $this->normalizedIds($this->price_level_ids);
         $items = $pdfs->queryPriceListItems(
             auth()->user()->company_id,
-            null,
-            null,
+            $this->department_id,
+            $this->category_id,
             $this->search,
             $this->includeInactive,
-            $this->normalizedIds($this->department_ids),
-            $this->normalizedIds($this->category_ids),
+            $this->department_id ? [$this->department_id] : [],
+            $this->category_id ? [$this->category_id] : [],
         );
 
         $pdfs->emailPriceList(
@@ -361,8 +357,8 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             auth()->user(),
             $this->emailSubject ?: $this->priceListTitle(),
             $this->priceListTitle(),
-            null,
-            $levelIds
+            $this->price_level_id,
+            $this->price_level_id ? [$this->price_level_id] : []
         );
 
         $this->showEmailModal = false;
@@ -376,189 +372,202 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 @endphp
 
 <div class="desk-page relative">
-    <div class="desk-main">
+    <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Price List" />
 
-        @if (session('status'))
-            <div class="desk-flash" role="status">{{ session('status') }}</div>
-        @endif
+        <div class="desk-main-split">
+            <div class="desk-main-body">
+                @if (session('status'))
+                    <div class="desk-flash" role="status">{{ session('status') }}</div>
+                @endif
 
-        <div class="desk-toolbar rpt-toolbar rpt-toolbar-wrap">
-            <div class="rpt-multi">
-                <div class="rpt-multi-head">
-                    <span class="desk-toolbar-label">Departments</span>
-                    <div class="rpt-multi-actions">
-                        <button type="button" wire:click="selectAllDepartments" class="desk-btn desk-btn-sm">All</button>
-                        <button type="button" wire:click="clearDepartments" class="desk-btn desk-btn-sm">Clear</button>
-                    </div>
-                </div>
-                <div class="rpt-check-list" role="group" aria-label="Departments">
-                    @forelse ($departments as $d)
-                        <label class="rpt-check-item">
-                            <input type="checkbox" wire:model.live="department_ids" value="{{ $d->id }}" />
-                            <span>{{ $d->name }}</span>
-                        </label>
-                    @empty
-                        <span class="text-xs text-slate-500">No departments</span>
-                    @endforelse
-                </div>
-                <p class="rpt-multi-hint">{{ $deptIds === [] ? 'All departments' : count($deptIds).' selected' }}</p>
-            </div>
-
-            <div class="rpt-multi">
-                <div class="rpt-multi-head">
-                    <span class="desk-toolbar-label">Categories</span>
-                    <div class="rpt-multi-actions">
-                        <button type="button" wire:click="selectAllCategories" class="desk-btn desk-btn-sm">All</button>
-                        <button type="button" wire:click="clearCategories" class="desk-btn desk-btn-sm">Clear</button>
-                    </div>
-                </div>
-                <div class="rpt-check-list" role="group" aria-label="Categories">
-                    @forelse ($categories as $c)
-                        <label class="rpt-check-item">
-                            <input type="checkbox" wire:model.live="category_ids" value="{{ $c->id }}" />
-                            <span>{{ $c->name }}</span>
-                        </label>
-                    @empty
-                        <span class="text-xs text-slate-500">No categories</span>
-                    @endforelse
-                </div>
-                <p class="rpt-multi-hint">{{ $catIds === [] ? 'All categories' : count($catIds).' selected' }}</p>
-            </div>
-
-            <div class="rpt-multi">
-                <div class="rpt-multi-head">
-                    <span class="desk-toolbar-label">Price Levels</span>
-                    <div class="rpt-multi-actions">
-                        <button type="button" wire:click="selectAllPriceLevels" class="desk-btn desk-btn-sm">All</button>
-                        <button type="button" wire:click="clearPriceLevels" class="desk-btn desk-btn-sm">Clear</button>
-                    </div>
-                </div>
-                <div class="rpt-check-list" role="group" aria-label="Price Levels">
-                    @forelse ($priceLevels as $pl)
-                        <label class="rpt-check-item">
-                            <input type="checkbox" wire:model.live="price_level_ids" value="{{ $pl->id }}" />
-                            <span>{{ $pl->name }}</span>
-                        </label>
-                    @empty
-                        <span class="text-xs text-slate-500">No price levels — using List Price</span>
-                    @endforelse
-                </div>
-                <p class="rpt-multi-hint">{{ $levelIds === [] ? 'List Price (default)' : count($levelIds).' level(s) selected' }}</p>
-            </div>
-
-            <div class="rpt-field rpt-field-search">
-                <label class="desk-toolbar-label" for="pl-search">Search</label>
-                <input
-                    id="pl-search"
-                    type="search"
-                    wire:model.live.debounce.300ms="search"
-                    class="desk-search"
-                    placeholder="Code, description, UPC…"
-                />
-            </div>
-            <label class="entity-check rpt-check">
-                <input type="checkbox" wire:model.live="includeInactive" />
-                Include inactive
-            </label>
-            <div class="rpt-actions">
-                <button type="button" wire:click="clearFilters" class="desk-btn">Clear</button>
-                <button type="button" wire:click="printView" class="desk-btn" title="Open print view">Print View</button>
-                <button type="button" wire:click="downloadCsv" class="desk-btn" wire:loading.attr="disabled">CSV</button>
-                <button type="button" wire:click="openEmailModal" class="desk-btn">Email</button>
-                <button type="button" wire:click="downloadPdf" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
-                    <span wire:loading.remove wire:target="downloadPdf">Download PDF</span>
-                    <span wire:loading wire:target="downloadPdf">Building PDF…</span>
-                </button>
-            </div>
-        </div>
-
-        <div class="desk-titlebar">
-            <div>
-                <h2 class="desk-title">Price List</h2>
-                <span class="desk-title-meta">Preview up to 500 matching items · Print/PDF includes up to 2000</span>
-            </div>
-            <div class="rpt-stats">
-                <div class="rpt-stat">
-                    <span class="rpt-stat-lbl">Items</span>
-                    <span class="rpt-stat-val">{{ number_format($items->count()) }}</span>
-                </div>
-                <div class="rpt-stat">
-                    <span class="rpt-stat-lbl">Avg Price</span>
-                    <span class="rpt-stat-val">${{ number_format($listAvg, 2) }}</span>
-                </div>
-                <div class="rpt-stat">
-                    <span class="rpt-stat-lbl">Avg MSRP</span>
-                    <span class="rpt-stat-val">${{ number_format($msrpAvg, 2) }}</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="desk-grid">
-            <table class="desk-table">
-                <thead>
-                    <tr>
-                        <th>Item Code</th>
-                        <th>Description</th>
-                        <th>UPC</th>
-                        <th>Department</th>
-                        <th>Category</th>
-                        <th>UOM</th>
-                        @if ($selectedLevels->isEmpty())
-                            <th class="text-right">Price</th>
-                        @else
-                            @foreach ($selectedLevels as $level)
-                                <th class="text-right">{{ $level->name }}</th>
+                <div class="desk-toolbar rpt-toolbar">
+                    <div class="rpt-field">
+                        <label class="desk-toolbar-label" for="pl-dept">Department</label>
+                        <select id="pl-dept" wire:model.live="department_id" class="desk-select">
+                            <option value="">All departments</option>
+                            @foreach ($departments as $d)
+                                <option value="{{ $d->id }}">{{ $d->name }}</option>
                             @endforeach
-                        @endif
-                        <th class="text-right">MSRP</th>
-                        <th class="text-right">Std Cost</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($items as $item)
-                        <tr>
-                            <td class="desk-num">{{ $item->item_code }}</td>
-                            <td>{{ $item->description }}</td>
-                            <td class="desk-num">{{ $item->primary_upc ?: '—' }}</td>
-                            <td>{{ $item->department?->name ?: '—' }}</td>
-                            <td>{{ $item->category?->name ?: '—' }}</td>
-                            <td>{{ $item->unit_of_measure ?: '—' }}</td>
-                            @if ($selectedLevels->isEmpty())
-                                <td class="desk-money">${{ number_format((float) ($item->display_price ?? $item->list_price), 2) }}</td>
-                            @else
-                                @foreach ($selectedLevels as $level)
-                                    <td class="desk-money">${{ number_format((float) ($item->level_prices[$level->id] ?? $item->list_price), 2) }}</td>
-                                @endforeach
-                            @endif
-                            <td class="desk-money">${{ number_format((float) $item->msrp, 2) }}</td>
-                            <td class="desk-money">${{ number_format((float) $item->standard_cost, 2) }}</td>
-                            <td>
-                                @if ($item->is_inactive)
-                                    <span class="desk-pill desk-pill-muted">Inactive</span>
-                                @else
-                                    <span class="desk-pill desk-pill-invoiced">Active</span>
-                                @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr class="is-empty">
-                            <td colspan="{{ $selectedLevels->isEmpty() ? 10 : (9 + $selectedLevels->count()) }}">No items match the filters.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+                        </select>
+                    </div>
+                    <div class="rpt-field">
+                        <label class="desk-toolbar-label" for="pl-cat">Category</label>
+                        <select id="pl-cat" wire:model.live="category_id" class="desk-select">
+                            <option value="">All categories</option>
+                            @foreach ($categories as $c)
+                                <option value="{{ $c->id }}">{{ $c->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="rpt-field">
+                        <label class="desk-toolbar-label" for="pl-level">Price Level</label>
+                        <select id="pl-level" wire:model.live="price_level_id" class="desk-select">
+                            <option value="">List Price</option>
+                            @foreach ($priceLevels as $pl)
+                                <option value="{{ $pl->id }}">{{ $pl->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="rpt-field rpt-field-search">
+                        <label class="desk-toolbar-label" for="pl-search">Search</label>
+                        <input
+                            id="pl-search"
+                            type="search"
+                            wire:model.live.debounce.300ms="search"
+                            class="desk-search"
+                            placeholder="Code, description, UPC…"
+                        />
+                    </div>
+                    <label class="entity-check rpt-check">
+                        <input type="checkbox" wire:model.live="includeInactive" />
+                        Include inactive
+                    </label>
+                </div>
 
-        <div class="desk-footer">
-            <span>{{ number_format($items->count()) }} item(s) shown</span>
-            <div class="desk-footer-actions">
-                <button type="button" wire:click="printView" class="desk-btn desk-btn-sm">Print View</button>
-                <button type="button" wire:click="openEmailModal" class="desk-btn desk-btn-sm">Email to Customer</button>
-                <button type="button" wire:click="downloadCsv" class="desk-btn desk-btn-sm">Download CSV</button>
-                <button type="button" wire:click="downloadPdf" class="desk-btn desk-btn-sm desk-btn-primary">Download PDF</button>
+                <div class="desk-titlebar">
+                    <div>
+                        <h2 class="desk-title">Price List</h2>
+                        <span class="desk-title-meta">Preview up to 500 matching items · Print/PDF includes up to 2000</span>
+                    </div>
+                    <div class="rpt-stats">
+                        <div class="rpt-stat">
+                            <span class="rpt-stat-lbl">Items</span>
+                            <span class="rpt-stat-val">{{ number_format($items->count()) }}</span>
+                        </div>
+                        <div class="rpt-stat">
+                            <span class="rpt-stat-lbl">Avg Price</span>
+                            <span class="rpt-stat-val">${{ number_format($listAvg, 2) }}</span>
+                        </div>
+                        <div class="rpt-stat">
+                            <span class="rpt-stat-lbl">Avg MSRP</span>
+                            <span class="rpt-stat-val">${{ number_format($msrpAvg, 2) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="desk-grid">
+                    <table class="desk-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center" style="width:2.25rem">
+                                    <input
+                                        type="checkbox"
+                                        wire:click.prevent="toggleSelectAll"
+                                        @checked($allSelected)
+                                        title="Select all"
+                                        aria-label="Select all items"
+                                    />
+                                </th>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th>UPC</th>
+                                <th>Department</th>
+                                <th>Category</th>
+                                <th>UOM</th>
+                                <th class="text-right">Price</th>
+                                <th class="text-right">MSRP</th>
+                                <th class="text-right">Std Cost</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($items as $item)
+                                @php $isSelected = isset($selectedSet[(int) $item->id]); @endphp
+                                <tr
+                                    wire:click="selectRow({{ $item->id }})"
+                                    wire:dblclick="openSelectedItem"
+                                    @class(['is-selected' => $isSelected, 'cursor-pointer'])
+                                >
+                                    <td class="text-center" wire:click.stop>
+                                        <input
+                                            type="checkbox"
+                                            value="{{ $item->id }}"
+                                            @checked($isSelected)
+                                            wire:click="selectRow({{ $item->id }})"
+                                            aria-label="Select {{ $item->item_code }}"
+                                        />
+                                    </td>
+                                    <td class="desk-num">{{ $item->item_code }}</td>
+                                    <td>{{ $item->description }}</td>
+                                    <td class="desk-num">{{ $item->primary_upc ?: '—' }}</td>
+                                    <td>{{ $item->department?->name ?: '—' }}</td>
+                                    <td>{{ $item->category?->name ?: '—' }}</td>
+                                    <td>{{ $item->unit_of_measure ?: '—' }}</td>
+                                    <td class="desk-money">${{ number_format((float) ($item->display_price ?? $item->list_price), 2) }}</td>
+                                    <td class="desk-money">${{ number_format((float) $item->msrp, 2) }}</td>
+                                    <td class="desk-money">${{ number_format((float) $item->standard_cost, 2) }}</td>
+                                    <td>
+                                        @if ($item->is_inactive)
+                                            <span class="desk-pill desk-pill-muted">Inactive</span>
+                                        @else
+                                            <span class="desk-pill desk-pill-invoiced">Active</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty">
+                                    <td colspan="11">No items match the filters.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="desk-footer">
+                    <span>
+                        {{ number_format($items->count()) }} item(s) shown
+                        @if ($selectedCount > 0)
+                            · <strong>{{ number_format($selectedCount) }} selected</strong>
+                        @endif
+                    </span>
+                </div>
             </div>
+
+            <aside class="desk-rail" aria-label="Price list actions">
+                <button type="button" wire:click="clearFilters" class="desk-rail-btn" title="Clear filters / new search" aria-label="Clear filters">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
+                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="openSelectedItem" class="desk-rail-btn" title="View selected item" aria-label="View selected item" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="printView" class="desk-rail-btn" title="Print price list" aria-label="Print price list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
+                        <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="openEmailModal" class="desk-rail-btn" title="Email price list" aria-label="Email price list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <rect x="2" y="3.5" width="12" height="9" rx="1"/>
+                        <path d="M2.5 4.5L8 9l5.5-4.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="downloadCsv" class="desk-rail-btn" title="Download CSV" aria-label="Download CSV" wire:loading.attr="disabled">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M8 2.5v8M5 8l3 3 3-3"/>
+                        <path d="M3 13h10"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="downloadPdf" class="desk-rail-btn desk-rail-btn-primary" title="Download PDF" aria-label="Download PDF" wire:loading.attr="disabled">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M4 2.5h5l3 3V13.5H4V2.5z"/>
+                        <path d="M9 2.5V6h3"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M13 8a5 5 0 11-1.2-3.3"/>
+                        <path d="M13 3v3h-3"/>
+                    </svg>
+                </button>
+            </aside>
         </div>
     </div>
 

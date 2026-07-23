@@ -91,6 +91,7 @@
                 $docLabelMap = [
                     'sales.orders.create' => 'New Sales Order',
                     'sales.orders.edit' => 'Order',
+                    'sales.orders.show' => 'Order',
                     'sales.customers.create' => 'New Customer',
                     'sales.customers.edit' => 'Customer',
                     'sales.customers.index' => 'Customers',
@@ -107,6 +108,7 @@
                     'inventory.stock-counts.index' => 'Stock Counts',
                     'purchasing.orders.create' => 'New Purchase Order',
                     'purchasing.orders.edit' => 'Purchase Order',
+                    'purchasing.orders.show' => 'Purchase Order',
                     'purchasing.orders.index' => 'Purchase Orders',
                     'purchasing.suppliers.create' => 'New Supplier',
                     'purchasing.suppliers.edit' => 'Supplier',

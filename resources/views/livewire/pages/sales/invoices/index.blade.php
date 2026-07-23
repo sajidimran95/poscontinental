@@ -168,7 +168,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->resetPage();
     }
 
-    public function viewSelectedPdf(): void
+    public function viewSelected(): void
     {
         if (! $this->selectedId) {
             session()->flash('status', 'Select an invoice first.');
@@ -176,9 +176,25 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
+        $this->openInvoicePdf($this->selectedId);
+    }
+
+    public function printSelected(): void
+    {
+        $this->viewSelected();
+    }
+
+    public function viewInvoice(int $id): void
+    {
+        $this->selectedId = $id;
+        $this->openInvoicePdf($id);
+    }
+
+    protected function openInvoicePdf(int $id): void
+    {
         $invoice = Invoice::query()
             ->where('company_id', auth()->user()->company_id)
-            ->find($this->selectedId);
+            ->find($id);
 
         if (! $invoice) {
             session()->flash('status', 'Invoice not found.');
@@ -397,13 +413,6 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
-                        <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
-                            </svg>
-                            New Search
-                        </button>
                         <select
                             id="invoice-status-filter"
                             wire:model.live="statusFilter"
@@ -414,17 +423,6 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <option value="NOT PAID">NOT PAID</option>
                             <option value="PAID">PAID</option>
                         </select>
-                        <button
-                            type="button"
-                            wire:click="clearSearch"
-                            class="so-icon-btn"
-                            title="Clear search"
-                            aria-label="Clear search"
-                        >
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                                <path d="M4 4l8 8M12 4l-8 8"/>
-                            </svg>
-                        </button>
                     </div>
                 </div>
 
@@ -459,7 +457,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             @forelse ($invoices as $inv)
                                 <tr
                                     wire:click="selectRow({{ $inv->id }})"
-                                    wire:dblclick="openPayments({{ $inv->id }})"
+                                    wire:dblclick="viewInvoice({{ $inv->id }})"
                                     class="cursor-pointer"
                                     @class(['is-selected' => $selectedId === $inv->id || $modalInvoiceId === $inv->id])
                                 >
@@ -473,7 +471,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                             aria-label="Select invoice {{ $inv->invoice_number }}"
                                         />
                                     </td>
-                                    <td class="desk-num">{{ $inv->invoice_number }}</td>
+                                    <td class="desk-num">
+                                        <a
+                                            href="{{ route('sales.invoices.pdf', $inv) }}"
+                                            target="_blank"
+                                            rel="noopener"
+                                            wire:click.stop
+                                        >{{ $inv->invoice_number }}</a>
+                                    </td>
                                     <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
                                     <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
@@ -508,15 +513,21 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>
             </div>
 
-            {{-- Right icons (screenshot): document, pen, cross-pen, mark, refresh --}}
+            {{-- Right icons: view, print, open/pay, payment, refresh --}}
             <aside class="desk-rail" aria-label="Invoice actions">
-                <button type="button" wire:click="viewSelectedPdf" class="desk-rail-btn" title="View PDF" aria-label="View PDF" @disabled(! $selectedId)>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View invoice" aria-label="View invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                        <path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
-                        <path d="M9.5 2.5V6H13"/>
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Open invoice" aria-label="Open invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice" aria-label="Print invoice" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
+                        <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Open invoice / payments" aria-label="Open invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>

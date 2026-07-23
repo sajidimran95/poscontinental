@@ -16,6 +16,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 {
     public ?PurchaseOrder $purchaseOrder = null;
 
+    /** View-only (same layout as edit, locked). */
+    public bool $viewMode = false;
+
     public string $activeTab = 'general';
 
     public string $po_number = '';
@@ -67,6 +70,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function mount(?PurchaseOrder $purchaseOrder = null): void
     {
+        $this->viewMode = request()->routeIs('purchasing.orders.show');
         $companyId = auth()->user()->company_id;
 
         if ($purchaseOrder?->exists) {
@@ -260,6 +264,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         try {
             $this->validate([
                 'po_number' => 'required|string|max:64',
@@ -354,7 +360,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form">
+    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+        <fieldset class="so-form-fields" @disabled($viewMode)>
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'" />
 
         <div class="entity-body">
@@ -637,6 +644,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 </div>
             @endif
         </div>
+        </fieldset>
 
         <div class="entity-footer">
             <div class="entity-tabs" role="tablist" aria-label="Purchase order sections">
@@ -651,8 +659,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 @endforeach
             </div>
             <div class="entity-footer-actions">
-                <a href="{{ route('purchasing.orders.index') }}" wire:navigate class="desk-btn">Cancel</a>
-                <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
+                <a href="{{ route('purchasing.orders.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+                @if ($viewMode && $purchaseOrder)
+                    <a href="{{ route('purchasing.orders.edit', $purchaseOrder) }}" wire:navigate class="desk-btn desk-btn-primary">Edit PO</a>
+                @elseif (! $viewMode)
+                    <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
+                @endif
             </div>
         </div>
     </form>

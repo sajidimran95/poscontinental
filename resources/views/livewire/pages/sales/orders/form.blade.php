@@ -18,6 +18,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 {
     public ?SalesOrder $salesOrder = null;
 
+    /** View-only (same layout as edit, locked). */
+    public bool $viewMode = false;
+
     public string $activeTab = 'general';
 
     public string $addressTab = 'bill';
@@ -149,18 +152,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->activeTab = 'items';
         }
 
+        $this->viewMode = request()->routeIs('sales.orders.show');
         $companyId = auth()->user()->company_id;
 
         if ($salesOrder?->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
             $salesOrder->loadMissing('invoice');
-            if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
+            if (! $this->viewMode && ($salesOrder->status === 'Invoiced' || $salesOrder->invoice)) {
                 session()->flash('status', 'Invoiced orders are locked and cannot be edited.');
                 $this->redirect(route('sales.orders.index'), navigate: true);
 
                 return;
             }
-            $this->salesOrder = $salesOrder->load(['lines', 'boxes', 'customer']);
+            $this->salesOrder = $salesOrder->load(['lines', 'boxes', 'customer', 'invoice']);
             $this->fill($salesOrder->only([
                 'order_number', 'order_type', 'status', 'priority', 'customer_id', 'ship_to_address_id',
                 'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
@@ -566,6 +570,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->fillLineFromItem($index, $item);
     }
 
+    public function printInvoiceStyle(): void
+    {
+        if (! $this->salesOrder?->exists) {
+            session()->flash('status', 'Save the sales order first, then print.');
+
+            return;
+        }
+
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder));
+    }
+
     public function addItemFromEntry(): void
     {
         $code = trim($this->itemEntry);
@@ -782,6 +797,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         if ($this->salesOrder?->exists) {
             $this->salesOrder->refresh()->loadMissing('invoice');
             if ($this->salesOrder->status === 'Invoiced' || $this->salesOrder->invoice) {
@@ -1001,7 +1018,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 <div class="so-page">
     <x-action-bar title="Action" class="so-action-full" />
 
-    <form id="so-form" wire:submit="save" class="so-screen">
+    <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
+        <fieldset class="so-form-fields" @disabled($viewMode)>
         @if (filled($customerAlert))
             <div class="mx-2 mt-1 border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-950" role="alert">
                 <strong>Alert:</strong> {{ $customerAlert }}
@@ -1301,7 +1319,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                         </button>
-                        <button type="button" class="so-icon-btn" title="Print" tabindex="-1" aria-label="Print">
+                        <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
                         </button>
                         <button type="button" wire:click="removeLine({{ max(count($lines) - 1, 0) }})" class="so-icon-btn" title="Delete" tabindex="-1" aria-label="Delete line">
@@ -1479,7 +1497,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
             @endif
         </div>
-
+        </fieldset>
     </form>
 
     <div class="so-bottom so-bottom-full">
@@ -1490,8 +1508,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             />
         </div>
         <div class="so-bottom-actions">
-            <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">Cancel</a>
-            <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
+            <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+            @if ($viewMode && $salesOrder)
+                @if ($salesOrder->status !== 'Invoiced' && ! $salesOrder->invoice)
+                    <a href="{{ route('sales.orders.edit', $salesOrder) }}" wire:navigate class="so-btn-save">Edit Order</a>
+                @endif
+                <button type="button" wire:click="printInvoiceStyle" class="so-btn-save">Print Invoice</button>
+            @elseif (! $viewMode)
+                <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
+            @endif
         </div>
     </div>
 
@@ -1530,3 +1555,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 </div>
+
+@script
+<script>
+    $wire.on('open-order-invoice-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
+    });
+</script>
+@endscript

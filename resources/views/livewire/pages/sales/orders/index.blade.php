@@ -72,6 +72,27 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->resetPage();
     }
 
+    public function viewSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return null;
+        }
+
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.show', $order), navigate: true);
+    }
+
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
@@ -80,7 +101,24 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        return $this->openOrder($this->selectedId);
+        $order = SalesOrder::query()
+            ->with('invoice')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return null;
+        }
+
+        if ($order->status === 'Invoiced' || $order->invoice) {
+            session()->flash('status', 'Invoiced orders are locked and cannot be edited. Use View instead.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
     }
 
     public function openOrder(int $id): mixed
@@ -96,15 +134,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        if ($order->status === 'Invoiced' || $order->invoice) {
-            session()->flash('status', 'Invoiced orders are locked and cannot be edited.');
-
-            return null;
-        }
-
         $this->selectedId = $id;
 
-        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
+        // Double-click / open → view page
+        return $this->redirect(route('sales.orders.show', $order), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -146,7 +179,17 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
-        $this->dispatch('print-order', id: $this->selectedId);
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $order));
     }
 
     public function with(): array
@@ -287,13 +330,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
-                        <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
-                            </svg>
-                            New Search
-                        </button>
                         <select
                             id="orders-status-filter"
                             wire:model.live="statusFilter"
@@ -305,17 +341,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             <option value="not_invoiced">Not Invoiced</option>
                             <option value="Invoiced">Invoiced</option>
                         </select>
-                        <button
-                            type="button"
-                            wire:click="clearSearch"
-                            class="so-icon-btn"
-                            title="Clear search"
-                            aria-label="Clear search"
-                        >
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                                <path d="M4 4l8 8M12 4l-8 8"/>
-                            </svg>
-                        </button>
                     </div>
                 </div>
 
@@ -364,11 +389,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        @if ($order->status === 'Invoiced')
-                                            {{ $order->order_number }}
-                                        @else
-                                            <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
-                                        @endif
+                                        <a href="{{ route('sales.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
                                     </td>
                                     <td>{{ $order->order_type }}</td>
                                     <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
@@ -411,7 +432,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 </x-record-count>
             </div>
 
-            {{-- Right icon rail — matches Chief: grid, cross-pen (new search), pen (edit), X, print, refresh, + --}}
+            {{-- Right icon rail: grid, view, edit, delete, print, refresh, + --}}
             <aside class="desk-rail" aria-label="Order actions">
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -421,15 +442,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                    {{-- Cross pen --}}
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
-                    {{-- Pen only --}}
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
@@ -471,16 +490,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 </div>
 @script
 <script>
-    $wire.on('print-order', (payload) => {
-        const id = payload?.id ?? payload?.[0]?.id;
-        if (!id) return;
-        const url = @js(url('/sales/orders')) + '/' + id + '/edit';
-        const w = window.open(url, '_blank');
-        if (w) {
-            w.addEventListener('load', () => {
-                try { w.print(); } catch (e) {}
-            });
-        }
+    $wire.on('open-order-invoice-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
     });
 </script>
 @endscript

@@ -49,11 +49,19 @@ class Invoice extends Model
 
     public function getTotalPaymentsAttribute(): float
     {
+        if ($this->relationLoaded('payments')) {
+            return (float) $this->payments->sum('amount');
+        }
+
         return (float) $this->payments()->sum('amount');
     }
 
     public function getTotalCreditsAttribute(): float
     {
+        if ($this->relationLoaded('credits')) {
+            return (float) $this->credits->sum('amount');
+        }
+
         return (float) $this->credits()->sum('amount');
     }
 

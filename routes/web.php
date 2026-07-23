@@ -42,6 +42,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('purchasing/orders', 'pages.purchasing.orders.index')->name('purchasing.orders.index');
     Volt::route('purchasing/orders/create', 'pages.purchasing.orders.form')->name('purchasing.orders.create');
     Volt::route('purchasing/orders/{purchaseOrder}/edit', 'pages.purchasing.orders.form')->name('purchasing.orders.edit');
+    Volt::route('purchasing/orders/{purchaseOrder}', 'pages.purchasing.orders.form')->name('purchasing.orders.show');
     Volt::route('purchasing/receivings', 'pages.purchasing.receivings.index')->name('purchasing.receivings.index');
     Volt::route('purchasing/receivings/{receiving}/edit', 'pages.purchasing.receivings.form')->name('purchasing.receivings.edit');
     Volt::route('purchasing/rtv', 'pages.purchasing.rtv.index')->name('purchasing.rtv.index');
@@ -63,7 +64,10 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('sales/customers/{customer}/edit', 'pages.sales.customers.form')->name('sales.customers.edit');
     Volt::route('sales/orders', 'pages.sales.orders.index')->name('sales.orders.index');
     Volt::route('sales/orders/create', 'pages.sales.orders.form')->name('sales.orders.create');
+    Route::get('sales/orders/{salesOrder}/print', [DocumentPdfController::class, 'salesOrder'])
+        ->name('sales.orders.print');
     Volt::route('sales/orders/{salesOrder}/edit', 'pages.sales.orders.form')->name('sales.orders.edit');
+    Volt::route('sales/orders/{salesOrder}', 'pages.sales.orders.form')->name('sales.orders.show');
     Volt::route('sales/invoices', 'pages.sales.invoices.index')->name('sales.invoices.index');
     Route::get('sales/invoices/{invoice}/pdf', [DocumentPdfController::class, 'invoice'])
         ->name('sales.invoices.pdf');

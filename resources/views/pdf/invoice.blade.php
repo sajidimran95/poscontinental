@@ -26,7 +26,9 @@
                     &nbsp;·&nbsp;
                     {{ optional($invoice->invoice_date)?->format('M j, Y') }}
                 </div>
-                <div class="status {{ $isPaid ? 'status-paid' : 'status-open' }}">{{ $invoice->status }}</div>
+                <div class="status {{ $isPaid ? 'status-paid' : 'status-open' }}">
+                    {{ $invoice->status === 'ORDER' ? 'SALES ORDER' : $invoice->status }}
+                </div>
             </td>
         </tr>
     </table>

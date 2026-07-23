@@ -6,8 +6,10 @@ use App\Models\CreditMemo;
 use App\Models\DocumentEmailLog;
 use App\Models\Invoice;
 use App\Models\Item;
+use App\Models\SalesOrder;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -86,6 +88,69 @@ class DocumentPdfService
             $this->invoicePdf($invoice),
             'invoice-'.$invoice->invoice_number.'.pdf'
         );
+    }
+
+    /**
+     * Print sales order using the invoice PDF layout.
+     * If the order is already invoiced, print that invoice; otherwise print an invoice-style preview.
+     */
+    public function salesOrderInvoiceStylePdf(SalesOrder $order, ?User $user = null)
+    {
+        $order->loadMissing([
+            'lines',
+            'customer',
+            'salesRep',
+            'paymentTerm',
+            'invoice.payments',
+            'invoice.credits',
+            'invoice.customer',
+            'invoice.salesOrder.lines',
+            'invoice.salesOrder.salesRep',
+            'invoice.salesOrder.paymentTerm',
+        ]);
+
+        if ($order->invoice) {
+            return $this->invoicePdf($order->invoice, $user);
+        }
+
+        $lineDiscount = (float) $order->lines->sum('discount');
+
+        $invoice = new Invoice([
+            'company_id' => $order->company_id,
+            'invoice_number' => 'SO-'.$order->order_number,
+            'invoice_date' => $order->order_date,
+            'sales_order_id' => $order->id,
+            'customer_id' => $order->customer_id,
+            'status' => 'ORDER',
+            'subtotal' => $order->subtotal,
+            'total_discount' => $lineDiscount,
+            'trade_discount' => $order->trade_discount,
+            'freight' => $order->freight,
+            'miscellaneous' => $order->miscellaneous,
+            'tax' => $order->tax,
+            'invoice_total' => $order->total,
+            'driver' => null,
+        ]);
+
+        $invoice->setRelation('salesOrder', $order);
+        $invoice->setRelation('customer', $order->customer);
+        $invoice->setRelation('payments', new Collection);
+        $invoice->setRelation('credits', new Collection);
+
+        return Pdf::loadView('pdf.invoice', [
+            'invoice' => $invoice,
+            'company' => $user?->company ?? $order->customer?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
+    public function streamSalesOrderInvoiceStyle(SalesOrder $order, ?User $user = null): Response
+    {
+        $pdf = $this->salesOrderInvoiceStylePdf($order, $user);
+        $name = $order->invoice
+            ? 'invoice-'.$order->invoice->invoice_number.'.pdf'
+            : 'sales-order-'.$order->order_number.'.pdf';
+
+        return $pdf->stream($name);
     }
 
     public function streamCreditMemo(CreditMemo $memo): StreamedResponse

@@ -3120,6 +3120,13 @@
         min-width: 0;
     }
 
+    .so-form-fields {
+        border: 0;
+        margin: 0;
+        padding: 0;
+        min-width: 0;
+    }
+
     .item-header-media {
         margin: 0.35rem 0 0.15rem;
     }

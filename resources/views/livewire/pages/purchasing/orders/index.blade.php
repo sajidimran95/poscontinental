@@ -128,6 +128,27 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->resetPage();
     }
 
+    public function viewSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a purchase order first.');
+
+            return null;
+        }
+
+        $order = PurchaseOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Purchase order not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('purchasing.orders.show', $order), navigate: true);
+    }
+
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
@@ -136,7 +157,17 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             return null;
         }
 
-        return $this->openOrder($this->selectedId);
+        $order = PurchaseOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Purchase order not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('purchasing.orders.edit', $order), navigate: true);
     }
 
     public function openOrder(int $id): mixed
@@ -153,7 +184,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('purchasing.orders.edit', $order), navigate: true);
+        return $this->redirect(route('purchasing.orders.show', $order), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -229,13 +260,6 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
-                        <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
-                            </svg>
-                            New Search
-                        </button>
                         <select
                             id="po-status-filter"
                             wire:model.live="statusFilter"
@@ -247,17 +271,6 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                             <option value="pending">Pending</option>
                             <option value="received">Received</option>
                         </select>
-                        <button
-                            type="button"
-                            wire:click="clearSearch"
-                            class="so-icon-btn"
-                            title="Clear search"
-                            aria-label="Clear search"
-                        >
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                                <path d="M4 4l8 8M12 4l-8 8"/>
-                            </svg>
-                        </button>
                     </div>
                 </div>
 
@@ -303,7 +316,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('purchasing.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->po_number }}</a>
+                                        <a href="{{ route('purchasing.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->po_number }}</a>
                                     </td>
                                     <td>{{ optional($order->requisition_date)?->format('n/j/Y') }}</td>
                                     <td class="text-center">
@@ -339,7 +352,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 </x-record-count>
             </div>
 
-            {{-- Right rail — same as items: grid, cross-pen, pen, delete, print, refresh, + --}}
+            {{-- Right rail: grid, view, edit, delete, print, refresh, + --}}
             <aside class="desk-rail" aria-label="Purchase order actions">
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -349,10 +362,10 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>

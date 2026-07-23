@@ -3113,6 +3113,22 @@
         flex-wrap: wrap;
     }
 
+    .item-form-fields {
+        border: 0;
+        margin: 0;
+        padding: 0;
+        min-width: 0;
+    }
+
+    .item-header-media {
+        margin: 0.35rem 0 0.15rem;
+    }
+
+    .item-form-readonly .so-input,
+    .item-form-readonly .so-input-area {
+        background: #f8fafc;
+    }
+
     .entity-body {
         flex: 1 1 auto;
         min-height: 0;

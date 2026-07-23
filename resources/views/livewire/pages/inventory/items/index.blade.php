@@ -159,7 +159,17 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             return null;
         }
 
-        return $this->openItem($this->selectedId);
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $item) {
+            session()->flash('status', 'Item not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
 
     public function openItem(int $id): mixed
@@ -176,7 +186,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
+        return $this->redirect(route('inventory.items.show', $item), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -333,7 +343,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
+                                        <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
                                     </td>
                                     <td title="{{ $item->description }}">{{ \Illuminate\Support\Str::limit($item->description, 48) }}</td>
                                     <td>{{ $item->department?->name ?: '—' }}</td>
@@ -398,6 +408,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
                         <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
                         <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="openItem({{ $selectedId ?: 0 }})" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>

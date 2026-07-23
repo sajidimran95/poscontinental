@@ -30,6 +30,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public ?Item $item = null;
 
+    /** View-only mode (same layout as edit, no changes). */
+    public bool $viewMode = false;
+
     public string $activeTab = 'general';
 
     public string $item_code = '';
@@ -156,6 +159,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function mount(?Item $item = null): void
     {
+        $this->viewMode = request()->routeIs('inventory.items.show');
+
         if ($item?->exists) {
             abort_unless($item->company_id === auth()->user()->company_id, 403);
             $this->item = $item->load(['upcs', 'prices', 'itemSuppliers', 'substitutes']);
@@ -173,6 +178,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
                 'manu_promotion_code', 'manu_base_count', 'primary_upc', 'image_path', 'thumbnail_path',
             ]));
+
+            // Keep image paths as plain strings for reliable preview URLs.
+            $this->image_path = filled($item->image_path) ? (string) $item->image_path : null;
+            $this->thumbnail_path = filled($item->thumbnail_path) ? (string) $item->thumbnail_path : null;
 
             $this->last_received_at = optional($item->last_received_at)?->format('Y-m-d');
             $this->last_ordered_at = optional($item->last_ordered_at)?->format('Y-m-d');
@@ -479,8 +488,25 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
     }
 
+    public function mediaUrl(?string $path): ?string
+    {
+        if (! filled($path)) {
+            return null;
+        }
+
+        if (! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        return asset('storage/'.$path);
+    }
+
     public function removeImage(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         if (filled($this->image_path) && Storage::disk('public')->exists($this->image_path)) {
             Storage::disk('public')->delete($this->image_path);
         }
@@ -490,6 +516,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function removeThumbnail(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         if (filled($this->thumbnail_path) && Storage::disk('public')->exists($this->thumbnail_path)) {
             Storage::disk('public')->delete($this->thumbnail_path);
         }
@@ -499,6 +529,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function copyImageToThumbnail(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         $this->resetErrorBag('thumbnail_upload');
 
         if ($this->image_upload instanceof TemporaryUploadedFile || filled($this->image_path)) {
@@ -514,6 +548,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         try {
             $this->validate([
                 'item_code' => 'required|string|max:64',
@@ -745,13 +781,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form">
-        <x-action-bar :title="$item ? 'Edit Item — '.$item_code : 'New Item'" />
+    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+        @php
+            $pageTitle = $viewMode
+                ? 'View Item — '.$item_code
+                : ($item ? 'Edit Item — '.$item_code : 'New Item');
+            $imageUrl = $this->mediaUrl($image_path);
+            $thumbUrl = $this->mediaUrl($thumbnail_path);
+        @endphp
+        <x-action-bar :title="$pageTitle" />
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
 
+        <fieldset class="item-form-fields" @disabled($viewMode)>
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
@@ -763,6 +807,13 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
                     </div>
                 </div>
+                @if ($imageUrl || $thumbUrl)
+                    <div class="item-header-media">
+                        <div class="item-preview-frame item-preview-frame-sm">
+                            <img src="{{ $imageUrl ?: $thumbUrl }}" alt="{{ $item_code }}" class="item-preview" />
+                        </div>
+                    </div>
+                @endif
                 @if ($activeTab === 'inventory')
                     <div class="entity-balance">Available: <strong>{{ number_format($availableQty, 2) }}</strong></div>
                 @elseif ($activeTab === 'pricing' || $activeTab === 'general')
@@ -1112,33 +1163,43 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <div class="inv-card-title">Media</div>
                         <div class="item-media">
                             <div class="item-media-label">Image</div>
-                            <input type="file" wire:model="image_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
-                            <div wire:loading wire:target="image_upload" class="item-hint">Uploading image… please wait before saving.</div>
-                            @error('image_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                            @unless ($viewMode)
+                                <input type="file" wire:model="image_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
+                                <div wire:loading wire:target="image_upload" class="item-hint">Uploading image… please wait before saving.</div>
+                                @error('image_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                            @endunless
                             @if ($image_upload)
                                 <div class="item-preview-frame">
                                     <img src="{{ $image_upload->temporaryUrl() }}" alt="" class="item-preview" />
                                 </div>
                                 <p class="item-hint" style="border:0;padding:0;margin:0.35rem 0 0">Ready — click Save Changes to keep this image.</p>
-                            @elseif ($image_path)
+                            @elseif ($imageUrl)
                                 <div class="item-preview-row">
                                     <div class="item-preview-frame">
-                                        <img src="{{ asset('storage/'.$image_path) }}" alt="" class="item-preview" />
+                                        <img src="{{ $imageUrl }}" alt="{{ $item_code }}" class="item-preview" />
                                     </div>
-                                    <button type="button" wire:click="removeImage" class="desk-btn desk-btn-sm">Remove</button>
+                                    @unless ($viewMode)
+                                        <button type="button" wire:click="removeImage" class="desk-btn desk-btn-sm">Remove</button>
+                                    @endunless
                                 </div>
+                            @elseif ($image_path)
+                                <p class="item-hint">Image file missing on disk ({{ $image_path }}).</p>
+                            @elseif ($viewMode)
+                                <p class="item-hint">No image.</p>
                             @endif
                         </div>
                         <div class="item-media">
                             <div class="item-media-label">Thumbnail</div>
-                            <input type="file" wire:model="thumbnail_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
-                            <div wire:loading wire:target="thumbnail_upload" class="item-hint">Uploading thumbnail… please wait before saving.</div>
-                            @error('thumbnail_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                            <div class="item-media-actions">
-                                <button type="button" wire:click="copyImageToThumbnail" class="desk-btn desk-btn-sm" @disabled(! $image_upload && ! $image_path)>
-                                    Copy from image
-                                </button>
-                            </div>
+                            @unless ($viewMode)
+                                <input type="file" wire:model="thumbnail_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
+                                <div wire:loading wire:target="thumbnail_upload" class="item-hint">Uploading thumbnail… please wait before saving.</div>
+                                @error('thumbnail_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                <div class="item-media-actions">
+                                    <button type="button" wire:click="copyImageToThumbnail" class="desk-btn desk-btn-sm" @disabled(! $image_upload && ! $image_path)>
+                                        Copy from image
+                                    </button>
+                                </div>
+                            @endunless
                             @if ($thumbnail_upload)
                                 <div class="item-preview-frame item-preview-frame-sm">
                                     <img src="{{ $thumbnail_upload->temporaryUrl() }}" alt="" class="item-preview" />
@@ -1146,19 +1207,25 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             @elseif ($useImageAsThumbnail && ($image_upload || $image_path))
                                 <div class="item-preview-frame item-preview-frame-sm">
                                     <img
-                                        src="{{ $image_upload ? $image_upload->temporaryUrl() : asset('storage/'.$image_path) }}"
+                                        src="{{ $image_upload ? $image_upload->temporaryUrl() : ($imageUrl ?: asset('storage/'.$image_path)) }}"
                                         alt=""
                                         class="item-preview"
                                     />
                                 </div>
                                 <p class="item-hint" style="border:0;padding:0;margin:0">Will save as thumbnail on Save.</p>
-                            @elseif ($thumbnail_path)
+                            @elseif ($thumbUrl)
                                 <div class="item-preview-row">
                                     <div class="item-preview-frame item-preview-frame-sm">
-                                        <img src="{{ asset('storage/'.$thumbnail_path) }}" alt="" class="item-preview" />
+                                        <img src="{{ $thumbUrl }}" alt="{{ $item_code }} thumbnail" class="item-preview" />
                                     </div>
-                                    <button type="button" wire:click="removeThumbnail" class="desk-btn desk-btn-sm">Remove</button>
+                                    @unless ($viewMode)
+                                        <button type="button" wire:click="removeThumbnail" class="desk-btn desk-btn-sm">Remove</button>
+                                    @endunless
                                 </div>
+                            @elseif ($thumbnail_path)
+                                <p class="item-hint">Thumbnail file missing on disk ({{ $thumbnail_path }}).</p>
+                            @elseif ($viewMode)
+                                <p class="item-hint">No thumbnail.</p>
                             @endif
                         </div>
                     </div>
@@ -1335,6 +1402,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 </div>
             @endif
         </div>
+        </fieldset>
 
         <div class="entity-footer">
             <div class="entity-tabs" role="tablist" aria-label="Item sections">
@@ -1349,17 +1417,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 @endforeach
             </div>
             <div class="entity-footer-actions">
-                <a href="{{ route('inventory.items.index') }}" wire:navigate class="desk-btn">Cancel</a>
-                <button
-                    type="submit"
-                    class="desk-btn desk-btn-primary"
-                    wire:loading.attr="disabled"
-                    wire:target="save,image_upload,thumbnail_upload"
-                >
-                    <span wire:loading.remove wire:target="save,image_upload,thumbnail_upload">Save Changes</span>
-                    <span wire:loading wire:target="image_upload,thumbnail_upload">Waiting for upload…</span>
-                    <span wire:loading wire:target="save">Saving…</span>
-                </button>
+                <a href="{{ route('inventory.items.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+                @if ($viewMode && $item)
+                    <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate class="desk-btn desk-btn-primary">Edit Item</a>
+                @elseif (! $viewMode)
+                    <button
+                        type="submit"
+                        class="desk-btn desk-btn-primary"
+                        wire:loading.attr="disabled"
+                        wire:target="save,image_upload,thumbnail_upload"
+                    >
+                        <span wire:loading.remove wire:target="save,image_upload,thumbnail_upload">Save Changes</span>
+                        <span wire:loading wire:target="image_upload,thumbnail_upload">Waiting for upload…</span>
+                        <span wire:loading wire:target="save">Saving…</span>
+                    </button>
+                @endif
             </div>
         </div>
     </form>

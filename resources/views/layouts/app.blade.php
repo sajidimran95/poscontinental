@@ -100,6 +100,7 @@
                     'sales.credit-memos.index' => 'Credit Memos',
                     'inventory.items.create' => 'New Item',
                     'inventory.items.edit' => 'Item',
+                    'inventory.items.show' => 'Item',
                     'inventory.items.index' => 'Items',
                     'inventory.stock-counts.create' => 'New Stock Count',
                     'inventory.stock-counts.edit' => 'Stock Count',

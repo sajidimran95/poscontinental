@@ -43,6 +43,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('inventory/items', 'pages.inventory.items.index')->name('inventory.items.index');
     Volt::route('inventory/items/create', 'pages.inventory.items.form')->name('inventory.items.create');
     Volt::route('inventory/items/{item}/edit', 'pages.inventory.items.form')->name('inventory.items.edit');
+    Volt::route('inventory/items/{item}', 'pages.inventory.items.form')->name('inventory.items.show');
     Volt::route('inventory/stock-counts', 'pages.inventory.stock-counts.index')->name('inventory.stock-counts.index');
     Volt::route('inventory/stock-counts/create', 'pages.inventory.stock-counts.form')->name('inventory.stock-counts.create');
     Volt::route('inventory/stock-counts/{stockCount}/edit', 'pages.inventory.stock-counts.form')->name('inventory.stock-counts.edit');

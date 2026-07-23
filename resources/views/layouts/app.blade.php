@@ -174,9 +174,40 @@
                 <span>User: <strong>{{ auth()->user()?->name ?? '—' }}@if(auth()->user()?->role) — {{ auth()->user()->role->label }}@endif</strong></span>
                 <span>Site: <strong>{{ session('site_code', auth()->user()?->site?->code ?? 'WS') }}</strong></span>
                 <span>Company: <strong>{{ session('company_name', auth()->user()?->company?->name ?? '—') }}</strong></span>
-                <span class="ms-auto text-amber-200">{{ now()->format('g:i A, n/j/Y') }}</span>
+                <span id="status-clock" class="ms-auto text-amber-200" title="Your local time" aria-live="polite">{{ now()->format('g:i A, n/j/Y') }}</span>
             </footer>
         </div>
         @livewireScripts
+        <script>
+            (function () {
+                const el = document.getElementById('status-clock');
+                if (! el) return;
+
+                const fmt = new Intl.DateTimeFormat(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                    month: 'numeric',
+                    day: 'numeric',
+                    year: 'numeric',
+                });
+
+                function tick() {
+                    // Match prior style: "2:44 AM, 7/24/2026"
+                    const parts = fmt.formatToParts(new Date());
+                    const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
+                    const hour = get('hour');
+                    const minute = get('minute');
+                    const dayPeriod = get('dayPeriod');
+                    const month = get('month');
+                    const day = get('day');
+                    const year = get('year');
+                    el.textContent = `${hour}:${minute} ${dayPeriod}, ${month}/${day}/${year}`;
+                }
+
+                tick();
+                setInterval(tick, 30000);
+            })();
+        </script>
     </body>
 </html>

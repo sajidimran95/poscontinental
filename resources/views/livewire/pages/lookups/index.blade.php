@@ -28,6 +28,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public string $name = '';
 
+    public string $base_uom = '';
+
     public ?int $parent_id = null;
 
     /** @return array<string, class-string> */
@@ -98,6 +100,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 'categories' => 'Belongs to a Department (example: CIG — Cigarettes under Tobacco).',
                 'subcategories' => 'Belongs to a Category (optional finer group under Cigarettes).',
                 'item_types' => 'Appears in the Item Type dropdown on New Item (example: STD — Standard Item). Code is short; Name is what users see.',
+                'uom_schedules' => 'Unit of Measure schedules for items (example: EA-BX — Each/Box). Set Base U of M (EA, BX, CS…). Then pick this schedule on New Item → Inventory.',
                 default => 'Shared setup values used across sales and inventory screens.',
             },
         ];
@@ -109,18 +112,25 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             return;
         }
         $this->activeLookup = $key;
-        $this->reset('code', 'name', 'parent_id');
+        $this->reset('code', 'name', 'base_uom', 'parent_id');
         $this->resetErrorBag();
     }
 
     public function save(): void
     {
-        $this->validate([
+        $rules = [
             'code' => 'required|string|max:32',
             'name' => 'required|string|max:255',
             'parent_id' => in_array($this->activeLookup, ['categories', 'subcategories'], true)
                 ? 'required|integer'
                 : 'nullable',
+        ];
+        if ($this->activeLookup === 'uom_schedules') {
+            $rules['base_uom'] = 'required|string|max:16';
+        }
+
+        $this->validate($rules, [
+            'base_uom.required' => 'Base U of M is required (example: EA, BX, CS).',
         ]);
 
         $map = $this->tables();
@@ -158,10 +168,13 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         if ($this->activeLookup === 'subcategories' && $this->parent_id) {
             $payload['category_id'] = $this->parent_id;
         }
+        if ($this->activeLookup === 'uom_schedules') {
+            $payload['base_uom'] = strtoupper(trim($this->base_uom));
+        }
 
         $map[$this->activeLookup]::query()->create($payload);
 
-        $this->reset('code', 'name', 'parent_id');
+        $this->reset('code', 'name', 'base_uom', 'parent_id');
         session()->flash('status', 'Saved successfully. It will appear on the Item form dropdowns.');
     }
 }; ?>
@@ -236,6 +249,19 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 @error('name') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
             </div>
 
+            @if ($activeLookup === 'uom_schedules')
+                <div>
+                    <label class="desk-toolbar-label" for="base_uom">Base U of M</label>
+                    <select id="base_uom" wire:model="base_uom" class="desk-select" style="min-width:6.5rem">
+                        <option value="">—</option>
+                        @foreach (['EA','BX','CS','CTN','PK','DZ','LB','KG','OZ','GAL','PLT','BAG','BOT','CAN'] as $uom)
+                            <option value="{{ $uom }}">{{ $uom }}</option>
+                        @endforeach
+                    </select>
+                    @error('base_uom') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
+                </div>
+            @endif
+
             <button type="submit" class="desk-btn desk-btn-primary">Add {{ $listTitle === 'Sub Categories' ? 'Sub Category' : rtrim($listTitle, 's') }}</button>
         </form>
 
@@ -245,6 +271,9 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                     <tr>
                         <th>Code</th>
                         <th>Name</th>
+                        @if ($activeLookup === 'uom_schedules')
+                            <th>Base U of M</th>
+                        @endif
                         @if ($activeLookup === 'categories')
                             <th>Department</th>
                         @endif
@@ -259,6 +288,9 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                         <tr>
                             <td class="desk-num">{{ $row->code }}</td>
                             <td>{{ $row->name }}</td>
+                            @if ($activeLookup === 'uom_schedules')
+                                <td class="desk-num">{{ $row->base_uom ?: '—' }}</td>
+                            @endif
                             @if ($activeLookup === 'categories')
                                 <td>{{ $row->department ? $row->department->code.' — '.$row->department->name : '—' }}</td>
                             @endif
@@ -274,7 +306,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                             </td>
                         </tr>
                     @empty
-                        <tr class="is-empty"><td colspan="4">No records yet. Add one above.</td></tr>
+                        <tr class="is-empty"><td colspan="5">No records yet. Add one above.</td></tr>
                     @endforelse
                 </tbody>
             </table>

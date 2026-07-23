@@ -165,12 +165,12 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        UomSchedule::query()->create([
-            'company_id' => $companyId,
-            'code' => 'EA-BX',
-            'name' => 'Each / Box',
-            'base_uom' => 'EA',
-        ]);
+        foreach (\Database\Seeders\UomScheduleSeeder::definitions() as $uom) {
+            UomSchedule::query()->firstOrCreate(
+                ['company_id' => $companyId, 'code' => $uom['code']],
+                ['name' => $uom['name'], 'base_uom' => $uom['base_uom'], 'is_active' => true]
+            );
+        }
 
         RouteLookup::query()->create([
             'company_id' => $companyId,

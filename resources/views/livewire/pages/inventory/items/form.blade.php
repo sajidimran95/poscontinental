@@ -232,6 +232,51 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
     }
 
+    public function updatedUomScheduleId($value): void
+    {
+        if (! filled($value)) {
+            return;
+        }
+
+        $schedule = UomSchedule::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find((int) $value);
+
+        if ($schedule?->base_uom) {
+            $this->unit_of_measure = strtoupper((string) $schedule->base_uom);
+        }
+    }
+
+    /**
+     * Standard unit codes for item default UOM and price rows (brief: selection, not free text).
+     *
+     * @return array<int, string>
+     */
+    protected function uomOptions(): array
+    {
+        $defaults = ['EA', 'BX', 'CS', 'CTN', 'PK', 'DZ', 'LB', 'KG', 'OZ', 'GAL', 'PLT', 'BAG', 'BOT', 'CAN'];
+        $fromSchedules = UomSchedule::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->whereNotNull('base_uom')
+            ->pluck('base_uom')
+            ->map(fn ($u) => strtoupper(trim((string) $u)))
+            ->filter()
+            ->all();
+
+        $current = filled($this->unit_of_measure) ? [strtoupper(trim($this->unit_of_measure))] : [];
+        $fromPrices = collect($this->prices)
+            ->pluck('uom')
+            ->map(fn ($u) => strtoupper(trim((string) $u)))
+            ->filter()
+            ->all();
+
+        return collect(array_merge($defaults, $fromSchedules, $current, $fromPrices))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -245,6 +290,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
                 ->orderBy('name')->get(),
             'uomSchedules' => UomSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'uomOptions' => $this->uomOptions(),
             'taxSchedules' => TaxSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'promotionSchedules' => DiscountSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'pricingMethods' => PricingMethod::query()->where('company_id', $companyId)->orderBy('name')->get(),
@@ -724,10 +770,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="uom_schedule_id">UOM Schedule</label>
                             <div class="so-lookup-row">
-                                <select id="uom_schedule_id" wire:model="uom_schedule_id" class="so-input">
+                                <select id="uom_schedule_id" wire:model.live="uom_schedule_id" class="so-input">
                                     <option value="">—</option>
                                     @foreach ($uomSchedules as $u)
-                                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                        <option value="{{ $u->id }}">{{ $u->name }}{{ $u->base_uom ? ' ('.$u->base_uom.')' : '' }}</option>
                                     @endforeach
                                 </select>
                                 <a href="{{ route('lookups.index', ['activeLookup' => 'uom_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
@@ -735,9 +781,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl so-field-req" for="unit_of_measure">Unit of Measure</label>
-                            <input id="unit_of_measure" wire:model="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:6rem" />
+                            <select id="unit_of_measure" wire:model="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:8rem">
+                                <option value="">— Select —</option>
+                                @foreach ($uomOptions as $uom)
+                                    <option value="{{ $uom }}">{{ $uom }}</option>
+                                @endforeach
+                            </select>
                         </div>
                         @error('unit_of_measure') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                        <p class="item-hint" style="border:0;margin:0.35rem 0 0;padding:0;font-size:0.75rem;color:#64748b">Select from list (or pick a UOM Schedule to fill the base unit). Not free text.</p>
                         <div class="pt-2">
                             <button type="button" wire:click="openJournal" class="desk-btn" @disabled(! $item)>View Journal</button>
                         </div>
@@ -910,7 +962,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             <tbody>
                                 @foreach ($prices as $i => $row)
                                     <tr>
-                                        <td><input wire:model="prices.{{ $i }}.uom" class="so-input item-cell-ctl" /></td>
+                                        <td>
+                                            <select wire:model="prices.{{ $i }}.uom" class="so-input item-cell-ctl">
+                                                <option value="">—</option>
+                                                @foreach ($uomOptions as $uom)
+                                                    <option value="{{ $uom }}">{{ $uom }}</option>
+                                                @endforeach
+                                            </select>
+                                        </td>
                                         <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" /></td>
                                         <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input item-cell-ctl" /></td>
                                         <td class="text-center"><button type="button" wire:click="removePrice({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>

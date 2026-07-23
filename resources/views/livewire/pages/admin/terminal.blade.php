@@ -16,10 +16,10 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
     public function clearCache(): void
     {
         $this->runCommands([
-            'config:clear' => 'Clear config cache',
-            'cache:clear' => 'Clear application cache',
-            'view:clear' => 'Clear compiled views',
-            'route:clear' => 'Clear route cache',
+            'config:clear' => [],
+            'cache:clear' => [],
+            'view:clear' => [],
+            'route:clear' => [],
         ], 'Cache cleared successfully.');
     }
 
@@ -33,12 +33,32 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
     public function optimizeClear(): void
     {
         $this->runCommands([
-            'optimize:clear' => 'Clear all caches',
+            'optimize:clear' => [],
         ], 'Optimize clear completed.');
     }
 
+    public function seedUom(): void
+    {
+        $this->runCommands([
+            'db:seed' => [
+                '--class' => 'UomScheduleSeeder',
+                '--force' => true,
+            ],
+        ], 'UOM schedules seeded successfully.');
+    }
+
+    public function runSeeders(): void
+    {
+        $this->runCommands([
+            'db:seed' => [
+                '--class' => 'DatabaseSeeder',
+                '--force' => true,
+            ],
+        ], 'Database seeder completed.');
+    }
+
     /**
-     * @param  array<string, array<string, mixed>|string>  $commands
+     * @param  array<string, array<string, mixed>>  $commands
      */
     protected function runCommands(array $commands, string $successMessage): void
     {
@@ -48,25 +68,34 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
 
         try {
             $lines = [];
-            foreach ($commands as $command => $options) {
-                $params = is_array($options) ? $options : [];
-                $label = is_string($options) ? $options : $command;
+            foreach ($commands as $command => $params) {
                 $exit = Artisan::call($command, $params);
                 $buffer = trim(Artisan::output());
-                $lines[] = '> php artisan '.$command.(is_array($options) && isset($options['--force']) ? ' --force' : '');
+                $cli = '> php artisan '.$command;
+                foreach ($params as $key => $value) {
+                    if (is_bool($value)) {
+                        if ($value) {
+                            $cli .= ' '.$key;
+                        }
+                    } else {
+                        $cli .= ' '.$key.'='.$value;
+                    }
+                }
+                $lines[] = $cli;
                 $lines[] = $buffer !== '' ? $buffer : '(no output)';
                 $lines[] = 'Exit: '.$exit;
                 $lines[] = '';
-                if ($exit !== 0 && $command === 'migrate') {
-                    throw new \RuntimeException('Migration failed (exit '.$exit.').');
+                if ($exit !== 0) {
+                    throw new \RuntimeException($command.' failed (exit '.$exit.').');
                 }
             }
             $this->output = implode("\n", $lines);
             $this->status = $successMessage;
         } catch (\Throwable $e) {
             $this->error = $e->getMessage();
-            if ($this->output === '') {
-                $this->output = Artisan::output();
+            $extra = trim(Artisan::output());
+            if ($this->output === '' && $extra !== '') {
+                $this->output = $extra;
             }
         }
     }
@@ -94,7 +123,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear"
+                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -103,7 +132,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear"
+                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -113,17 +142,39 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear"
+                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
                     class="desk-btn"
                 >
                     Optimize Clear
                 </button>
             </div>
 
+            <div class="inv-card-title" style="margin-top:1.25rem">Seeders</div>
+            <div class="rpt-actions" style="display:flex;flex-wrap:wrap;gap:0.5rem">
+                <button
+                    type="button"
+                    wire:click="seedUom"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    class="desk-btn desk-btn-primary"
+                >
+                    Seed UOM Schedules
+                </button>
+                <button
+                    type="button"
+                    wire:click="runSeeders"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    class="desk-btn"
+                    wire:confirm="Run the full DatabaseSeeder? Safe on empty DB; may create duplicates if data already exists."
+                >
+                    Run Database Seeder
+                </button>
+            </div>
+
             <p class="item-hint" style="border:0;margin:0.75rem 0 0;padding:0;font-size:0.75rem;color:#64748b">
-                <strong>Clear Cache</strong> — config, app, views, routes &nbsp;·&nbsp;
-                <strong>Run Migrations</strong> — <code>php artisan migrate --force</code> &nbsp;·&nbsp;
-                <strong>Optimize Clear</strong> — full Laravel cache reset
+                <strong>Seed UOM</strong> — adds EA, BX, CS, CTN… (safe, skips existing) &nbsp;·&nbsp;
+                <strong>Database Seeder</strong> — full demo seed (<code>DatabaseSeeder</code>)
             </p>
         </div>
 
@@ -133,9 +184,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,optimizeClear"
+                wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

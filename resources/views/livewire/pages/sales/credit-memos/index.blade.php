@@ -30,6 +30,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public string $comments = '';
 
+    public bool $restock_inventory = true;
+
     /** @var array<int, array{item_code:string,description:string,uom:string,qty:string,price:string}> */
     public array $lines = [];
 
@@ -94,6 +96,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->memo_date = now()->toDateString();
         $this->customer_id = null;
         $this->comments = '';
+        $this->restock_inventory = true;
         $this->lines = [
             ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '1', 'price' => '0'],
         ];
@@ -190,6 +193,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 'amount' => $amount,
                 'status' => 'Open',
                 'comments' => $this->comments,
+                'restock_inventory' => $this->restock_inventory,
             ]);
 
             foreach (array_values($this->lines) as $i => $line) {
@@ -211,11 +215,16 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 ]);
             }
 
-            app(InventoryService::class)->applyCreditMemoStock($memo->fresh('lines'));
+            if ($this->restock_inventory) {
+                app(InventoryService::class)->applyCreditMemoStock($memo->fresh('lines'));
+            }
         });
 
         $this->showForm = false;
-        session()->flash('status', 'Credit memo '.$this->memo_number.' created. Stock restocked. Apply it from an unpaid invoice.');
+        $msg = 'Credit memo '.$this->memo_number.' created.';
+        $msg .= $this->restock_inventory ? ' Stock restocked.' : ' No stock change (price adjustment).';
+        $msg .= ' Apply it from an unpaid invoice.';
+        session()->flash('status', $msg);
     }
 }; ?>
 
@@ -258,6 +267,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             </select>
                         </div>
                         @error('customer_id') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
+                        <div class="so-form-row so-form-row-side" style="align-items:center">
+                            <span class="so-form-lbl">Return to stock</span>
+                            <label class="entity-check" style="margin:0">
+                                <input type="checkbox" wire:model="restock_inventory" />
+                                Restock inventory (uncheck for price adjustments)
+                            </label>
+                        </div>
                     </div>
                     <div class="inv-card" style="grid-column: span 2">
                         <div class="inv-card-title">Comments</div>

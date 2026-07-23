@@ -93,6 +93,9 @@ class OrderController extends Controller
             ]);
 
             $subtotal = 0;
+            $neededByItem = [];
+            $resolvedLines = [];
+
             foreach (array_values($data['lines']) as $i => $line) {
                 $item = Item::query()
                     ->where('company_id', $customer->company_id)
@@ -108,6 +111,27 @@ class OrderController extends Controller
                 }
 
                 $qty = (float) $line['qty_ordered'];
+                $neededByItem[$item->id] = ($neededByItem[$item->id] ?? 0) + $qty;
+                $resolvedLines[] = compact('item', 'qty', 'line', 'i');
+            }
+
+            foreach ($neededByItem as $itemId => $needed) {
+                $item = Item::query()->lockForUpdate()->find($itemId);
+                $available = (float) $item->available_quantity;
+                if ($needed > $available + 0.0001) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'lines' => [
+                            $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').',
+                        ],
+                    ]);
+                }
+            }
+
+            foreach ($resolvedLines as $row) {
+                $item = $row['item'];
+                $qty = $row['qty'];
+                $line = $row['line'];
+                $i = $row['i'];
                 $price = array_key_exists('price', $line) && $line['price'] !== null
                     ? (float) $line['price']
                     : (float) $item->list_price;
@@ -147,7 +171,7 @@ class OrderController extends Controller
             ->with(['payments', 'credits'])
             ->where('company_id', $customer->company_id)
             ->where('customer_id', $customer->id)
-            ->when($request->boolean('unpaid_only'), fn ($q) => $q->where('status', '!=', 'Paid'))
+            ->when($request->boolean('unpaid_only'), fn ($q) => $q->where('status', '!=', 'PAID'))
             ->orderByDesc('id')
             ->paginate(min(100, max(1, $request->integer('per_page', 50))));
 

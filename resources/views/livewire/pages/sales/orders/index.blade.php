@@ -86,11 +86,18 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public function openOrder(int $id): mixed
     {
         $order = SalesOrder::query()
+            ->with('invoice')
             ->where('company_id', auth()->user()->company_id)
             ->find($id);
 
         if (! $order) {
             session()->flash('status', 'Order not found.');
+
+            return null;
+        }
+
+        if ($order->status === 'Invoiced' || $order->invoice) {
+            session()->flash('status', 'Invoiced orders are locked and cannot be edited.');
 
             return null;
         }
@@ -202,48 +209,55 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function invoiceOrder(int $id): void
     {
-        $order = SalesOrder::query()->with(['lines', 'customer'])->findOrFail($id);
-        abort_unless($order->company_id === auth()->user()->company_id, 403);
-        if ($order->status === 'Invoiced' || $order->invoice) {
+        try {
+            DB::transaction(function () use ($id) {
+                $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($id);
+                abort_unless($order->company_id === auth()->user()->company_id, 403);
+                if ($order->status === 'Invoiced' || $order->invoice) {
+                    return;
+                }
+
+                $lineDiscount = (float) $order->lines->sum('discount');
+                $invoice = Invoice::query()->create([
+                    'company_id' => $order->company_id,
+                    'invoice_number' => Invoice::nextNumber($order->company_id),
+                    'invoice_date' => now()->toDateString(),
+                    'sales_order_id' => $order->id,
+                    'customer_id' => $order->customer_id,
+                    'status' => 'NOT PAID',
+                    'subtotal' => $order->subtotal,
+                    'total_discount' => $lineDiscount,
+                    'trade_discount' => $order->trade_discount,
+                    'freight' => $order->freight,
+                    'miscellaneous' => $order->miscellaneous,
+                    'tax' => $order->tax,
+                    'invoice_total' => $order->total,
+                    'driver' => null,
+                ]);
+
+                app(InventoryService::class)->applyInvoiceStock($order, $invoice);
+
+                $order->update(['status' => 'Invoiced']);
+
+                if ($order->customer) {
+                    $customer = $order->customer;
+                    $updates = [
+                        'last_order_on' => $order->order_date ?? now()->toDateString(),
+                        'number_of_orders' => (int) $customer->number_of_orders + 1,
+                        'total_sales' => (float) $customer->total_sales + (float) $order->total,
+                        'balance' => (float) $customer->balance + (float) $order->total,
+                    ];
+                    if (blank($customer->customer_since)) {
+                        $updates['customer_since'] = $order->order_date ?? now()->toDateString();
+                    }
+                    $customer->update($updates);
+                }
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first() ?: 'Unable to invoice order.');
+
             return;
         }
-
-        DB::transaction(function () use ($order) {
-            $lineDiscount = (float) $order->lines->sum('discount');
-            $invoice = Invoice::query()->create([
-                'company_id' => $order->company_id,
-                'invoice_number' => Invoice::nextNumber($order->company_id),
-                'invoice_date' => now()->toDateString(),
-                'sales_order_id' => $order->id,
-                'customer_id' => $order->customer_id,
-                'status' => 'NOT PAID',
-                'subtotal' => $order->subtotal,
-                'total_discount' => $lineDiscount,
-                'trade_discount' => $order->trade_discount,
-                'freight' => $order->freight,
-                'miscellaneous' => $order->miscellaneous,
-                'tax' => $order->tax,
-                'invoice_total' => $order->total,
-                'driver' => null,
-            ]);
-
-            app(InventoryService::class)->applyInvoiceStock($order, $invoice);
-
-            $order->update(['status' => 'Invoiced']);
-
-            if ($order->customer && blank($order->customer->customer_since)) {
-                $order->customer->update([
-                    'customer_since' => $order->order_date ?? now()->toDateString(),
-                ]);
-            }
-            if ($order->customer) {
-                $order->customer->update([
-                    'last_order_on' => $order->order_date ?? now()->toDateString(),
-                    'number_of_orders' => (int) $order->customer->number_of_orders + 1,
-                    'total_sales' => (float) $order->customer->total_sales + (float) $order->total,
-                ]);
-            }
-        });
 
         session()->flash('status', 'Invoice created. Stock quantities updated.');
     }
@@ -350,7 +364,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+                                        @if ($order->status === 'Invoiced')
+                                            {{ $order->order_number }}
+                                        @else
+                                            <a href="{{ route('sales.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+                                        @endif
                                     </td>
                                     <td>{{ $order->order_type }}</td>
                                     <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>

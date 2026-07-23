@@ -8,6 +8,7 @@ use App\Models\Item;
 use App\Models\SalesOrder;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -100,49 +101,89 @@ Route::middleware('auth:sanctum')->group(function () {
         $customer = Customer::query()->findOrFail($data['customer_id']);
         abort_unless($customer->company_id === $user->company_id, 403);
 
-        $order = SalesOrder::query()->create([
-            'company_id' => $user->company_id,
-            'order_number' => SalesOrder::nextNumber($user->company_id),
-            'order_type' => 'Sales Order',
-            'status' => 'New',
-            'priority' => 'Normal',
-            'customer_id' => $customer->id,
-            'bill_to_name' => $customer->company_name ?: $customer->contact,
-            'bill_to_phone' => $customer->telephone,
-            'bill_to_address' => $customer->address,
-            'bill_to_city' => $customer->city,
-            'bill_to_state' => $customer->state,
-            'bill_to_zip' => $customer->zip_code,
-            'order_date' => now()->toDateString(),
-            'required_date' => now()->toDateString(),
-            'sales_rep_id' => $customer->sales_rep_id ?: $user->id,
-            'created_by' => $user->id,
-            'subtotal' => 0,
-            'total' => 0,
-        ]);
-
-        $subtotal = 0;
-        foreach (array_values($data['lines']) as $i => $line) {
-            $item = Item::query()->where('company_id', $user->company_id)->where('item_code', $line['item_code'])->first();
-            $qty = (float) $line['qty_ordered'];
-            $price = (float) ($line['price'] ?? $item?->list_price ?? 0);
-            $lineTotal = $qty * $price;
-            $subtotal += $lineTotal;
-            $order->lines()->create([
-                'item_id' => $item?->id,
-                'item_code' => $line['item_code'],
-                'description' => $item?->description,
-                'uom' => $item?->unit_of_measure,
-                'qty_ordered' => $qty,
-                'price' => $price,
-                'discount' => 0,
-                'line_total' => $lineTotal,
-                'line_no' => $i + 1,
+        $order = DB::transaction(function () use ($user, $customer, $data) {
+            $order = SalesOrder::query()->create([
+                'company_id' => $user->company_id,
+                'order_number' => SalesOrder::nextNumber($user->company_id),
+                'order_type' => 'Sales Order',
+                'status' => 'New',
+                'priority' => 'Normal',
+                'customer_id' => $customer->id,
+                'bill_to_name' => $customer->company_name ?: $customer->contact,
+                'bill_to_phone' => $customer->telephone,
+                'bill_to_address' => $customer->address,
+                'bill_to_city' => $customer->city,
+                'bill_to_state' => $customer->state,
+                'bill_to_zip' => $customer->zip_code,
+                'order_date' => now()->toDateString(),
+                'required_date' => now()->toDateString(),
+                'sales_rep_id' => $customer->sales_rep_id ?: $user->id,
+                'created_by' => $user->id,
+                'subtotal' => 0,
+                'total' => 0,
             ]);
-        }
-        $order->update(['subtotal' => $subtotal, 'total' => $subtotal]);
 
-        return response()->json($order->load('lines'), 201);
+            $subtotal = 0;
+            $neededByItem = [];
+            $resolved = [];
+
+            foreach (array_values($data['lines']) as $i => $line) {
+                $item = Item::query()
+                    ->where('company_id', $user->company_id)
+                    ->where('item_code', $line['item_code'])
+                    ->where('is_inactive', false)
+                    ->where('can_sell', true)
+                    ->first();
+
+                if (! $item) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'lines' => ["Item code {$line['item_code']} was not found or cannot be sold."],
+                    ]);
+                }
+
+                $qty = (float) $line['qty_ordered'];
+                $neededByItem[$item->id] = ($neededByItem[$item->id] ?? 0) + $qty;
+                $resolved[] = ['item' => $item, 'qty' => $qty, 'line' => $line, 'i' => $i];
+            }
+
+            foreach ($neededByItem as $itemId => $needed) {
+                $item = Item::query()->lockForUpdate()->find($itemId);
+                $available = (float) $item->available_quantity;
+                if ($needed > $available + 0.0001) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'lines' => [
+                            $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').',
+                        ],
+                    ]);
+                }
+            }
+
+            foreach ($resolved as $row) {
+                $item = $row['item'];
+                $qty = $row['qty'];
+                $line = $row['line'];
+                $price = (float) ($line['price'] ?? $item->list_price);
+                $lineTotal = $qty * $price;
+                $subtotal += $lineTotal;
+                $order->lines()->create([
+                    'item_id' => $item->id,
+                    'item_code' => $item->item_code,
+                    'description' => $item->description,
+                    'uom' => $item->unit_of_measure,
+                    'qty_ordered' => $qty,
+                    'price' => $price,
+                    'discount' => 0,
+                    'line_total' => $lineTotal,
+                    'line_no' => $row['i'] + 1,
+                ]);
+            }
+
+            $order->update(['subtotal' => $subtotal, 'total' => $subtotal]);
+
+            return $order->load('lines');
+        });
+
+        return response()->json($order, 201);
     });
 
     Route::get('/sales-orders/{salesOrder}', function (Request $request, SalesOrder $salesOrder) {

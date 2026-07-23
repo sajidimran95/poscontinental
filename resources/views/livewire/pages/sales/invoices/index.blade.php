@@ -4,6 +4,7 @@ use App\Models\CreditMemo;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -111,6 +112,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     ->where('status', 'Open')
                     ->orderByDesc('id')
                     ->get()
+                    ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
+                    ->values()
                 : collect(),
             'hasCreditSalesOrder' => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id'),
         ];
@@ -273,58 +276,96 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function savePayment(): void
     {
-        $invoice = Invoice::query()->findOrFail($this->modalInvoiceId);
+        $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
         abort_unless($invoice->company_id === auth()->user()->company_id, 403);
+
+        $balance = (float) $invoice->invoice_balance;
+        if ($balance <= 0.0001) {
+            session()->flash('status', 'Invoice is already paid.');
+
+            return;
+        }
 
         $this->validate([
             'pay_date' => 'required|date',
             'pay_method' => 'required|string',
-            'pay_amount' => 'required|numeric|min:0.01',
+            'pay_amount' => 'required|numeric|min:0.01|max:'.$balance,
+        ], [
+            'pay_amount.max' => 'Payment cannot exceed the invoice balance of $'.number_format($balance, 2).'.',
         ]);
 
         if ($this->driver !== ($invoice->driver ?? '')) {
             $invoice->update(['driver' => $this->driver !== '' ? $this->driver : null]);
         }
 
-        $payment = InvoicePayment::query()->create([
-            'invoice_id' => $invoice->id,
-            'payment_date' => $this->pay_date,
-            'payment_method' => $this->pay_method,
-            'amount' => $this->pay_amount,
-            'comments' => $this->pay_comments,
-            'user_id' => auth()->id(),
-        ]);
+        $amount = round((float) $this->pay_amount, 4);
+
+        $payment = DB::transaction(function () use ($invoice, $amount) {
+            $payment = InvoicePayment::query()->create([
+                'invoice_id' => $invoice->id,
+                'payment_date' => $this->pay_date,
+                'payment_method' => $this->pay_method,
+                'amount' => $amount,
+                'comments' => $this->pay_comments,
+                'user_id' => auth()->id(),
+            ]);
+
+            $invoice->refresh();
+            $invoice->update(['status' => $invoice->invoice_balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
+
+            if ($invoice->customer) {
+                $invoice->customer->update([
+                    'balance' => max(0, (float) $invoice->customer->balance - $amount),
+                ]);
+            }
+
+            return $payment;
+        });
 
         $this->lastPaymentId = $payment->id;
-
-        $invoice->refresh();
-        $balance = $invoice->invoice_balance;
-        $invoice->update(['status' => $balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
-
         $this->showPayForm = false;
         $this->redirect(route('sales.invoices.receipt', [$invoice, $payment]));
     }
 
     public function applyCredit(): void
     {
-        $invoice = Invoice::query()->findOrFail($this->modalInvoiceId);
+        $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
         $memo = CreditMemo::query()->findOrFail($this->applyCreditId);
         abort_unless($invoice->company_id === auth()->user()->company_id, 403);
+        abort_unless(
+            $memo->company_id === $invoice->company_id
+            && (int) $memo->customer_id === (int) $invoice->customer_id
+            && $memo->status === 'Open',
+            403
+        );
 
-        $amount = min((float) $this->applyCreditAmount, (float) $memo->amount, $invoice->invoice_balance);
+        $remaining = (float) $memo->remaining_amount;
+        $amount = min((float) $this->applyCreditAmount, $remaining, (float) $invoice->invoice_balance);
         if ($amount <= 0) {
             return;
         }
 
-        InvoiceCredit::query()->create([
-            'invoice_id' => $invoice->id,
-            'credit_memo_id' => $memo->id,
-            'amount' => $amount,
-        ]);
+        DB::transaction(function () use ($invoice, $memo, $amount, $remaining) {
+            InvoiceCredit::query()->create([
+                'invoice_id' => $invoice->id,
+                'credit_memo_id' => $memo->id,
+                'amount' => $amount,
+            ]);
 
-        $memo->update(['status' => 'Applied']);
-        $invoice->refresh();
-        $invoice->update(['status' => $invoice->invoice_balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
+            $memo->update([
+                'status' => ($remaining - $amount) <= 0.0001 ? 'Applied' : 'Open',
+            ]);
+
+            $invoice->refresh();
+            $invoice->update(['status' => $invoice->invoice_balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
+
+            if ($invoice->customer) {
+                $invoice->customer->update([
+                    'balance' => max(0, (float) $invoice->customer->balance - $amount),
+                ]);
+            }
+        });
+
         $this->applyCreditId = null;
         $this->applyCreditAmount = '';
     }
@@ -623,7 +664,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     <select id="applyCreditId" wire:model="applyCreditId" class="so-input">
                                         <option value="">—</option>
                                         @foreach ($openCredits as $cm)
-                                            <option value="{{ $cm->id }}">{{ $cm->memo_number }} — ${{ number_format($cm->amount, 2) }}</option>
+                                            <option value="{{ $cm->id }}">{{ $cm->memo_number }} — ${{ number_format($cm->remaining_amount, 2) }} remaining</option>
                                         @endforeach
                                     </select>
                                 </div>

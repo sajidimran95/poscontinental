@@ -17,11 +17,12 @@ class InventoryService
 {
     public function processReceiving(InventoryReceiving $receiving): void
     {
-        if ($receiving->status === 'Processed') {
-            return;
-        }
-
         DB::transaction(function () use ($receiving) {
+            $receiving = InventoryReceiving::query()->lockForUpdate()->find($receiving->id);
+            if (! $receiving || $receiving->status === 'Processed') {
+                return;
+            }
+
             $receiving->load(['lines', 'purchaseOrder.lines']);
             $siteId = $receiving->site_id;
 
@@ -95,11 +96,12 @@ class InventoryService
 
     public function processRtv(ReturnToVendor $rtv): void
     {
-        if ($rtv->status === 'Returned') {
-            return;
-        }
-
         DB::transaction(function () use ($rtv) {
+            $rtv = ReturnToVendor::query()->lockForUpdate()->find($rtv->id);
+            if (! $rtv || $rtv->status === 'Returned') {
+                return;
+            }
+
             $rtv->load('lines');
 
             foreach ($rtv->lines as $line) {
@@ -113,7 +115,13 @@ class InventoryService
                 }
 
                 $qty = (float) $line->qty;
-                $newQty = max(0, (float) $item->quantity_in_stock - $qty);
+                $onHand = (float) $item->quantity_in_stock;
+                if ($qty > $onHand + 0.0001) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'rtv' => $item->item_code.' RTV qty exceeds on-hand stock ('.number_format($onHand, 2).').',
+                    ]);
+                }
+                $newQty = $onHand - $qty;
                 $item->update(['quantity_in_stock' => $newQty]);
 
                 InventoryJournalEntry::query()->create([
@@ -140,11 +148,12 @@ class InventoryService
 
     public function processStockCount(StockCount $count): void
     {
-        if ($count->status === 'Processed') {
-            return;
-        }
-
         DB::transaction(function () use ($count) {
+            $count = StockCount::query()->lockForUpdate()->find($count->id);
+            if (! $count || $count->status === 'Processed') {
+                return;
+            }
+
             $count->load('lines');
 
             foreach ($count->lines as $line) {
@@ -214,7 +223,14 @@ class InventoryService
                 continue;
             }
 
-            $newQty = max(0, (float) $item->quantity_in_stock - $qty);
+            $onHand = (float) $item->quantity_in_stock;
+            if ($qty > $onHand + 0.0001) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'invoice' => $item->item_code.' cannot invoice qty '.number_format($qty, 2).' — only '.number_format($onHand, 2).' in stock.',
+                ]);
+            }
+
+            $newQty = $onHand - $qty;
             $item->update([
                 'quantity_in_stock' => $newQty,
                 'last_sold_at' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
@@ -241,10 +257,14 @@ class InventoryService
     }
 
     /**
-     * Increase on-hand when a credit memo is created (customer return / restock).
+     * Increase on-hand when a credit memo is created as a customer return / restock.
      */
     public function applyCreditMemoStock(CreditMemo $memo): void
     {
+        if (! $memo->restock_inventory) {
+            return;
+        }
+
         $memo->loadMissing('lines');
 
         foreach ($memo->lines as $line) {

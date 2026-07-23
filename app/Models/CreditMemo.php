@@ -10,7 +10,7 @@ class CreditMemo extends Model
 {
     protected $fillable = [
         'company_id', 'memo_number', 'memo_date', 'customer_id', 'sales_order_id',
-        'amount', 'status', 'comments',
+        'amount', 'status', 'comments', 'restock_inventory',
     ];
 
     protected function casts(): array
@@ -18,6 +18,7 @@ class CreditMemo extends Model
         return [
             'memo_date' => 'date',
             'amount' => 'decimal:4',
+            'restock_inventory' => 'boolean',
         ];
     }
 
@@ -34,6 +35,21 @@ class CreditMemo extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(CreditMemoLine::class)->orderBy('line_no');
+    }
+
+    public function applications(): HasMany
+    {
+        return $this->hasMany(InvoiceCredit::class);
+    }
+
+    public function getAppliedAmountAttribute(): float
+    {
+        return (float) $this->applications()->sum('amount');
+    }
+
+    public function getRemainingAmountAttribute(): float
+    {
+        return max(0, (float) $this->amount - $this->applied_amount);
     }
 
     public static function nextNumber(int $companyId): string

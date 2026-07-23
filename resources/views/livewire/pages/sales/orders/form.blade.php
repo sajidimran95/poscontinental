@@ -153,6 +153,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($salesOrder?->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
+            $salesOrder->loadMissing('invoice');
+            if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
+                session()->flash('status', 'Invoiced orders are locked and cannot be edited.');
+                $this->redirect(route('sales.orders.index'), navigate: true);
+
+                return;
+            }
             $this->salesOrder = $salesOrder->load(['lines', 'boxes', 'customer']);
             $this->fill($salesOrder->only([
                 'order_number', 'order_type', 'status', 'priority', 'customer_id', 'ship_to_address_id',
@@ -279,7 +286,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     ->when($this->browseNewOnly, fn ($q) => $q->newItems())
                     ->orderBy('item_code')
                     ->limit(80)
-                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'created_at'])
+                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'created_at'])
                 : collect(),
             'browseCustomers' => $browseCustomers,
             'subtotal' => $subtotal,
@@ -540,22 +547,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $item = $this->findItem($code);
         if (! $item) {
+            $this->lineWarning = 'Item "'.$code.'" was not found.';
+
             return;
         }
         if ($this->shouldPromptForceSubstitute($item)) {
-            $this->pendingItemId = $item->id;
-            $this->pendingLineIndex = $index;
-            $this->substituteOptions = $item->substitutes
-                ->filter(fn (ItemSubstitute $s) => $s->force_substitute && $s->substituteItem)
-                ->map(fn (ItemSubstitute $s) => [
-                    'id' => $s->substituteItem->id,
-                    'item_code' => $s->substituteItem->item_code,
-                    'description' => $s->substituteItem->description,
-                    'available' => (float) $s->substituteItem->available_quantity,
-                ])
-                ->values()
-                ->all();
-            $this->showSubstitutePrompt = true;
+            $this->openSubstitutePrompt($item, $index);
+
+            return;
+        }
+        if (! $this->canAddItemToOrder($item)) {
+            $this->lines[$index]['item_id'] = null;
+            $this->lines[$index]['item_code'] = '';
+            $this->lines[$index]['description'] = '';
 
             return;
         }
@@ -570,6 +574,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $item = $this->findItem($code);
         if (! $item) {
+            $this->lineWarning = 'Item "'.$code.'" was not found.';
+
             return;
         }
         $this->itemEntry = '';
@@ -593,23 +599,37 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function queueItemOrPromptSubstitute(Item $item): void
     {
         if ($this->shouldPromptForceSubstitute($item)) {
-            $this->pendingItemId = $item->id;
-            $this->substituteOptions = $item->substitutes
-                ->filter(fn (ItemSubstitute $s) => $s->force_substitute && $s->substituteItem)
-                ->map(fn (ItemSubstitute $s) => [
-                    'id' => $s->substituteItem->id,
-                    'item_code' => $s->substituteItem->item_code,
-                    'description' => $s->substituteItem->description,
-                    'available' => (float) $s->substituteItem->available_quantity,
-                ])
-                ->values()
-                ->all();
-            $this->showSubstitutePrompt = true;
+            $this->openSubstitutePrompt($item, null);
 
             return;
         }
 
+        if (! $this->canAddItemToOrder($item)) {
+            return;
+        }
+
         $this->appendItemLine($item);
+    }
+
+    protected function openSubstitutePrompt(Item $item, ?int $lineIndex): void
+    {
+        if (! $item->relationLoaded('substitutes')) {
+            $item->load(['substitutes.substituteItem']);
+        }
+
+        $this->pendingItemId = $item->id;
+        $this->pendingLineIndex = $lineIndex;
+        $this->substituteOptions = $item->substitutes
+            ->filter(fn (ItemSubstitute $s) => $s->force_substitute && $s->substituteItem)
+            ->map(fn (ItemSubstitute $s) => [
+                'id' => $s->substituteItem->id,
+                'item_code' => $s->substituteItem->item_code,
+                'description' => $s->substituteItem->description,
+                'available' => (float) $s->substituteItem->available_quantity,
+            ])
+            ->values()
+            ->all();
+        $this->showSubstitutePrompt = true;
     }
 
     protected function shouldPromptForceSubstitute(Item $item): bool
@@ -625,6 +645,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         return $item->substitutes->contains(fn (ItemSubstitute $s) => $s->force_substitute && $s->substitute_item_id);
     }
 
+    /**
+     * Out-of-stock items cannot be added (use a force substitute with stock instead).
+     */
+    protected function canAddItemToOrder(Item $item): bool
+    {
+        if ((float) $item->available_quantity > 0) {
+            return true;
+        }
+
+        $this->lineWarning = $item->item_code.' has no stock available and cannot be added to this order.';
+
+        return false;
+    }
+
     public function acceptSubstitute(int $substituteItemId): void
     {
         $item = Item::query()->with(['prices', 'taxSchedule'])
@@ -638,6 +672,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $item) {
             return;
         }
+        if (! $this->canAddItemToOrder($item)) {
+            return;
+        }
         if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
             $this->fillLineFromItem($lineIndex, $item);
         } else {
@@ -649,22 +686,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function keepOriginalItem(): void
     {
         $item = $this->pendingItemId
-            ? Item::query()->with(['prices', 'taxSchedule'])->where('company_id', auth()->user()->company_id)->find($this->pendingItemId)
+            ? Item::query()->where('company_id', auth()->user()->company_id)->find($this->pendingItemId)
             : null;
-        $lineIndex = $this->pendingLineIndex;
         $this->showSubstitutePrompt = false;
         $this->pendingItemId = null;
         $this->pendingLineIndex = null;
         $this->substituteOptions = [];
-        if (! $item) {
-            return;
-        }
-        if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
-            $this->fillLineFromItem($lineIndex, $item);
-        } else {
-            $this->appendItemLine($item);
-        }
-        $this->lineWarning = $item->item_code.' is out of stock; kept original per operator choice.';
+        $code = $item?->item_code ?? 'Item';
+        $this->lineWarning = $code.' has no stock available and cannot be added to this order.';
     }
 
     public function cancelSubstitutePrompt(): void
@@ -693,6 +722,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         return Item::query()
             ->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
             ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
             ->where(function ($q) use ($code) {
                 $q->where('item_code', $code)
                     ->orWhere('primary_upc', $code)
@@ -751,6 +782,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function save(): void
     {
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->refresh()->loadMissing('invoice');
+            if ($this->salesOrder->status === 'Invoiced' || $this->salesOrder->invoice) {
+                $this->addError('order_number', 'Invoiced orders cannot be changed.');
+
+                return;
+            }
+        }
+
         try {
             $this->validate([
                 'order_number' => 'required|string|max:64',
@@ -775,6 +815,67 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             return;
         }
+
+        foreach ($this->lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null) || (float) ($line['qty_ordered'] ?? 0) <= 0) {
+                continue;
+            }
+            if (empty($line['item_id'])) {
+                $resolved = $this->findItem(trim((string) $line['item_code']));
+                if ($resolved) {
+                    $this->lines[$i]['item_id'] = $resolved->id;
+                    $line['item_id'] = $resolved->id;
+                } else {
+                    $this->addError('lines', 'Item "'.$line['item_code'].'" is not a valid sellable item.');
+                    $this->activeTab = 'items';
+
+                    return;
+                }
+            }
+        }
+
+        $neededByItem = [];
+        foreach ($this->lines as $line) {
+            if (empty($line['item_id']) || (float) ($line['qty_ordered'] ?? 0) <= 0) {
+                continue;
+            }
+            $itemId = (int) $line['item_id'];
+            $neededByItem[$itemId] = ($neededByItem[$itemId] ?? 0) + (float) $line['qty_ordered'];
+        }
+
+        $previousByItem = [];
+        if ($this->salesOrder?->exists) {
+            foreach ($this->salesOrder->lines as $prev) {
+                if (! $prev->item_id) {
+                    continue;
+                }
+                $previousByItem[(int) $prev->item_id] = ($previousByItem[(int) $prev->item_id] ?? 0) + (float) $prev->qty_ordered;
+            }
+        }
+
+        foreach ($neededByItem as $itemId => $needed) {
+            $item = Item::query()->find($itemId);
+            if (! $item) {
+                $this->addError('lines', 'One or more items could not be found.');
+                $this->activeTab = 'items';
+
+                return;
+            }
+            $available = (float) $item->available_quantity + (float) ($previousByItem[$itemId] ?? 0);
+            if ($available <= 0) {
+                $this->addError('lines', $item->item_code.' has no stock available and cannot be saved on this order.');
+                $this->activeTab = 'items';
+
+                return;
+            }
+            if ($needed > $available + 0.0001) {
+                $this->addError('lines', $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').');
+                $this->activeTab = 'items';
+
+                return;
+            }
+        }
+
         $this->lineWarning = '';
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
@@ -857,11 +958,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 if (! filled($line['item_code'] ?? null)) {
                     continue;
                 }
+                if (empty($line['item_id'])) {
+                    continue;
+                }
                 $qty = (float) $line['qty_ordered'];
                 $price = (float) $line['price'];
                 $discount = (float) $line['discount'];
                 $order->lines()->create([
-                    'item_id' => $line['item_id'] ?: null,
+                    'item_id' => (int) $line['item_id'],
                     'item_code' => $line['item_code'],
                     'description' => $line['description'] ?: null,
                     'uom' => $line['uom'] ?: null,
@@ -1216,12 +1320,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </label>
                             <div class="max-h-40 overflow-auto">
                             <table class="w-full text-xs">
-                                <thead><tr class="bg-slate-100"><th class="px-2 py-1 text-left">Code</th><th class="px-2 py-1 text-left">Description</th><th class="px-2 py-1 text-right">Price</th><th class="px-2 py-1 text-left">New</th></tr></thead>
+                                <thead><tr class="bg-slate-100"><th class="px-2 py-1 text-left">Code</th><th class="px-2 py-1 text-left">Description</th><th class="px-2 py-1 text-right">Stock</th><th class="px-2 py-1 text-right">Price</th><th class="px-2 py-1 text-left">New</th></tr></thead>
                                 <tbody>
                                     @foreach ($browseItems as $bi)
-                                        <tr class="hover:bg-sky-50 cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
+                                        @php $avail = (float) $bi->available_quantity; @endphp
+                                        <tr class="{{ $avail > 0 ? 'hover:bg-sky-50 cursor-pointer' : 'opacity-60' }}" @if ($avail > 0) wire:click="pickBrowseItem({{ $bi->id }})" @endif>
                                             <td class="px-2 py-0.5 font-mono">{{ $bi->item_code }}</td>
                                             <td class="px-2 py-0.5">{{ $bi->description }}</td>
+                                            <td class="px-2 py-0.5 text-right {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
                                             <td class="px-2 py-0.5 text-right">${{ number_format($bi->list_price, 2) }}</td>
                                             <td class="px-2 py-0.5">{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
                                         </tr>
@@ -1397,7 +1503,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <button type="button" wire:click="cancelSubstitutePrompt" class="text-white hover:text-red-200" aria-label="Close">×</button>
                 </div>
                 <div class="p-3 space-y-2 text-sm">
-                    <p>Selected item is out of stock. Choose a forced substitute, or keep the original.</p>
+                    <p>Selected item is out of stock. Choose a substitute that has stock, or cancel.</p>
                     <ul class="border border-slate-300 divide-y max-h-48 overflow-auto">
                         @forelse ($substituteOptions as $opt)
                             <li class="flex items-center justify-between gap-2 px-2 py-1.5">
@@ -1406,7 +1512,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     — {{ $opt['description'] }}
                                     <span class="text-xs text-slate-500">(avail {{ number_format($opt['available'], 0) }})</span>
                                 </span>
-                                <button type="button" wire:click="acceptSubstitute({{ $opt['id'] }})" class="chief-btn-primary text-xs">Use</button>
+                                @if ($opt['available'] > 0)
+                                    <button type="button" wire:click="acceptSubstitute({{ $opt['id'] }})" class="chief-btn-primary text-xs">Use</button>
+                                @else
+                                    <span class="text-xs text-red-700">No stock</span>
+                                @endif
                             </li>
                         @empty
                             <li class="px-2 py-2 text-slate-500">No substitute items configured.</li>
@@ -1414,7 +1524,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </ul>
                     <div class="flex justify-end gap-2 pt-1">
                         <button type="button" wire:click="cancelSubstitutePrompt" class="chief-btn">Cancel</button>
-                        <button type="button" wire:click="keepOriginalItem" class="chief-btn">Keep original</button>
                     </div>
                 </div>
             </div>

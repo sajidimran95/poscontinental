@@ -324,7 +324,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         $this->lastPaymentId = $payment->id;
         $this->showPayForm = false;
-        $this->redirect(route('sales.invoices.receipt', [$invoice, $payment]));
+        $this->modalInvoiceId = $invoice->id;
+        session()->flash('status', 'Payment of $'.number_format($amount, 2).' saved.');
+        $this->dispatch('open-invoice-pdf', url: route('sales.invoices.receipt', [$invoice, $payment]));
     }
 
     public function applyCredit(): void
@@ -751,7 +753,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 <script>
     $wire.on('open-invoice-pdf', (payload) => {
         const url = payload?.url ?? payload?.[0]?.url;
-        if (url) window.open(url, '_blank');
+        if (url) {
+            window.open(url, '_blank', 'noopener');
+        }
     });
 </script>
 @endscript

@@ -48,7 +48,6 @@
                             ['Suppliers', 'purchasing.suppliers.index'],
                             ['New Supplier', 'purchasing.suppliers.create'],
                         ],
-                        'Windows' => [],
                         'Reports' => [
                             ['Sales Report', 'reports.sales'],
                             ['Price List', 'reports.price-list'],
@@ -58,7 +57,6 @@
                             ['Stamp Inventory', 'tobacco.stamp-inventory'],
                             ['XML Filing', 'tobacco.filing'],
                         ],
-                        'Help' => [],
                     ] as $menu => $items)
                         <div class="relative group">
                             <button type="button" class="px-2 py-1 hover:bg-slate-200 rounded-sm">{{ $menu }}</button>

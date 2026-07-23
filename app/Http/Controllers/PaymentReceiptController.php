@@ -5,14 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Http\Response;
 
 class PaymentReceiptController extends Controller
 {
-    public function __invoke(Invoice $invoice, InvoicePayment $payment): Response
+    public function __invoke(Invoice $invoice, InvoicePayment $payment)
     {
-        abort_unless($invoice->company_id === auth()->user()->company_id, 403);
-        abort_unless($payment->invoice_id === $invoice->id, 404);
+        abort_unless(auth()->check(), 403);
+        abort_unless((int) $invoice->company_id === (int) auth()->user()->company_id, 403);
+        abort_unless((int) $payment->invoice_id === (int) $invoice->id, 404);
 
         $invoice->load(['customer', 'salesOrder', 'payments', 'credits']);
 
@@ -22,6 +22,6 @@ class PaymentReceiptController extends Controller
             'company' => auth()->user()->company,
         ]);
 
-        return $pdf->download('payment-receipt-'.$invoice->invoice_number.'-'.$payment->id.'.pdf');
+        return $pdf->stream('payment-receipt-'.$invoice->invoice_number.'-'.$payment->id.'.pdf');
     }
 }

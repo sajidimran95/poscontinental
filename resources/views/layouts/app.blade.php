@@ -19,6 +19,7 @@
                     @foreach ([
                         'File' => [
                             ['Users & Roles', 'admin.users.index'],
+                            ['Customer App API', 'admin.customer-app-access'],
                             ['Email Send Log', 'admin.email-logs'],
                         ],
                         'Inquiry' => [
@@ -123,6 +124,7 @@
                     'tobacco.stamp-inventory' => 'Stamp Inventory',
                     'tobacco.filing' => 'Tobacco Filing',
                     'admin.users.index' => 'Users & Roles',
+                    'admin.customer-app-access' => 'Customer App API',
                     'admin.email-logs' => 'Email Send Log',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];

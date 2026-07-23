@@ -316,11 +316,10 @@ Inactive (`403`):
 
 ## POS admin
 
-### Turn Customer App API on/off (platform admin)
-1. Open **`/admin/login`**
-2. Login: `admin@gmail.com` / `password`
-3. Go to **Companies**
-4. Click **Activate API** / **Deactivate API** for that company
+### Turn Customer App API on/off
+1. Log into POS.
+2. **File → Customer App API**.
+3. Click **Activate API** or **Deactivate API** for your company.
 
 ### Set a customer’s login (email / password)
 1. POS → **Sales → Customers** → edit customer → **Account Summary** tab.

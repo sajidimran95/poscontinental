@@ -23,7 +23,6 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
-        'is_platform_admin',
     ];
 
     protected $hidden = [
@@ -37,7 +36,6 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
-            'is_platform_admin' => 'boolean',
         ];
     }
 
@@ -59,10 +57,5 @@ class User extends Authenticatable
     public function isSalesRep(): bool
     {
         return $this->role?->name === 'sales_rep';
-    }
-
-    public function isPlatformAdmin(): bool
-    {
-        return (bool) $this->is_platform_admin;
     }
 }

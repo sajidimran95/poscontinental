@@ -12,22 +12,8 @@ Route::post('logout', LogoutController::class)
     ->middleware('auth')
     ->name('logout');
 
-Volt::route('admin/login', 'pages.admin.panel.login')->name('admin.panel.login')->middleware('guest');
-
-Route::middleware(['auth', 'platform.admin'])->prefix('admin-panel')->name('admin.panel.')->group(function () {
-    Volt::route('/', 'pages.admin.panel.dashboard')->name('dashboard');
-    Volt::route('companies', 'pages.admin.panel.companies')->name('companies');
-    Volt::route('companies/create', 'pages.admin.panel.companies-create')->name('companies.create');
-});
-
 Route::middleware(['auth'])->group(function () {
-    Route::get('home', function () {
-        if (auth()->user()?->isPlatformAdmin()) {
-            return redirect()->route('admin.panel.dashboard');
-        }
-
-        return view('home');
-    })->name('home');
+    Route::view('home', 'home')->name('home');
     Route::redirect('dashboard', '/home')->name('dashboard');
 
     Route::view('profile', 'profile')->name('profile');
@@ -35,9 +21,9 @@ Route::middleware(['auth'])->group(function () {
     // Lookups
     Volt::route('lookups', 'pages.lookups.index')->name('lookups.index');
 
-    // Admin
-    // Admin
+    // Admin (company POS)
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
+    Volt::route('admin/customer-app-api', 'pages.admin.customer-app-access')->name('admin.customer-app-access');
     Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
 
     // Purchasing / Suppliers

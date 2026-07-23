@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ItemMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -29,9 +30,11 @@ class ItemMediaController extends Controller
             return response()->json(['message' => 'Could not store image.'], 422);
         }
 
+        $published = ItemMedia::publishToPublic($path);
+
         return response()->json([
             'path' => $path,
-            'url' => '/storage/'.$path,
+            'url' => $published ? '/'.$published : '/media/'.$path,
         ]);
     }
 }

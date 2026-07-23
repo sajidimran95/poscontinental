@@ -4,6 +4,7 @@ use App\Http\Controllers\DocumentPdfController;
 use App\Http\Controllers\ItemMediaController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\PaymentReceiptController;
+use App\Http\Controllers\PublicMediaController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -12,6 +13,11 @@ Route::redirect('/', '/login');
 Route::post('logout', LogoutController::class)
     ->middleware('auth')
     ->name('logout');
+
+// Public item media (no auth) — <img> tags must load without a session cookie.
+Route::get('media/{path}', [PublicMediaController::class, 'show'])
+    ->where('path', '.*')
+    ->name('media.show');
 
 Route::middleware(['auth'])->group(function () {
     Route::view('home', 'home')->name('home');

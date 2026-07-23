@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use App\Support\ItemMedia;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -42,6 +43,24 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         $this->runCommands([
             'storage:link' => ['--force' => true],
         ], 'Storage link created (public/storage → storage/app/public).');
+    }
+
+    public function syncItemMedia(): void
+    {
+        $this->output = '';
+        $this->status = '';
+        $this->error = '';
+
+        try {
+            $result = ItemMedia::syncAll();
+            $this->output = "> Sync item images to public/uploads\n"
+                ."Copied: {$result['copied']}\n"
+                ."Already present: {$result['skipped']}\n"
+                ."Errors: {$result['errors']}\n";
+            $this->status = 'Item media synced to public/uploads (preview URLs work without symlink).';
+        } catch (\Throwable $e) {
+            $this->error = $e->getMessage();
+        }
     }
 
     public function seedUom(): void
@@ -130,7 +149,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -139,7 +158,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -149,7 +168,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn"
                 >
                     Optimize Clear
@@ -158,11 +177,21 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="storageLink"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Create or refresh the public/storage link? Needed for item images and uploads."
                 >
                     Storage Link
+                </button>
+                <button
+                    type="button"
+                    wire:click="syncItemMedia"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    class="desk-btn desk-btn-primary"
+                    wire:confirm="Copy item images from storage into public/uploads so previews work on the live server?"
+                >
+                    Sync Item Images
                 </button>
             </div>
 
@@ -172,7 +201,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedUom"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Seed UOM Schedules
@@ -181,7 +210,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runSeeders"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
@@ -190,7 +219,8 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
             </div>
 
             <p class="item-hint" style="border:0;margin:0.75rem 0 0;padding:0;font-size:0.75rem;color:#64748b">
-                <strong>Storage Link</strong> — <code>php artisan storage:link --force</code> (item images) &nbsp;·&nbsp;
+                <strong>Sync Item Images</strong> — copies <code>storage/app/public/items</code> → <code>public/uploads/items</code> (fixes live preview) &nbsp;·&nbsp;
+                <strong>Storage Link</strong> — <code>php artisan storage:link --force</code> &nbsp;·&nbsp;
                 <strong>Seed UOM</strong> — adds EA, BX, CS, CTN… (safe, skips existing) &nbsp;·&nbsp;
                 <strong>Database Seeder</strong> — full demo seed (<code>DatabaseSeeder</code>)
             </p>
@@ -202,9 +232,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

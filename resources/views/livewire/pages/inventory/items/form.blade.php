@@ -16,6 +16,7 @@ use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\TaxSchedule;
 use App\Models\UomSchedule;
+use App\Support\ItemMedia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -176,6 +177,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             // Keep image paths as plain strings for reliable preview URLs.
             $this->image_path = filled($item->image_path) ? (string) $item->image_path : null;
             $this->thumbnail_path = filled($item->thumbnail_path) ? (string) $item->thumbnail_path : null;
+            $this->forgetMissingMediaPaths();
 
             $this->last_received_at = optional($item->last_received_at)?->format('Y-m-d');
             $this->last_ordered_at = optional($item->last_ordered_at)?->format('Y-m-d');
@@ -484,18 +486,29 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function mediaUrl(?string $path): ?string
     {
-        if (! filled($path)) {
-            return null;
+        return ItemMedia::url($path);
+    }
+
+    protected function forgetMissingMediaPaths(): void
+    {
+        $changed = false;
+
+        if (filled($this->image_path) && ! ItemMedia::exists($this->image_path)) {
+            $this->image_path = null;
+            $changed = true;
         }
 
-        if (! Storage::disk('public')->exists($path)) {
-            return null;
+        if (filled($this->thumbnail_path) && ! ItemMedia::exists($this->thumbnail_path)) {
+            $this->thumbnail_path = null;
+            $changed = true;
         }
 
-        // Root-relative so images work no matter which host/port you open (Laragon).
-        $version = Storage::disk('public')->lastModified($path);
-
-        return '/storage/'.$path.'?v='.$version;
+        if ($changed && $this->item?->exists) {
+            $this->item->update([
+                'image_path' => $this->image_path,
+                'thumbnail_path' => $this->thumbnail_path,
+            ]);
+        }
     }
 
     public function uploadItemMedia(string $dataUrl, string $originalName, string $type = 'image'): void
@@ -552,6 +565,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         Storage::disk('public')->makeDirectory($directory);
         $path = $directory.'/'.Str::uuid()->toString().'.'.$ext;
         Storage::disk('public')->put($path, $binary);
+        ItemMedia::publishToPublic($path);
 
         if ($type === 'image') {
             $this->assignImagePath($path);
@@ -566,17 +580,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return;
         }
 
-        $path = ltrim($path, '/');
-        if (! Storage::disk('public')->exists($path)) {
+        $path = ltrim(str_replace('\\', '/', $path), '/');
+        if (! ItemMedia::exists($path)) {
             $this->addError('image_path', 'Uploaded image was not found on disk.');
 
             return;
         }
 
-        if (filled($this->image_path) && $this->image_path !== $path && Storage::disk('public')->exists($this->image_path)) {
-            Storage::disk('public')->delete($this->image_path);
+        if (filled($this->image_path) && $this->image_path !== $path) {
+            ItemMedia::forgetPublicCopy($this->image_path);
+            if (Storage::disk('public')->exists($this->image_path)) {
+                Storage::disk('public')->delete($this->image_path);
+            }
         }
 
+        ItemMedia::publishToPublic($path);
         $this->image_path = $path;
         $this->resetErrorBag('image_path');
 
@@ -594,17 +612,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return;
         }
 
-        $path = ltrim($path, '/');
-        if (! Storage::disk('public')->exists($path)) {
+        $path = ltrim(str_replace('\\', '/', $path), '/');
+        if (! ItemMedia::exists($path)) {
             $this->addError('thumbnail_path', 'Uploaded thumbnail was not found on disk.');
 
             return;
         }
 
-        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $path && Storage::disk('public')->exists($this->thumbnail_path)) {
-            Storage::disk('public')->delete($this->thumbnail_path);
+        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $path) {
+            ItemMedia::forgetPublicCopy($this->thumbnail_path);
+            if (Storage::disk('public')->exists($this->thumbnail_path)) {
+                Storage::disk('public')->delete($this->thumbnail_path);
+            }
         }
 
+        ItemMedia::publishToPublic($path);
         $this->thumbnail_path = $path;
         $this->resetErrorBag('thumbnail_path');
         $this->persistMediaPaths();
@@ -628,8 +650,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return;
         }
 
-        if (filled($this->image_path) && Storage::disk('public')->exists($this->image_path)) {
-            Storage::disk('public')->delete($this->image_path);
+        if (filled($this->image_path)) {
+            ItemMedia::forgetPublicCopy($this->image_path);
+            if (Storage::disk('public')->exists($this->image_path)) {
+                Storage::disk('public')->delete($this->image_path);
+            }
         }
         $this->image_path = null;
         $this->persistMediaPaths();
@@ -641,8 +666,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return;
         }
 
-        if (filled($this->thumbnail_path) && Storage::disk('public')->exists($this->thumbnail_path)) {
-            Storage::disk('public')->delete($this->thumbnail_path);
+        if (filled($this->thumbnail_path)) {
+            ItemMedia::forgetPublicCopy($this->thumbnail_path);
+            if (Storage::disk('public')->exists($this->thumbnail_path)) {
+                Storage::disk('public')->delete($this->thumbnail_path);
+            }
         }
         $this->thumbnail_path = null;
         $this->persistMediaPaths();
@@ -656,8 +684,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $this->resetErrorBag('thumbnail_path');
 
-        if (! filled($this->image_path) || ! Storage::disk('public')->exists($this->image_path)) {
+        if (! filled($this->image_path) || ! ItemMedia::exists($this->image_path)) {
             $this->addError('thumbnail_path', 'Upload a main image first, then copy it to thumbnail.');
+
+            return;
+        }
+
+        // Ensure source is on the public disk for copy().
+        if (! Storage::disk('public')->exists($this->image_path)) {
+            $this->addError('thumbnail_path', 'Main image file is missing on the server.');
 
             return;
         }
@@ -666,11 +701,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $newThumb = 'items/thumbnails/'.Str::uuid().'.'.$ext;
         Storage::disk('public')->makeDirectory('items/thumbnails');
 
-        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $this->image_path && Storage::disk('public')->exists($this->thumbnail_path)) {
-            Storage::disk('public')->delete($this->thumbnail_path);
+        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $this->image_path) {
+            ItemMedia::forgetPublicCopy($this->thumbnail_path);
+            if (Storage::disk('public')->exists($this->thumbnail_path)) {
+                Storage::disk('public')->delete($this->thumbnail_path);
+            }
         }
 
         Storage::disk('public')->copy($this->image_path, $newThumb);
+        ItemMedia::publishToPublic($newThumb);
         $this->thumbnail_path = $newThumb;
         $this->persistMediaPaths();
     }

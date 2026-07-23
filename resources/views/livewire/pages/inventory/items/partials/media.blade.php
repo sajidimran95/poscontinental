@@ -62,7 +62,7 @@
                 @endunless
             </div>
         @elseif ($image_path)
-            <p class="item-hint">Image file missing on disk ({{ $image_path }}).</p>
+            <p class="item-hint">Image file missing on server — choose a new file.</p>
         @elseif ($viewMode)
             <p class="item-hint">No image.</p>
         @endif
@@ -94,7 +94,7 @@
                 @endunless
             </div>
         @elseif ($thumbnail_path)
-            <p class="item-hint">Thumbnail file missing on disk ({{ $thumbnail_path }}).</p>
+            <p class="item-hint">Thumbnail file missing on server — choose a new file or Copy from image.</p>
         @elseif ($viewMode)
             <p class="item-hint">No thumbnail.</p>
         @endif

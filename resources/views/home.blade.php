@@ -30,7 +30,6 @@
             'icon' => 'barcode',
             'links' => [
                 ['Items', 'inventory.items.index', true],
-                ['Transfers', null, false],
                 ['Stock Counts', 'inventory.stock-counts.index', true],
                 ['New Item', 'inventory.items.create', true],
             ],

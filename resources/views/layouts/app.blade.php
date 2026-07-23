@@ -30,7 +30,6 @@
                             ['Items', 'inventory.items.index'],
                             ['New Item', 'inventory.items.create'],
                             ['Stock Counts', 'inventory.stock-counts.index'],
-                            ['Transfers', null],
                         ],
                         'Sales' => [
                             ['New Sales Order', 'sales.orders.create'],

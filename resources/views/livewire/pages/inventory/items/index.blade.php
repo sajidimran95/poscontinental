@@ -223,6 +223,36 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->resetPage();
     }
 
+    public function printList(): void
+    {
+        $url = route('inventory.items.print', array_filter([
+            'search' => $this->search !== '' ? $this->search : null,
+            'favorite' => $this->favorite !== 'all' ? $this->favorite : null,
+            'status' => $this->statusFilter !== '' ? $this->statusFilter : null,
+            'title' => $this->listTitleForPrint(),
+        ]));
+
+        $this->dispatch('open-items-print', url: $url);
+    }
+
+    protected function listTitleForPrint(): string
+    {
+        if ($this->favorite === 'new') {
+            return 'New Items';
+        }
+        if ($this->favorite === 'active' || $this->statusFilter === 'active') {
+            return 'Active Items';
+        }
+        if ($this->favorite === 'inactive' || $this->statusFilter === 'inactive') {
+            return 'Inactive Items';
+        }
+        if ($this->favorite === 'low_stock') {
+            return 'Low Stock Items';
+        }
+
+        return 'Items List';
+    }
+
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
@@ -496,6 +526,13 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
+                <button type="button" wire:click="printList" class="desk-rail-btn" title="Print all filtered items" aria-label="Print items list">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
+                        <path d="M4 6V2h8v4"/>
+                        <rect x="2" y="6" width="12" height="6" rx="1"/>
+                        <path d="M4 10h8v4H4v-4z"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M13 8a5 5 0 11-1.2-3.3"/>
@@ -511,3 +548,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         </div>
     </div>
 </div>
+
+@script
+<script>
+    $wire.on('open-items-print', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (url) {
+            window.open(url, '_blank', 'noopener');
+        }
+    });
+</script>
+@endscript

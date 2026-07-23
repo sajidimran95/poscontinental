@@ -31,6 +31,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $browseNewOnly = false;
 
+    public string $browseSearch = '';
+
     public string $favorite = 'new';
 
     public string $order_number = '';
@@ -293,8 +295,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     ->where('is_inactive', false)
                     ->where('can_sell', true)
                     ->when($this->browseNewOnly, fn ($q) => $q->newItems())
+                    ->when(filled($this->browseSearch), function ($q) {
+                        $term = '%'.$this->browseSearch.'%';
+                        $q->where(function ($inner) use ($term) {
+                            $inner->where('item_code', 'like', $term)
+                                ->orWhere('description', 'like', $term)
+                                ->orWhere('primary_upc', 'like', $term);
+                        });
+                    })
                     ->orderBy('item_code')
-                    ->limit(80)
+                    ->limit(200)
                     ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'created_at'])
                 : collect(),
             'browseCustomers' => $browseCustomers,
@@ -586,6 +596,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             return;
         }
+
+        // Same item already on another line → increase qty there instead of duplicating.
+        $existingIndex = $this->findLineIndexForItem((int) $item->id);
+        if ($existingIndex !== null && $existingIndex !== $index) {
+            $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
+            $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->lines[$index] = $this->emptyLine();
+            $this->taxManual = false;
+            $this->refreshCreditWarning();
+            $this->suggestTax();
+            $this->lineWarning = $item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.';
+
+            return;
+        }
+
         $this->fillLineFromItem($index, $item);
     }
 
@@ -740,8 +765,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function appendItemLine(Item $item): void
     {
+        $existingIndex = $this->findLineIndexForItem((int) $item->id);
+        if ($existingIndex !== null) {
+            $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
+            $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->taxManual = false;
+            $this->refreshCreditWarning();
+            $this->suggestTax();
+            $this->lineWarning = $item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.';
+
+            return;
+        }
+
         $this->lines[] = $this->emptyLine();
         $this->fillLineFromItem(count($this->lines) - 1, $item);
+    }
+
+    protected function findLineIndexForItem(int $itemId): ?int
+    {
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === $itemId) {
+                return (int) $i;
+            }
+        }
+
+        return null;
     }
 
     public function toggleBrowse(): void
@@ -749,6 +797,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showBrowse = ! $this->showBrowse;
         $this->showCustomerBrowse = false;
         $this->showShipBrowse = false;
+        if ($this->showBrowse) {
+            $this->browseSearch = trim($this->itemEntry);
+        }
+    }
+
+    public function closeBrowse(): void
+    {
+        $this->showBrowse = false;
     }
 
     protected function findItem(string $code): ?Item
@@ -1046,27 +1102,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
         <fieldset class="so-form-fields" @disabled($viewMode)>
         @if (filled($customerAlert))
-            <div class="mx-2 mt-1 border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-950" role="alert">
+            <div class="so-msg so-msg-alert" role="alert">
                 <strong>Alert:</strong> {{ $customerAlert }}
             </div>
         @endif
         @if (filled($creditWarning))
-            <div class="mx-2 mt-1 border border-orange-500 bg-orange-50 px-2 py-1 text-xs text-orange-950" role="alert">
+            <div class="so-msg so-msg-credit" role="alert">
                 <strong>Credit:</strong> {{ $creditWarning }}
             </div>
         @endif
         @if (filled($taxExemptWarning))
-            <div class="mx-2 mt-1 border border-red-500 bg-red-50 px-2 py-1 text-xs text-red-950" role="alert">
+            <div class="so-msg so-msg-danger" role="alert">
                 <strong>Tax Exempt:</strong> {{ $taxExemptWarning }}
             </div>
         @endif
         @if (filled($lineWarning))
-            <div class="mx-2 mt-1 border border-sky-400 bg-sky-50 px-2 py-1 text-xs text-sky-950" role="status">
-                {{ $lineWarning }}
+            <div class="so-msg so-msg-info" role="status">
+                <strong>Note:</strong> {{ $lineWarning }}
             </div>
         @endif
         @error('lines')
-            <div class="mx-2 mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
+            <div class="so-msg so-msg-danger" role="alert">{{ $message }}</div>
         @enderror
 
         <div class="so-body">
@@ -1296,7 +1352,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
             </div>
             @elseif ($activeTab === 'items')
-                <div class="so-items-wrap so-items-wrap-tall" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items">
+                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items">
+                <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
                         <table class="w-full">
@@ -1316,7 +1373,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 @foreach ($lines as $i => $line)
                                     <tr>
                                         <td>
-                                            <input wire:model.blur="lines.{{ $i }}.item_code" wire:keydown.enter.prevent="lookupItem({{ $i }})" class="so-input font-mono" style="width:6.5rem" />
+                                            <input wire:model.blur="lines.{{ $i }}.item_code" wire:keydown.enter.prevent="lookupItem({{ $i }})" wire:keydown.f2.prevent="toggleBrowse" class="so-input font-mono" style="width:6.5rem" />
                                         </td>
                                         <td><input wire:model="lines.{{ $i }}.description" class="so-input w-full min-w-[10rem]" /></td>
                                         <td><input wire:model="lines.{{ $i }}.uom" class="so-input" style="width:3.5rem" /></td>
@@ -1340,6 +1397,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             wire:keydown.enter.prevent="addItemFromEntry"
                             wire:keydown.f2.prevent="toggleBrowse"
                             class="so-input so-entry-input"
+                            id="so-item-entry"
                         />
                         <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
@@ -1353,50 +1411,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                         </button>
-                        <button type="button" wire:click="toggleBrowse" class="so-browse-btn">Browse</button>
+                        <button type="button" wire:click="toggleBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
                     </div>
-                    @if ($showBrowse)
-                        <div class="border-t border-slate-300 bg-white">
-                            <label class="flex items-center gap-2 px-2 py-1 text-xs border-b border-slate-200">
-                                <input type="checkbox" wire:model.live="browseNewOnly" />
-                                New Items only (last 30 days)
-                            </label>
-                            <div class="max-h-40 overflow-auto">
-                            <table class="w-full text-xs">
-                                <thead><tr class="bg-slate-100"><th class="px-2 py-1 text-left">Code</th><th class="px-2 py-1 text-left">Description</th><th class="px-2 py-1 text-right">Stock</th><th class="px-2 py-1 text-right">Price</th><th class="px-2 py-1 text-left">New</th></tr></thead>
-                                <tbody>
-                                    @foreach ($browseItems as $bi)
-                                        @php $avail = (float) $bi->available_quantity; @endphp
-                                        <tr class="{{ $avail > 0 ? 'hover:bg-sky-50 cursor-pointer' : 'opacity-60' }}" @if ($avail > 0) wire:click="pickBrowseItem({{ $bi->id }})" @endif>
-                                            <td class="px-2 py-0.5 font-mono">{{ $bi->item_code }}</td>
-                                            <td class="px-2 py-0.5">{{ $bi->description }}</td>
-                                            <td class="px-2 py-0.5 text-right {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
-                                            <td class="px-2 py-0.5 text-right">${{ number_format($bi->list_price, 2) }}</td>
-                                            <td class="px-2 py-0.5">{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                            </div>
-                        </div>
-                    @endif
                 </div>
 
                 <div class="so-footer">
                     <div class="so-counters">
-                        <div class="so-counter-line">
-                            <span>Total Lines: <strong>{{ $totalLines }}</strong></span>
-                            <span>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></span>
+                        <div class="so-counter-col">
+                            <div>Total Lines: <strong>{{ $totalLines }}</strong></div>
+                            <div>Total Items: <strong>{{ $totalItems }}</strong></div>
+                            <div>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></div>
+                            <div>Total items Shipped: <strong>{{ $totalShipped }}</strong></div>
                         </div>
-                        <div class="so-counter-line">
-                            <span>Total Items: <strong>{{ $totalItems }}</strong></span>
-                            <span>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></span>
-                        </div>
-                        <div class="so-counter-line">
-                            <span>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></span>
-                        </div>
-                        <div class="so-counter-line">
-                            <span>Total items Shipped: <strong>{{ $totalShipped }}</strong></span>
+                        <div class="so-counter-col">
+                            <div>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></div>
+                            <div>Total Allowances: <strong>${{ number_format($totalAllowances, 2) }}</strong></div>
                         </div>
                     </div>
                     <div class="so-totals">
@@ -1419,6 +1448,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </div>
                         <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>
+                </div>
                 </div>
             @elseif ($activeTab === 'shipping')
                 <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
@@ -1545,6 +1575,72 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     </div>
 
+    @if ($showBrowse)
+        <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeBrowse" role="dialog" aria-modal="true" aria-labelledby="item-browse-title">
+            <div class="desk-modal desk-modal-lg so-item-browse-modal" wire:keydown.escape.window="closeBrowse">
+                <div class="desk-modal-head">
+                    <span id="item-browse-title">Item List (F2)</span>
+                    <button type="button" wire:click="closeBrowse" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-item-browse-toolbar">
+                    <input
+                        id="so-browse-search"
+                        type="search"
+                        wire:model.live.debounce.200ms="browseSearch"
+                        class="so-input so-item-browse-search"
+                        placeholder="Search code, description, UPC…"
+                        aria-label="Search items"
+                        autofocus
+                    />
+                    <label class="so-item-browse-check">
+                        <input type="checkbox" wire:model.live="browseNewOnly" />
+                        New items only (30 days)
+                    </label>
+                    <span class="so-item-browse-count">{{ $browseItems->count() }} shown</span>
+                </div>
+                <div class="so-item-browse-scroll" tabindex="0">
+                    <table class="so-item-browse-table">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Description</th>
+                                <th>UOM</th>
+                                <th class="text-right">Stock</th>
+                                <th class="text-right">Price</th>
+                                <th>New</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($browseItems as $bi)
+                                @php $avail = (float) $bi->available_quantity; @endphp
+                                <tr
+                                    class="{{ $avail > 0 ? 'is-pickable' : 'is-disabled' }}"
+                                    @if ($avail > 0) wire:click="pickBrowseItem({{ $bi->id }})" @endif
+                                    title="{{ $avail > 0 ? 'Click to add' : 'No stock' }}"
+                                >
+                                    <td class="font-mono">{{ $bi->item_code }}</td>
+                                    <td>{{ $bi->description }}</td>
+                                    <td>{{ $bi->unit_of_measure ?: '—' }}</td>
+                                    <td class="text-right {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
+                                    <td class="text-right">${{ number_format((float) $bi->list_price, 2) }}</td>
+                                    <td>{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="so-item-browse-empty">No items found.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="so-item-browse-foot">
+                    <span>Scroll for more · Click a row to add · Esc to close</span>
+                    <button type="button" wire:click="closeBrowse" class="desk-btn">Close</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showSubstitutePrompt)
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="cancelSubstitutePrompt" role="dialog" aria-modal="true" aria-labelledby="sub-prompt-title">
             <div class="bg-white border border-slate-500 shadow-xl w-full max-w-lg">
@@ -1587,6 +1683,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');
+    });
+
+    // Focus search when item browse popup opens.
+    $wire.$watch('showBrowse', (open) => {
+        if (!open) return;
+        requestAnimationFrame(() => {
+            document.getElementById('so-browse-search')?.focus();
+        });
     });
 </script>
 @endscript

@@ -58,13 +58,38 @@ class DocumentPdfService
         ]);
     }
 
-    public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null, ?int $priceLevelId = null)
+    public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null, ?int $priceLevelId = null, array $priceLevelIds = [])
     {
-        $rows = collect($items)->map(function (Item $item) use ($priceLevelId) {
-            $item->setAttribute(
-                'display_price',
-                \App\Support\ItemPricing::resolve($item, $priceLevelId, $item->unit_of_measure ?: null)
-            );
+        $levelIds = $priceLevelIds !== []
+            ? array_values(array_unique(array_map('intval', $priceLevelIds)))
+            : ($priceLevelId ? [(int) $priceLevelId] : []);
+
+        $levels = $levelIds === []
+            ? collect()
+            : \App\Models\PriceLevel::query()
+                ->whereIn('id', $levelIds)
+                ->orderBy('name')
+                ->get(['id', 'name']);
+
+        $rows = collect($items)->map(function (Item $item) use ($levelIds, $levels) {
+            if ($levelIds === []) {
+                $item->setAttribute(
+                    'display_price',
+                    \App\Support\ItemPricing::resolve($item, null, $item->unit_of_measure ?: null)
+                );
+                $item->setAttribute('level_prices', []);
+            } else {
+                $levelPrices = [];
+                foreach ($levels as $level) {
+                    $levelPrices[$level->id] = \App\Support\ItemPricing::resolve(
+                        $item,
+                        (int) $level->id,
+                        $item->unit_of_measure ?: null
+                    );
+                }
+                $item->setAttribute('level_prices', $levelPrices);
+                $item->setAttribute('display_price', reset($levelPrices) ?: (float) $item->list_price);
+            }
 
             return $item;
         });
@@ -74,7 +99,17 @@ class DocumentPdfService
             'title' => $title ?? 'Price List',
             'company' => $user?->company ?? auth()->user()?->company,
             'priceLevelId' => $priceLevelId,
-        ])->setPaper('letter');
+            'priceLevels' => $levels,
+        ])->setPaper('letter', $levels->count() > 2 ? 'landscape' : 'portrait');
+    }
+
+    public function itemsListPdf(iterable $items, ?User $user = null, ?string $title = null)
+    {
+        return Pdf::loadView('pdf.items-list', [
+            'items' => collect($items),
+            'title' => $title ?? 'Items List',
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter', 'landscape');
     }
 
     public function salesReportPdf(array $payload, ?User $user = null)
@@ -298,11 +333,12 @@ class DocumentPdfService
         ?string $subject = null,
         ?string $title = null,
         ?int $priceLevelId = null,
+        array $priceLevelIds = [],
     ): void {
         CompanyMailConfig::apply($user->company);
         $title = $title ?: 'Price List';
         $subject = $subject ?: $title;
-        $pdf = $this->priceListPdf($items, $user, $title, $priceLevelId);
+        $pdf = $this->priceListPdf($items, $user, $title, $priceLevelId, $priceLevelIds);
 
         Mail::html(
             '<p>Please find attached <strong>'.e($title).'</strong>.</p>',
@@ -326,14 +362,26 @@ class DocumentPdfService
     }
 
     /** @return \Illuminate\Support\Collection<int, Item> */
-    public function queryPriceListItems(int $companyId, ?int $departmentId, ?int $categoryId, string $search, bool $includeInactive)
-    {
+    public function queryPriceListItems(
+        int $companyId,
+        ?int $departmentId = null,
+        ?int $categoryId = null,
+        string $search = '',
+        bool $includeInactive = false,
+        array $departmentIds = [],
+        array $categoryIds = [],
+    ) {
+        $deptIds = array_values(array_filter(array_map('intval', $departmentIds)));
+        $catIds = array_values(array_filter(array_map('intval', $categoryIds)));
+
         return Item::query()
             ->with(['department', 'category', 'prices'])
             ->where('company_id', $companyId)
             ->when(! $includeInactive, fn ($q) => $q->where('is_inactive', false))
-            ->when($departmentId, fn ($q) => $q->where('department_id', $departmentId))
-            ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
+            ->when($deptIds !== [], fn ($q) => $q->whereIn('department_id', $deptIds))
+            ->when($deptIds === [] && $departmentId, fn ($q) => $q->where('department_id', $departmentId))
+            ->when($catIds !== [], fn ($q) => $q->whereIn('category_id', $catIds))
+            ->when($catIds === [] && $categoryId, fn ($q) => $q->where('category_id', $categoryId))
             ->when($search !== '', function ($q) use ($search) {
                 $term = '%'.$search.'%';
                 $q->where(function ($inner) use ($term) {
@@ -343,7 +391,7 @@ class DocumentPdfService
                 });
             })
             ->orderBy('item_code')
-            ->limit(1000)
+            ->limit(2000)
             ->get();
     }
 }

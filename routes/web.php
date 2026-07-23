@@ -57,6 +57,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     // Inventory / Items
     Volt::route('inventory/items', 'pages.inventory.items.index')->name('inventory.items.index');
     Volt::route('inventory/items/create', 'pages.inventory.items.form')->name('inventory.items.create');
+    Route::get('inventory/items/print', [DocumentPdfController::class, 'itemsList'])
+        ->name('inventory.items.print');
     Route::post('inventory/items/media', [ItemMediaController::class, 'store'])->name('inventory.items.media');
     Volt::route('inventory/items/{item}/edit', 'pages.inventory.items.form')->name('inventory.items.edit');
     Volt::route('inventory/items/{item}', 'pages.inventory.items.form')->name('inventory.items.show');
@@ -98,6 +100,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('inquiries/item-velocity', 'pages.inquiries.item-velocity')->name('inquiries.item-velocity');
     Volt::route('reports/sales', 'pages.reports.sales')->name('reports.sales');
     Volt::route('reports/price-list', 'pages.reports.price-list')->name('reports.price-list');
+    Route::get('reports/price-list/print', [DocumentPdfController::class, 'priceList'])
+        ->name('reports.price-list.print');
 });
 
 require __DIR__.'/auth.php';

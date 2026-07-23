@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DocumentPdfController;
+use App\Http\Controllers\ItemMediaController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\PaymentReceiptController;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,7 @@ Route::middleware(['auth'])->group(function () {
     // Inventory / Items
     Volt::route('inventory/items', 'pages.inventory.items.index')->name('inventory.items.index');
     Volt::route('inventory/items/create', 'pages.inventory.items.form')->name('inventory.items.create');
+    Route::post('inventory/items/media', [ItemMediaController::class, 'store'])->name('inventory.items.media');
     Volt::route('inventory/items/{item}/edit', 'pages.inventory.items.form')->name('inventory.items.edit');
     Volt::route('inventory/items/{item}', 'pages.inventory.items.form')->name('inventory.items.show');
     Volt::route('inventory/stock-counts', 'pages.inventory.stock-counts.index')->name('inventory.stock-counts.index');

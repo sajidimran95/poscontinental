@@ -18,15 +18,13 @@ use App\Models\TaxSchedule;
 use App\Models\UomSchedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
-use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\Volt\Component;
-use Livewire\WithFileUploads;
 
 new #[Layout('layouts.app'), Title('Item')] class extends Component
 {
-    use WithFileUploads;
 
     public ?Item $item = null;
 
@@ -137,11 +135,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public ?string $thumbnail_path = null;
 
-    public $image_upload = null;
-
-    public $thumbnail_upload = null;
-
-    public bool $useImageAsThumbnail = false;
+    public bool $mediaUploading = false;
 
     /** @var array<int, array{upc:string,is_primary:bool}> */
     public array $upcs = [];
@@ -498,7 +492,134 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return null;
         }
 
-        return asset('storage/'.$path);
+        // Root-relative so images work no matter which host/port you open (Laragon).
+        $version = Storage::disk('public')->lastModified($path);
+
+        return '/storage/'.$path.'?v='.$version;
+    }
+
+    public function uploadItemMedia(string $dataUrl, string $originalName, string $type = 'image'): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+
+        if (! in_array($type, ['image', 'thumbnail'], true)) {
+            return;
+        }
+
+        if (! preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,/', $dataUrl, $matches)) {
+            $this->addError($type === 'image' ? 'image_path' : 'thumbnail_path', 'Invalid image data.');
+
+            return;
+        }
+
+        $binary = base64_decode(substr($dataUrl, strpos($dataUrl, ',') + 1), true);
+        if ($binary === false || strlen($binary) < 24) {
+            $this->addError($type === 'image' ? 'image_path' : 'thumbnail_path', 'Could not read the image file.');
+
+            return;
+        }
+
+        if (strlen($binary) > 8 * 1024 * 1024) {
+            $this->addError($type === 'image' ? 'image_path' : 'thumbnail_path', 'Image must be 8 MB or smaller.');
+
+            return;
+        }
+
+        $mime = strtolower($matches[1]);
+        $extMap = [
+            'image/jpeg' => 'jpg',
+            'image/jpg' => 'jpg',
+            'image/pjpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'image/bmp' => 'bmp',
+            'image/x-ms-bmp' => 'bmp',
+        ];
+        $ext = $extMap[$mime] ?? strtolower(pathinfo($originalName, PATHINFO_EXTENSION) ?: 'jpg');
+        if (! in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], true)) {
+            $this->addError($type === 'image' ? 'image_path' : 'thumbnail_path', 'Image must be JPG, PNG, GIF, WEBP, or BMP.');
+
+            return;
+        }
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+
+        $directory = $type === 'thumbnail' ? 'items/thumbnails' : 'items/images';
+        Storage::disk('public')->makeDirectory($directory);
+        $path = $directory.'/'.Str::uuid()->toString().'.'.$ext;
+        Storage::disk('public')->put($path, $binary);
+
+        if ($type === 'image') {
+            $this->assignImagePath($path);
+        } else {
+            $this->assignThumbnailPath($path);
+        }
+    }
+
+    public function assignImagePath(string $path): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+
+        $path = ltrim($path, '/');
+        if (! Storage::disk('public')->exists($path)) {
+            $this->addError('image_path', 'Uploaded image was not found on disk.');
+
+            return;
+        }
+
+        if (filled($this->image_path) && $this->image_path !== $path && Storage::disk('public')->exists($this->image_path)) {
+            Storage::disk('public')->delete($this->image_path);
+        }
+
+        $this->image_path = $path;
+        $this->resetErrorBag('image_path');
+
+        // Auto-fill thumbnail when empty.
+        if (! filled($this->thumbnail_path)) {
+            $this->copyImageToThumbnail();
+        }
+
+        $this->persistMediaPaths();
+    }
+
+    public function assignThumbnailPath(string $path): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+
+        $path = ltrim($path, '/');
+        if (! Storage::disk('public')->exists($path)) {
+            $this->addError('thumbnail_path', 'Uploaded thumbnail was not found on disk.');
+
+            return;
+        }
+
+        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $path && Storage::disk('public')->exists($this->thumbnail_path)) {
+            Storage::disk('public')->delete($this->thumbnail_path);
+        }
+
+        $this->thumbnail_path = $path;
+        $this->resetErrorBag('thumbnail_path');
+        $this->persistMediaPaths();
+    }
+
+    protected function persistMediaPaths(): void
+    {
+        if (! $this->item?->exists) {
+            return;
+        }
+
+        $this->item->update([
+            'image_path' => $this->image_path,
+            'thumbnail_path' => $this->thumbnail_path,
+        ]);
     }
 
     public function removeImage(): void
@@ -511,7 +632,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             Storage::disk('public')->delete($this->image_path);
         }
         $this->image_path = null;
-        $this->image_upload = null;
+        $this->persistMediaPaths();
     }
 
     public function removeThumbnail(): void
@@ -524,7 +645,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             Storage::disk('public')->delete($this->thumbnail_path);
         }
         $this->thumbnail_path = null;
-        $this->thumbnail_upload = null;
+        $this->persistMediaPaths();
     }
 
     public function copyImageToThumbnail(): void
@@ -533,17 +654,25 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return;
         }
 
-        $this->resetErrorBag('thumbnail_upload');
+        $this->resetErrorBag('thumbnail_path');
 
-        if ($this->image_upload instanceof TemporaryUploadedFile || filled($this->image_path)) {
-            $this->useImageAsThumbnail = true;
-            $this->thumbnail_upload = null;
-            session()->flash('status', 'Thumbnail will use the main image on Save.');
+        if (! filled($this->image_path) || ! Storage::disk('public')->exists($this->image_path)) {
+            $this->addError('thumbnail_path', 'Upload a main image first, then copy it to thumbnail.');
 
             return;
         }
 
-        $this->addError('thumbnail_upload', 'Upload a main image first, then copy it to thumbnail.');
+        $ext = pathinfo($this->image_path, PATHINFO_EXTENSION) ?: 'jpg';
+        $newThumb = 'items/thumbnails/'.Str::uuid().'.'.$ext;
+        Storage::disk('public')->makeDirectory('items/thumbnails');
+
+        if (filled($this->thumbnail_path) && $this->thumbnail_path !== $this->image_path && Storage::disk('public')->exists($this->thumbnail_path)) {
+            Storage::disk('public')->delete($this->thumbnail_path);
+        }
+
+        Storage::disk('public')->copy($this->image_path, $newThumb);
+        $this->thumbnail_path = $newThumb;
+        $this->persistMediaPaths();
     }
 
     public function save(): void
@@ -564,8 +693,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'lead_time_days' => 'nullable|integer|min:0',
                 'shipping_weight' => 'nullable|numeric|min:0',
                 'tare_weight' => 'nullable|numeric|min:0',
-                'image_upload' => 'nullable|file|mimes:jpg,jpeg,png,gif,webp,bmp|max:8192',
-                'thumbnail_upload' => 'nullable|file|mimes:jpg,jpeg,png,gif,webp,bmp|max:8192',
+                'image_path' => 'nullable|string|max:255',
+                'thumbnail_path' => 'nullable|string|max:255',
                 'upcs.*.upc' => 'nullable|string|max:64',
                 'prices.*.uom' => 'nullable|string|max:16',
                 'prices.*.price' => 'nullable|numeric',
@@ -576,12 +705,6 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'item_code.required' => 'Item Code is required.',
                 'description.required' => 'Description is required.',
                 'unit_of_measure.required' => 'Unit of Measure is required.',
-                'image_upload.mimes' => 'Image must be JPG, PNG, GIF, WEBP, or BMP.',
-                'image_upload.max' => 'Image must be 8 MB or smaller.',
-                'thumbnail_upload.mimes' => 'Thumbnail must be JPG, PNG, GIF, WEBP, or BMP.',
-                'thumbnail_upload.max' => 'Thumbnail must be 8 MB or smaller.',
-                'thumbnail_upload.uploaded' => 'Thumbnail upload failed. Try a smaller JPG/PNG file, or use “Copy from image”.',
-                'image_upload.uploaded' => 'Image upload failed. Try a smaller JPG/PNG file.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             $keys = array_keys($e->errors());
@@ -589,7 +712,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 $this->activeTab = 'general';
             } elseif (array_intersect($keys, ['unit_of_measure', 'reorder_point', 'restock_level'])) {
                 $this->activeTab = 'inventory';
-            } elseif (array_intersect($keys, ['image_upload', 'thumbnail_upload', 'extended_description', 'product_highlights'])) {
+            } elseif (array_intersect($keys, ['image_path', 'thumbnail_path', 'extended_description', 'product_highlights'])) {
                 $this->activeTab = 'extended';
             }
             throw $e;
@@ -603,33 +726,13 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             $this->primary_upc = $firstFilled['upc'] ?? $this->primary_upc;
         }
 
-        try {
-            $imagePath = $this->storeUploadedImage($this->image_upload, $this->image_path, 'items/images');
-            $thumbPath = $this->storeUploadedImage($this->thumbnail_upload, $this->thumbnail_path, 'items/thumbnails');
-
-            // Copy main image → thumbnail when requested or when thumbnail is empty.
-            if ($imagePath && ($this->useImageAsThumbnail || (! $thumbPath && ! $this->thumbnail_upload))) {
-                $ext = pathinfo($imagePath, PATHINFO_EXTENSION) ?: 'jpg';
-                $newThumb = 'items/thumbnails/'.uniqid('thumb_', true).'.'.$ext;
-                Storage::disk('public')->makeDirectory('items/thumbnails');
-                if (filled($thumbPath) && $thumbPath !== $imagePath && Storage::disk('public')->exists($thumbPath)) {
-                    Storage::disk('public')->delete($thumbPath);
-                }
-                Storage::disk('public')->copy($imagePath, $newThumb);
-                $thumbPath = $newThumb;
-                $this->useImageAsThumbnail = false;
-            }
-        } catch (\Throwable $e) {
-            $this->activeTab = 'extended';
-            $this->addError('image_upload', 'Could not save image: '.$e->getMessage());
-
-            return;
+        // Ensure thumbnail exists when image is set.
+        if (filled($this->image_path) && ! filled($this->thumbnail_path) && Storage::disk('public')->exists($this->image_path)) {
+            $this->copyImageToThumbnail();
         }
 
-        $this->image_path = $imagePath;
-        $this->thumbnail_path = $thumbPath;
-        $this->image_upload = null;
-        $this->thumbnail_upload = null;
+        $imagePath = filled($this->image_path) ? $this->image_path : null;
+        $thumbPath = filled($this->thumbnail_path) ? $this->thumbnail_path : null;
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
 
@@ -758,26 +861,6 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
-
-    protected function storeUploadedImage(mixed $upload, ?string $existingPath, string $directory): ?string
-    {
-        if (! $upload instanceof TemporaryUploadedFile) {
-            return $existingPath;
-        }
-
-        Storage::disk('public')->makeDirectory($directory);
-
-        $path = $upload->store($directory, 'public');
-        if (! $path) {
-            throw new \RuntimeException('Upload failed for '.$directory.'.');
-        }
-
-        if (filled($existingPath) && $existingPath !== $path && Storage::disk('public')->exists($existingPath)) {
-            Storage::disk('public')->delete($existingPath);
-        }
-
-        return $path;
-    }
 }; ?>
 
 <div class="desk-page entity-page">
@@ -891,6 +974,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <a href="{{ route('lookups.index', ['activeLookup' => 'subcategories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create sub categories in Lookups">+</a>
                             </div>
                         </div>
+                    </div>
+                    <div class="inv-card item-media-stack">
+                        <div class="inv-card-title">Image</div>
+                        @include('livewire.pages.inventory.items.partials.media', ['compact' => true])
                     </div>
                 </div>
 
@@ -1161,73 +1248,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                     <div class="inv-card item-media-stack">
                         <div class="inv-card-title">Media</div>
-                        <div class="item-media">
-                            <div class="item-media-label">Image</div>
-                            @unless ($viewMode)
-                                <input type="file" wire:model="image_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
-                                <div wire:loading wire:target="image_upload" class="item-hint">Uploading image… please wait before saving.</div>
-                                @error('image_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                            @endunless
-                            @if ($image_upload)
-                                <div class="item-preview-frame">
-                                    <img src="{{ $image_upload->temporaryUrl() }}" alt="" class="item-preview" />
-                                </div>
-                                <p class="item-hint" style="border:0;padding:0;margin:0.35rem 0 0">Ready — click Save Changes to keep this image.</p>
-                            @elseif ($imageUrl)
-                                <div class="item-preview-row">
-                                    <div class="item-preview-frame">
-                                        <img src="{{ $imageUrl }}" alt="{{ $item_code }}" class="item-preview" />
-                                    </div>
-                                    @unless ($viewMode)
-                                        <button type="button" wire:click="removeImage" class="desk-btn desk-btn-sm">Remove</button>
-                                    @endunless
-                                </div>
-                            @elseif ($image_path)
-                                <p class="item-hint">Image file missing on disk ({{ $image_path }}).</p>
-                            @elseif ($viewMode)
-                                <p class="item-hint">No image.</p>
-                            @endif
-                        </div>
-                        <div class="item-media">
-                            <div class="item-media-label">Thumbnail</div>
-                            @unless ($viewMode)
-                                <input type="file" wire:model="thumbnail_upload" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,image/*" class="item-file" />
-                                <div wire:loading wire:target="thumbnail_upload" class="item-hint">Uploading thumbnail… please wait before saving.</div>
-                                @error('thumbnail_upload') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                                <div class="item-media-actions">
-                                    <button type="button" wire:click="copyImageToThumbnail" class="desk-btn desk-btn-sm" @disabled(! $image_upload && ! $image_path)>
-                                        Copy from image
-                                    </button>
-                                </div>
-                            @endunless
-                            @if ($thumbnail_upload)
-                                <div class="item-preview-frame item-preview-frame-sm">
-                                    <img src="{{ $thumbnail_upload->temporaryUrl() }}" alt="" class="item-preview" />
-                                </div>
-                            @elseif ($useImageAsThumbnail && ($image_upload || $image_path))
-                                <div class="item-preview-frame item-preview-frame-sm">
-                                    <img
-                                        src="{{ $image_upload ? $image_upload->temporaryUrl() : ($imageUrl ?: asset('storage/'.$image_path)) }}"
-                                        alt=""
-                                        class="item-preview"
-                                    />
-                                </div>
-                                <p class="item-hint" style="border:0;padding:0;margin:0">Will save as thumbnail on Save.</p>
-                            @elseif ($thumbUrl)
-                                <div class="item-preview-row">
-                                    <div class="item-preview-frame item-preview-frame-sm">
-                                        <img src="{{ $thumbUrl }}" alt="{{ $item_code }} thumbnail" class="item-preview" />
-                                    </div>
-                                    @unless ($viewMode)
-                                        <button type="button" wire:click="removeThumbnail" class="desk-btn desk-btn-sm">Remove</button>
-                                    @endunless
-                                </div>
-                            @elseif ($thumbnail_path)
-                                <p class="item-hint">Thumbnail file missing on disk ({{ $thumbnail_path }}).</p>
-                            @elseif ($viewMode)
-                                <p class="item-hint">No thumbnail.</p>
-                            @endif
-                        </div>
+                        @include('livewire.pages.inventory.items.partials.media', ['compact' => false])
                     </div>
                 </div>
 
@@ -1425,10 +1446,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         type="submit"
                         class="desk-btn desk-btn-primary"
                         wire:loading.attr="disabled"
-                        wire:target="save,image_upload,thumbnail_upload"
+                        wire:target="save"
                     >
-                        <span wire:loading.remove wire:target="save,image_upload,thumbnail_upload">Save Changes</span>
-                        <span wire:loading wire:target="image_upload,thumbnail_upload">Waiting for upload…</span>
+                        <span wire:loading.remove wire:target="save">Save Changes</span>
                         <span wire:loading wire:target="save">Saving…</span>
                     </button>
                 @endif

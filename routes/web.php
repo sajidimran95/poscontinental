@@ -25,6 +25,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
     Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');
     Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
+    Volt::route('admin/terminal', 'pages.admin.terminal')->name('admin.terminal');
 
     // Purchasing / Suppliers
     Volt::route('purchasing/suppliers', 'pages.purchasing.suppliers.index')->name('purchasing.suppliers.index');

@@ -21,6 +21,7 @@
                             ['Users & Roles', 'admin.users.index'],
                             ['Email Setup', 'admin.email-setup'],
                             ['Email Send Log', 'admin.email-logs'],
+                            ['Terminal', 'admin.terminal'],
                         ],
                         'Inquiry' => [
                             ['Stock Status', 'inquiries.stock-status'],
@@ -123,6 +124,7 @@
                     'admin.users.index' => 'Users & Roles',
                     'admin.email-setup' => 'Email Setup',
                     'admin.email-logs' => 'Email Send Log',
+                    'admin.terminal' => 'Terminal',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

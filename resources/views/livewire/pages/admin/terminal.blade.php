@@ -166,7 +166,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     wire:loading.attr="disabled"
                     wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
                     class="desk-btn"
-                    wire:confirm="Run the full DatabaseSeeder? Safe on empty DB; may create duplicates if data already exists."
+                    wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
                     Run Database Seeder
                 </button>

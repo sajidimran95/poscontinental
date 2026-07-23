@@ -244,6 +244,40 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         if ($schedule?->base_uom) {
             $this->unit_of_measure = strtoupper((string) $schedule->base_uom);
+            $this->syncPricingUomFromInventory();
+        }
+    }
+
+    public function updatedUnitOfMeasure($value): void
+    {
+        $this->unit_of_measure = strtoupper(trim((string) $value));
+        $this->syncPricingUomFromInventory();
+    }
+
+    /**
+     * Keep the primary Pricing row UOM in sync with Inventory Unit of Measure.
+     */
+    protected function syncPricingUomFromInventory(): void
+    {
+        $uom = strtoupper(trim($this->unit_of_measure));
+        if ($uom === '') {
+            return;
+        }
+
+        if ($this->prices === []) {
+            $this->prices[] = ['uom' => $uom, 'price' => $this->list_price ?: '0.00', 'alias_code' => ''];
+
+            return;
+        }
+
+        // Update first price row (default sell UOM) to match inventory selection.
+        $this->prices[0]['uom'] = $uom;
+
+        // Also fill any other blank price UOM rows.
+        foreach ($this->prices as $i => $row) {
+            if (! filled($row['uom'] ?? null)) {
+                $this->prices[$i]['uom'] = $uom;
+            }
         }
     }
 
@@ -781,7 +815,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl so-field-req" for="unit_of_measure">Unit of Measure</label>
-                            <select id="unit_of_measure" wire:model="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:8rem">
+                            <select id="unit_of_measure" wire:model.live="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:8rem">
                                 <option value="">— Select —</option>
                                 @foreach ($uomOptions as $uom)
                                     <option value="{{ $uom }}">{{ $uom }}</option>
@@ -789,7 +823,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </select>
                         </div>
                         @error('unit_of_measure') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                        <p class="item-hint" style="border:0;margin:0.35rem 0 0;padding:0;font-size:0.75rem;color:#64748b">Select from list (or pick a UOM Schedule to fill the base unit). Not free text.</p>
+                        <p class="item-hint" style="border:0;margin:0.35rem 0 0;padding:0;font-size:0.75rem;color:#64748b">Also fills Pricing → U of M automatically.</p>
                         <div class="pt-2">
                             <button type="button" wire:click="openJournal" class="desk-btn" @disabled(! $item)>View Journal</button>
                         </div>
@@ -978,7 +1012,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </tbody>
                         </table>
                     </div>
-                    <p class="item-hint">Add box/case/pack prices here. List Price above is the default sell price.</p>
+                    <p class="item-hint">Default U of M comes from Inventory. Add extra rows for other units (e.g. PK, BX) with different prices.</p>
                 </div>
 
             @elseif ($activeTab === 'extended')

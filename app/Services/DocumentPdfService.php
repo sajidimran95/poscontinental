@@ -98,6 +98,7 @@ class DocumentPdfService
 
     public function emailInvoice(Invoice $invoice, string $recipient, User $user, ?string $subject = null): void
     {
+        CompanyMailConfig::apply($user->company);
         $subject = $subject ?: 'Invoice '.$invoice->invoice_number;
         $pdf = $this->invoicePdf($invoice, $user);
 
@@ -124,6 +125,7 @@ class DocumentPdfService
 
     public function emailCreditMemo(CreditMemo $memo, string $recipient, User $user, ?string $subject = null): void
     {
+        CompanyMailConfig::apply($user->company);
         $subject = $subject ?: 'Credit Memo '.$memo->memo_number;
         $pdf = $this->creditMemoPdf($memo, $user);
 

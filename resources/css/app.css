@@ -2835,8 +2835,24 @@
     .rcv-lines-table .col-desc { width: auto; }
     .rcv-lines-table .col-uom { width: 4.5rem; }
     .rcv-lines-table .col-qty { width: 7.5rem; }
-    .rcv-lines-table .col-cost { width: 7.5rem; }
-    .rcv-lines-table .col-ext { width: 7.5rem; }
+    .rcv-lines-table .col-cost { width: 10rem; }
+    .rcv-lines-table .col-ext { width: 8rem; }
+
+    .rcv-qty-input {
+        width: 6.5rem !important;
+        max-width: 100%;
+        margin: 0 auto;
+        display: inline-block;
+        box-sizing: border-box;
+    }
+
+    .rcv-cost-input {
+        width: 8.5rem !important;
+        max-width: 100%;
+        margin: 0 auto;
+        display: inline-block;
+        box-sizing: border-box;
+    }
 
     .rtv-lines-table .col-code { width: 11rem; }
     .rtv-lines-table .col-desc { width: auto; }

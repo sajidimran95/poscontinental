@@ -23,7 +23,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Admin (company POS)
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
-    Volt::route('admin/customer-app-api', 'pages.admin.customer-app-access')->name('admin.customer-app-access');
+    Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');
     Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
 
     // Purchasing / Suppliers

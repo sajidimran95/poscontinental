@@ -51,9 +51,9 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
             'item_code' => $l->item_code ?? '',
             'description' => $l->description ?? '',
             'uom' => $l->uom ?? '',
-            'qty_ordered' => (string) $l->qty_ordered,
-            'qty_received' => (string) $l->qty_received,
-            'unit_cost' => (string) $l->unit_cost,
+            'qty_ordered' => number_format((float) $l->qty_ordered, 2, '.', ''),
+            'qty_received' => number_format((float) $l->qty_received, 2, '.', ''),
+            'unit_cost' => number_format((float) $l->unit_cost, 2, '.', ''),
         ])->all();
     }
 
@@ -305,16 +305,18 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                                     <td class="desk-money">{{ number_format((float) $line['qty_ordered'], 2) }}</td>
                                     <td class="text-center">
                                         <input
-                                            wire:model.live="lines.{{ $i }}.qty_received"
-                                            class="so-input text-right item-cell-qty"
+                                            wire:model.blur="lines.{{ $i }}.qty_received"
+                                            class="so-input text-right rcv-qty-input"
+                                            style="width:6.5rem;min-width:6.5rem"
                                             @disabled($isProcessed)
                                             aria-label="Qty received line {{ $i + 1 }}"
                                         />
                                     </td>
                                     <td class="text-center">
                                         <input
-                                            wire:model.live="lines.{{ $i }}.unit_cost"
-                                            class="so-input text-right item-cell-qty"
+                                            wire:model.blur="lines.{{ $i }}.unit_cost"
+                                            class="so-input text-right rcv-cost-input"
+                                            style="width:8.5rem;min-width:8.5rem"
                                             @disabled($isProcessed)
                                             aria-label="Unit cost line {{ $i + 1 }}"
                                         />

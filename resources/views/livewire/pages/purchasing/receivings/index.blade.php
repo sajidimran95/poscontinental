@@ -53,7 +53,6 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
             ->when($this->statusFilter === 'Processed', fn ($q) => $q->where('status', 'Processed'))
-            ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {

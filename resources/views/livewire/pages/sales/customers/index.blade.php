@@ -46,7 +46,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderBy('customer_id');
+            ->orderByDesc('id');
 
         $listTitle = match ($this->favorite) {
             'active' => 'Customers List (Active)',

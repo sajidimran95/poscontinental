@@ -73,7 +73,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_active', true))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_active', false))
-            ->orderBy('name');
+            ->orderByDesc('id');
 
         $listTitle = match (true) {
             $this->favorite === 'roles' => 'Roles List',

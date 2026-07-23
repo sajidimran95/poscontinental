@@ -49,16 +49,16 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
             ->when($this->favorite === 'tobacco', fn ($q) => $q->where('is_tobacco_supplier', true))
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderBy('name');
+            ->orderByDesc('id');
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
             $suppliers = Supplier::query()
                 ->where('company_id', $companyId)
-                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
                 ->limit(10)
                 ->get();
             $total = $suppliers->count();
-            $footerNote = '10 most recently updated records with no search criteria.';
+            $footerNote = '10 most recently added records with no search criteria.';
             $isPaginated = false;
         } else {
             $suppliers = $query->paginate(50);

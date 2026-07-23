@@ -40,7 +40,6 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
-            ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
         // Chief: with no search criteria, show 10 most recently updated

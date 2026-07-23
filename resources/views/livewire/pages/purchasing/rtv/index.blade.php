@@ -86,7 +86,6 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             ->when($this->favorite === 'returned', fn ($q) => $q->where('status', 'Returned'))
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
             ->when($this->statusFilter === 'Returned', fn ($q) => $q->where('status', 'Returned'))
-            ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '' && ! $this->showForm) {

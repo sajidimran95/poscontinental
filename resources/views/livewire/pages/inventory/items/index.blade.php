@@ -54,7 +54,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderBy('item_code');
+            ->orderByDesc('id');
 
         $favorites = [
             'all' => 'All Items',

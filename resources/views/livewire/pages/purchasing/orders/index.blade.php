@@ -232,7 +232,17 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             return;
         }
 
-        $this->dispatch('print-purchase-order', id: $this->selectedId);
+        $order = PurchaseOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Purchase order not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-purchase-order-pdf', url: route('purchasing.orders.print', $order));
     }
 }; ?>
 
@@ -411,16 +421,10 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
 @script
 <script>
-    $wire.on('print-purchase-order', (payload) => {
-        const id = payload?.id ?? payload?.[0]?.id;
-        if (!id) return;
-        const url = @js(url('/purchasing/orders')) + '/' + id + '/edit';
-        const w = window.open(url, '_blank');
-        if (w) {
-            w.addEventListener('load', () => {
-                try { w.print(); } catch (e) {}
-            });
-        }
+    $wire.on('open-purchase-order-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank', 'noopener');
     });
 </script>
 @endscript

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CreditMemo;
 use App\Models\Invoice;
+use App\Models\PurchaseOrder;
 use App\Models\SalesOrder;
 use App\Services\DocumentPdfService;
 use Illuminate\Http\RedirectResponse;
@@ -24,6 +25,13 @@ class DocumentPdfController extends Controller
         abort_unless($salesOrder->company_id === auth()->user()->company_id, 403);
 
         return $pdfs->streamSalesOrderInvoiceStyle($salesOrder, auth()->user());
+    }
+
+    public function purchaseOrder(PurchaseOrder $purchaseOrder, DocumentPdfService $pdfs): Response
+    {
+        abort_unless($purchaseOrder->company_id === auth()->user()->company_id, 403);
+
+        return $pdfs->streamPurchaseOrder($purchaseOrder, auth()->user());
     }
 
     public function creditMemo(CreditMemo $memo, DocumentPdfService $pdfs): Response

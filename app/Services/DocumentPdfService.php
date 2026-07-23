@@ -6,6 +6,7 @@ use App\Models\CreditMemo;
 use App\Models\DocumentEmailLog;
 use App\Models\Invoice;
 use App\Models\Item;
+use App\Models\PurchaseOrder;
 use App\Models\SalesOrder;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -151,6 +152,28 @@ class DocumentPdfService
             : 'sales-order-'.$order->order_number.'.pdf';
 
         return $pdf->stream($name);
+    }
+
+    public function purchaseOrderPdf(PurchaseOrder $order, ?User $user = null)
+    {
+        $order->loadMissing([
+            'lines',
+            'supplier',
+            'buyer',
+            'shipToSite',
+            'paymentTerm',
+            'shipVia',
+        ]);
+
+        return Pdf::loadView('pdf.purchase-order', [
+            'order' => $order,
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
+    public function streamPurchaseOrder(PurchaseOrder $order, ?User $user = null): Response
+    {
+        return $this->purchaseOrderPdf($order, $user)->stream('purchase-order-'.$order->po_number.'.pdf');
     }
 
     public function streamCreditMemo(CreditMemo $memo): StreamedResponse

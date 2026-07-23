@@ -41,6 +41,8 @@ Route::middleware(['auth'])->group(function () {
 
     Volt::route('purchasing/orders', 'pages.purchasing.orders.index')->name('purchasing.orders.index');
     Volt::route('purchasing/orders/create', 'pages.purchasing.orders.form')->name('purchasing.orders.create');
+    Route::get('purchasing/orders/{purchaseOrder}/print', [DocumentPdfController::class, 'purchaseOrder'])
+        ->name('purchasing.orders.print');
     Volt::route('purchasing/orders/{purchaseOrder}/edit', 'pages.purchasing.orders.form')->name('purchasing.orders.edit');
     Volt::route('purchasing/orders/{purchaseOrder}', 'pages.purchasing.orders.form')->name('purchasing.orders.show');
     Volt::route('purchasing/receivings', 'pages.purchasing.receivings.index')->name('purchasing.receivings.index');

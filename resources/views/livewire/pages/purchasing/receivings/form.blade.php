@@ -12,6 +12,8 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 {
     public InventoryReceiving $receiving;
 
+    public bool $viewMode = false;
+
     public string $receipt_number = '';
 
     public string $receipt_date = '';
@@ -36,6 +38,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
     public function mount(InventoryReceiving $receiving): void
     {
         abort_unless($receiving->company_id === auth()->user()->company_id, 403);
+        $this->viewMode = request()->routeIs('purchasing.receivings.show');
         $this->receiving = $receiving->load(['lines', 'purchaseOrder', 'supplier', 'site', 'buyer']);
         $this->receipt_number = $receiving->receipt_number;
         $this->receipt_date = optional($receiving->receipt_date)?->format('Y-m-d') ?? '';
@@ -86,6 +89,8 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         if ($this->receiving->status === 'Processed') {
             $this->receiving->update([
                 'received_by' => $this->received_by ?: null,
@@ -119,6 +124,8 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 
     public function process(): void
     {
+        abort_if($this->viewMode, 403);
+
         if ($this->receiving->status === 'Processed') {
             return;
         }
@@ -134,13 +141,14 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form">
-        <x-action-bar title="Inventory Receiving — {{ $receipt_number }}" />
+    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+        <x-action-bar title="Inventory Receiving — {{ $receipt_number }}{{ $viewMode ? ' (View)' : '' }}" />
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
 
+        <fieldset class="so-form-fields" @disabled($viewMode)>
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
@@ -183,7 +191,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                         <label class="so-form-lbl">Purchase Ord. #</label>
                         <span class="desk-num" style="padding:0.35rem 0">
                             @if ($po)
-                                <a href="{{ route('purchasing.orders.edit', $po) }}" wire:navigate>{{ $po->po_number }}</a>
+                                <a href="{{ route('purchasing.orders.show', $po) }}" wire:navigate>{{ $po->po_number }}</a>
                             @else
                                 —
                             @endif
@@ -332,16 +340,23 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
             </div>
         </div>
 
+        </fieldset>
+
         <div class="entity-footer">
             <div class="entity-tabs" role="tablist" aria-label="Receiving">
                 <span class="entity-tab is-active">Receiving</span>
             </div>
             <div class="entity-footer-actions">
-                <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="desk-btn">Cancel</a>
-                <button type="submit" class="desk-btn {{ $isProcessed ? 'desk-btn-primary' : '' }}">Save</button>
-                @unless ($isProcessed)
-                    <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="desk-btn desk-btn-primary">Process Receiving</button>
-                @endunless
+                <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+                @if ($viewMode)
+                    <a href="{{ route('purchasing.receivings.print', $receiving) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
+                    <a href="{{ route('purchasing.receivings.edit', $receiving) }}" wire:navigate class="desk-btn desk-btn-primary">Edit Receiving</a>
+                @else
+                    <button type="submit" class="desk-btn {{ $isProcessed ? 'desk-btn-primary' : '' }}">Save</button>
+                    @unless ($isProcessed)
+                        <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="desk-btn desk-btn-primary">Process Receiving</button>
+                    @endunless
+                @endif
             </div>
         </div>
     </form>

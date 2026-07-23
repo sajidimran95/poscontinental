@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\CreditMemo;
+use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\PurchaseOrder;
+use App\Models\ReturnToVendor;
 use App\Models\SalesOrder;
 use App\Services\DocumentPdfService;
 use Illuminate\Http\RedirectResponse;
@@ -32,6 +34,20 @@ class DocumentPdfController extends Controller
         abort_unless($purchaseOrder->company_id === auth()->user()->company_id, 403);
 
         return $pdfs->streamPurchaseOrder($purchaseOrder, auth()->user());
+    }
+
+    public function receiving(InventoryReceiving $receiving, DocumentPdfService $pdfs): Response
+    {
+        abort_unless($receiving->company_id === auth()->user()->company_id, 403);
+
+        return $pdfs->streamReceiving($receiving, auth()->user());
+    }
+
+    public function rtv(ReturnToVendor $rtv, DocumentPdfService $pdfs): Response
+    {
+        abort_unless($rtv->company_id === auth()->user()->company_id, 403);
+
+        return $pdfs->streamRtv($rtv, auth()->user());
     }
 
     public function creditMemo(CreditMemo $memo, DocumentPdfService $pdfs): Response

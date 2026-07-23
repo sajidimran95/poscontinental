@@ -159,6 +159,27 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             return null;
         }
 
+        $rec = InventoryReceiving::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $rec) {
+            session()->flash('status', 'Receiving not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('purchasing.receivings.edit', $rec), navigate: true);
+    }
+
+    public function viewSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a receiving first.');
+
+            return null;
+        }
+
         return $this->openReceiving($this->selectedId);
     }
 
@@ -176,7 +197,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('purchasing.receivings.edit', $rec), navigate: true);
+        return $this->redirect(route('purchasing.receivings.show', $rec), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -217,7 +238,17 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             return;
         }
 
-        $this->dispatch('print-receiving', id: $this->selectedId);
+        $rec = InventoryReceiving::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $rec) {
+            session()->flash('status', 'Receiving not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-receiving-pdf', url: route('purchasing.receivings.print', $rec));
     }
 
     public function createReceiving(): void
@@ -383,7 +414,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('purchasing.receivings.edit', $rec) }}" wire:navigate wire:click.stop>{{ $rec->receipt_number }}</a>
+                                        <a href="{{ route('purchasing.receivings.show', $rec) }}" wire:navigate wire:click.stop>{{ $rec->receipt_number }}</a>
                                     </td>
                                     <td>{{ optional($rec->receipt_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-num">{{ $rec->purchaseOrder?->po_number ?: '—' }}</td>
@@ -433,10 +464,10 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
@@ -477,16 +508,10 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 
 @script
 <script>
-    $wire.on('print-receiving', (payload) => {
-        const id = payload?.id ?? payload?.[0]?.id;
-        if (!id) return;
-        const url = @js(url('/purchasing/receivings')) + '/' + id + '/edit';
-        const w = window.open(url, '_blank');
-        if (w) {
-            w.addEventListener('load', () => {
-                try { w.print(); } catch (e) {}
-            });
-        }
+    $wire.on('open-receiving-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank', 'noopener');
     });
 </script>
 @endscript

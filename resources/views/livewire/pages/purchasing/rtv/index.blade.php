@@ -31,6 +31,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public bool $showForm = false;
 
+    public bool $viewMode = false;
+
     public ?ReturnToVendor $rtv = null;
 
     public string $rtv_number = '';
@@ -128,6 +130,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'subtotal' => $subtotal,
             'orderTotal' => $subtotal - (float) $this->discount + (float) $this->freight,
             'isReturned' => $this->status === 'Returned',
+            'isReadonly' => $this->viewMode || $this->status === 'Returned',
             'browseItems' => $this->showItemBrowse
                 ? Item::query()
                     ->where('company_id', $companyId)
@@ -211,6 +214,17 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->edit($this->selectedId);
     }
 
+    public function viewSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an RTV first.');
+
+            return;
+        }
+
+        $this->view($this->selectedId);
+    }
+
     public function deleteSelected(): void
     {
         if (! $this->selectedId) {
@@ -249,8 +263,17 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             return;
         }
 
-        $this->edit($this->selectedId);
-        $this->dispatch('print-rtv');
+        $rtv = ReturnToVendor::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $rtv) {
+            session()->flash('status', 'RTV not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-rtv-pdf', url: route('purchasing.rtv.print', $rtv));
     }
 
     protected function emptyLine(): array
@@ -269,6 +292,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     {
         $companyId = auth()->user()->company_id;
         $this->showForm = true;
+        $this->viewMode = false;
         $this->rtv = null;
         $this->lookupMessage = '';
         $this->rtv_number = ReturnToVendor::nextNumber($companyId);
@@ -285,12 +309,18 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->resetErrorBag();
     }
 
-    public function edit(int $id): void
+    public function view(int $id): void
+    {
+        $this->edit($id, true);
+    }
+
+    public function edit(int $id, bool $viewMode = false): void
     {
         $rtv = ReturnToVendor::query()->with('lines')->findOrFail($id);
         abort_unless($rtv->company_id === auth()->user()->company_id, 403);
         $this->rtv = $rtv;
         $this->showForm = true;
+        $this->viewMode = $viewMode;
         $this->lookupMessage = '';
         $this->rtv_number = $rtv->rtv_number;
         $this->rtv_date = optional($rtv->rtv_date)?->format('Y-m-d') ?? '';
@@ -315,11 +345,13 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function addLine(): void
     {
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
         $this->lines[] = $this->emptyLine();
     }
 
     public function removeLine(int $i): void
     {
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
         if ($this->lines === []) {
@@ -329,6 +361,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function openItemBrowse(?int $lineIndex = null): void
     {
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
         $this->browseLineIndex = $lineIndex;
         $this->itemBrowseSearch = '';
         $this->showItemBrowse = true;
@@ -410,6 +443,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         if ($this->status === 'Returned') {
             return;
         }
@@ -496,6 +531,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public function cancelForm(): void
     {
         $this->showForm = false;
+        $this->viewMode = false;
         $this->showItemBrowse = false;
         $this->lookupMessage = '';
     }
@@ -512,14 +548,15 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     @endunless
 
     <div class="desk-main {{ $showForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}">
-        <x-action-bar :title="$showForm ? ($rtv ? 'RTV '.$rtv_number : 'New RTV') : 'Action'" />
+        <x-action-bar :title="$showForm ? ($rtv ? ($viewMode ? 'View RTV '.$rtv_number : 'RTV '.$rtv_number) : 'New RTV') : 'Action'" />
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
 
         @if ($showForm)
-            <form wire:submit="save" class="contents">
+            <form wire:submit="save" class="contents" @class(['item-form-readonly' => $viewMode])>
+                <fieldset class="so-form-fields" @disabled($viewMode)>
                 <div class="entity-body">
                     <div class="entity-header">
                         <div class="so-form-row so-form-row-pair entity-header-row">
@@ -548,17 +585,17 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl so-field-req" for="rtv_date">RTV Date</label>
                                 <div class="so-form-ctl">
-                                    <input id="rtv_date" type="date" wire:model="rtv_date" class="so-input sc-date @error('rtv_date') is-invalid @enderror" @disabled($isReturned) />
+                                    <input id="rtv_date" type="date" wire:model="rtv_date" class="so-input sc-date @error('rtv_date') is-invalid @enderror" @disabled($isReadonly) />
                                     @error('rtv_date') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                                 </div>
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="reference_no">Reference No.</label>
-                                <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($isReturned) />
+                                <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($isReadonly) />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="site_id">Site</label>
-                                <select id="site_id" wire:model="site_id" class="so-input" @disabled($isReturned)>
+                                <select id="site_id" wire:model="site_id" class="so-input" @disabled($isReadonly)>
                                     <option value="">—</option>
                                     @foreach ($sites as $site)
                                         <option value="{{ $site->id }}">{{ $site->code }} — {{ $site->name }}</option>
@@ -571,7 +608,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl so-field-req" for="supplier_id">Supplier</label>
                                 <div class="so-form-ctl">
-                                    <select id="supplier_id" wire:model.live="supplier_id" class="so-input @error('supplier_id') is-invalid @enderror" @disabled($isReturned)>
+                                    <select id="supplier_id" wire:model.live="supplier_id" class="so-input @error('supplier_id') is-invalid @enderror" @disabled($isReadonly)>
                                         <option value="">— Select supplier —</option>
                                         @foreach ($suppliers as $s)
                                             <option value="{{ $s->id }}">{{ $s->supplier_id }} — {{ $s->name }}</option>
@@ -586,7 +623,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="requested_by_id">Requested By</label>
-                                <select id="requested_by_id" wire:model="requested_by_id" class="so-input" @disabled($isReturned)>
+                                <select id="requested_by_id" wire:model="requested_by_id" class="so-input" @disabled($isReadonly)>
                                     <option value="">—</option>
                                     @foreach ($users as $u)
                                         <option value="{{ $u->id }}">{{ $u->name }}</option>
@@ -595,7 +632,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             </div>
                             <div class="so-form-row so-form-row-side so-form-row-top sc-field">
                                 <label class="so-form-lbl" for="comments">Comments</label>
-                                <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area" @disabled($isReturned) placeholder="Reason for return…"></textarea>
+                                <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area" @disabled($isReadonly) placeholder="Reason for return…"></textarea>
                             </div>
                         </div>
                     </div>
@@ -603,7 +640,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     <div class="entity-section">
                         <div class="entity-section-head">
                             <h3 class="entity-section-title">Return Lines</h3>
-                            @unless ($isReturned)
+                            @unless ($isReadonly)
                                 <div class="flex gap-2">
                                     <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items</button>
                                     <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
@@ -648,18 +685,18 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                                         wire:keydown.enter.prevent="lookupItem({{ $i }})"
                                                         class="so-input font-mono item-cell-ctl"
                                                         placeholder="Code + Enter"
-                                                        @disabled($isReturned)
+                                                        @disabled($isReadonly)
                                                     />
-                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isReturned) title="Browse items">…</button>
+                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isReadonly) title="Browse items">…</button>
                                                 </div>
                                             </td>
-                                            <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($isReturned) /></td>
-                                            <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" @disabled($isReturned) /></td>
-                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" @disabled($isReturned) /></td>
-                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" @disabled($isReturned) /></td>
+                                            <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($isReadonly) /></td>
+                                            <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" @disabled($isReadonly) /></td>
+                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" @disabled($isReadonly) /></td>
+                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" @disabled($isReadonly) /></td>
                                             <td class="desk-money">${{ number_format((float) $line['qty'] * (float) $line['unit_cost'], 2) }}</td>
                                             <td class="text-center">
-                                                @unless ($isReturned)
+                                                @unless ($isReadonly)
                                                     <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
                                                 @endunless
                                             </td>
@@ -679,11 +716,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="discount">Discount</label>
-                                <input id="discount" wire:model.live="discount" class="so-input text-right sc-date" @disabled($isReturned) />
+                                <input id="discount" wire:model.live="discount" class="so-input text-right sc-date" @disabled($isReadonly) />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="freight">Freight</label>
-                                <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" @disabled($isReturned) />
+                                <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" @disabled($isReadonly) />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field po-total-row">
                                 <label class="so-form-lbl">RTV Total</label>
@@ -693,13 +730,18 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     </div>
                 </div>
 
+                </fieldset>
+
                 <div class="entity-footer">
                     <div class="entity-tabs"><span class="entity-tab is-active">RTV</span></div>
                     <div class="entity-footer-actions">
-                        <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
-                        @unless ($isReturned)
+                        <button type="button" wire:click="cancelForm" class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</button>
+                        @if ($viewMode && $rtv)
+                            <a href="{{ route('purchasing.rtv.print', $rtv) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
+                            <button type="button" wire:click="edit({{ $rtv->id }})" class="desk-btn desk-btn-primary">Edit RTV</button>
+                        @elseif (! $isReturned)
                             <button type="submit" class="desk-btn desk-btn-primary">Save RTV</button>
-                        @endunless
+                        @endif
                     </div>
                 </div>
             </form>
@@ -776,7 +818,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 @forelse ($records as $rec)
                                     <tr
                                         wire:click="selectRow({{ $rec->id }})"
-                                        wire:dblclick="edit({{ $rec->id }})"
+                                        wire:dblclick="view({{ $rec->id }})"
                                         @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
                                     >
                                         <td class="text-center" wire:click.stop>
@@ -790,7 +832,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             />
                                         </td>
                                         <td class="desk-num">
-                                            <button type="button" wire:click.stop="edit({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
+                                            <button type="button" wire:click.stop="view({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
                                         </td>
                                         <td>{{ optional($rec->rtv_date)?->format('n/j/Y') }}</td>
                                         <td class="text-center">
@@ -839,10 +881,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                         </svg>
                     </button>
-                    <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                            <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                            <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                    <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                            <circle cx="8" cy="8" r="2"/>
                         </svg>
                     </button>
                     <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
@@ -944,8 +986,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
 @script
 <script>
-    $wire.on('print-rtv', () => {
-        setTimeout(() => { try { window.print(); } catch (e) {} }, 400);
+    $wire.on('open-rtv-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank', 'noopener');
     });
 </script>
 @endscript

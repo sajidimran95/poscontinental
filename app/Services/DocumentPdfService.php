@@ -4,9 +4,11 @@ namespace App\Services;
 
 use App\Models\CreditMemo;
 use App\Models\DocumentEmailLog;
+use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\PurchaseOrder;
+use App\Models\ReturnToVendor;
 use App\Models\SalesOrder;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -174,6 +176,47 @@ class DocumentPdfService
     public function streamPurchaseOrder(PurchaseOrder $order, ?User $user = null): Response
     {
         return $this->purchaseOrderPdf($order, $user)->stream('purchase-order-'.$order->po_number.'.pdf');
+    }
+
+    public function receivingPdf(InventoryReceiving $receiving, ?User $user = null)
+    {
+        $receiving->loadMissing([
+            'lines',
+            'supplier',
+            'buyer',
+            'site',
+            'purchaseOrder',
+        ]);
+
+        return Pdf::loadView('pdf.receiving', [
+            'receiving' => $receiving,
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
+    public function streamReceiving(InventoryReceiving $receiving, ?User $user = null): Response
+    {
+        return $this->receivingPdf($receiving, $user)->stream('receiving-'.$receiving->receipt_number.'.pdf');
+    }
+
+    public function rtvPdf(ReturnToVendor $rtv, ?User $user = null)
+    {
+        $rtv->loadMissing([
+            'lines',
+            'supplier',
+            'requestedBy',
+            'site',
+        ]);
+
+        return Pdf::loadView('pdf.rtv', [
+            'rtv' => $rtv,
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
+    public function streamRtv(ReturnToVendor $rtv, ?User $user = null): Response
+    {
+        return $this->rtvPdf($rtv, $user)->stream('rtv-'.$rtv->rtv_number.'.pdf');
     }
 
     public function streamCreditMemo(CreditMemo $memo): StreamedResponse

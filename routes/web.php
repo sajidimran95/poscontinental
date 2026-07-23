@@ -46,8 +46,13 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('purchasing/orders/{purchaseOrder}/edit', 'pages.purchasing.orders.form')->name('purchasing.orders.edit');
     Volt::route('purchasing/orders/{purchaseOrder}', 'pages.purchasing.orders.form')->name('purchasing.orders.show');
     Volt::route('purchasing/receivings', 'pages.purchasing.receivings.index')->name('purchasing.receivings.index');
+    Route::get('purchasing/receivings/{receiving}/print', [DocumentPdfController::class, 'receiving'])
+        ->name('purchasing.receivings.print');
     Volt::route('purchasing/receivings/{receiving}/edit', 'pages.purchasing.receivings.form')->name('purchasing.receivings.edit');
+    Volt::route('purchasing/receivings/{receiving}', 'pages.purchasing.receivings.form')->name('purchasing.receivings.show');
     Volt::route('purchasing/rtv', 'pages.purchasing.rtv.index')->name('purchasing.rtv.index');
+    Route::get('purchasing/rtv/{rtv}/print', [DocumentPdfController::class, 'rtv'])
+        ->name('purchasing.rtv.print');
 
     // Inventory / Items
     Volt::route('inventory/items', 'pages.inventory.items.index')->name('inventory.items.index');

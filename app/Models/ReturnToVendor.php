@@ -41,6 +41,11 @@ class ReturnToVendor extends Model
         return $this->belongsTo(User::class, 'requested_by_id');
     }
 
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
+
     public static function nextNumber(int $companyId): string
     {
         $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('rtv_number');

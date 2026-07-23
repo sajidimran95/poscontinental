@@ -890,7 +890,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <button type="button" wire:click="$set('is_inactive', true)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => $is_inactive])>Inactive</button>
                     </div>
                 </div>
-                @if ($imageUrl || $thumbUrl)
+                @if (($imageUrl || $thumbUrl) && $activeTab === 'extended')
                     <div class="item-header-media">
                         <div class="item-preview-frame item-preview-frame-sm">
                             <img src="{{ $imageUrl ?: $thumbUrl }}" alt="{{ $item_code }}" class="item-preview" />
@@ -974,10 +974,6 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <a href="{{ route('lookups.index', ['activeLookup' => 'subcategories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create sub categories in Lookups">+</a>
                             </div>
                         </div>
-                    </div>
-                    <div class="inv-card item-media-stack">
-                        <div class="inv-card-title">Image</div>
-                        @include('livewire.pages.inventory.items.partials.media', ['compact' => true])
                     </div>
                 </div>
 

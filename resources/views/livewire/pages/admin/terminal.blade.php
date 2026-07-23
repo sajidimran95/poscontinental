@@ -37,6 +37,13 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         ], 'Optimize clear completed.');
     }
 
+    public function storageLink(): void
+    {
+        $this->runCommands([
+            'storage:link' => ['--force' => true],
+        ], 'Storage link created (public/storage → storage/app/public).');
+    }
+
     public function seedUom(): void
     {
         $this->runCommands([
@@ -123,7 +130,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -132,7 +139,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -142,10 +149,20 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
                     class="desk-btn"
                 >
                     Optimize Clear
+                </button>
+                <button
+                    type="button"
+                    wire:click="storageLink"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
+                    class="desk-btn"
+                    wire:confirm="Create or refresh the public/storage link? Needed for item images and uploads."
+                >
+                    Storage Link
                 </button>
             </div>
 
@@ -155,7 +172,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedUom"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Seed UOM Schedules
@@ -164,7 +181,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runSeeders"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
@@ -173,6 +190,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
             </div>
 
             <p class="item-hint" style="border:0;margin:0.75rem 0 0;padding:0;font-size:0.75rem;color:#64748b">
+                <strong>Storage Link</strong> — <code>php artisan storage:link --force</code> (item images) &nbsp;·&nbsp;
                 <strong>Seed UOM</strong> — adds EA, BX, CS, CTN… (safe, skips existing) &nbsp;·&nbsp;
                 <strong>Database Seeder</strong> — full demo seed (<code>DatabaseSeeder</code>)
             </p>
@@ -184,9 +202,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders"
+                wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

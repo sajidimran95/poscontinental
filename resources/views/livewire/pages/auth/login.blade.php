@@ -93,7 +93,7 @@ new #[Layout('layouts.pos-login'), Title('Sign in')] class extends Component
                             required
                             autofocus
                             autocomplete="username"
-                            placeholder="e.g. admin@gmail.com"
+                            placeholder="Enter your email"
                         />
                         <x-input-error :messages="$errors->get('form.username')" class="pos-login-error" />
                     </div>

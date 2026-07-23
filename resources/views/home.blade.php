@@ -1,5 +1,6 @@
 @php
     $companyId = auth()->user()->company_id;
+    $user = auth()->user();
 
     $lowStockItems = \App\Models\Item::query()
         ->where('company_id', $companyId)
@@ -9,53 +10,64 @@
 
     $lowStockCount = $lowStockItems->count();
 
+    $can = fn (string $feature) => $user->canAccessFeature($feature);
+
     $modules = [
         [
             'title' => 'Sales',
             'color' => '#1e4d8c',
             'icon' => 'register',
+            'feature' => 'sales.orders',
             'links' => [
-                ['New Sales Order', 'sales.orders.create', true],
-                ['Sales Orders', 'sales.orders.index', true],
-                ['New Customer', 'sales.customers.create', true],
-                ['Customers', 'sales.customers.index', true],
-                ['Invoices', 'sales.invoices.index', true],
-                ['Payments', 'sales.payments.index', true],
-                ['Credit Memos', 'sales.credit-memos.index', true],
+                ['New Sales Order', 'sales.orders.create', 'sales.orders'],
+                ['Sales Orders', 'sales.orders.index', 'sales.orders'],
+                ['New Customer', 'sales.customers.create', 'sales.customers'],
+                ['Customers', 'sales.customers.index', 'sales.customers'],
+                ['Invoices', 'sales.invoices.index', 'sales.invoices'],
+                ['Payments', 'sales.payments.index', 'sales.payments'],
+                ['Credit Memos', 'sales.credit-memos.index', 'sales.credit_memos'],
             ],
         ],
         [
             'title' => 'Inventory',
             'color' => '#2f6b3a',
             'icon' => 'barcode',
+            'feature' => 'inventory.items',
             'links' => [
-                ['Items', 'inventory.items.index', true],
-                ['Stock Counts', 'inventory.stock-counts.index', true],
-                ['New Item', 'inventory.items.create', true],
+                ['Items', 'inventory.items.index', 'inventory.items'],
+                ['Stock Counts', 'inventory.stock-counts.index', 'inventory.stock_counts'],
+                ['New Item', 'inventory.items.create', 'inventory.items'],
+                ['Bulk Pricing', 'inventory.bulk-pricing', 'inventory.bulk_pricing'],
             ],
         ],
         [
             'title' => 'Purchasing',
             'color' => '#3d2f4a',
             'icon' => 'clipboard',
+            'feature' => 'purchasing.orders',
             'links' => [
-                ['Purchase Orders', 'purchasing.orders.index', true],
-                ['Receiving', 'purchasing.receivings.index', true],
-                ['Return to Vendor', 'purchasing.rtv.index', true],
-                ['Suppliers', 'purchasing.suppliers.index', true],
-                ['New Purchase Order', 'purchasing.orders.create', true],
+                ['Purchase Orders', 'purchasing.orders.index', 'purchasing.orders'],
+                ['Receiving', 'purchasing.receivings.index', 'purchasing.receivings'],
+                ['Return to Vendor', 'purchasing.rtv.index', 'purchasing.rtv'],
+                ['Suppliers', 'purchasing.suppliers.index', 'purchasing.suppliers'],
+                ['New Purchase Order', 'purchasing.orders.create', 'purchasing.orders'],
             ],
         ],
         [
             'title' => 'Inquiries',
             'color' => '#1f8a9a',
             'icon' => 'info',
+            'feature' => 'inquiries',
             'links' => [
-                ['Stock Status', 'inquiries.stock-status', true],
-                ['Item Velocity', 'inquiries.item-velocity', true],
+                ['Stock Status', 'inquiries.stock-status', 'inquiries'],
+                ['Item Velocity', 'inquiries.item-velocity', 'inquiries'],
             ],
         ],
     ];
+
+    $modules = array_values(array_filter($modules, function ($mod) use ($can) {
+        return collect($mod['links'])->contains(fn ($l) => $can($l[2]));
+    }));
 @endphp
 
 <x-app-layout>
@@ -112,19 +124,13 @@
                     <h2 class="home-chief-title">{{ $module['title'] }}</h2>
 
                     <ul class="home-chief-links">
-                        @foreach ($module['links'] as [$label, $route, $enabled])
+                        @foreach ($module['links'] as [$label, $route, $feature])
+                            @continue(! $can($feature) || ! $route || ! Route::has($route))
                             <li>
-                                @if ($enabled && $route && Route::has($route))
-                                    <a href="{{ route($route) }}" wire:navigate>
-                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
-                                        <span class="home-chief-link-text">{{ $label }}</span>
-                                    </a>
-                                @else
-                                    <span class="home-chief-disabled">
-                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
-                                        <span>{{ $label }}</span>
-                                    </span>
-                                @endif
+                                <a href="{{ route($route) }}" wire:navigate>
+                                    <span class="home-chief-link-dot" aria-hidden="true"></span>
+                                    <span class="home-chief-link-text">{{ $label }}</span>
+                                </a>
                             </li>
                         @endforeach
                     </ul>

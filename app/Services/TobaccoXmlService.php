@@ -37,10 +37,12 @@ class TobaccoXmlService
         $xml->addAttribute('product', $product);
         $xml->addAttribute('schemaVersion', '1.1');
         $xml->addChild('CompanyName', htmlspecialchars((string) ($company?->name ?? ''), ENT_XML1));
-        $xml->addChild('CompanyFEIN', '');
+        $xml->addChild('CompanyFEIN', htmlspecialchars((string) ($company?->fein_no ?? ''), ENT_XML1));
         $xml->addChild('PeriodStart', $periodStart);
         $xml->addChild('PeriodEnd', $periodEnd);
         $xml->addChild('GeneratedAt', now()->toIso8601String());
+        $xml->addChild('FilingType', htmlspecialchars($filerType, ENT_XML1));
+        $xml->addChild('ProductType', htmlspecialchars($product, ENT_XML1));
 
         $sellers = $xml->addChild('PurchaserSellers');
         foreach ($suppliers as $s) {
@@ -60,10 +62,14 @@ class TobaccoXmlService
             $node->addChild('City', htmlspecialchars((string) ($c->city ?? ''), ENT_XML1));
             $node->addChild('State', htmlspecialchars((string) ($c->state ?? ''), ENT_XML1));
             $node->addChild('ZIP', htmlspecialchars((string) ($c->zip_code ?? ''), ENT_XML1));
+            if ($c->cigarette_tax_class_id) {
+                $node->addChild('CigaretteTaxClassId', (string) $c->cigarette_tax_class_id);
+            }
         }
 
         $sales = $xml->addChild('Sales');
         foreach ($invoices as $inv) {
+            $inv->loadMissing(['customer', 'salesOrder.lines.item']);
             $row = $sales->addChild('Sale');
             $row->addChild('InvoiceNo', htmlspecialchars((string) $inv->invoice_number, ENT_XML1));
             $row->addChild('InvoiceDate', optional($inv->invoice_date)?->format('Y-m-d') ?? '');
@@ -72,6 +78,17 @@ class TobaccoXmlService
             $row->addChild('OrderNo', htmlspecialchars((string) ($inv->salesOrder?->order_number ?? ''), ENT_XML1));
             $row->addChild('WholesaleTotal', number_format((float) $inv->invoice_total, 2, '.', ''));
             $row->addChild('TaxAmount', number_format((float) ($inv->tax ?? 0), 2, '.', ''));
+
+            $linesNode = $row->addChild('Lines');
+            foreach ($inv->salesOrder?->lines ?? [] as $line) {
+                $lineNode = $linesNode->addChild('Line');
+                $lineNode->addChild('ItemCode', htmlspecialchars((string) $line->item_code, ENT_XML1));
+                $lineNode->addChild('Description', htmlspecialchars((string) ($line->description ?? ''), ENT_XML1));
+                $lineNode->addChild('Qty', number_format((float) $line->qty_ordered, 4, '.', ''));
+                $lineNode->addChild('UnitPrice', number_format((float) $line->price, 4, '.', ''));
+                $lineNode->addChild('Extended', number_format((float) $line->line_total, 2, '.', ''));
+                $lineNode->addChild('UOM', htmlspecialchars((string) ($line->uom ?? ''), ENT_XML1));
+            }
         }
 
         if ($filerType === 'unclassified_acquirer' && $product === 'cigarettes' && $stamps) {

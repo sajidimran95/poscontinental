@@ -55,7 +55,7 @@
             <th>Description</th>
             <th style="width:110px">UPC</th>
             <th style="width:50px">UOM</th>
-            <th class="right" style="width:75px">List Price</th>
+            <th class="right" style="width:75px">Price</th>
             <th class="right" style="width:75px">MSRP</th>
         </tr>
     </thead>
@@ -67,7 +67,7 @@
                 <td>{{ $item->description }}</td>
                 <td class="mono muted">{{ $item->primary_upc ?: '—' }}</td>
                 <td>{{ $item->unit_of_measure ?: '—' }}</td>
-                <td class="right"><strong>${{ number_format((float) $item->list_price, 2) }}</strong></td>
+                <td class="right"><strong>${{ number_format((float) ($item->display_price ?? $item->list_price), 2) }}</strong></td>
                 <td class="right">${{ number_format((float) $item->msrp, 2) }}</td>
             </tr>
         @empty

@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'customer.portal' => \App\Http\Middleware\EnsureCustomerPortal::class,
+            'feature' => \App\Http\Middleware\EnsureFeatureAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

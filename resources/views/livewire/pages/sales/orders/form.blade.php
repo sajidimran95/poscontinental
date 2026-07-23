@@ -152,6 +152,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->activeTab = 'items';
         }
 
+        // New order always opens on General (customer / order header).
+        if (! $salesOrder?->exists) {
+            $this->activeTab = 'general';
+        }
+
         $this->viewMode = request()->routeIs('sales.orders.show');
         $companyId = auth()->user()->company_id;
 
@@ -366,6 +371,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showCustomerBrowse = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
+        $this->repriceLinesForCustomer();
+    }
+
+    protected function repriceLinesForCustomer(): void
+    {
+        foreach ($this->lines as $i => $line) {
+            if (empty($line['item_id'])) {
+                continue;
+            }
+            $item = Item::query()->with('prices')->find($line['item_id']);
+            if ($item) {
+                $this->lines[$i]['price'] = $this->resolveItemPrice($item);
+            }
+        }
     }
 
     public function updatedShipToAddressId($value): void
@@ -749,20 +768,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function resolveItemPrice(Item $item): string
     {
-        $uom = $item->unit_of_measure ?? '';
-        $prices = $item->relationLoaded('prices') ? $item->prices : $item->prices()->get();
-        if ($uom !== '') {
-            $match = $prices->firstWhere('uom', $uom);
-            if ($match) {
-                return (string) $match->price;
-            }
-        }
-        $first = $prices->first();
-        if ($first) {
-            return (string) $first->price;
+        $levelId = null;
+        if ($this->customer_id) {
+            $levelId = Customer::query()->whereKey($this->customer_id)->value('price_level_id');
         }
 
-        return (string) $item->list_price;
+        return (string) \App\Support\ItemPricing::resolve(
+            $item,
+            $levelId ? (int) $levelId : null,
+            $item->unit_of_measure ?: null
+        );
     }
 
     protected function fillLineFromItem(int $index, Item $item): void
@@ -1006,6 +1021,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ]);
             }
         });
+
+        $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
+        if ($this->salesOrder?->exists) {
+            // Include previous line items in case they were removed from this save.
+            $itemIds = array_values(array_unique(array_merge(
+                $itemIds,
+                $this->salesOrder->lines()->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all()
+            )));
+        }
+        app(\App\Services\InventoryService::class)->syncAllocatedQty($itemIds);
 
         if ($this->lineWarning !== '') {
             session()->flash('status', $this->lineWarning);
@@ -1305,7 +1330,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </tbody>
                         </table>
                         @unless ($hasLines)
-                            <div class="so-items-empty">Enter item code or click browse to add items</div>
+                            <div class="so-items-empty" role="status">Enter item code or click Browse to add items</div>
                         @endunless
                     </div>
                     <div class="so-entry">

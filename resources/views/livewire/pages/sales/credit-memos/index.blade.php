@@ -30,6 +30,10 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public string $comments = '';
 
+    public string $reference_no = '';
+
+    public string $reason = '';
+
     public bool $restock_inventory = true;
 
     /** @var array<int, array{item_code:string,description:string,uom:string,qty:string,price:string}> */
@@ -96,6 +100,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->memo_date = now()->toDateString();
         $this->customer_id = null;
         $this->comments = '';
+        $this->reference_no = '';
+        $this->reason = '';
         $this->restock_inventory = true;
         $this->lines = [
             ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '1', 'price' => '0'],
@@ -189,6 +195,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 'company_id' => $companyId,
                 'memo_number' => $candidate,
                 'memo_date' => $this->memo_date,
+                'reference_no' => $this->reference_no ?: null,
+                'reason' => $this->reason ?: null,
                 'customer_id' => $this->customer_id,
                 'amount' => $amount,
                 'status' => 'Open',
@@ -256,6 +264,21 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="memo_date">Memo Date</label>
                             <input id="memo_date" type="date" wire:model="memo_date" class="so-input" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="cm_reference">Reference No.</label>
+                            <input id="cm_reference" wire:model="reference_no" class="so-input" placeholder="RMA / invoice / PO…" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="cm_reason">Reason</label>
+                            <select id="cm_reason" wire:model="reason" class="so-input">
+                                <option value="">— Select —</option>
+                                <option value="Return">Return</option>
+                                <option value="Price Adjustment">Price Adjustment</option>
+                                <option value="Allowance">Allowance</option>
+                                <option value="Damaged">Damaged</option>
+                                <option value="Other">Other</option>
+                            </select>
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="cm_customer_id">Customer</label>

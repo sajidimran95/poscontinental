@@ -3,6 +3,7 @@
 use App\Models\Role;
 use App\Models\Site;
 use App\Models\User;
+use App\Support\AppFeatures;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
@@ -54,6 +55,9 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public string $role_label = '';
 
+    /** @var array<int, string> */
+    public array $role_permissions = [];
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -102,6 +106,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             ],
             'listTitle' => $listTitle,
             'isShowingForm' => $this->showUserForm || $this->showRoleForm,
+            'featureGroups' => AppFeatures::grouped(),
         ];
     }
 
@@ -344,6 +349,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->editingRoleId = null;
         $this->role_name = '';
         $this->role_label = '';
+        $this->role_permissions = AppFeatures::keys();
         $this->resetErrorBag();
     }
 
@@ -356,7 +362,21 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->editingRoleId = $role->id;
         $this->role_name = $role->name;
         $this->role_label = $role->label;
+        $perms = $role->permissions;
+        $this->role_permissions = is_array($perms) && $perms !== []
+            ? array_values($perms)
+            : AppFeatures::keys();
         $this->resetErrorBag();
+    }
+
+    public function selectAllPermissions(): void
+    {
+        $this->role_permissions = AppFeatures::keys();
+    }
+
+    public function clearAllPermissions(): void
+    {
+        $this->role_permissions = [];
     }
 
     public function cancelRoleForm(): void
@@ -376,11 +396,14 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 Rule::unique('roles', 'name')->ignore($this->editingRoleId),
             ],
             'role_label' => 'required|string|max:255',
+            'role_permissions' => 'array',
+            'role_permissions.*' => 'string|in:'.implode(',', AppFeatures::keys()),
         ]);
 
         $payload = [
             'name' => strtolower($this->role_name),
             'label' => $this->role_label,
+            'permissions' => array_values(array_unique($this->role_permissions)),
         ];
 
         if ($this->editingRoleId) {
@@ -494,18 +517,46 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <input id="r-label-head" wire:model="role_label" class="so-input" placeholder="Display label" />
                         </div>
                     </div>
-                    <div class="inv-card" style="max-width:28rem;margin:1rem">
-                        <div class="inv-card-title">Role details</div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="r-name">Code</label>
-                            <input id="r-name" wire:model="role_name" class="so-input font-mono" @disabled($editingRoleId) placeholder="e.g. sales_rep" />
+                    <div class="sc-general-grid">
+                        <div class="inv-card">
+                            <div class="inv-card-title">Role details</div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="r-name">Code</label>
+                                <input id="r-name" wire:model="role_name" class="so-input font-mono" @disabled($editingRoleId) placeholder="e.g. sales_rep" />
+                            </div>
+                            @error('role_name') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="r-label">Label</label>
+                                <input id="r-label" wire:model="role_label" class="so-input" />
+                            </div>
+                            @error('role_label') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            @if ($role_name === 'admin' || strtolower($role_name) === 'admin')
+                                <p class="item-hint" style="padding:0.5rem 0 0">Admin always has full access to every feature.</p>
+                            @endif
                         </div>
-                        @error('role_name') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="r-label">Label</label>
-                            <input id="r-label" wire:model="role_label" class="so-input" />
+                        <div class="inv-card">
+                            <div class="inv-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+                                <span>Features</span>
+                                <span class="flex gap-1">
+                                    <button type="button" wire:click="selectAllPermissions" class="desk-btn desk-btn-sm">All</button>
+                                    <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
+                                </span>
+                            </div>
+                            <p class="item-hint" style="padding:0 0 0.5rem">Show all features, then activate only what this role may use.</p>
+                            @foreach ($featureGroups as $group => $features)
+                                <div style="margin-bottom:0.75rem">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{{ $group }}</div>
+                                    <div class="grid gap-1" style="grid-template-columns:repeat(auto-fill,minmax(11rem,1fr))">
+                                        @foreach ($features as $key => $label)
+                                            <label class="entity-check" style="margin:0">
+                                                <input type="checkbox" value="{{ $key }}" wire:model="role_permissions" />
+                                                {{ $label }}
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
-                        @error('role_label') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                     </div>
                 </div>
                 <div class="entity-footer">

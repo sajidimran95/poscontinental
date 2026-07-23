@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Company extends Model
 {
     protected $fillable = [
-        'code', 'name', 'is_active', 'customer_app_api_active',
+        'code', 'name', 'fein_no', 'is_active',
         'mail_mailer', 'mail_host', 'mail_port', 'mail_username', 'mail_password',
         'mail_encryption', 'mail_from_address', 'mail_from_name',
     ];
@@ -17,7 +17,6 @@ class Company extends Model
     {
         return [
             'is_active' => 'boolean',
-            'customer_app_api_active' => 'boolean',
             'mail_password' => 'encrypted',
         ];
     }

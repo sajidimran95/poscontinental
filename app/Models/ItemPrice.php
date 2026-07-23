@@ -9,6 +9,7 @@ class ItemPrice extends Model
 {
     protected $fillable = [
         'item_id',
+        'price_level_id',
         'uom',
         'price',
         'alias_code',
@@ -25,5 +26,10 @@ class ItemPrice extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
+    }
+
+    public function priceLevel(): BelongsTo
+    {
+        return $this->belongsTo(PriceLevel::class);
     }
 }

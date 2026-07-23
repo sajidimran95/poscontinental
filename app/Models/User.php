@@ -58,4 +58,22 @@ class User extends Authenticatable
     {
         return $this->role?->name === 'sales_rep';
     }
+
+    public function isAdmin(): bool
+    {
+        return $this->role?->name === 'admin';
+    }
+
+    public function canAccessFeature(string $feature): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        if (! $this->role) {
+            return true;
+        }
+
+        return $this->role->allows($feature);
+    }
 }

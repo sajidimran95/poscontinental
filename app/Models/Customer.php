@@ -2,15 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Laravel\Sanctum\HasApiTokens;
 
-class Customer extends Authenticatable
+class Customer extends Model
 {
-    use HasApiTokens;
-
     protected $fillable = [
         'company_id',
         'customer_id',
@@ -27,9 +24,6 @@ class Customer extends Authenticatable
         'mobile',
         'fax',
         'email',
-        'portal_email',
-        'portal_password',
-        'portal_active',
         'web_page',
         'price_level_id',
         'cigarette_tax_class_id',
@@ -79,7 +73,6 @@ class Customer extends Authenticatable
     ];
 
     protected $hidden = [
-        'portal_password',
         'owner_ssn',
     ];
 
@@ -87,8 +80,6 @@ class Customer extends Authenticatable
     {
         return [
             'is_inactive' => 'boolean',
-            'portal_active' => 'boolean',
-            'portal_password' => 'hashed',
             'is_tax_exempt' => 'boolean',
             'certificate_on_file' => 'boolean',
             'drivers_accept_returns' => 'boolean',
@@ -106,11 +97,6 @@ class Customer extends Authenticatable
             'last_order_on' => 'date',
             'owner_ssn' => 'encrypted',
         ];
-    }
-
-    public function getAuthPassword(): string
-    {
-        return (string) $this->portal_password;
     }
 
     public function company(): BelongsTo

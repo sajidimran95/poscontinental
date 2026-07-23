@@ -1,8 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\Customer\AuthController as CustomerAuthController;
-use App\Http\Controllers\Api\Customer\ItemController as CustomerItemController;
-use App\Http\Controllers\Api\Customer\OrderController as CustomerOrderController;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrder;
@@ -15,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 /*
 |--------------------------------------------------------------------------
-| Staff / Sales Rep API (existing — for future §11.9 Sales Rep app)
+| Staff / Sales Rep API
 |--------------------------------------------------------------------------
 */
 Route::post('/login', function (Request $request) {
@@ -217,25 +214,5 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         return $rows;
-    });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Customer Mobile App API — Brief §11.7
-|--------------------------------------------------------------------------
-*/
-Route::prefix('customer')->group(function () {
-    Route::post('/login', [CustomerAuthController::class, 'login']);
-
-    Route::middleware(['auth:sanctum', 'customer.portal'])->group(function () {
-        Route::post('/logout', [CustomerAuthController::class, 'logout']);
-        Route::get('/me', [CustomerAuthController::class, 'me']);
-        Route::get('/items', [CustomerItemController::class, 'index']);
-        Route::get('/items/{id}', [CustomerItemController::class, 'show'])->whereNumber('id');
-        Route::get('/orders', [CustomerOrderController::class, 'index']);
-        Route::post('/orders', [CustomerOrderController::class, 'store']);
-        Route::get('/orders/{id}', [CustomerOrderController::class, 'show'])->whereNumber('id');
-        Route::get('/invoices', [CustomerOrderController::class, 'invoices']);
     });
 });

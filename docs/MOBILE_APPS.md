@@ -1,6 +1,6 @@
 # Mobile Apps (Phase F)
 
-Continental Wholesale customer and sales-rep mobile apps consume the Laravel Sanctum API under `/api`.
+Sales-rep mobile apps consume the Laravel Sanctum staff API under `/api`.
 
 ## API
 
@@ -12,18 +12,18 @@ Continental Wholesale customer and sales-rep mobile apps consume the Laravel San
 | GET | `/api/customers?search=&assigned_only=1` | Customers (`assigned_only` for reps) |
 | GET | `/api/customers/{id}` | Balance / available credit / alerts |
 | POST | `/api/sales-orders` | Create New SO with lines |
-| GET | `/api/sales-orders?customer_id=` | Order history |
+| GET | `/api/sales-orders/{id}` | Order detail |
+| GET | `/api/invoices?customer_id=` | Invoices |
 
 Header: `Authorization: Bearer {token}` and `Accept: application/json`.
 
 ## Apps
 
-Scaffold React Native / Expo clients live under [`mobile/`](../mobile/README.md):
+Scaffold React Native / Expo client lives under [`mobile/`](../mobile/README.md):
 
-1. **Customer app** (`mobile/customer-app`) — catalog search; cart → `POST /api/sales-orders`; order history.
-2. **Sales rep app** (`mobile/rep-app`) — staff login; `assigned_only=1` customers; create SO; show credit / alerts.
+- **Sales rep app** (`mobile/rep-app`) — staff login; `assigned_only=1` customers; create SO; show credit / alerts.
 
-Both platforms (iOS + Android), online-first (no offline queue in v1). Expand scaffolds with full UI when branding assets are available.
+Platform target: **iOS + Android**, online-first (no offline queue in v1).
 
 ## Remote access
 

@@ -11,6 +11,7 @@ use App\Models\ItemSupplier;
 use App\Models\ItemType;
 use App\Models\ItemUpc;
 use App\Models\PricingMethod;
+use App\Models\PriceLevel;
 use App\Models\Site;
 use App\Models\Subcategory;
 use App\Models\Supplier;
@@ -141,7 +142,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     /** @var array<int, array{upc:string,is_primary:bool}> */
     public array $upcs = [];
 
-    /** @var array<int, array{uom:string,price:string,alias_code:string}> */
+    /** @var array<int, array{uom:string,price:string,alias_code:string,price_level_id:?int}> */
     public array $prices = [];
 
     /** @var array<int, array{supplier_id:?int,supplier_item_code:string,lead_time:string,is_default:bool,last_cost:string,avg_cost:string,last_received_at:?string}> */
@@ -193,6 +194,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'uom' => $p->uom ?? '',
                 'price' => (string) $p->price,
                 'alias_code' => $p->alias_code ?? '',
+                'price_level_id' => $p->price_level_id,
             ])->all();
 
             $this->suppliers = $item->itemSuppliers->map(fn (ItemSupplier $s) => [
@@ -217,7 +219,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
 
         if ($this->prices === []) {
-            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => ''];
+            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => '', 'price_level_id' => null];
         }
 
         if ($this->suppliers === []) {
@@ -274,7 +276,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
 
         if ($this->prices === []) {
-            $this->prices[] = ['uom' => $uom, 'price' => $this->list_price ?: '0.00', 'alias_code' => ''];
+            $this->prices[] = ['uom' => $uom, 'price' => $this->list_price ?: '0.00', 'alias_code' => '', 'price_level_id' => null];
 
             return;
         }
@@ -337,6 +339,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'taxSchedules' => TaxSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'promotionSchedules' => DiscountSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'pricingMethods' => PricingMethod::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'priceLevels' => PriceLevel::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(),
             'supplierOptions' => Supplier::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('name')->get(),
             'substituteOptions' => Item::query()->where('company_id', $companyId)
                 ->when($this->item, fn ($q) => $q->where('id', '!=', $this->item->id))
@@ -425,7 +428,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function addPrice(): void
     {
-        $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => '0.00', 'alias_code' => ''];
+        $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => '0.00', 'alias_code' => '', 'price_level_id' => null];
     }
 
     public function removePrice(int $index): void
@@ -433,7 +436,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         unset($this->prices[$index]);
         $this->prices = array_values($this->prices);
         if ($this->prices === []) {
-            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => ''];
+            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => '', 'price_level_id' => null];
         }
     }
 
@@ -859,6 +862,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     'uom' => $row['uom'] ?: null,
                     'price' => $row['price'] ?? 0,
                     'alias_code' => $row['alias_code'] ?: null,
+                    'price_level_id' => filled($row['price_level_id'] ?? null) ? (int) $row['price_level_id'] : null,
                     'sort_order' => $i,
                 ]);
             }
@@ -1236,6 +1240,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <col class="col-uom" />
                                 <col class="col-price" />
                                 <col class="col-alias" />
+                                <col style="width:8rem" />
                                 <col class="col-action" />
                             </colgroup>
                             <thead>
@@ -1243,6 +1248,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                     <th>U of M</th>
                                     <th class="text-center">Price</th>
                                     <th>Alias Code</th>
+                                    <th>Price Level</th>
                                     <th></th>
                                 </tr>
                             </thead>
@@ -1259,13 +1265,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         </td>
                                         <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" /></td>
                                         <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input item-cell-ctl" /></td>
+                                        <td>
+                                            <select wire:model="prices.{{ $i }}.price_level_id" class="so-input item-cell-ctl">
+                                                <option value="">List / Default</option>
+                                                @foreach ($priceLevels as $pl)
+                                                    <option value="{{ $pl->id }}">{{ $pl->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </td>
                                         <td class="text-center"><button type="button" wire:click="removePrice({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
-                    <p class="item-hint">Default U of M comes from Inventory. Add extra rows for other units (e.g. PK, BX) with different prices.</p>
+                    <p class="item-hint">Default U of M comes from Inventory. Add rows per Price Level (e.g. Wholesale) so Sales Orders and Price Lists use the customer’s level.</p>
                 </div>
 
             @elseif ($activeTab === 'extended')

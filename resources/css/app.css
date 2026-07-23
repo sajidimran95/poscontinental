@@ -1205,14 +1205,16 @@
     }
 
     .so-items-empty {
-        position: absolute;
-        inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
+        min-height: 4.5rem;
+        padding: 1rem 0.75rem;
         color: #64748b;
         font-size: 15px;
         pointer-events: none;
+        background: #f8fafc;
+        border-bottom: 1px solid #e8e8e8;
     }
 
     .so-entry {
@@ -1819,7 +1821,7 @@
     }
 
     .desk-sidebar {
-        width: 12.5rem;
+        width: 14.5rem;
         flex-shrink: 0;
         background: #ffffff;
         border: 1px solid #d5dbe3;
@@ -1850,23 +1852,118 @@
     .desk-sidebar-list {
         list-style: none;
         margin: 0;
-        padding: 0.35rem;
+        padding: 0.4rem;
         overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.12rem;
+    }
+
+    .desk-sidebar-row {
+        display: block;
+        margin: 0;
+        padding: 0;
+        line-height: normal;
+    }
+
+    .desk-sidebar-heading-row {
+        margin-top: 0.45rem;
+    }
+
+    .desk-sidebar-heading {
+        padding: 0.4rem 0.55rem 0.25rem;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #64748b;
+        border-top: 1px solid #e2e8f0;
     }
 
     .desk-sidebar-item {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
         width: 100%;
+        box-sizing: border-box;
         text-align: left;
-        padding: 0.55rem 0.65rem;
+        min-height: 2rem;
+        padding: 0.4rem 0.55rem;
+        margin: 0;
         border: none;
         border-radius: 6px;
         background: transparent;
         color: #334155;
         font-size: 13px;
         font-weight: 500;
-        cursor: pointer;
         line-height: 1.3;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .desk-sidebar-branch {
+        flex: 0 0 auto;
+        color: #94a3b8;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1;
+    }
+
+    .desk-sidebar-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .desk-sidebar-kind {
+        flex: 0 0 auto;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 999px;
+        padding: 0.1rem 0.35rem;
+        line-height: 1.2;
+    }
+
+    .desk-sidebar-item.desk-sidebar-kind-dept .desk-sidebar-kind {
+        color: #1d4ed8;
+        background: #eff6ff;
+        border-color: #bfdbfe;
+    }
+
+    .desk-sidebar-item.desk-sidebar-kind-category .desk-sidebar-kind {
+        color: #a16207;
+        background: #fffbeb;
+        border-color: #fde68a;
+    }
+
+    .desk-sidebar-item.desk-sidebar-kind-subcat .desk-sidebar-kind {
+        color: #0f766e;
+        background: #f0fdfa;
+        border-color: #99f6e4;
+    }
+
+    .desk-sidebar-item.desk-sidebar-level-1 {
+        padding-left: 0.85rem;
+    }
+
+    .desk-sidebar-item.desk-sidebar-level-2 {
+        padding-left: 1.45rem;
+        font-size: 12.5px;
+    }
+
+    .desk-sidebar-item.desk-sidebar-level-3 {
+        padding-left: 2rem;
+    }
+
+    .desk-sidebar-item.desk-sidebar-kind-dept {
+        font-weight: 700;
+        color: #0f172a;
     }
 
     .desk-sidebar-item:hover {
@@ -1878,6 +1975,10 @@
         background: #e0f2fe;
         color: #075985;
         font-weight: 600;
+    }
+
+    .desk-sidebar-item.is-active .desk-sidebar-kind {
+        border-color: #7dd3fc;
     }
 
     .desk-main {
@@ -4446,16 +4547,36 @@
 
         .desk-sidebar-list {
             display: flex;
+            flex-direction: row;
             flex-wrap: wrap;
             gap: 0.25rem;
             padding: 0.4rem;
         }
 
+        .desk-sidebar-row {
+            display: contents;
+        }
+
+        .desk-sidebar-heading-row {
+            display: none;
+        }
+
         .desk-sidebar-item {
             width: auto;
             flex: 0 0 auto;
-            padding: 0.4rem 0.65rem;
+            min-height: 1.85rem;
+            padding: 0.35rem 0.65rem;
             font-size: 12px;
+        }
+
+        .desk-sidebar-item.desk-sidebar-level-1,
+        .desk-sidebar-item.desk-sidebar-level-2,
+        .desk-sidebar-item.desk-sidebar-level-3 {
+            padding-left: 0.65rem;
+        }
+
+        .desk-sidebar-branch {
+            display: none;
         }
 
         .desk-main-split {

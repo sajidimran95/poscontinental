@@ -19,7 +19,7 @@ Route::get('media/{path}', [PublicMediaController::class, 'show'])
     ->where('path', '.*')
     ->name('media.show');
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'feature'])->group(function () {
     Route::view('home', 'home')->name('home');
     Route::redirect('dashboard', '/home')->name('dashboard');
 

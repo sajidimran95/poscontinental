@@ -49,10 +49,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public string $email = '';
 
-    public string $portal_email = '';
-
-    public string $portal_password = '';
-
     public string $web_page = '';
 
     public ?int $price_level_id = null;
@@ -160,7 +156,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             $this->fill($customer->only([
                 'customer_id', 'is_inactive', 'contact', 'company_name', 'address', 'city', 'state',
                 'zip_code', 'country', 'telephone', 'telephone2', 'mobile', 'fax', 'email', 'web_page',
-                'portal_email',
                 'price_level_id', 'cigarette_tax_class_id', 'discount_schedule_id', 'purchase_limit_schedule_id',
                 'payment_term_id', 'sales_rep_id', 'delivery_route_id', 'lead_source', 'customer_category',
                 'opt_out_catalog', 'opt_out_email', 'opt_out_telemarketing', 'opt_out_mobile', 'opt_out_all',
@@ -175,7 +170,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             $this->last_order_on = optional($customer->last_order_on)?->format('Y-m-d');
             $this->owner_ssn = $customer->owner_ssn ?? '';
             $this->owner_ssn_display = $customer->owner_ssn_masked;
-            $this->portal_password = '';
             $this->shippingAddresses = $customer->shippingAddresses->map(fn (CustomerShippingAddress $a) => [
                 'name' => $a->name ?? '',
                 'address' => $a->address ?? '',
@@ -284,8 +278,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 'contact' => 'nullable|string|max:255',
                 'telephone' => 'nullable|string|max:40',
                 'email' => 'nullable|email|max:255',
-                'portal_email' => 'nullable|email|max:255',
-                'portal_password' => 'nullable|string|min:6|max:120',
                 'credit_limit' => 'nullable|numeric|min:0',
                 'fein_no' => 'nullable|string|max:32',
                 'tax_certificate_no' => $this->is_tax_exempt ? 'required|string|max:64' : 'nullable|string|max:64',
@@ -331,7 +323,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'mobile' => $this->mobile,
             'fax' => $this->fax,
             'email' => $this->email,
-            'portal_email' => $this->portal_email ?: null,
             'web_page' => $this->web_page,
             'price_level_id' => $nullableId($this->price_level_id),
             'cigarette_tax_class_id' => $nullableId($this->cigarette_tax_class_id),
@@ -379,13 +370,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'owner_fax' => $this->owner_fax,
             'owner_email' => $this->owner_email,
         ];
-
-        if (filled($this->portal_password)) {
-            $data['portal_password'] = $this->portal_password;
-            $data['portal_active'] = true;
-        } elseif (filled($this->portal_email)) {
-            $data['portal_active'] = true;
-        }
 
         DB::transaction(function () use ($data) {
             if ($this->customer) {
@@ -621,20 +605,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         <div class="so-form-row"><label class="so-form-lbl" for="total_sales">Total Sales</label><input id="total_sales" wire:model="total_sales" class="so-input text-right" readonly /></div>
                         <div class="so-form-row"><label class="so-form-lbl" for="credit_limit">Credit Limit</label><input id="credit_limit" wire:model.live="credit_limit" class="so-input text-right" /></div>
                         <div class="so-form-row"><span class="so-form-lbl">Available Credit</span><span class="entity-value">${{ number_format($availableCredit, 2) }}</span></div>
-                        <fieldset class="entity-fieldset">
-                            <legend>Customer App Login</legend>
-                            <p class="item-hint" style="border:0;margin:0 0 0.5rem;padding:0">Used by the Flutter customer app (<code>/api/customer/login</code>). API on/off is under File → Customer App API.</p>
-                            <div class="so-form-row">
-                                <label class="so-form-lbl" for="portal_email">App Email</label>
-                                <input id="portal_email" type="email" wire:model="portal_email" class="so-input @error('portal_email') is-invalid @enderror" />
-                            </div>
-                            @error('portal_email') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                            <div class="so-form-row">
-                                <label class="so-form-lbl" for="portal_password">App Password</label>
-                                <input id="portal_password" type="password" wire:model="portal_password" class="so-input @error('portal_password') is-invalid @enderror" placeholder="Leave blank to keep current" autocomplete="new-password" />
-                            </div>
-                            @error('portal_password') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                        </fieldset>
                         <fieldset class="entity-fieldset">
                             <legend>Negative Points</legend>
                             <div class="so-form-row"><label class="so-form-lbl" for="bad_checks_count">Bad Checks</label><input id="bad_checks_count" wire:model="bad_checks_count" class="so-input text-right" style="max-width:5rem" /></div>

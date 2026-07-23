@@ -58,13 +58,23 @@ class DocumentPdfService
         ]);
     }
 
-    public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null)
+    public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null, ?int $priceLevelId = null)
     {
+        $rows = collect($items)->map(function (Item $item) use ($priceLevelId) {
+            $item->setAttribute(
+                'display_price',
+                \App\Support\ItemPricing::resolve($item, $priceLevelId, $item->unit_of_measure ?: null)
+            );
+
+            return $item;
+        });
+
         return Pdf::loadView('pdf.price-list', [
-            'items' => $items,
+            'items' => $rows,
             'title' => $title ?? 'Price List',
             'company' => $user?->company ?? auth()->user()?->company,
-        ]);
+            'priceLevelId' => $priceLevelId,
+        ])->setPaper('letter');
     }
 
     public function salesReportPdf(array $payload, ?User $user = null)
@@ -275,6 +285,40 @@ class DocumentPdfService
             'company_id' => $user->company_id,
             'document_type' => 'credit_memo',
             'document_id' => $memo->id,
+            'recipient' => $recipient,
+            'subject' => $subject,
+            'user_id' => $user->id,
+        ]);
+    }
+
+    public function emailPriceList(
+        iterable $items,
+        string $recipient,
+        User $user,
+        ?string $subject = null,
+        ?string $title = null,
+        ?int $priceLevelId = null,
+    ): void {
+        CompanyMailConfig::apply($user->company);
+        $title = $title ?: 'Price List';
+        $subject = $subject ?: $title;
+        $pdf = $this->priceListPdf($items, $user, $title, $priceLevelId);
+
+        Mail::html(
+            '<p>Please find attached <strong>'.e($title).'</strong>.</p>',
+            function ($message) use ($recipient, $subject, $pdf) {
+                $message->to($recipient)
+                    ->subject($subject)
+                    ->attachData($pdf->output(), 'price-list.pdf', [
+                        'mime' => 'application/pdf',
+                    ]);
+            }
+        );
+
+        DocumentEmailLog::query()->create([
+            'company_id' => $user->company_id,
+            'document_type' => 'price_list',
+            'document_id' => null,
             'recipient' => $recipient,
             'subject' => $subject,
             'user_id' => $user->id,

@@ -10,6 +10,7 @@ use App\Models\Item;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnToVendor;
 use App\Models\SalesOrder;
+use App\Models\SalesOrderLine;
 use App\Models\StockCount;
 use Illuminate\Support\Facades\DB;
 
@@ -254,6 +255,8 @@ class InventoryService
                 'notes' => 'Sales Invoice '.$invoice->invoice_number.' (SO '.$order->order_number.')',
             ]);
         }
+
+        $this->syncAllocatedQty($order->lines->pluck('item_id')->filter()->all());
     }
 
     /**
@@ -293,6 +296,33 @@ class InventoryService
                 'unit_cost' => $item->current_cost,
                 'user_id' => auth()->id(),
                 'notes' => 'Credit Memo restock',
+            ]);
+        }
+    }
+
+    /**
+     * Recalculate allocated_qty from open (non-invoiced) sales order lines.
+     *
+     * @param  list<int>|int  $itemIds
+     */
+    public function syncAllocatedQty(int|array $itemIds): void
+    {
+        $ids = array_values(array_unique(array_filter(is_array($itemIds) ? $itemIds : [$itemIds])));
+        if ($ids === []) {
+            return;
+        }
+
+        $allocated = SalesOrderLine::query()
+            ->selectRaw('sales_order_lines.item_id, SUM(GREATEST(COALESCE(sales_order_lines.qty_ordered,0) - COALESCE(sales_order_lines.qty_shipped,0), 0)) as qty')
+            ->join('sales_orders', 'sales_orders.id', '=', 'sales_order_lines.sales_order_id')
+            ->whereIn('sales_order_lines.item_id', $ids)
+            ->whereNotIn('sales_orders.status', ['Invoiced', 'Cancelled', 'Closed', 'Void'])
+            ->groupBy('sales_order_lines.item_id')
+            ->pluck('qty', 'item_id');
+
+        foreach ($ids as $itemId) {
+            Item::query()->whereKey($itemId)->update([
+                'allocated_qty' => round((float) ($allocated[$itemId] ?? 0), 4),
             ]);
         }
     }

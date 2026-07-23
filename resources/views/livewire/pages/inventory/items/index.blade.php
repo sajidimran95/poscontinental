@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Department;
 use App\Models\Item;
 use App\Models\PurchaseOrderLine;
 use App\Models\SalesOrderLine;
+use App\Models\Subcategory;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -52,6 +54,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 $deptId = (int) substr($this->favorite, 5);
                 $q->where('department_id', $deptId);
             })
+            ->when(str_starts_with($this->favorite, 'cat:'), function ($q) {
+                $catId = (int) substr($this->favorite, 4);
+                $q->where('category_id', $catId);
+            })
+            ->when(str_starts_with($this->favorite, 'sub:'), function ($q) {
+                $subId = (int) substr($this->favorite, 4);
+                $q->where('subcategory_id', $subId);
+            })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->orderByDesc('id');
@@ -64,9 +74,53 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'low_stock' => 'Low Stock',
         ];
 
-        $departments = Department::query()->where('company_id', $companyId)->orderBy('name')->get();
+        $nodes = [
+            ['type' => 'item', 'key' => 'all', 'label' => 'All Items', 'level' => 0],
+            ['type' => 'item', 'key' => 'new', 'label' => 'New Items', 'level' => 0],
+            ['type' => 'item', 'key' => 'active', 'label' => 'Active Items', 'level' => 0],
+            ['type' => 'item', 'key' => 'inactive', 'label' => 'Inactive Items', 'level' => 0],
+            ['type' => 'item', 'key' => 'low_stock', 'label' => 'Low Stock', 'level' => 0],
+        ];
+
+        $departments = Department::query()
+            ->with(['categories' => fn ($q) => $q->orderBy('name')->with(['subcategories' => fn ($sq) => $sq->orderBy('name')])])
+            ->where('company_id', $companyId)
+            ->orderBy('name')
+            ->get();
+
+        if ($departments->isNotEmpty()) {
+            $nodes[] = ['type' => 'heading', 'label' => 'By Department'];
+        }
+
         foreach ($departments as $dept) {
             $favorites['dept:'.$dept->id] = $dept->name;
+            $nodes[] = [
+                'type' => 'item',
+                'key' => 'dept:'.$dept->id,
+                'label' => $dept->name,
+                'level' => 0,
+                'kind' => 'Dept',
+            ];
+            foreach ($dept->categories as $cat) {
+                $favorites['cat:'.$cat->id] = $cat->name;
+                $nodes[] = [
+                    'type' => 'item',
+                    'key' => 'cat:'.$cat->id,
+                    'label' => $cat->name,
+                    'level' => 1,
+                    'kind' => 'Category',
+                ];
+                foreach ($cat->subcategories as $sub) {
+                    $favorites['sub:'.$sub->id] = $sub->name;
+                    $nodes[] = [
+                        'type' => 'item',
+                        'key' => 'sub:'.$sub->id,
+                        'label' => $sub->name,
+                        'level' => 2,
+                        'kind' => 'Subcat',
+                    ];
+                }
+            }
         }
 
         $listTitle = 'Items List';
@@ -85,11 +139,29 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         } elseif (str_starts_with($this->favorite, 'dept:')) {
             $deptId = (int) substr($this->favorite, 5);
             $listTitle = $departments->firstWhere('id', $deptId)?->name ?? 'Items List';
+        } elseif (str_starts_with($this->favorite, 'cat:')) {
+            $catId = (int) substr($this->favorite, 4);
+            $cat = Category::query()->with('department')->find($catId);
+            $listTitle = $cat
+                ? trim(($cat->department?->name ? $cat->department->name.' › ' : '').$cat->name)
+                : 'Items List';
+        } elseif (str_starts_with($this->favorite, 'sub:')) {
+            $subId = (int) substr($this->favorite, 4);
+            $sub = Subcategory::query()->with('category.department')->find($subId);
+            if ($sub) {
+                $parts = array_filter([
+                    $sub->category?->department?->name,
+                    $sub->category?->name,
+                    $sub->name,
+                ]);
+                $listTitle = implode(' › ', $parts) ?: 'Items List';
+            }
         }
 
         return [
             'items' => $query->paginate(50),
             'favorites' => $favorites,
+            'nodes' => $nodes,
             'listTitle' => $listTitle,
         ];
     }
@@ -237,7 +309,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 }; ?>
 
 <div class="desk-page">
-    <x-favorite-list :favorites="$favorites" :active="$favorite" />
+    <x-favorite-list :nodes="$nodes" :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Action" />

@@ -16,67 +16,80 @@
             <nav class="chief-menu select-none" role="navigation" aria-label="Main menu">
                 <div class="flex items-center gap-0.5 px-2 py-0.5">
                     <span class="px-2 py-1 font-semibold text-slate-800">JAPS POS</span>
-                    @foreach ([
-                        'File' => [
-                            ['Users & Roles', 'admin.users.index'],
-                            ['Email Setup', 'admin.email-setup'],
-                            ['Email Send Log', 'admin.email-logs'],
-                            ['Terminal', 'admin.terminal'],
-                        ],
-                        'Inquiry' => [
-                            ['Stock Status', 'inquiries.stock-status'],
-                            ['Item Velocity', 'inquiries.item-velocity'],
-                        ],
-                        'Inventory' => [
-                            ['Items', 'inventory.items.index'],
-                            ['New Item', 'inventory.items.create'],
-                            ['Stock Counts', 'inventory.stock-counts.index'],
-                        ],
-                        'Sales' => [
-                            ['New Sales Order', 'sales.orders.create'],
-                            ['Sales Orders', 'sales.orders.index'],
-                            ['Customers', 'sales.customers.index'],
-                            ['New Customer', 'sales.customers.create'],
-                            ['Invoices', 'sales.invoices.index'],
-                            ['Payments & Credits', 'sales.payments.index'],
-                            ['Credit Memos', 'sales.credit-memos.index'],
-                        ],
-                        'Purchasing' => [
-                            ['Purchase Orders', 'purchasing.orders.index'],
-                            ['New Purchase Order', 'purchasing.orders.create'],
-                            ['Inventory Receivings', 'purchasing.receivings.index'],
-                            ['Return to Vendor', 'purchasing.rtv.index'],
-                            ['Suppliers', 'purchasing.suppliers.index'],
-                            ['New Supplier', 'purchasing.suppliers.create'],
-                        ],
-                        'Reports' => [
-                            ['Sales Report', 'reports.sales'],
-                            ['Price List', 'reports.price-list'],
-                            ['Bulk Pricing', 'inventory.bulk-pricing'],
-                        ],
-                        'Tobacco' => [
-                            ['Stamp Inventory', 'tobacco.stamp-inventory'],
-                            ['XML Filing', 'tobacco.filing'],
-                        ],
-                    ] as $menu => $items)
+                    @php
+                        $menuUser = auth()->user();
+                        $canRoute = function (?string $route) use ($menuUser): bool {
+                            if (! $route || ! Route::has($route)) {
+                                return false;
+                            }
+                            $feature = \App\Support\AppFeatures::featureForRoute($route);
+                            if (! $feature) {
+                                return true;
+                            }
+
+                            return $menuUser?->canAccessFeature($feature) ?? false;
+                        };
+                        $menus = [
+                            'File' => [
+                                ['Users & Roles', 'admin.users.index'],
+                                ['Email Setup', 'admin.email-setup'],
+                                ['Email Send Log', 'admin.email-logs'],
+                                ['Terminal', 'admin.terminal'],
+                            ],
+                            'Inquiry' => [
+                                ['Stock Status', 'inquiries.stock-status'],
+                                ['Item Velocity', 'inquiries.item-velocity'],
+                            ],
+                            'Inventory' => [
+                                ['Items', 'inventory.items.index'],
+                                ['New Item', 'inventory.items.create'],
+                                ['Stock Counts', 'inventory.stock-counts.index'],
+                                ['Bulk Pricing', 'inventory.bulk-pricing'],
+                            ],
+                            'Sales' => [
+                                ['New Sales Order', 'sales.orders.create'],
+                                ['Sales Orders', 'sales.orders.index'],
+                                ['Customers', 'sales.customers.index'],
+                                ['New Customer', 'sales.customers.create'],
+                                ['Invoices', 'sales.invoices.index'],
+                                ['Payments & Credits', 'sales.payments.index'],
+                                ['Credit Memos', 'sales.credit-memos.index'],
+                            ],
+                            'Purchasing' => [
+                                ['Purchase Orders', 'purchasing.orders.index'],
+                                ['New Purchase Order', 'purchasing.orders.create'],
+                                ['Inventory Receivings', 'purchasing.receivings.index'],
+                                ['Return to Vendor', 'purchasing.rtv.index'],
+                                ['Suppliers', 'purchasing.suppliers.index'],
+                                ['New Supplier', 'purchasing.suppliers.create'],
+                            ],
+                            'Reports' => [
+                                ['Sales Report', 'reports.sales'],
+                                ['Price List', 'reports.price-list'],
+                            ],
+                            'Tobacco' => [
+                                ['Stamp Inventory', 'tobacco.stamp-inventory'],
+                                ['XML Filing', 'tobacco.filing'],
+                            ],
+                        ];
+                    @endphp
+                    @foreach ($menus as $menu => $items)
+                        @php $visible = collect($items)->filter(fn ($row) => $canRoute($row[1])); @endphp
+                        @continue($visible->isEmpty())
                         <div class="relative group">
-                            <button type="button" class="px-2 py-1 hover:bg-slate-200 rounded-sm">{{ $menu }}</button>
-                            @if (count($items))
-                                <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1">
-                                    @foreach ($items as [$label, $route])
-                                        @if ($route && Route::has($route))
-                                            <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap">{{ $label }}</a>
-                                        @else
-                                            <span class="block px-3 py-1.5 text-slate-400 whitespace-nowrap">{{ $label }}</span>
-                                        @endif
-                                    @endforeach
-                                </div>
-                            @endif
+                            <button type="button" class="px-2 py-1 hover:bg-slate-200 rounded-sm" aria-haspopup="true">{{ $menu }}</button>
+                            <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
+                                @foreach ($visible as [$label, $route])
+                                    <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
+                                @endforeach
+                            </div>
                         </div>
                     @endforeach
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
-                        <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
+                        @if ($canRoute('lookups.index'))
+                            <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
+                        @endif
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
                             <button type="submit" class="text-sm font-medium text-slate-700 hover:text-slate-900">Logout</button>

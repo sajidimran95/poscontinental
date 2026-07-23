@@ -45,6 +45,13 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     protected function applyPreset(): void
     {
+        if ($this->datePreset === 'all') {
+            $this->dateFrom = '';
+            $this->dateTo = '';
+
+            return;
+        }
+
         $this->dateTo = now()->toDateString();
         $this->dateFrom = match ($this->datePreset) {
             '7' => now()->subDays(7)->toDateString(),
@@ -53,6 +60,12 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             'ytd' => now()->startOfYear()->toDateString(),
             default => now()->subDays(30)->toDateString(),
         };
+    }
+
+    public function showAllDates(): void
+    {
+        $this->datePreset = 'all';
+        $this->applyPreset();
     }
 
     public function lookupItem(): void
@@ -125,26 +138,53 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
     {
         $companyId = auth()->user()->company_id;
         $rows = collect();
+        $outsideRangeCount = 0;
+        $itemCode = null;
 
         if ($this->itemId) {
-            $rows = SalesOrderLine::query()
+            $item = Item::query()->where('company_id', $companyId)->find($this->itemId);
+            $itemCode = $item?->item_code;
+
+            $base = SalesOrderLine::query()
                 ->select('sales_order_lines.*')
                 ->join('sales_orders', 'sales_orders.id', '=', 'sales_order_lines.sales_order_id')
                 ->where('sales_orders.company_id', $companyId)
-                ->where('sales_order_lines.item_id', $this->itemId)
-                ->when($this->customerId, fn ($q) => $q->where('sales_orders.customer_id', $this->customerId))
-                ->when($this->dateFrom, fn ($q) => $q->whereDate('sales_orders.order_date', '>=', $this->dateFrom))
-                ->when($this->dateTo, fn ($q) => $q->whereDate('sales_orders.order_date', '<=', $this->dateTo))
+                ->where(function ($q) use ($itemCode) {
+                    $q->where('sales_order_lines.item_id', $this->itemId);
+                    if (filled($itemCode)) {
+                        $q->orWhere('sales_order_lines.item_code', $itemCode);
+                    }
+                })
+                ->when($this->customerId, fn ($q) => $q->where('sales_orders.customer_id', $this->customerId));
+
+            $outsideRangeCount = (clone $base)->count();
+
+            $rows = (clone $base)
+                ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('sales_orders.order_date', '>=', $this->dateFrom))
+                ->when($this->dateTo !== '', fn ($q) => $q->whereDate('sales_orders.order_date', '<=', $this->dateTo))
                 ->with(['salesOrder.customer'])
                 ->orderByDesc('sales_orders.order_date')
                 ->limit(500)
                 ->get();
+
+            $outsideRangeCount = max(0, $outsideRangeCount - $rows->count());
+            if ($this->dateFrom === '' && $this->dateTo === '') {
+                $outsideRangeCount = 0;
+            }
         }
 
         $totalQty = $rows->sum(fn ($r) => (float) $r->qty_ordered);
         $totalSales = $rows->sum(fn ($r) => (float) $r->line_total);
         $orderCount = $rows->pluck('sales_order_id')->unique()->count();
-        $days = max(1, (int) \Illuminate\Support\Carbon::parse($this->dateFrom)->diffInDays(\Illuminate\Support\Carbon::parse($this->dateTo)) + 1);
+
+        if ($this->dateFrom !== '' && $this->dateTo !== '') {
+            $days = max(1, (int) \Illuminate\Support\Carbon::parse($this->dateFrom)->diffInDays(\Illuminate\Support\Carbon::parse($this->dateTo)) + 1);
+        } elseif ($rows->isNotEmpty()) {
+            $dates = $rows->map(fn ($r) => optional($r->salesOrder?->order_date)->toDateString())->filter();
+            $days = max(1, (int) \Illuminate\Support\Carbon::parse($dates->min())->diffInDays(\Illuminate\Support\Carbon::parse($dates->max())) + 1);
+        } else {
+            $days = 1;
+        }
 
         return [
             'item' => $this->itemId
@@ -163,6 +203,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             'totalSales' => $totalSales,
             'orderCount' => $orderCount,
             'avgDailyQty' => $totalQty / $days,
+            'outsideRangeCount' => $outsideRangeCount,
             'browseItems' => $this->showItemBrowse
                 ? Item::query()
                     ->where('company_id', $companyId)
@@ -239,6 +280,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                     <option value="90">Last 90 days</option>
                     <option value="365">Last year</option>
                     <option value="ytd">Year to date</option>
+                    <option value="all">All dates</option>
                 </select>
             </div>
             <div class="rpt-field">
@@ -270,7 +312,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                 <span class="desk-title-meta">
                     @if ($item)
                         {{ $item->description }}
-                        · {{ $dateFrom }} → {{ $dateTo }}
+                        · {{ $dateFrom !== '' || $dateTo !== '' ? (($dateFrom ?: '…').' → '.($dateTo ?: '…')) : 'All dates' }}
                     @else
                         Lookup an item to view sales velocity · click ⋯
                     @endif
@@ -331,7 +373,16 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                     @empty
                         <tr class="is-empty">
                             <td colspan="7">
-                                {{ $item ? 'No sales lines in this date range.' : 'Lookup an item to view velocity.' }}
+                                @if (! $item)
+                                    Lookup an item to view velocity.
+                                @elseif ($outsideRangeCount > 0)
+                                    No sales lines in this date range.
+                                    This item has <strong>{{ number_format($outsideRangeCount) }}</strong> sales line(s) outside the selected dates
+                                    (e.g. older order dates).
+                                    <button type="button" wire:click="showAllDates" class="desk-btn desk-btn-sm desk-btn-primary" style="margin-left:0.5rem">Show all dates</button>
+                                @else
+                                    No sales lines found for this item.
+                                @endif
                             </td>
                         </tr>
                     @endforelse

@@ -1242,30 +1242,62 @@
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
         background: #fff;
+        scrollbar-gutter: stable;
     }
 
     .so-item-browse-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
+        table-layout: fixed;
         font-size: 13px;
     }
+
+    .so-item-browse-table col.col-code { width: 7.5rem; }
+    .so-item-browse-table col.col-desc { width: auto; }
+    .so-item-browse-table col.col-uom { width: 4rem; }
+    .so-item-browse-table col.col-stock { width: 5rem; }
+    .so-item-browse-table col.col-price { width: 5.5rem; }
+    .so-item-browse-table col.col-new { width: 3.25rem; }
 
     .so-item-browse-table thead th {
         position: sticky;
         top: 0;
-        z-index: 1;
+        z-index: 2;
         background: #e5e7eb;
         text-align: left;
         padding: 0.45rem 0.55rem;
         border-bottom: 1px solid #cbd5e1;
         font-weight: 700;
         font-size: 12px;
+        white-space: nowrap;
+        box-shadow: 0 1px 0 #cbd5e1;
+    }
+
+    .so-item-browse-table thead th.is-num,
+    .so-item-browse-table td.is-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .so-item-browse-table thead th.is-center,
+    .so-item-browse-table td.is-center {
+        text-align: center;
     }
 
     .so-item-browse-table td {
         padding: 0.4rem 0.55rem;
         border-bottom: 1px solid #f1f5f9;
         vertical-align: middle;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .so-item-browse-table td.col-desc-cell {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
     }
 
     .so-item-browse-table tr.is-pickable {

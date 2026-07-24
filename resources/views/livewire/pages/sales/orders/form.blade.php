@@ -1600,14 +1600,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
                 <div class="so-item-browse-scroll" tabindex="0">
                     <table class="so-item-browse-table">
+                        <colgroup>
+                            <col class="col-code" />
+                            <col class="col-desc" />
+                            <col class="col-uom" />
+                            <col class="col-stock" />
+                            <col class="col-price" />
+                            <col class="col-new" />
+                        </colgroup>
                         <thead>
                             <tr>
-                                <th>Code</th>
-                                <th>Description</th>
-                                <th>UOM</th>
-                                <th class="text-right">Stock</th>
-                                <th class="text-right">Price</th>
-                                <th>New</th>
+                                <th scope="col">Code</th>
+                                <th scope="col">Description</th>
+                                <th scope="col">UOM</th>
+                                <th scope="col" class="is-num">Stock</th>
+                                <th scope="col" class="is-num">Price</th>
+                                <th scope="col" class="is-center">New</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1619,11 +1627,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     title="{{ $avail > 0 ? 'Click to add' : 'No stock' }}"
                                 >
                                     <td class="font-mono">{{ $bi->item_code }}</td>
-                                    <td>{{ $bi->description }}</td>
+                                    <td class="col-desc-cell">{{ $bi->description }}</td>
                                     <td>{{ $bi->unit_of_measure ?: '—' }}</td>
-                                    <td class="text-right {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
-                                    <td class="text-right">${{ number_format((float) $bi->list_price, 2) }}</td>
-                                    <td>{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
+                                    <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
+                                    <td class="is-num">${{ number_format((float) $bi->list_price, 2) }}</td>
+                                    <td class="is-center">{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
                                 </tr>
                             @empty
                                 <tr>

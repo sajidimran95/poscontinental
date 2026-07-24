@@ -83,6 +83,7 @@ class DatabaseSeeder extends Seeder
 
         $this->seedLookups($company->id);
         $this->seedSampleItems($company->id);
+        $this->call(DemoDataSeeder::class);
 
         $this->command?->info('Database seed completed (safe — skips existing records).');
     }

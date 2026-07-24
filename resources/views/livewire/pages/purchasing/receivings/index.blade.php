@@ -209,6 +209,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         }
 
         $rec = InventoryReceiving::query()
+            ->with('lines')
             ->where('company_id', auth()->user()->company_id)
             ->find($this->selectedId);
 
@@ -218,16 +219,19 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             return;
         }
 
-        if ($rec->status === 'Processed') {
-            session()->flash('status', 'Processed receivings cannot be deleted.');
+        try {
+            if ($rec->status === 'Processed') {
+                app(InventoryService::class)->reverseReceiving($rec);
+                $rec->refresh();
+            }
 
-            return;
+            $rec->lines()->delete();
+            $rec->delete();
+            $this->selectedId = null;
+            session()->flash('status', 'Receiving deleted. Stock reversed if it was processed.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first() ?: 'Receiving could not be deleted.');
         }
-
-        $rec->lines()->delete();
-        $rec->delete();
-        $this->selectedId = null;
-        session()->flash('status', 'Receiving deleted.');
     }
 
     public function printSelected(): void
@@ -478,7 +482,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                 <button
                     type="button"
                     wire:click="deleteSelected"
-                    wire:confirm="Delete the selected receiving? This cannot be undone."
+                    wire:confirm="Delete the selected receiving? If processed, received qty will be removed from stock."
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="Delete selected"
                     aria-label="Delete selected"

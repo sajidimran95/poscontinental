@@ -165,10 +165,18 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
+        $order->loadMissing('lines');
+        $itemIds = $order->lines->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
         $order->lines()->delete();
         $order->delete();
+
+        if ($itemIds !== []) {
+            app(\App\Services\InventoryService::class)->syncAllocatedQty($itemIds);
+        }
+
         $this->selectedId = null;
-        session()->flash('status', 'Order deleted.');
+        session()->flash('status', 'Order deleted. Allocated qty released.');
     }
 
     public function printSelected(): void

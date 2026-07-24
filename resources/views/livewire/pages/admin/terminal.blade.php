@@ -1,10 +1,11 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
 use App\Support\ItemMedia;
+use Illuminate\Support\Facades\Artisan;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Symfony\Component\Process\Process;
 
 new #[Layout('layouts.app'), Title('Terminal')] class extends Component
 {
@@ -61,6 +62,59 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         } catch (\Throwable $e) {
             $this->error = $e->getMessage();
         }
+    }
+
+    public function buildAssets(): void
+    {
+        $this->output = '';
+        $this->status = '';
+        $this->error = '';
+
+        try {
+            $npm = $this->resolveNpmBinary();
+            $process = new Process([$npm, 'run', 'build'], base_path(), null, null, 180);
+            $process->run();
+
+            $stdout = trim($process->getOutput());
+            $stderr = trim($process->getErrorOutput());
+            $this->output = '> '.$npm." run build\n"
+                .($stdout !== '' ? $stdout."\n" : '')
+                .($stderr !== '' ? $stderr."\n" : '')
+                .'Exit: '.$process->getExitCode();
+
+            if (! $process->isSuccessful()) {
+                throw new \RuntimeException('npm run build failed (exit '.$process->getExitCode().'). Ensure Node.js/npm is installed and on PATH.');
+            }
+
+            $this->status = 'Frontend assets built (public/build). Hard-refresh the browser (Ctrl+F5).';
+        } catch (\Throwable $e) {
+            $this->error = $e->getMessage();
+        }
+    }
+
+    protected function resolveNpmBinary(): string
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $candidates = [
+                'C:\\laragon\\bin\\nodejs\\node-v22\\npm.cmd',
+                'C:\\laragon\\bin\\nodejs\\npm.cmd',
+                getenv('NPM_PATH') ?: '',
+            ];
+            foreach ($candidates as $path) {
+                if (is_string($path) && $path !== '' && is_file($path)) {
+                    return $path;
+                }
+            }
+
+            return 'npm.cmd';
+        }
+
+        $envNpm = getenv('NPM_PATH');
+        if (is_string($envNpm) && $envNpm !== '' && is_file($envNpm)) {
+            return $envNpm;
+        }
+
+        return 'npm';
     }
 
     public function seedUom(): void
@@ -149,7 +203,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -158,7 +212,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -168,16 +222,26 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn"
                 >
                     Optimize Clear
                 </button>
                 <button
                     type="button"
+                    wire:click="buildAssets"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
+                    class="desk-btn desk-btn-primary"
+                    wire:confirm="Rebuild CSS/JS with npm run build? Required after design/CSS updates (e.g. Expand tab)."
+                >
+                    npm run build
+                </button>
+                <button
+                    type="button"
                     wire:click="storageLink"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Create or refresh the public/storage link? Needed for item images and uploads."
                 >
@@ -187,7 +251,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="syncItemMedia"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Copy item images from storage into public/uploads so previews work on the live server?"
                 >
@@ -201,7 +265,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedUom"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Seed UOM Schedules
@@ -210,7 +274,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runSeeders"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
@@ -219,6 +283,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
             </div>
 
             <p class="item-hint" style="border:0;margin:0.75rem 0 0;padding:0;font-size:0.75rem;color:#64748b">
+                <strong>npm run build</strong> — rebuilds CSS/JS into <code>public/build</code> (fixes Expand / design after deploy) &nbsp;·&nbsp;
                 <strong>Sync Item Images</strong> — copies <code>storage/app/public/items</code> → <code>public/uploads/items</code> (fixes live preview) &nbsp;·&nbsp;
                 <strong>Storage Link</strong> — <code>php artisan storage:link --force</code> &nbsp;·&nbsp;
                 <strong>Seed UOM</strong> — adds EA, BX, CS, CTN… (safe, skips existing) &nbsp;·&nbsp;
@@ -232,9 +297,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders"
+                wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,buildAssets,seedUom,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

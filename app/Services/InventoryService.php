@@ -95,6 +95,82 @@ class InventoryService
         });
     }
 
+    /**
+     * Undo a processed receiving: remove received qty from on-hand and roll back PO received qty.
+     */
+    public function reverseReceiving(InventoryReceiving $receiving): void
+    {
+        DB::transaction(function () use ($receiving) {
+            $receiving = InventoryReceiving::query()->lockForUpdate()->find($receiving->id);
+            if (! $receiving || $receiving->status !== 'Processed') {
+                return;
+            }
+
+            $receiving->load(['lines', 'purchaseOrder.lines']);
+            $siteId = $receiving->site_id;
+
+            foreach ($receiving->lines as $line) {
+                if (! $line->item_id || (float) $line->qty_received <= 0) {
+                    continue;
+                }
+
+                $item = Item::query()->lockForUpdate()->find($line->item_id);
+                if (! $item) {
+                    continue;
+                }
+
+                $qty = (float) $line->qty_received;
+                $onHand = (float) $item->quantity_in_stock;
+                if ($qty > $onHand + 0.0001) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'receiving' => $item->item_code.' cannot reverse receiving — only '.number_format($onHand, 2).' in stock (need '.number_format($qty, 2).').',
+                    ]);
+                }
+
+                $newQty = $onHand - $qty;
+                $item->update(['quantity_in_stock' => $newQty]);
+
+                InventoryJournalEntry::query()->create([
+                    'company_id' => $receiving->company_id,
+                    'item_id' => $item->id,
+                    'site_id' => $siteId,
+                    'source_type' => InventoryReceiving::class,
+                    'source_id' => $receiving->id,
+                    'reference' => $receiving->receipt_number,
+                    'qty_change' => -$qty,
+                    'qty_after' => $newQty,
+                    'unit_cost' => $line->unit_cost,
+                    'user_id' => auth()->id(),
+                    'notes' => 'Receiving deleted / reversed',
+                ]);
+
+                if ($line->purchase_order_line_id) {
+                    $poLine = $receiving->purchaseOrder?->lines->firstWhere('id', $line->purchase_order_line_id);
+                    if ($poLine) {
+                        $poLine->update([
+                            'qty_received' => max(0, (float) $poLine->qty_received - $qty),
+                        ]);
+                    }
+                }
+            }
+
+            if ($receiving->purchase_order_id) {
+                $po = PurchaseOrder::query()->with('lines')->find($receiving->purchase_order_id);
+                if ($po) {
+                    $ordered = (float) $po->lines->sum('qty_ordered');
+                    $received = (float) $po->lines->sum('qty_received');
+                    $status = $received <= 0 ? 'New' : ($received + 0.0001 >= $ordered ? 'Received' : 'Partially Received');
+                    $po->update(['status' => $status]);
+                }
+            }
+
+            $receiving->update([
+                'status' => 'New',
+                'processed_at' => null,
+            ]);
+        });
+    }
+
     public function processRtv(ReturnToVendor $rtv): void
     {
         DB::transaction(function () use ($rtv) {

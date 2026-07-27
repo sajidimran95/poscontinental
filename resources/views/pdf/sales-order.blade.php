@@ -14,7 +14,7 @@
             margin: 0;
         }
         table { border-collapse: collapse; }
-        .hdr { width: 100%; margin-bottom: 8px; }
+        .hdr { width: 100%; margin-bottom: 6px; }
         .hdr td { vertical-align: top; border: none; padding: 0; }
         .co-name { font-size: 18px; font-weight: bold; letter-spacing: 0.01em; }
         .co-line { font-size: 9.5px; margin-top: 2px; }
@@ -31,26 +31,32 @@
         .addr-box {
             width: 100%;
             border: 1px solid #222;
-            margin: 0 0 10px;
+            margin: 16px 0 14px;
         }
         .addr-box td {
             width: 50%;
             vertical-align: top;
-            padding: 8px 10px 8px;
+            text-align: left;
+            padding: 4px 4px 4px 3px;
         }
         .addr-box td + td { border-left: 1px solid #222; }
-        .addr-lbl { font-weight: bold; margin-bottom: 4px; }
-        .addr-name { font-weight: bold; font-size: 11px; }
-        .addr-line { margin-top: 1px; }
+        .addr-lbl { font-weight: bold; margin: 0 0 2px; text-align: left; }
+        .addr-name { font-weight: bold; font-size: 11px; text-align: left; }
+        .addr-line { margin: 0; padding: 0; text-align: left; }
         .addr-foot {
-            margin-top: 10px;
-            padding-top: 6px;
+            margin-top: 6px;
+            padding-top: 4px;
             border-top: 1px solid #ccc;
             font-size: 10px;
+            text-align: left;
         }
-        .addr-foot .info-pair { margin-bottom: 2px; }
+        .addr-foot .info-pair { margin: 0 0 1px; text-align: left; }
         .addr-foot .lbl { font-weight: bold; }
-        table.items { width: 100%; margin-top: 4px; }
+        table.items {
+            width: 100%;
+            margin-top: 10px;
+            table-layout: fixed;
+        }
         table.items th {
             border-top: 1px solid #222;
             border-bottom: 1px solid #222;
@@ -58,12 +64,45 @@
             font-weight: bold;
             text-align: left;
             padding: 5px 4px;
+            vertical-align: bottom;
         }
         table.items td {
             padding: 3px 4px;
             font-size: 10px;
             vertical-align: top;
             border: none;
+            text-align: left;
+        }
+        table.items th.col-qty,
+        table.items td.col-qty {
+            width: 70px;
+            text-align: right;
+            padding-right: 14px;
+        }
+        table.items th.col-item,
+        table.items td.col-item {
+            width: 90px;
+            text-align: left;
+            padding-left: 10px;
+        }
+        table.items th.col-desc,
+        table.items td.col-desc {
+            text-align: left;
+        }
+        table.items th.col-uom,
+        table.items td.col-uom {
+            width: 45px;
+            text-align: center;
+        }
+        table.items th.col-price,
+        table.items td.col-price {
+            width: 70px;
+            text-align: right;
+        }
+        table.items th.col-total,
+        table.items td.col-total {
+            width: 80px;
+            text-align: right;
         }
         table.items tr.uom-end td {
             border-bottom: 1px solid #222;
@@ -126,10 +165,10 @@
     $uomGroups = $grouped->groupBy(fn ($line) => strtoupper((string) ($line->uom ?: '')));
 @endphp
 
-{{-- Header: company / logo left, Sales Order + barcode + meta right --}}
+{{-- Header: company + Bill/Ship left; Sales Order + barcode + meta right --}}
 <table class="hdr">
     <tr>
-        <td style="width:55%">
+        <td style="width:72%">
             @if ($logoPath && is_file($logoPath))
                 <img class="logo-img" src="{{ $logoPath }}" alt="Logo">
             @endif
@@ -137,8 +176,47 @@
             <div class="co-line">{{ $companyAddress }}</div>
             <div class="co-line">{{ $companyCityLine }}</div>
             <div class="co-line">{{ $companyTel }} &nbsp; {{ $companyFax }}</div>
+
+            <table class="addr-box">
+                <tr>
+                    <td>
+                        <div class="addr-lbl">Bill To:</div>
+                        <div class="addr-name">{{ $order->bill_to_name ?: ($order->customer?->company_name ?: '') }}</div>
+                        @if ($order->bill_to_address)
+                            <div class="addr-line">{{ $order->bill_to_address }}</div>
+                        @endif
+                        @if ($billCity !== '')
+                            <div class="addr-line">{{ $billCity }}</div>
+                        @endif
+                        @if ($order->bill_to_phone)
+                            <div class="addr-line">Tel:{{ $order->bill_to_phone }}</div>
+                        @endif
+                        <div class="addr-foot">
+                            <div class="info-pair"><span class="lbl">Account No.:</span> {{ $accountNo }}</div>
+                            <div class="info-pair"><span class="lbl">Payment Terms:</span> {{ $paymentLabel }}</div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="addr-lbl">Ship To:</div>
+                        <div class="addr-name">{{ $order->ship_to_name ?: ($order->bill_to_name ?: ($order->customer?->company_name ?: '')) }}</div>
+                        @if ($order->ship_to_address ?: $order->bill_to_address)
+                            <div class="addr-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
+                        @endif
+                        @if ($shipCity !== '')
+                            <div class="addr-line">{{ $shipCity }}</div>
+                        @endif
+                        @if ($order->ship_to_phone ?: $order->bill_to_phone)
+                            <div class="addr-line">Tel:{{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
+                        @endif
+                        <div class="addr-foot">
+                            <div class="info-pair"><span class="lbl">Driver:</span> {{ $driverLabel }}</div>
+                            <div class="info-pair"><span class="lbl">Route:</span> {{ $routeLabel }}</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </td>
-        <td style="width:45%">
+        <td style="width:28%">
             <div class="doc-title">Sales Order</div>
             <div class="barcode-wrap">
                 {!! Code128Barcode::html($barcodeValue, 1, 36) !!}
@@ -148,48 +226,6 @@
                 <div><span class="lbl">Order No:</span> {{ $order->order_number }}</div>
                 <div><span class="lbl">Order Date:</span> {{ optional($order->order_date)?->format('m/d/Y') }}</div>
                 <div><span class="lbl">Order Status:</span> {{ $statusLabel }}</div>
-                <div><span class="lbl">Payment:</span> {{ $paymentLabel }}</div>
-                <div><span class="lbl">Sales Rep:</span> {{ $order->salesRep?->name ?: '' }}</div>
-            </div>
-        </td>
-    </tr>
-</table>
-
-{{-- Bill To / Ship To — Account+Terms under Bill To, Driver+Route under Ship To (inside box) --}}
-<table class="addr-box">
-    <tr>
-        <td>
-            <div class="addr-lbl">Bill To:</div>
-            <div class="addr-name">{{ $order->bill_to_name ?: ($order->customer?->company_name ?: '') }}</div>
-            @if ($order->bill_to_address)
-                <div class="addr-line">{{ $order->bill_to_address }}</div>
-            @endif
-            @if ($billCity !== '')
-                <div class="addr-line">{{ $billCity }}</div>
-            @endif
-            @if ($order->bill_to_phone)
-                <div class="addr-line">Tel:{{ $order->bill_to_phone }}</div>
-            @endif
-            <div class="addr-foot">
-                <div class="info-pair"><span class="lbl">Account No.:</span> {{ $accountNo }}</div>
-                <div class="info-pair"><span class="lbl">Payment Terms:</span> {{ $paymentLabel }}</div>
-            </div>
-        </td>
-        <td>
-            <div class="addr-lbl">Ship To:</div>
-            <div class="addr-name">{{ $order->ship_to_name ?: ($order->bill_to_name ?: ($order->customer?->company_name ?: '')) }}</div>
-            @if ($order->ship_to_address ?: $order->bill_to_address)
-                <div class="addr-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
-            @endif
-            @if ($shipCity !== '')
-                <div class="addr-line">{{ $shipCity }}</div>
-            @endif
-            @if ($order->ship_to_phone ?: $order->bill_to_phone)
-                <div class="addr-line">Tel:{{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
-            @endif
-            <div class="addr-foot">
-                <div class="info-pair"><span class="lbl">Driver:</span> {{ $driverLabel }}</div>
-                <div class="info-pair"><span class="lbl">Route:</span> {{ $routeLabel }}</div>
             </div>
         </td>
     </tr>
@@ -199,12 +235,12 @@
 <table class="items">
     <thead>
         <tr>
-            <th class="right" style="width:70px">Quantity</th>
-            <th style="width:80px">Item</th>
-            <th>Description</th>
-            <th class="center" style="width:40px">U/M</th>
-            <th class="right" style="width:70px">Price</th>
-            <th class="right" style="width:80px">Total</th>
+            <th class="col-qty">Quantity</th>
+            <th class="col-item">Item</th>
+            <th class="col-desc">Description</th>
+            <th class="col-uom">U/M</th>
+            <th class="col-price">Price</th>
+            <th class="col-total">Total</th>
         </tr>
     </thead>
     <tbody>
@@ -216,12 +252,12 @@
                     $rowClass = trim(($isFirst ? 'uom-start' : '').' '.($isLast ? 'uom-end' : ''));
                 @endphp
                 <tr class="{{ $rowClass }}">
-                    <td class="right">{{ number_format((float) $line->qty_ordered, 2) }}</td>
-                    <td>{{ $line->item_code }}</td>
-                    <td>{{ $line->description }}</td>
-                    <td class="center">{{ $line->uom }}</td>
-                    <td class="right">{{ number_format((float) $line->price, 2) }}</td>
-                    <td class="right">{{ number_format((float) $line->line_total, 2) }}</td>
+                    <td class="col-qty">{{ fmod((float) $line->qty_ordered, 1.0) == 0.0 ? number_format((float) $line->qty_ordered, 0) : rtrim(rtrim(number_format((float) $line->qty_ordered, 2, '.', ''), '0'), '.') }}</td>
+                    <td class="col-item">{{ $line->item_code }}</td>
+                    <td class="col-desc">{{ $line->description }}</td>
+                    <td class="col-uom">{{ $line->uom }}</td>
+                    <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
+                    <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>
                 </tr>
             @endforeach
         @empty

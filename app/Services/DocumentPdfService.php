@@ -33,18 +33,62 @@ class DocumentPdfService
 
     public function invoicePdf(Invoice $invoice, ?User $user = null)
     {
-        $invoice->load([
+        $invoice->loadMissing([
             'customer',
             'salesOrder.lines',
+            'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
+            'salesOrder.route',
+            'salesOrder.invoice',
             'payments',
             'credits',
         ]);
 
-        return Pdf::loadView('pdf.invoice', [
-            'invoice' => $invoice,
-            'company' => $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company,
+        $order = $invoice->salesOrder;
+        if (! $order) {
+            return Pdf::loadView('pdf.invoice', [
+                'invoice' => $invoice,
+                'company' => $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company,
+            ])->setPaper('letter');
+        }
+
+        // Ensure Bill To / Ship To footer can read this invoice's driver.
+        $order->setRelation('invoice', $invoice);
+
+        $company = $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company;
+
+        $logoCandidates = [
+            public_path('images/logo.png'),
+            public_path('images/logo.jpg'),
+            public_path('logo.png'),
+            storage_path('app/public/logo.png'),
+        ];
+        $logoPath = null;
+        foreach ($logoCandidates as $candidate) {
+            if (is_file($candidate)) {
+                $logoPath = $candidate;
+                break;
+            }
+        }
+
+        return Pdf::loadView('pdf.sales-order', [
+            'order' => $order,
+            'company' => $company,
+            'logoPath' => $logoPath,
+            'companyAddress' => config('company.address', '3802 TRADE CENTER DR'),
+            'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
+            'companyTel' => config('company.tel', 'Tel:7346773510'),
+            'companyFax' => config('company.fax', 'Fax:7346773567'),
+            'docTitle' => 'Invoice',
+            'barcodeValue' => (string) $invoice->invoice_number,
+            'statusLabel' => $invoice->status,
+            'metaLines' => [
+                ['label' => 'Invoice No:', 'value' => $invoice->invoice_number],
+                ['label' => 'Invoice Date:', 'value' => optional($invoice->invoice_date)?->format('m/d/Y')],
+                ['label' => 'Order No:', 'value' => $order->order_number],
+                ['label' => 'Order Status:', 'value' => $invoice->status],
+            ],
         ])->setPaper('letter');
     }
 

@@ -27,31 +27,27 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public ?int $modalInvoiceId = null;
 
-    public bool $showPayForm = false;
-
     public string $driver = '';
 
-    public string $pay_date = '';
+    public string $driverSavedAt = '';
 
-    public string $pay_method = 'Cash';
+    /** @var list<array{key: string, payment_date: string, payment_method: string, amount: string, comments: string}> */
+    public array $draftPayments = [];
 
-    public string $pay_amount = '';
+    /** @var list<array{key: string, credit_memo_id: string, amount: string}> */
+    public array $draftCredits = [];
 
-    public string $pay_comments = '';
+    public int $selectedPaymentIndex = -1;
+
+    public int $selectedCreditIndex = -1;
 
     public ?int $lastPaymentId = null;
-
-    public ?int $applyCreditId = null;
-
-    public string $applyCreditAmount = '';
 
     public string $emailTo = '';
 
     public string $emailSubject = '';
 
     public bool $showEmailForm = false;
-
-    public string $driverSavedAt = '';
 
     public function with(): array
     {
@@ -92,6 +88,17 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 ->find($this->modalInvoiceId)
             : null;
 
+        $draftPayTotal = collect($this->draftPayments)->sum(
+            fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
+        );
+        $draftCreditTotal = collect($this->draftCredits)->sum(
+            fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
+        );
+        $savedBalance = $modalInvoice ? round((float) $modalInvoice->invoice_balance, 2) : 0;
+        $previewBalance = $modalInvoice
+            ? max(0, round($savedBalance - $draftPayTotal - $draftCreditTotal, 2))
+            : 0;
+
         return [
             'invoices' => $query->orderByDesc('id')->paginate(50),
             'favorites' => [
@@ -107,6 +114,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'modalInvoice' => $modalInvoice,
             'openCredits' => $modalInvoice
                 ? CreditMemo::query()
+                    ->with(['salesOrder'])
                     ->where('company_id', $companyId)
                     ->where('customer_id', $modalInvoice->customer_id)
                     ->where('status', 'Open')
@@ -116,6 +124,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     ->values()
                 : collect(),
             'hasCreditSalesOrder' => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id'),
+            'draftPayTotal' => $draftPayTotal,
+            'draftCreditTotal' => $draftCreditTotal,
+            'previewBalance' => $previewBalance,
+            'savedBalance' => $savedBalance,
+            'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
+            'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
         ];
     }
 
@@ -184,6 +198,36 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->viewSelected();
     }
 
+    public function printPickListSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->with('salesOrder')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $invoice) {
+            session()->flash('status', 'Invoice not found.');
+
+            return;
+        }
+
+        if (! $invoice->salesOrder) {
+            session()->flash('status', 'No sales order linked to this invoice for pick list.');
+
+            return;
+        }
+
+        $url = route('sales.invoices.pick-list', $invoice);
+        $this->dispatch('open-invoice-pdf', url: $url);
+        $this->js('window.open('.json_encode($url).', "_blank", "noopener")');
+    }
+
     public function viewInvoice(int $id): void
     {
         $this->selectedId = $id;
@@ -203,6 +247,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
 
         $this->dispatch('open-invoice-pdf', url: route('sales.invoices.pdf', $invoice));
+        $this->js('window.open('.json_encode(route('sales.invoices.pdf', $invoice)).', "_blank", "noopener")');
     }
 
     public function editSelected(): void
@@ -225,36 +270,37 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
 
         $this->openPayments($this->selectedId);
-        $invoice = Invoice::query()->find($this->selectedId);
-        if ($invoice && $invoice->status !== 'PAID' && $invoice->invoice_balance > 0) {
-            $this->openPayForm();
-        }
     }
 
     public function openPayments(int $id): void
     {
         $this->selectedId = $id;
         $this->modalInvoiceId = $id;
-        $this->showPayForm = false;
         $invoice = Invoice::query()->find($id);
         $this->driver = $invoice?->driver ?? '';
-        $this->pay_date = now()->toDateString();
-        $this->pay_method = 'Cash';
-        $this->pay_amount = $invoice ? number_format($invoice->invoice_balance, 2, '.', '') : '0';
-        $this->pay_comments = '';
-        $this->applyCreditId = null;
-        $this->applyCreditAmount = '';
+        $this->driverSavedAt = '';
+        $this->draftPayments = [];
+        $this->draftCredits = [];
+        $this->selectedPaymentIndex = -1;
+        $this->selectedCreditIndex = -1;
         $this->showEmailForm = false;
         $this->emailTo = $invoice?->customer?->email ?? '';
         $this->emailSubject = $invoice ? 'Invoice '.$invoice->invoice_number : '';
+
+        if ($invoice && $invoice->invoice_balance > 0.0001) {
+            $this->addPaymentRow();
+        }
     }
 
     public function closeModal(): void
     {
         $this->modalInvoiceId = null;
-        $this->showPayForm = false;
         $this->showEmailForm = false;
         $this->driverSavedAt = '';
+        $this->draftPayments = [];
+        $this->draftCredits = [];
+        $this->selectedPaymentIndex = -1;
+        $this->selectedCreditIndex = -1;
     }
 
     public function updatedDriver(): void
@@ -280,112 +326,377 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->driverSavedAt = now()->format('g:i:s A');
     }
 
-    public function openPayForm(): void
+    public function addPaymentRow(): void
+    {
+        $this->pushPaymentRow(true);
+    }
+
+    public function addRemainingDuePayment(): void
+    {
+        $this->pushPaymentRow(true);
+    }
+
+    protected function pushPaymentRow(bool $fillRemaining = true): void
+    {
+        $due = round($this->remainingDraftDue(), 2);
+
+        // Do not open extra blank $0.00 rows when nothing is left to pay.
+        if ($due <= 0.0001) {
+            session()->flash('status', 'No remaining balance. Remove or lower an amount first to add another payment.');
+
+            return;
+        }
+
+        $this->draftPayments[] = [
+            'key' => uniqid('pay_', true),
+            'payment_date' => now()->toDateString(),
+            'payment_method' => 'Cash',
+            'amount' => $fillRemaining ? number_format($due, 2, '.', '') : '',
+            'comments' => '',
+        ];
+        $this->selectedPaymentIndex = count($this->draftPayments) - 1;
+    }
+
+    protected function remainingDraftDue(): float
     {
         $invoice = Invoice::query()->find($this->modalInvoiceId);
-        $this->pay_date = now()->toDateString();
-        $this->pay_method = 'Cash';
-        $this->pay_amount = $invoice ? number_format(max(0, $invoice->invoice_balance), 2, '.', '') : '0';
-        $this->pay_comments = '';
-        $this->showPayForm = true;
-    }
-
-    public function savePayment(): void
-    {
-        $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
-        abort_unless($invoice->company_id === auth()->user()->company_id, 403);
-
-        $balance = (float) $invoice->invoice_balance;
-        if ($balance <= 0.0001) {
-            session()->flash('status', 'Invoice is already paid.');
-
-            return;
+        if (! $invoice) {
+            return 0;
         }
 
-        $this->validate([
-            'pay_date' => 'required|date',
-            'pay_method' => 'required|string',
-            'pay_amount' => 'required|numeric|min:0.01|max:'.$balance,
-        ], [
-            'pay_amount.max' => 'Payment cannot exceed the invoice balance of $'.number_format($balance, 2).'.',
-        ]);
-
-        if ($this->driver !== ($invoice->driver ?? '')) {
-            $invoice->update(['driver' => $this->driver !== '' ? $this->driver : null]);
-        }
-
-        $amount = round((float) $this->pay_amount, 4);
-
-        $payment = DB::transaction(function () use ($invoice, $amount) {
-            $payment = InvoicePayment::query()->create([
-                'invoice_id' => $invoice->id,
-                'payment_date' => $this->pay_date,
-                'payment_method' => $this->pay_method,
-                'amount' => $amount,
-                'comments' => $this->pay_comments,
-                'user_id' => auth()->id(),
-            ]);
-
-            $invoice->refresh();
-            $invoice->update(['status' => $invoice->invoice_balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
-
-            if ($invoice->customer) {
-                $invoice->customer->update([
-                    'balance' => max(0, (float) $invoice->customer->balance - $amount),
-                ]);
-            }
-
-            return $payment;
-        });
-
-        $this->lastPaymentId = $payment->id;
-        $this->showPayForm = false;
-        $this->modalInvoiceId = $invoice->id;
-        session()->flash('status', 'Payment of $'.number_format($amount, 2).' saved.');
-        $this->dispatch('open-invoice-pdf', url: route('sales.invoices.receipt', [$invoice, $payment]));
-    }
-
-    public function applyCredit(): void
-    {
-        $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
-        $memo = CreditMemo::query()->findOrFail($this->applyCreditId);
-        abort_unless($invoice->company_id === auth()->user()->company_id, 403);
-        abort_unless(
-            $memo->company_id === $invoice->company_id
-            && (int) $memo->customer_id === (int) $invoice->customer_id
-            && $memo->status === 'Open',
-            403
+        $draftPay = collect($this->draftPayments)->sum(
+            fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
+        );
+        $draftCredit = collect($this->draftCredits)->sum(
+            fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
         );
 
-        $remaining = (float) $memo->remaining_amount;
-        $amount = min((float) $this->applyCreditAmount, $remaining, (float) $invoice->invoice_balance);
-        if ($amount <= 0) {
+        return max(0, round((float) $invoice->invoice_balance - $draftPay - $draftCredit, 2));
+    }
+
+    public function removePaymentRow(): void
+    {
+        if ($this->selectedPaymentIndex < 0 || ! isset($this->draftPayments[$this->selectedPaymentIndex])) {
+            if (count($this->draftPayments) === 0) {
+                return;
+            }
+            $this->selectedPaymentIndex = count($this->draftPayments) - 1;
+        }
+
+        array_splice($this->draftPayments, $this->selectedPaymentIndex, 1);
+        $this->draftPayments = array_values($this->draftPayments);
+        $this->selectedPaymentIndex = count($this->draftPayments) > 0
+            ? min($this->selectedPaymentIndex, count($this->draftPayments) - 1)
+            : -1;
+    }
+
+    public function selectPaymentRow(int $index): void
+    {
+        $this->selectedPaymentIndex = $index;
+    }
+
+    public function addCreditRow(): void
+    {
+        $invoice = Invoice::query()->find($this->modalInvoiceId);
+        if (! $invoice) {
             return;
         }
 
-        DB::transaction(function () use ($invoice, $memo, $amount, $remaining) {
-            InvoiceCredit::query()->create([
-                'invoice_id' => $invoice->id,
-                'credit_memo_id' => $memo->id,
-                'amount' => $amount,
-            ]);
+        $hasOpen = CreditMemo::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->where('status', 'Open')
+            ->get()
+            ->contains(fn (CreditMemo $m) => $m->remaining_amount > 0.0001);
 
-            $memo->update([
-                'status' => ($remaining - $amount) <= 0.0001 ? 'Applied' : 'Open',
-            ]);
+        if (! $hasOpen) {
+            $this->redirect(route('sales.credit-memos.index', [
+                'new' => 1,
+                'customer_id' => $invoice->customer_id,
+            ]), navigate: true);
 
-            $invoice->refresh();
-            $invoice->update(['status' => $invoice->invoice_balance <= 0.0001 ? 'PAID' : 'NOT PAID']);
+            return;
+        }
 
-            if ($invoice->customer) {
-                $invoice->customer->update([
-                    'balance' => max(0, (float) $invoice->customer->balance - $amount),
-                ]);
+        $this->draftCredits[] = [
+            'key' => uniqid('cr_', true),
+            'credit_memo_id' => '',
+            'amount' => '',
+        ];
+        $this->selectedCreditIndex = count($this->draftCredits) - 1;
+    }
+
+    public function removeCreditRow(): void
+    {
+        if ($this->selectedCreditIndex < 0 || ! isset($this->draftCredits[$this->selectedCreditIndex])) {
+            if (count($this->draftCredits) === 0) {
+                return;
             }
-        });
+            $this->selectedCreditIndex = count($this->draftCredits) - 1;
+        }
 
-        $this->applyCreditId = null;
-        $this->applyCreditAmount = '';
+        array_splice($this->draftCredits, $this->selectedCreditIndex, 1);
+        $this->draftCredits = array_values($this->draftCredits);
+        $this->selectedCreditIndex = count($this->draftCredits) > 0
+            ? min($this->selectedCreditIndex, count($this->draftCredits) - 1)
+            : -1;
+    }
+
+    public function selectCreditRow(int $index): void
+    {
+        $this->selectedCreditIndex = $index;
+    }
+
+    public function updatedDraftCredits($value, string $key): void
+    {
+        // When a credit memo is selected, default amount to min(remaining, balance).
+        if (! str_ends_with($key, '.credit_memo_id')) {
+            return;
+        }
+
+        $parts = explode('.', $key);
+        $index = (int) ($parts[0] ?? -1);
+        if ($index < 0 || ! isset($this->draftCredits[$index])) {
+            return;
+        }
+
+        $memoId = (int) ($this->draftCredits[$index]['credit_memo_id'] ?? 0);
+        if ($memoId <= 0) {
+            return;
+        }
+
+        $memo = CreditMemo::query()->find($memoId);
+        $invoice = Invoice::query()->find($this->modalInvoiceId);
+        if (! $memo || ! $invoice) {
+            return;
+        }
+
+        $usedElsewhere = collect($this->draftCredits)
+            ->filter(fn ($r, $i) => $i !== $index && (int) ($r['credit_memo_id'] ?? 0) === $memoId)
+            ->sum(fn ($r) => (float) ($r['amount'] ?? 0));
+
+        $remaining = max(0, (float) $memo->remaining_amount - $usedElsewhere);
+        $balance = max(0, (float) $invoice->invoice_balance
+            - collect($this->draftPayments)->sum(fn ($r) => (float) ($r['amount'] ?? 0))
+            - collect($this->draftCredits)->filter(fn ($r, $i) => $i !== $index)->sum(fn ($r) => (float) ($r['amount'] ?? 0)));
+
+        $this->draftCredits[$index]['amount'] = number_format(min($remaining, $balance), 2, '.', '');
+    }
+
+    public function saveAll(bool $print = false): void
+    {
+        $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
+        abort_unless($invoice->company_id === auth()->user()->company_id, 403);
+
+        if ($this->driver !== ($invoice->driver ?? '')) {
+            $invoice->update(['driver' => $this->driver !== '' ? trim($this->driver) : null]);
+        }
+
+        $payments = collect($this->draftPayments)
+            ->map(fn ($r) => [
+                'payment_date' => trim((string) ($r['payment_date'] ?? '')),
+                'payment_method' => trim((string) ($r['payment_method'] ?? '')),
+                'amount' => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2),
+                'comments' => trim((string) ($r['comments'] ?? '')),
+            ])
+            ->filter(fn ($r) => $r['amount'] > 0.0001)
+            ->values();
+
+        $credits = collect($this->draftCredits)
+            ->map(fn ($r) => [
+                'credit_memo_id' => (int) ($r['credit_memo_id'] ?? 0),
+                'amount' => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2),
+            ])
+            ->filter(fn ($r) => $r['credit_memo_id'] > 0 && $r['amount'] > 0.0001)
+            ->values();
+
+        if ($payments->isEmpty() && $credits->isEmpty()) {
+            $invoice->refresh();
+            if ($invoice->payments()->exists() || $invoice->credits()->exists()) {
+                $due = round((float) $invoice->invoice_balance, 2);
+                if ($due > 0.0001) {
+                    session()->flash('status', 'Previous payment is already saved. Remaining due $'.number_format($due, 2).' — enter amount in the new row, then Save.');
+                    if (count($this->draftPayments) === 0) {
+                        $this->addPaymentRow();
+                    }
+                } else {
+                    session()->flash('status', 'Invoice is already paid. Nothing new to save.');
+                    if ($print) {
+                        $last = $invoice->payments()->latest('id')->first();
+                        $this->openPdfInBrowser(
+                            $last
+                                ? route('sales.invoices.receipt', [$invoice, $last])
+                                : route('sales.invoices.pdf', $invoice)
+                        );
+                    }
+                }
+            } else {
+                session()->flash('status', 'Add at least one payment or credit before saving.');
+            }
+
+            return;
+        }
+
+        foreach ($payments as $i => $row) {
+            if ($row['payment_date'] === '' || $row['payment_method'] === '') {
+                session()->flash('status', 'Payment row '.($i + 1).' needs a date and method.');
+
+                return;
+            }
+        }
+
+        $balance = round((float) $invoice->invoice_balance, 2);
+        $payTotal = round((float) $payments->sum('amount'), 2);
+        $creditTotal = round((float) $credits->sum('amount'), 2);
+        $combined = round($payTotal + $creditTotal, 2);
+
+        // Allow full payoff when float/rounding is slightly over.
+        if ($combined > $balance && $combined <= round($balance + 0.02, 2) && $payments->isNotEmpty()) {
+            $over = round($combined - $balance, 2);
+            $payments = $payments->values();
+            $lastIdx = $payments->count() - 1;
+            $adjusted = round((float) $payments[$lastIdx]['amount'] - $over, 2);
+            if ($adjusted <= 0.0001) {
+                $payments->forget($lastIdx);
+                $payments = $payments->values();
+            } else {
+                $row = $payments[$lastIdx];
+                $row['amount'] = $adjusted;
+                $payments->put($lastIdx, $row);
+                $payments = $payments->values();
+            }
+            $payTotal = round((float) $payments->sum('amount'), 2);
+            $combined = round($payTotal + $creditTotal, 2);
+        }
+
+        if ($combined > $balance + 0.0001) {
+            session()->flash('status', 'Total payments and credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
+
+            return;
+        }
+
+        $lastPayment = null;
+        $savedPayTotal = $payTotal;
+        $savedCreditTotal = $creditTotal;
+
+        try {
+            DB::transaction(function () use ($invoice, $payments, $credits, &$lastPayment) {
+                $customerDebit = 0.0;
+
+                foreach ($payments as $row) {
+                    $lastPayment = InvoicePayment::query()->create([
+                        'invoice_id' => $invoice->id,
+                        'payment_date' => $row['payment_date'],
+                        'payment_method' => $row['payment_method'],
+                        'amount' => $row['amount'],
+                        'comments' => $row['comments'] !== '' ? $row['comments'] : null,
+                        'user_id' => auth()->id(),
+                    ]);
+                    $customerDebit += $row['amount'];
+                }
+
+                foreach ($credits as $row) {
+                    $memo = CreditMemo::query()->lockForUpdate()->findOrFail($row['credit_memo_id']);
+                    abort_unless(
+                        $memo->company_id === $invoice->company_id
+                        && (int) $memo->customer_id === (int) $invoice->customer_id
+                        && $memo->status === 'Open',
+                        403
+                    );
+
+                    $remaining = (float) $memo->remaining_amount;
+                    $amount = min($row['amount'], $remaining);
+                    if ($amount <= 0.0001) {
+                        throw new \RuntimeException('Credit memo '.$memo->memo_number.' has no remaining balance.');
+                    }
+
+                    InvoiceCredit::query()->create([
+                        'invoice_id' => $invoice->id,
+                        'credit_memo_id' => $memo->id,
+                        'amount' => $amount,
+                    ]);
+
+                    $memo->refresh();
+                    $memo->update([
+                        'status' => $memo->remaining_amount <= 0.0001 ? 'Applied' : 'Open',
+                    ]);
+
+                    $customerDebit += $amount;
+                }
+
+                $invoice->unsetRelation('payments');
+                $invoice->unsetRelation('credits');
+                $invoice->refresh();
+                $invoice->load(['payments', 'credits']);
+                $invoice->update([
+                    'status' => round((float) $invoice->invoice_balance, 2) <= 0.0001 ? 'PAID' : 'NOT PAID',
+                ]);
+
+                if ($invoice->customer && $customerDebit > 0) {
+                    $invoice->customer->update([
+                        'balance' => max(0, round((float) $invoice->customer->balance - $customerDebit, 2)),
+                    ]);
+                }
+            });
+        } catch (\Throwable $e) {
+            session()->flash('status', $e->getMessage());
+
+            return;
+        }
+
+        $this->lastPaymentId = $lastPayment?->id;
+        $this->draftPayments = [];
+        $this->draftCredits = [];
+        $this->selectedPaymentIndex = -1;
+        $this->selectedCreditIndex = -1;
+        $this->modalInvoiceId = $invoice->id;
+
+        $invoice->unsetRelation('payments');
+        $invoice->unsetRelation('credits');
+        $invoice->refresh();
+        $invoice->load(['payments', 'credits']);
+
+        $parts = [];
+        if ($savedPayTotal > 0) {
+            $parts[] = 'Payment $'.number_format($savedPayTotal, 2).' saved';
+        }
+        if ($savedCreditTotal > 0) {
+            $parts[] = 'Credit $'.number_format($savedCreditTotal, 2).' applied';
+        }
+        $msg = implode('. ', $parts).'. Status: '.$invoice->status.'.';
+        $remainingDue = round((float) $invoice->invoice_balance, 2);
+        if ($remainingDue > 0.0001) {
+            $msg .= ' Remaining due $'.number_format($remainingDue, 2).'.';
+        } else {
+            $msg .= ' Invoice is fully paid.';
+        }
+        session()->flash('status', $msg);
+
+        if ($print) {
+            if ($lastPayment) {
+                $this->openPdfInBrowser(route('sales.invoices.receipt', [$invoice, $lastPayment]));
+            } else {
+                $this->openPdfInBrowser(route('sales.invoices.pdf', $invoice));
+            }
+        }
+
+        $this->closeModal();
+    }
+
+    protected function openPdfInBrowser(string $url): void
+    {
+        $this->dispatch('open-invoice-pdf', url: $url);
+        $this->js('window.open('.json_encode($url).', "_blank", "noopener")');
+    }
+
+    public function savePayments(): void
+    {
+        $this->saveAll(false);
+    }
+
+    public function saveAndPrint(): void
+    {
+        $this->saveAll(true);
     }
 }; ?>
 
@@ -527,6 +838,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
                     </svg>
                 </button>
+                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <rect x="3" y="2" width="10" height="12" rx="1"/>
+                        <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Open invoice / payments" aria-label="Open invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
@@ -549,11 +866,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     </div>
 
     @if ($modalInvoice)
-        <div class="desk-modal-backdrop" wire:click.self="closeModal" role="dialog" aria-modal="true" aria-label="Invoice payments">
-            <div class="desk-modal desk-modal-lg inv-modal">
+        <div class="desk-modal-backdrop" wire:click.self="closeModal" role="dialog" aria-modal="true" aria-label="Payments and Credits">
+            <div class="desk-modal desk-modal-xl pc-modal">
                 <div class="desk-modal-head">
                     <div class="inv-modal-title">
-                        <span>Invoice {{ $modalInvoice->invoice_number }}</span>
+                        <span>Payments &amp; Credits</span>
                         <span @class([
                             'desk-pill',
                             'desk-pill-new' => $modalInvoice->status === 'NOT PAID',
@@ -562,132 +879,222 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     </div>
                     <div class="desk-modal-head-actions">
                         <a href="{{ route('sales.invoices.pdf', $modalInvoice) }}" class="desk-btn desk-btn-sm" target="_blank">Print PDF</a>
-                        <button type="button" wire:click="$set('showEmailForm', true)" class="desk-btn desk-btn-sm">Email Invoice</button>
+                        <button type="button" wire:click="$set('showEmailForm', true)" class="desk-btn desk-btn-sm">Email</button>
                         <button type="button" wire:click="closeModal" class="desk-modal-close" aria-label="Close">×</button>
                     </div>
                 </div>
-                <div class="desk-modal-body inv-modal-body">
-                    <div class="inv-top-grid">
-                        <div class="inv-card">
-                            <div class="inv-card-title">Document</div>
-                            <div class="inv-kv"><span>Order No</span><strong class="desk-num">{{ $modalInvoice->salesOrder?->order_number ?: '—' }}</strong></div>
-                            <div class="inv-kv"><span>Order Date</span><strong>{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</strong></div>
-                            <div class="inv-kv"><span>Invoice No</span><strong class="desk-num">{{ $modalInvoice->invoice_number }}</strong></div>
-                            <div class="inv-kv"><span>Invoice Date</span><strong>{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</strong></div>
+
+                <div class="desk-modal-body pc-modal-body">
+                    <div class="pc-top">
+                        <div class="pc-top-left">
+                            <div class="pc-kv"><label>Order No.</label><div class="pc-val desk-num">{{ $modalInvoice->salesOrder?->order_number ?: '—' }}</div></div>
+                            <div class="pc-kv"><label>Order Date</label><div class="pc-val">{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</div></div>
+                            <div class="pc-kv"><label>Sales Rep.</label><div class="pc-val">{{ $modalInvoice->salesOrder?->salesRep?->name ?: '' }}</div></div>
+                            <div class="pc-kv"><label>Status</label><div class="pc-val">{{ $modalInvoice->salesOrder?->status ?: 'Invoiced' }}</div></div>
+                            <div class="pc-kv"><label>Invoice No.</label><div class="pc-val desk-num">{{ $modalInvoice->invoice_number }}</div></div>
+                            <div class="pc-kv"><label>Invoice Date</label><div class="pc-val">{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</div></div>
                         </div>
-                        <div class="inv-card">
-                            <div class="inv-card-title">Bill To</div>
-                            <div class="inv-billto">
-                                <strong>{{ $modalInvoice->salesOrder?->bill_to_name ?: $modalInvoice->customer?->company_name ?: '—' }}</strong>
-                                <div>{{ $modalInvoice->salesOrder?->bill_to_address }}</div>
-                                @if ($modalInvoice->salesOrder?->bill_to_city || $modalInvoice->salesOrder?->bill_to_state || $modalInvoice->salesOrder?->bill_to_zip)
-                                    <div>{{ collect([$modalInvoice->salesOrder?->bill_to_city, $modalInvoice->salesOrder?->bill_to_state, $modalInvoice->salesOrder?->bill_to_zip])->filter()->implode(', ') }}</div>
-                                @endif
-                                <div>{{ $modalInvoice->salesOrder?->bill_to_phone }}</div>
-                            </div>
-                        </div>
-                        <div class="inv-card">
-                            <div class="inv-card-title">Details</div>
-                            <div class="inv-kv"><span>Sales Rep</span><strong>{{ $modalInvoice->salesOrder?->salesRep?->name ?: '—' }}</strong></div>
-                            <div class="inv-kv"><span>Terms</span><strong>{{ $modalInvoice->salesOrder?->paymentTerm?->name ?: '—' }}</strong></div>
-                            <div class="inv-driver">
-                                <label for="invoice-driver">Delivery Driver</label>
-                                <p class="inv-driver-hint">Who delivers this order / invoice. Saved when you leave the field or click Save.</p>
-                                <div class="inv-driver-row">
-                                    <input id="invoice-driver" wire:model.live="driver" wire:blur="saveDriver" class="so-input" placeholder="Driver name" autocomplete="off" />
-                                    <button type="button" wire:click="saveDriver" class="desk-btn desk-btn-sm">Save</button>
+
+                        <div class="pc-top-mid">
+                            <div class="pc-kv pc-kv-block">
+                                <label>Bill to</label>
+                                <div class="pc-billto">
+                                    <strong>{{ $modalInvoice->salesOrder?->bill_to_name ?: $modalInvoice->customer?->company_name ?: '—' }}</strong>
+                                    <div>{{ $modalInvoice->salesOrder?->bill_to_address }}</div>
+                                    @if ($modalInvoice->salesOrder?->bill_to_city || $modalInvoice->salesOrder?->bill_to_state || $modalInvoice->salesOrder?->bill_to_zip)
+                                        <div>{{ collect([$modalInvoice->salesOrder?->bill_to_city, $modalInvoice->salesOrder?->bill_to_state, $modalInvoice->salesOrder?->bill_to_zip])->filter()->implode(', ') }}</div>
+                                    @endif
                                 </div>
-                                @if ($driverSavedAt !== '')
-                                    <div class="inv-driver-saved">Saved at {{ $driverSavedAt }}</div>
-                                @endif
+                            </div>
+                            <div class="pc-kv"><label>Terms</label><div class="pc-val">{{ $modalInvoice->salesOrder?->paymentTerm?->name ?: '' }}</div></div>
+                            <div class="pc-kv">
+                                <label for="invoice-driver">Driver</label>
+                                <input id="invoice-driver" wire:model.live.debounce.400ms="driver" wire:blur="saveDriver" class="so-input pc-input" placeholder="Driver name" autocomplete="off" />
                             </div>
                         </div>
-                    </div>
 
-                    <div class="inv-balance-row">
-                        <div class="inv-metric"><span>Subtotal</span><strong>${{ number_format($modalInvoice->subtotal, 2) }}</strong></div>
-                        <div class="inv-metric"><span>Discounts</span><strong>${{ number_format((float) $modalInvoice->trade_discount + (float) $modalInvoice->total_discount, 2) }}</strong></div>
-                        <div class="inv-metric"><span>Freight / Misc</span><strong>${{ number_format((float) $modalInvoice->freight + (float) $modalInvoice->miscellaneous, 2) }}</strong></div>
-                        <div class="inv-metric"><span>Invoice Total</span><strong>${{ number_format($modalInvoice->invoice_total, 2) }}</strong></div>
-                        <div class="inv-metric"><span>Payments</span><strong>${{ number_format($modalInvoice->total_payments, 2) }}</strong></div>
-                        <div class="inv-metric"><span>Credits</span><strong>${{ number_format($modalInvoice->total_credits, 2) }}</strong></div>
-                        <div class="inv-metric inv-metric-balance"><span>Balance Due</span><strong>${{ number_format($modalInvoice->invoice_balance, 2) }}</strong></div>
-                    </div>
-
-                    <div class="entity-section">
-                        <div class="entity-section-head">
-                            <h3 class="entity-section-title">Collected Payments</h3>
-                            <button type="button" wire:click="openPayForm" class="desk-btn desk-btn-primary desk-btn-sm">Enter Payment</button>
-                        </div>
-                        <div class="desk-grid" style="max-height:12rem">
-                            <table class="desk-table">
-                                <thead><tr><th>Date</th><th>Method</th><th class="text-right">Amount</th><th>Comments</th></tr></thead>
-                                <tbody>
-                                    @forelse ($modalInvoice->payments as $p)
-                                        <tr>
-                                            <td>{{ optional($p->payment_date)?->format('n/j/Y') }}</td>
-                                            <td>{{ $p->payment_method }}</td>
-                                            <td class="desk-money">${{ number_format($p->amount, 2) }}</td>
-                                            <td>{{ $p->comments }}</td>
-                                        </tr>
-                                    @empty
-                                        <tr class="is-empty"><td colspan="4">No payments yet.</td></tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
+                        <div class="pc-top-right">
+                            <div class="pc-sum-row"><span>Subtotal</span><strong>${{ number_format((float) $modalInvoice->subtotal, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Trade Discount</span><strong>${{ number_format((float) $modalInvoice->trade_discount, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Freight</span><strong>${{ number_format((float) $modalInvoice->freight, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Miscellaneous</span><strong>${{ number_format((float) $modalInvoice->miscellaneous, 2) }}</strong></div>
+                            <div class="pc-sum-row pc-sum-total"><span>Total</span><strong>${{ number_format((float) $modalInvoice->invoice_total, 2) }}</strong></div>
                         </div>
                     </div>
 
-                    <div class="entity-section" style="margin-top:0.75rem">
-                        <div class="entity-section-head">
-                            <h3 class="entity-section-title">Applied Credits</h3>
+                    <div class="pc-section">
+                        <div class="pc-section-head">
+                            <h3>Collected Payments</h3>
+                            <div class="pc-row-tools">
+                                <button type="button" class="pc-tool-btn" wire:click="addPaymentRow" title="Add payment">+</button>
+                                <button type="button" class="pc-tool-btn" wire:click="removePaymentRow" title="Remove selected">−</button>
+                            </div>
                         </div>
-                        <div class="desk-grid" style="max-height:10rem">
-                            <table class="desk-table">
+                        <div class="pc-pay-meta">
+                            <div class="pc-pay-meta-row">
+                                <span>Invoice Amount Due</span>
+                                <strong>${{ number_format((float) $savedBalance, 2) }}</strong>
+                            </div>
+                            @if ($draftPayTotal > 0.0001 || $draftCreditTotal > 0.0001)
+                                <div class="pc-pay-meta-row">
+                                    <span>Entered now</span>
+                                    <strong>${{ number_format((float) $draftPayTotal + $draftCreditTotal, 2) }}</strong>
+                                </div>
+                            @endif
+                        </div>
+                        <div class="pc-grid-wrap">
+                            <table class="desk-table pc-table">
                                 <thead>
                                     <tr>
-                                        <th>Memo No</th>
-                                        <th>Memo Date</th>
-                                        @if ($hasCreditSalesOrder)
-                                            <th>Order No</th>
-                                        @endif
-                                        <th class="text-right">Amount</th>
+                                        <th style="width:8.5rem">Payment Date</th>
+                                        <th style="width:9rem">Payment Method</th>
+                                        <th style="width:7rem" class="text-right">Amount</th>
+                                        <th>Comments</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse ($modalInvoice->credits as $c)
-                                        <tr>
-                                            <td class="desk-num">{{ $c->creditMemo?->memo_number }}</td>
-                                            <td>{{ optional($c->creditMemo?->memo_date)?->format('n/j/Y') }}</td>
-                                            @if ($hasCreditSalesOrder)
-                                                <td class="desk-num">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
-                                            @endif
-                                            <td class="desk-money">${{ number_format($c->amount, 2) }}</td>
+                                    @foreach ($modalInvoice->payments as $p)
+                                        <tr class="pc-row-saved">
+                                            <td>{{ optional($p->payment_date)?->format('n/j/Y') }}</td>
+                                            <td>{{ $p->payment_method }}</td>
+                                            <td class="desk-money">${{ number_format((float) $p->amount, 2) }}</td>
+                                            <td>
+                                                <span class="pc-saved-tag">Saved</span>
+                                                {{ $p->comments }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+
+                                    @forelse ($draftPayments as $i => $row)
+                                        <tr
+                                            wire:key="draft-pay-{{ $row['key'] }}"
+                                            wire:click="selectPaymentRow({{ $i }})"
+                                            @class(['is-selected' => $selectedPaymentIndex === $i])
+                                        >
+                                            <td>
+                                                <input type="date" class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.payment_date" />
+                                            </td>
+                                            <td>
+                                                <select class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.payment_method">
+                                                    <option>Cash</option>
+                                                    <option>Credit Card</option>
+                                                    <option>Check</option>
+                                                    <option>ACH</option>
+                                                    <option>Other</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0.00" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.comments" placeholder="Optional" />
+                                            </td>
                                         </tr>
                                     @empty
-                                        <tr class="is-empty"><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}">No credits applied.</td></tr>
+                                        @if ($modalInvoice->payments->isEmpty())
+                                            <tr class="is-empty"><td colspan="4">Use + or Add Payment to enter amount. Split any amount, then Add 2nd Due for the rest.</td></tr>
+                                        @endif
                                     @endforelse
                                 </tbody>
                             </table>
                         </div>
-                        @if ($openCredits->count())
-                            <div class="desk-modal-form-row">
-                                <div class="so-form-row so-form-row-side">
-                                    <label class="so-form-lbl" for="applyCreditId">Open Credit</label>
-                                    <select id="applyCreditId" wire:model="applyCreditId" class="so-input">
-                                        <option value="">—</option>
-                                        @foreach ($openCredits as $cm)
-                                            <option value="{{ $cm->id }}">{{ $cm->memo_number }} — ${{ number_format($cm->remaining_amount, 2) }} remaining</option>
-                                        @endforeach
-                                    </select>
+                    </div>
+
+                    <div class="pc-bottom">
+                        <div class="pc-section pc-credits">
+                            <div class="pc-section-head">
+                                <h3>Applied Credits</h3>
+                                <div class="pc-row-tools">
+                                    <button type="button" class="pc-tool-btn" wire:click="addCreditRow" title="{{ $openCredits->isEmpty() ? 'No credit memo — go create one' : 'Add credit' }}">+</button>
+                                    <button type="button" class="pc-tool-btn" wire:click="removeCreditRow" title="Remove selected">−</button>
                                 </div>
-                                <div class="so-form-row so-form-row-side">
-                                    <label class="so-form-lbl" for="applyCreditAmount">Amount</label>
-                                    <input id="applyCreditAmount" wire:model="applyCreditAmount" class="so-input text-right" />
-                                </div>
-                                <button type="button" wire:click="applyCredit" class="desk-btn">Apply Credit</button>
                             </div>
+                            @if ($openCredits->isEmpty())
+                                <div class="pc-credit-empty">
+                                    This customer has no open credit memo.
+                                    <button type="button" class="pc-link-btn" wire:click="addCreditRow">Go to Credit Memo</button>
+                                </div>
+                            @endif
+                            <div class="pc-grid-wrap">
+                                <table class="desk-table pc-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Memo No.</th>
+                                            <th style="width:7.5rem">Memo Date</th>
+                                            @if ($hasCreditSalesOrder)
+                                                <th style="width:6.5rem">Order No.</th>
+                                            @endif
+                                            <th style="width:7rem" class="text-right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($modalInvoice->credits as $c)
+                                            <tr class="pc-row-saved">
+                                                <td class="desk-num">{{ $c->creditMemo?->memo_number }}</td>
+                                                <td>{{ optional($c->creditMemo?->memo_date)?->format('n/j/Y') }}</td>
+                                                @if ($hasCreditSalesOrder)
+                                                    <td class="desk-num">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
+                                                @endif
+                                                <td class="desk-money">${{ number_format((float) $c->amount, 2) }}</td>
+                                            </tr>
+                                        @endforeach
+
+                                        @forelse ($draftCredits as $i => $row)
+                                            @php
+                                                $selectedMemo = $openCredits->firstWhere('id', (int) ($row['credit_memo_id'] ?? 0));
+                                            @endphp
+                                            <tr
+                                                wire:key="draft-cr-{{ $row['key'] }}"
+                                                wire:click="selectCreditRow({{ $i }})"
+                                                @class(['is-selected' => $selectedCreditIndex === $i])
+                                            >
+                                                <td>
+                                                    <select class="so-input pc-cell-input" wire:model.live="draftCredits.{{ $i }}.credit_memo_id">
+                                                        <option value="">— Select credit memo —</option>
+                                                        @foreach ($openCredits as $cm)
+                                                            <option value="{{ $cm->id }}">{{ $cm->memo_number }} (${{ number_format($cm->remaining_amount, 2) }} left)</option>
+                                                        @endforeach
+                                                    </select>
+                                                </td>
+                                                <td>{{ optional($selectedMemo?->memo_date)?->format('n/j/Y') ?: '—' }}</td>
+                                                @if ($hasCreditSalesOrder)
+                                                    <td class="desk-num">{{ $selectedMemo?->salesOrder?->order_number ?: '—' }}</td>
+                                                @endif
+                                                <td>
+                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftCredits.{{ $i }}.amount" />
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            @if ($modalInvoice->credits->isEmpty())
+                                                <tr class="is-empty"><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}">Use + to select from outstanding credit memos.</td></tr>
+                                            @endif
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="pc-totals">
+                            <div class="pc-sum-row"><span>New Total</span><strong>${{ number_format((float) $modalInvoice->invoice_total, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Credits</span><strong>${{ number_format((float) $previewCredits, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Payments</span><strong>${{ number_format((float) $previewPayments, 2) }}</strong></div>
+                            <div class="pc-sum-row pc-sum-balance"><span>Invoice Balance</span><strong>${{ number_format((float) $savedBalance, 2) }}</strong></div>
+                            @if ($draftPayTotal > 0.0001 || $draftCreditTotal > 0.0001)
+                                <div class="pc-sum-row"><span>After Save</span><strong>${{ number_format((float) $previewBalance, 2) }}</strong></div>
+                                <div class="pc-sum-hint">Click Save to apply. Balance above is current unpaid amount.</div>
+                            @endif
+                        </div>
+                    </div>
+
+                    <div class="pc-footer">
+                        @if (session('status'))
+                            <div class="pc-footer-msg" role="status">{{ session('status') }}</div>
                         @endif
+                        <div class="pc-footer-actions">
+                            <button type="button" wire:click="closeModal" class="desk-btn">Cancel</button>
+                            <button type="button" wire:click="saveAndPrint" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">Save &amp; Print</button>
+                            <button type="button" wire:click="savePayments" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">Save</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -717,44 +1124,6 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <button type="submit" class="desk-btn desk-btn-primary">Send Email</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    @endif
-
-    @if ($showPayForm && $modalInvoice)
-        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="$set('showPayForm', false)" role="dialog" aria-modal="true" aria-label="Enter payment">
-            <div class="desk-modal desk-modal-sm">
-                <div class="desk-modal-head">
-                    <span>Enter Payment</span>
-                    <button type="button" wire:click="$set('showPayForm', false)" class="desk-modal-close" aria-label="Close">×</button>
-                </div>
-                <div class="desk-modal-body space-y-3">
-                    <div class="so-form-row so-form-row-side">
-                        <label class="so-form-lbl" for="pay_date">Payment Date</label>
-                        <input id="pay_date" type="date" wire:model="pay_date" class="so-input" />
-                    </div>
-                    <div class="so-form-row so-form-row-side">
-                        <label class="so-form-lbl" for="pay_method">Method</label>
-                        <select id="pay_method" wire:model="pay_method" class="so-input">
-                            <option>Cash</option>
-                            <option>Credit Card</option>
-                            <option>Check</option>
-                            <option>ACH</option>
-                        </select>
-                    </div>
-                    <div class="so-form-row so-form-row-side">
-                        <label class="so-form-lbl" for="pay_amount">Amount</label>
-                        <input id="pay_amount" wire:model="pay_amount" class="so-input text-right" />
-                    </div>
-                    <div class="so-form-row so-form-row-side">
-                        <label class="so-form-lbl" for="pay_comments">Comments</label>
-                        <input id="pay_comments" wire:model="pay_comments" class="so-input" />
-                    </div>
-                    <div class="entity-footer-actions" style="justify-content:flex-end">
-                        <button type="button" wire:click="$set('showPayForm', false)" class="desk-btn">Cancel</button>
-                        <button type="button" wire:click="savePayment" class="desk-btn desk-btn-primary">Save &amp; Print</button>
-                    </div>
-                </div>
             </div>
         </div>
     @endif

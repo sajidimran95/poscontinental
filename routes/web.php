@@ -84,6 +84,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('sales/invoices', 'pages.sales.invoices.index')->name('sales.invoices.index');
     Route::get('sales/invoices/{invoice}/pdf', [DocumentPdfController::class, 'invoice'])
         ->name('sales.invoices.pdf');
+    Route::get('sales/invoices/{invoice}/pick-list', [DocumentPdfController::class, 'invoicePickList'])
+        ->name('sales.invoices.pick-list');
     Route::post('sales/invoices/{invoice}/email', [DocumentPdfController::class, 'emailInvoice'])
         ->name('sales.invoices.email');
     Route::get('sales/invoices/{invoice}/payments/{payment}/receipt', PaymentReceiptController::class)

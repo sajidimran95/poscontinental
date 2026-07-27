@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Sales Order {{ $order->order_number }}</title>
+    <title>{{ $docTitle ?? 'Sales Order' }} {{ $barcodeValue ?? $order->order_number }}</title>
     <style>
         @page { margin: 36px 40px 48px; }
         * { box-sizing: border-box; }
@@ -154,8 +154,14 @@
     $driverLabel = $order->invoice?->driver ?: '';
     $routeLabel = $order->route?->name ?: $order->route?->code ?: '';
     $accountNo = $order->customer?->customer_id ?: '';
-    $statusLabel = $order->status ?: '';
-    $barcodeValue = (string) $order->order_number;
+    $statusLabel = $statusLabel ?? ($order->status ?: '');
+    $barcodeValue = (string) ($barcodeValue ?? $order->order_number);
+    $docTitle = $docTitle ?? 'Sales Order';
+    $metaLines = $metaLines ?? [
+        ['label' => 'Order No:', 'value' => $order->order_number],
+        ['label' => 'Order Date:', 'value' => optional($order->order_date)?->format('m/d/Y')],
+        ['label' => 'Order Status:', 'value' => $statusLabel],
+    ];
 
     $grouped = $order->lines
         ->sortBy(fn ($line) => [strtoupper((string) ($line->uom ?: '')), (int) $line->line_no])
@@ -164,7 +170,7 @@
     $uomGroups = $grouped->groupBy(fn ($line) => strtoupper((string) ($line->uom ?: '')));
 @endphp
 
-{{-- Header: company + Bill/Ship left; Sales Order + barcode + meta right --}}
+{{-- Header: company + Bill/Ship left; document title + barcode + meta right --}}
 <table class="hdr">
     <tr>
         <td style="width:72%">
@@ -218,15 +224,15 @@
             </table>
         </td>
         <td style="width:28%">
-            <div class="doc-title">Sales Order</div>
+            <div class="doc-title">{{ $docTitle }}</div>
             <div class="barcode-wrap">
                 {!! Code128Barcode::html($barcodeValue, 2, 44) !!}
             </div>
             <div class="page-under-barcode">Page {{ $pageLabel ?? '1 of 1' }}</div>
             <div class="meta">
-                <div><span class="lbl">Order No:</span> {{ $order->order_number }}</div>
-                <div><span class="lbl">Order Date:</span> {{ optional($order->order_date)?->format('m/d/Y') }}</div>
-                <div><span class="lbl">Order Status:</span> {{ $statusLabel }}</div>
+                @foreach ($metaLines as $meta)
+                    <div><span class="lbl">{{ $meta['label'] }}</span> {{ $meta['value'] }}</div>
+                @endforeach
             </div>
         </td>
     </tr>

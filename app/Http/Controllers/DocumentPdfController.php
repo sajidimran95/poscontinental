@@ -24,6 +24,16 @@ class DocumentPdfController extends Controller
         return $pdfs->invoicePdf($invoice, auth()->user())->stream('invoice-'.$invoice->invoice_number.'.pdf');
     }
 
+    public function invoicePickList(Invoice $invoice, DocumentPdfService $pdfs): Response
+    {
+        abort_unless($invoice->company_id === auth()->user()->company_id, 403);
+
+        $order = $invoice->salesOrder;
+        abort_unless($order, 404);
+
+        return $pdfs->streamSalesOrderPickList($order, auth()->user());
+    }
+
     public function salesOrder(SalesOrder $salesOrder, DocumentPdfService $pdfs): Response
     {
         abort_unless($salesOrder->company_id === auth()->user()->company_id, 403);

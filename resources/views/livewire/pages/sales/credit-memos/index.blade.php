@@ -108,6 +108,25 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         ];
     }
 
+    public function mount(): void
+    {
+        $customerId = request()->integer('customer_id') ?: null;
+        $openNew = request()->boolean('new');
+
+        if ($openNew) {
+            $this->startNew();
+            if ($customerId) {
+                $exists = Customer::query()
+                    ->where('company_id', auth()->user()->company_id)
+                    ->whereKey($customerId)
+                    ->exists();
+                if ($exists) {
+                    $this->customer_id = $customerId;
+                }
+            }
+        }
+    }
+
     public function cancelForm(): void
     {
         $this->showForm = false;

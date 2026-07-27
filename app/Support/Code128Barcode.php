@@ -40,7 +40,7 @@ class Code128Barcode
     /**
      * Render Code 128B as DomPDF-safe inline HTML bars.
      */
-    public static function html(string $text, int $moduleWidth = 1, int $height = 38): string
+    public static function html(string $text, int $moduleWidth = 1, int $height = 38, string $align = 'right'): string
     {
         $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
         $codes = [self::START_B];
@@ -56,7 +56,8 @@ class Code128Barcode
         $codes[] = $checksum % 103;
         $codes[] = self::STOP;
 
-        $html = '<div style="font-size:0;line-height:0;white-space:nowrap;text-align:right;">';
+        $alignCss = in_array($align, ['left', 'center', 'right'], true) ? $align : 'right';
+        $html = '<div style="font-size:0;line-height:0;white-space:nowrap;text-align:'.$alignCss.';">';
         foreach ($codes as $code) {
             $pattern = self::PATTERNS[$code] ?? self::PATTERNS[0];
             $black = true;

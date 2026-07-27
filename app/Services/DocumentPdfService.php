@@ -334,11 +334,19 @@ class DocumentPdfService
 
     public function salesOrderPickListPdf(SalesOrder $order, ?User $user = null)
     {
-        $order->loadMissing(['lines', 'customer', 'salesRep']);
+        $order->loadMissing([
+            'lines.item.category',
+            'lines.item.department',
+            'customer',
+            'salesRep',
+            'route',
+            'invoice',
+        ]);
 
         return Pdf::loadView('pdf.pick-list', [
             'order' => $order,
             'company' => $user?->company ?? $order->customer?->company ?? auth()->user()?->company,
+            'barcodeValue' => (string) $order->order_number,
         ])->setPaper('letter');
     }
 

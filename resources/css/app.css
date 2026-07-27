@@ -3278,11 +3278,15 @@
     /* Entity forms (Customer, Item, etc.) */
     .entity-page {
         padding-top: 0.15rem;
+        height: 100%;
+        min-height: 0;
     }
 
     .entity-form {
         width: min(100%, 72rem);
+        height: 100%;
         max-height: 100%;
+        min-height: 0;
     }
 
     .item-form {
@@ -3758,6 +3762,11 @@
         margin: 0;
         padding: 0;
         min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
     .so-form-fields {
@@ -3944,6 +3953,14 @@
         border-top: 1px solid #e2e8f0;
         background: #f7f9fb;
         flex-shrink: 0;
+        position: sticky;
+        bottom: 0;
+        z-index: 30;
+        box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+    }
+
+    .item-form > .entity-footer {
+        margin-top: auto;
     }
 
     .entity-tabs {

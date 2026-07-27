@@ -15,6 +15,9 @@
 }
 
 @layer components {
+    [x-cloak] {
+        display: none !important;
+    }
     /* Light menu bar like Chief desktop (not dark) */
     .chief-menu {
         @apply text-sm border-b border-slate-400;
@@ -1391,9 +1394,171 @@
         background: #f8fafc;
     }
 
-    .so-items-grid > table {
+    .so-items-grid > table,
+    .so-lines-table {
         flex-shrink: 0;
         width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        background: #fff;
+    }
+
+    .so-lines-table thead th {
+        text-align: left;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 0.4rem 0.5rem;
+        border-bottom: 1px solid #b8bcc4;
+        position: sticky;
+        top: 0;
+        background: #e4e4e4;
+        z-index: 1;
+        white-space: nowrap;
+    }
+
+    .so-lines-table thead th.col-num {
+        text-align: right;
+    }
+
+    .so-lines-table td {
+        padding: 0.28rem 0.5rem;
+        border-bottom: 1px solid #e8e8e8;
+        font-size: 13px;
+        vertical-align: middle;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .so-lines-table td.col-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .so-lines-table .col-code { width: 7.5rem; }
+    .so-lines-table .col-desc { width: auto; }
+    .so-lines-table .col-uom { width: 4rem; }
+    .so-lines-table .col-num { width: 5.5rem; }
+
+    .so-lines-table tbody tr {
+        cursor: pointer;
+        background: #fff;
+    }
+
+    .so-lines-table tbody tr.is-filled:hover {
+        background: #eef6ff;
+    }
+
+    .so-lines-table tbody tr.is-selected {
+        background: #1e6fff !important;
+        color: #fff;
+    }
+
+    .so-lines-table tbody tr.is-selected .so-line-total,
+    .so-lines-table tbody tr.is-selected .desk-num {
+        color: #fff;
+    }
+
+    .so-lines-table tbody tr.is-selected .so-cell-input {
+        background: #fff;
+        color: #0f172a;
+        border-color: #93c5fd;
+    }
+
+    .so-cell-input {
+        width: 100%;
+        max-width: 5.25rem;
+        height: 1.55rem;
+        padding: 0 0.3rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 2px;
+        background: #fff;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .so-line-msg-flag {
+        margin-left: 0.25rem;
+        font-size: 11px;
+        opacity: 0.9;
+    }
+
+    .so-ctx-menu {
+        position: fixed;
+        z-index: 80;
+        min-width: 12.5rem;
+        background: #f3f4f6;
+        border: 1px solid #9ca3af;
+        box-shadow: 2px 2px 8px rgba(15, 23, 42, 0.18);
+        padding: 0.15rem 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .so-ctx-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 0.4rem 0.75rem;
+        font-size: 13px;
+        color: #111827;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+    }
+
+    .so-ctx-menu button:hover {
+        background: #1e6fff;
+        color: #fff;
+    }
+
+    .so-ctx-menu button.is-danger:hover {
+        background: #b91c1c;
+        color: #fff;
+    }
+
+    .so-msg-modal {
+        max-width: min(36rem, 96vw);
+    }
+
+    .so-msg-modal-body {
+        padding: 0.85rem 1rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+
+    .so-msg-modal-row {
+        display: grid;
+        grid-template-columns: 7.5rem minmax(0, 1fr);
+        align-items: center;
+        column-gap: 0.55rem;
+    }
+
+    .so-msg-modal-row-pair {
+        grid-template-columns: 7.5rem minmax(0, 8rem) 5.5rem minmax(0, 1fr);
+    }
+
+    .so-msg-modal-row-top {
+        align-items: start;
+    }
+
+    .so-msg-modal-row-top .so-msg-modal-lbl {
+        padding-top: 0.35rem;
+    }
+
+    .so-msg-modal-lbl {
+        font-size: 13px;
+        font-weight: 600;
+        color: #334155;
+        white-space: nowrap;
+    }
+
+    .so-msg-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 0.35rem;
     }
 
     .so-items-grid thead th {

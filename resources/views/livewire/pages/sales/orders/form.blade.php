@@ -132,6 +132,29 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** @var array<int, array{id:int,item_code:string,description:string,available:float}> */
     public array $substituteOptions = [];
 
+    public ?int $selectedLineIndex = null;
+
+    public bool $showLineSubstitutes = false;
+
+    public bool $showLineMessageModal = false;
+
+    public string $lineMessageEdit = '';
+
+    public string $lineInstructionsEdit = '';
+
+    public string $lineMsgItemCode = '';
+
+    public string $lineMsgDescription = '';
+
+    public bool $showUomModal = false;
+
+    /** @var array<int, string> */
+    public array $lineUomOptions = [];
+
+    public bool $showBatchModal = false;
+
+    public string $batchInfo = '';
+
     public bool $showCustomerBrowse = false;
 
     public string $customerSearch = '';
@@ -197,6 +220,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'qty_shipped' => (string) ($l->qty_shipped ?? 0),
                 'price' => (string) $l->price,
                 'discount' => (string) $l->discount,
+                'line_message' => (string) ($l->line_message ?? ''),
+                'instructions' => (string) ($l->instructions ?? ''),
             ])->all();
             $this->boxes = $salesOrder->boxes->map(fn ($b) => [
                 'box_number' => $b->box_number ?? '',
@@ -245,7 +270,247 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         return [
             'item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '',
             'qty_ordered' => '1', 'qty_shipped' => '0', 'price' => '0', 'discount' => '0',
+            'line_message' => '', 'instructions' => '',
         ];
+    }
+
+    public function selectLine(int $index): void
+    {
+        $this->selectedLineIndex = $index;
+        $this->syncLineContextHeader($index);
+    }
+
+    protected function syncLineContextHeader(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            $this->lineMsgItemCode = '';
+            $this->lineMsgDescription = '';
+
+            return;
+        }
+        $this->lineMsgItemCode = (string) ($this->lines[$i]['item_code'] ?? '');
+        $this->lineMsgDescription = (string) ($this->lines[$i]['description'] ?? '');
+    }
+
+    public function removeSelectedLine(): void
+    {
+        if ($this->selectedLineIndex === null) {
+            return;
+        }
+        $this->removeLine($this->selectedLineIndex);
+        $this->selectedLineIndex = null;
+        $this->syncLineContextHeader(null);
+    }
+
+    public function openLineSubstitutes(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $this->selectedLineIndex = $i;
+        $this->syncLineContextHeader($i);
+        $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
+        if ($itemId <= 0) {
+            $this->lineWarning = 'Select a line with an item first.';
+
+            return;
+        }
+
+        $item = Item::query()
+            ->with(['substitutes.substituteItem'])
+            ->where('company_id', auth()->user()->company_id)
+            ->find($itemId);
+
+        if (! $item) {
+            $this->lineWarning = 'Item not found.';
+
+            return;
+        }
+
+        $this->pendingLineIndex = $i;
+        $this->substituteOptions = $item->substitutes
+            ->filter(fn (ItemSubstitute $s) => $s->substituteItem)
+            ->map(fn (ItemSubstitute $s) => [
+                'id' => $s->substituteItem->id,
+                'item_code' => $s->substituteItem->item_code,
+                'description' => $s->substituteItem->description,
+                'available' => (float) $s->substituteItem->available_quantity,
+            ])
+            ->values()
+            ->all();
+        $this->showLineSubstitutes = true;
+    }
+
+    public function closeLineSubstitutes(): void
+    {
+        $this->showLineSubstitutes = false;
+        $this->substituteOptions = [];
+    }
+
+    public function applyLineSubstitute(int $substituteItemId): void
+    {
+        $i = $this->pendingLineIndex ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+
+        $item = Item::query()->with(['prices', 'taxSchedule'])
+            ->where('company_id', auth()->user()->company_id)
+            ->find($substituteItemId);
+
+        $this->showLineSubstitutes = false;
+        $this->substituteOptions = [];
+
+        if (! $item || ! $this->canAddItemToOrder($item)) {
+            return;
+        }
+
+        $this->fillLineFromItem($i, $item);
+        $this->syncLineContextHeader($i);
+        $this->lineWarning = 'Line replaced with substitute '.$item->item_code.'.';
+    }
+
+    public function openLineMessage(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $this->selectedLineIndex = $i;
+        $this->syncLineContextHeader($i);
+        $this->lineMessageEdit = (string) ($this->lines[$i]['line_message'] ?? '');
+        $this->lineInstructionsEdit = (string) ($this->lines[$i]['instructions'] ?? '');
+        $this->showLineMessageModal = true;
+    }
+
+    public function saveLineMessage(): void
+    {
+        $i = $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            $this->showLineMessageModal = false;
+
+            return;
+        }
+        $this->lines[$i]['line_message'] = trim($this->lineMessageEdit);
+        $this->lines[$i]['instructions'] = trim($this->lineInstructionsEdit);
+        $this->showLineMessageModal = false;
+    }
+
+    public function cancelLineMessage(): void
+    {
+        $this->showLineMessageModal = false;
+        $this->lineMessageEdit = '';
+        $this->lineInstructionsEdit = '';
+    }
+
+    public function openLineUom(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $this->selectedLineIndex = $i;
+        $this->syncLineContextHeader($i);
+        $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
+        $options = [];
+        if ($itemId > 0) {
+            $item = Item::query()->with('prices')->find($itemId);
+            if ($item) {
+                if (filled($item->unit_of_measure)) {
+                    $options[] = $item->unit_of_measure;
+                }
+                foreach ($item->prices as $p) {
+                    if (filled($p->uom)) {
+                        $options[] = $p->uom;
+                    }
+                }
+            }
+        }
+        $current = (string) ($this->lines[$i]['uom'] ?? '');
+        if ($current !== '') {
+            $options[] = $current;
+        }
+        $this->lineUomOptions = array_values(array_unique(array_filter($options)));
+        if ($this->lineUomOptions === []) {
+            $this->lineUomOptions = ['EA', 'BX', 'CS', 'CTN', 'PK', 'RL'];
+        }
+        $this->showUomModal = true;
+    }
+
+    public function setLineUom(string $uom): void
+    {
+        $i = $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $this->lines[$i]['uom'] = $uom;
+        $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
+        if ($itemId > 0) {
+            $item = Item::query()->with('prices')->find($itemId);
+            if ($item) {
+                $this->lines[$i]['price'] = $this->resolveItemPrice($item);
+                $match = $item->prices->first(fn ($p) => strcasecmp((string) $p->uom, $uom) === 0);
+                if ($match) {
+                    $this->lines[$i]['price'] = (string) $match->price;
+                }
+            }
+        }
+        $this->syncLineContextHeader($i);
+        $this->showUomModal = false;
+        $this->taxManual = false;
+        $this->suggestTax();
+    }
+
+    public function openBatchDetails(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $this->selectedLineIndex = $i;
+        $this->syncLineContextHeader($i);
+        $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
+        $item = $itemId > 0
+            ? Item::query()->where('company_id', auth()->user()->company_id)->find($itemId)
+            : null;
+        if (! $item) {
+            $this->batchInfo = 'No item on this line.';
+        } else {
+            $tracking = $item->item_tracking ?: 'None';
+            $this->batchInfo = 'Tracking: '.$tracking
+                ."\nIn Stock: ".number_format((float) $item->quantity_in_stock, 2)
+                ."\nAllocated: ".number_format((float) $item->allocated_qty, 2)
+                ."\nAvailable: ".number_format((float) $item->available_quantity, 2)
+                ."\nUOM: ".($item->unit_of_measure ?: '—');
+            if ($tracking === 'None' || $tracking === '') {
+                $this->batchInfo .= "\n\nNo lot/serial batch details for this item.";
+            }
+        }
+        $this->showBatchModal = true;
+    }
+
+    public function openItemRecord(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i])) {
+            return;
+        }
+        $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
+        if ($itemId <= 0) {
+            $this->lineWarning = 'No item linked on this line.';
+
+            return;
+        }
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
+        if (! $item) {
+            $this->lineWarning = 'Item not found.';
+
+            return;
+        }
+
+        $this->dispatch('open-item-record', url: route('inventory.items.edit', $item));
     }
 
     public function with(): array
@@ -568,6 +833,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
+        if ($this->selectedLineIndex === $i) {
+            $this->selectedLineIndex = null;
+        } elseif ($this->selectedLineIndex !== null && $this->selectedLineIndex > $i) {
+            $this->selectedLineIndex--;
+        }
         $this->refreshCreditWarning();
         $this->suggestTax();
     }
@@ -850,6 +1120,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lines[$index]['qty_ordered'] = $this->lines[$index]['qty_ordered'] ?: '1';
         $this->lines[$index]['qty_shipped'] = $this->lines[$index]['qty_shipped'] ?? '0';
         $this->lines[$index]['discount'] = $this->lines[$index]['discount'] ?: '0';
+        $this->lines[$index]['line_message'] = (string) ($item->item_line_message ?? '');
+        $this->lines[$index]['instructions'] = $this->lines[$index]['instructions'] ?? '';
+        $this->selectedLineIndex = $index;
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1061,6 +1334,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'qty_shipped' => (float) ($line['qty_shipped'] ?? 0),
                     'price' => $price,
                     'discount' => $discount,
+                    'line_message' => filled($line['line_message'] ?? null) ? $line['line_message'] : null,
+                    'instructions' => filled($line['instructions'] ?? null) ? $line['instructions'] : null,
                     'line_total' => ($qty * $price) - $discount,
                     'line_no' => $i + 1,
                 ]);
@@ -1352,36 +1627,83 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
             </div>
             @elseif ($activeTab === 'items')
-                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items">
+                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
+                    x-data="{
+                        ctxOpen: false,
+                        ctxX: 0,
+                        ctxY: 0,
+                        ctxLine: null,
+                        openCtx(e, i) {
+                            e.preventDefault();
+                            this.ctxLine = i;
+                            this.ctxX = Math.min(e.clientX, window.innerWidth - 220);
+                            this.ctxY = Math.min(e.clientY, window.innerHeight - 220);
+                            this.ctxOpen = true;
+                            $wire.selectLine(i);
+                        },
+                        closeCtx() { this.ctxOpen = false; this.ctxLine = null; }
+                    }"
+                    @click="closeCtx()"
+                    @keydown.escape.window="closeCtx()"
+                >
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
-                        <table class="w-full">
+                        <table class="so-lines-table">
                             <thead>
                                 <tr>
-                                    <th>Item Code</th>
-                                    <th>Description</th>
-                                    <th>U of M</th>
-                                    <th class="text-right">Qty Ordered</th>
-                                    <th class="text-right">Price</th>
-                                    <th class="text-right">Discount</th>
-                                    <th class="text-right">Total</th>
-                                    <th class="w-8"></th>
+                                    <th class="col-code">Item Code</th>
+                                    <th class="col-desc">Description</th>
+                                    <th class="col-uom">U of M</th>
+                                    <th class="col-num">Qty Ordered</th>
+                                    <th class="col-num">Price</th>
+                                    <th class="col-num">Discount</th>
+                                    <th class="col-num">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($lines as $i => $line)
-                                    <tr>
-                                        <td>
-                                            <input wire:model.blur="lines.{{ $i }}.item_code" wire:keydown.enter.prevent="lookupItem({{ $i }})" wire:keydown.f2.prevent="toggleBrowse" class="so-input font-mono" style="width:6.5rem" />
+                                    @php $filled = filled($line['item_code'] ?? null); @endphp
+                                    <tr
+                                        wire:key="so-line-{{ $i }}"
+                                        @class(['is-selected' => $selectedLineIndex === $i, 'is-filled' => $filled])
+                                        wire:click="selectLine({{ $i }})"
+                                        @contextmenu="openCtx($event, {{ $i }})"
+                                    >
+                                        <td class="col-code desk-num">{{ $filled ? $line['item_code'] : '—' }}</td>
+                                        <td class="col-desc" title="{{ $line['description'] ?? '' }}">
+                                            {{ $filled ? ($line['description'] ?: '—') : '—' }}
+                                            @if (filled($line['line_message'] ?? null) || filled($line['instructions'] ?? null))
+                                                <span class="so-line-msg-flag" title="{{ trim(($line['line_message'] ?? '').' '.($line['instructions'] ?? '')) }}">✉</span>
+                                            @endif
                                         </td>
-                                        <td><input wire:model="lines.{{ $i }}.description" class="so-input w-full min-w-[10rem]" /></td>
-                                        <td><input wire:model="lines.{{ $i }}.uom" class="so-input" style="width:3.5rem" /></td>
-                                        <td><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right" style="width:4.5rem" /></td>
-                                        <td><input wire:model.live="lines.{{ $i }}.price" class="so-input text-right" style="width:5rem" /></td>
-                                        <td><input wire:model.live="lines.{{ $i }}.discount" class="so-input text-right" style="width:4.5rem" /></td>
-                                        <td class="so-line-total text-right pe-2">${{ number_format(((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'], 2) }}</td>
-                                        <td><button type="button" wire:click="removeLine({{ $i }})" class="text-red-600 text-xs px-1">×</button></td>
+                                        <td class="col-uom">{{ $filled ? ($line['uom'] ?: '—') : '—' }}</td>
+                                        <td class="col-num">
+                                            @if ($selectedLineIndex === $i && ! $viewMode)
+                                                <input wire:model.live="lines.{{ $i }}.qty_ordered" wire:click.stop class="so-cell-input text-right" />
+                                            @else
+                                                {{ $filled ? number_format((float) ($line['qty_ordered'] ?? 0), 0) : '' }}
+                                            @endif
+                                        </td>
+                                        <td class="col-num">
+                                            @if ($selectedLineIndex === $i && ! $viewMode)
+                                                <input wire:model.live="lines.{{ $i }}.price" wire:click.stop class="so-cell-input text-right" />
+                                            @else
+                                                {{ $filled ? number_format((float) ($line['price'] ?? 0), 2) : '' }}
+                                            @endif
+                                        </td>
+                                        <td class="col-num">
+                                            @if ($selectedLineIndex === $i && ! $viewMode)
+                                                <input wire:model.live="lines.{{ $i }}.discount" wire:click.stop class="so-cell-input text-right" />
+                                            @else
+                                                {{ $filled ? number_format((float) ($line['discount'] ?? 0), 2) : '' }}
+                                            @endif
+                                        </td>
+                                        <td class="col-num so-line-total">
+                                            @if ($filled)
+                                                ${{ number_format(((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'], 2) }}
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -1398,21 +1720,42 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             wire:keydown.f2.prevent="toggleBrowse"
                             class="so-input so-entry-input"
                             id="so-item-entry"
+                            @disabled($viewMode)
                         />
-                        <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
-                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                        </button>
-                        <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
-                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
-                        </button>
-                        <button type="button" wire:click="removeLine({{ max(count($lines) - 1, 0) }})" class="so-icon-btn" title="Delete" tabindex="-1" aria-label="Delete line">
-                            <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
-                        </button>
-                        <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
-                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
-                        </button>
-                        <button type="button" wire:click="toggleBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                        @unless ($viewMode)
+                            <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                            </button>
+                            <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
+                            </button>
+                            <button type="button" wire:click="removeSelectedLine" class="so-icon-btn" title="Delete selected line" tabindex="-1" aria-label="Delete line">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                            </button>
+                            <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                            </button>
+                            <button type="button" wire:click="toggleBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                        @endunless
                     </div>
+                </div>
+
+                {{-- Right-click context menu (Chief-style) --}}
+                <div
+                    x-show="ctxOpen"
+                    x-cloak
+                    class="so-ctx-menu"
+                    :style="`left:${ctxX}px;top:${ctxY}px`"
+                    @click.stop
+                    role="menu"
+                    aria-label="Line actions"
+                >
+                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineSubstitutes(ctxLine)">Substitutes</button>
+                    <button type="button" role="menuitem" class="is-danger" @click="closeCtx(); $wire.removeLine(ctxLine)">Remove Item</button>
+                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineUom(ctxLine)">Unit of Measures</button>
+                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openBatchDetails(ctxLine)">Item Batch details</button>
+                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openItemRecord(ctxLine)">View/Edit item record</button>
+                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineMessage(ctxLine)">Line Message &amp; Instructions</button>
                 </div>
 
                 <div class="so-footer">
@@ -1432,19 +1775,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Trade Discount:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Freight:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Miscellaneous:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Tax:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" class="so-totals-input" /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" class="so-totals-input" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>
@@ -1649,6 +1992,140 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showLineSubstitutes)
+        <div class="desk-modal-backdrop" wire:click.self="closeLineSubstitutes" role="dialog" aria-modal="true" aria-labelledby="line-sub-title">
+            <div class="desk-modal so-msg-modal">
+                <div class="desk-modal-head">
+                    <span id="line-sub-title">Substitutes</span>
+                    <button type="button" wire:click="closeLineSubstitutes" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-msg-modal-body">
+                    <div class="so-msg-modal-row so-msg-modal-row-pair">
+                        <label class="so-msg-modal-lbl">Item code</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgItemCode }}" readonly wire:key="sub-code-{{ $lineMsgItemCode }}" />
+                        <label class="so-msg-modal-lbl">Description</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly wire:key="sub-desc-{{ $lineMsgItemCode }}" />
+                    </div>
+                    <ul class="border border-slate-300 divide-y max-h-56 overflow-auto" style="border-radius:4px">
+                        @forelse ($substituteOptions as $opt)
+                            <li class="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
+                                <span>
+                                    <span class="font-mono">{{ $opt['item_code'] }}</span>
+                                    — {{ $opt['description'] }}
+                                    <span class="text-xs text-slate-500">(avail {{ number_format($opt['available'], 0) }})</span>
+                                </span>
+                                @if ($opt['available'] > 0)
+                                    <button type="button" wire:click="applyLineSubstitute({{ $opt['id'] }})" class="desk-btn desk-btn-sm desk-btn-primary">Use</button>
+                                @else
+                                    <span class="text-xs text-red-700">No stock</span>
+                                @endif
+                            </li>
+                        @empty
+                            <li class="px-2 py-3 text-slate-500 text-sm">No substitutes configured for this item.</li>
+                        @endforelse
+                    </ul>
+                    <div class="so-msg-modal-actions">
+                        <button type="button" wire:click="closeLineSubstitutes" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showUomModal)
+        <div class="desk-modal-backdrop" wire:click.self="$set('showUomModal', false)" role="dialog" aria-modal="true" aria-labelledby="line-uom-title">
+            <div class="desk-modal so-msg-modal">
+                <div class="desk-modal-head">
+                    <span id="line-uom-title">Unit of Measures</span>
+                    <button type="button" wire:click="$set('showUomModal', false)" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-msg-modal-body">
+                    <div class="so-msg-modal-row so-msg-modal-row-pair">
+                        <label class="so-msg-modal-lbl">Item code</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgItemCode }}" readonly wire:key="uom-code-{{ $lineMsgItemCode }}" />
+                        <label class="so-msg-modal-lbl">Description</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly wire:key="uom-desc-{{ $lineMsgItemCode }}" />
+                    </div>
+                    <div class="so-msg-modal-row">
+                        <label class="so-msg-modal-lbl">Current UOM</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $selectedLineIndex !== null ? ($lines[$selectedLineIndex]['uom'] ?? '') : '' }}" readonly />
+                    </div>
+                    <div class="space-y-1.5">
+                        @foreach ($lineUomOptions as $uomOpt)
+                            <button
+                                type="button"
+                                wire:click="setLineUom({{ json_encode($uomOpt) }})"
+                                @class([
+                                    'desk-btn w-full',
+                                    'desk-btn-primary' => $selectedLineIndex !== null && strcasecmp((string) ($lines[$selectedLineIndex]['uom'] ?? ''), $uomOpt) === 0,
+                                ])
+                                style="justify-content:flex-start"
+                            >{{ $uomOpt }}</button>
+                        @endforeach
+                    </div>
+                    <div class="so-msg-modal-actions">
+                        <button type="button" wire:click="$set('showUomModal', false)" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showBatchModal)
+        <div class="desk-modal-backdrop" wire:click.self="$set('showBatchModal', false)" role="dialog" aria-modal="true" aria-labelledby="line-batch-title">
+            <div class="desk-modal so-msg-modal">
+                <div class="desk-modal-head">
+                    <span id="line-batch-title">Item Batch details</span>
+                    <button type="button" wire:click="$set('showBatchModal', false)" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-msg-modal-body">
+                    <div class="so-msg-modal-row so-msg-modal-row-pair">
+                        <label class="so-msg-modal-lbl">Item code</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgItemCode }}" readonly wire:key="batch-code-{{ $lineMsgItemCode }}" />
+                        <label class="so-msg-modal-lbl">Description</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly wire:key="batch-desc-{{ $lineMsgItemCode }}" />
+                    </div>
+                    <pre class="text-sm font-mono" style="white-space:pre-wrap;margin:0;padding:0.65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px">{{ $batchInfo }}</pre>
+                    <div class="so-msg-modal-actions">
+                        <button type="button" wire:click="$set('showBatchModal', false)" class="desk-btn desk-btn-primary">OK</button>
+                        <button type="button" wire:click="$set('showBatchModal', false)" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showLineMessageModal)
+        <div class="desk-modal-backdrop" wire:click.self="cancelLineMessage" role="dialog" aria-modal="true" aria-labelledby="line-msg-title">
+            <div class="desk-modal so-msg-modal">
+                <div class="desk-modal-head">
+                    <span id="line-msg-title">Messages &amp; Instructions</span>
+                    <button type="button" wire:click="cancelLineMessage" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-msg-modal-body">
+                    <div class="so-msg-modal-row so-msg-modal-row-pair">
+                        <label class="so-msg-modal-lbl" for="line-msg-code">Item code</label>
+                        <input id="line-msg-code" type="text" class="so-input so-input-ro" value="{{ $lineMsgItemCode }}" readonly />
+                        <label class="so-msg-modal-lbl" for="line-msg-desc">Description</label>
+                        <input id="line-msg-desc" type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly />
+                    </div>
+                    <div class="so-msg-modal-row">
+                        <label class="so-msg-modal-lbl" for="line-msg-field">Line Message</label>
+                        <input id="line-msg-field" type="text" wire:model="lineMessageEdit" class="so-input" />
+                    </div>
+                    <div class="so-msg-modal-row so-msg-modal-row-top">
+                        <label class="so-msg-modal-lbl" for="line-msg-instr">Instructions</label>
+                        <textarea id="line-msg-instr" wire:model="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
+                    </div>
+                    <div class="so-msg-modal-actions">
+                        <button type="button" wire:click="saveLineMessage" class="desk-btn desk-btn-primary">OK</button>
+                        <button type="button" wire:click="cancelLineMessage" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showSubstitutePrompt)
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="cancelSubstitutePrompt" role="dialog" aria-modal="true" aria-labelledby="sub-prompt-title">
             <div class="bg-white border border-slate-500 shadow-xl w-full max-w-lg">
@@ -1688,6 +2165,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 @script
 <script>
     $wire.on('open-order-invoice-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
+    });
+
+    $wire.on('open-item-record', (payload) => {
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');

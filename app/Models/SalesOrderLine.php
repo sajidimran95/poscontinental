@@ -9,7 +9,8 @@ class SalesOrderLine extends Model
 {
     protected $fillable = [
         'sales_order_id', 'item_id', 'item_code', 'description', 'uom',
-        'qty_ordered', 'qty_shipped', 'price', 'discount', 'line_total', 'line_no',
+        'qty_ordered', 'qty_shipped', 'price', 'discount', 'line_message', 'instructions',
+        'line_total', 'line_no',
     ];
 
     protected function casts(): array

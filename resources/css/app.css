@@ -1192,6 +1192,44 @@
         background: #e5e7eb;
     }
 
+    .so-print-dialog {
+        max-width: 22rem;
+        width: min(22rem, 94vw);
+    }
+
+    .so-print-dialog-body {
+        padding: 1rem 1.1rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+    }
+
+    .so-print-opt {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-size: 14px;
+        font-weight: 600;
+        color: #1f2937;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .so-print-opt input {
+        width: 1rem;
+        height: 1rem;
+        accent-color: #1e40af;
+    }
+
+    .so-print-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 0.55rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid #e5e7eb;
+    }
+
     .so-icon-btn svg {
         width: 13px;
         height: 13px;

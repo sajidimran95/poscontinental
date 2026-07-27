@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\ItemSubstitute;
 use App\Models\PaymentTerm;
@@ -9,6 +10,7 @@ use App\Models\SalesOrder;
 use App\Models\ShipVia;
 use App\Models\Site;
 use App\Models\User;
+use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -20,6 +22,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /** View-only (same layout as edit, locked). */
     public bool $viewMode = false;
+
+    public bool $showPrintDialog = false;
+
+    public bool $optCreateInvoicePayment = false;
+
+    public bool $optPrintSalesOrder = false;
+
+    public bool $optCreatePrintInvoice = false;
+
+    public bool $optPrintPickList = false;
 
     public string $activeTab = 'general';
 
@@ -1541,7 +1553,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'created_by' => $this->salesOrder?->created_by ?? auth()->id(),
         ];
 
-        DB::transaction(function () use (&$data, $companyId) {
+        $savedOrder = null;
+        DB::transaction(function () use (&$data, $companyId, &$savedOrder) {
             if ($this->salesOrder) {
                 $this->salesOrder->update($data);
                 $order = $this->salesOrder->fresh();
@@ -1601,23 +1614,142 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'sort_order' => $i,
                 ]);
             }
+
+            $savedOrder = $order->fresh(['lines', 'invoice']);
         });
 
         $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
-        if ($this->salesOrder?->exists) {
-            // Include previous line items in case they were removed from this save.
+        if ($savedOrder) {
             $itemIds = array_values(array_unique(array_merge(
                 $itemIds,
-                $this->salesOrder->lines()->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all()
+                $savedOrder->lines()->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all()
             )));
+            $this->salesOrder = $savedOrder;
         }
-        app(\App\Services\InventoryService::class)->syncAllocatedQty($itemIds);
+        app(InventoryService::class)->syncAllocatedQty($itemIds);
 
-        if ($this->lineWarning !== '') {
-            session()->flash('status', $this->lineWarning);
+        $this->showPrintDialog = true;
+        $this->optCreateInvoicePayment = false;
+        $this->optPrintSalesOrder = false;
+        $this->optCreatePrintInvoice = false;
+        $this->optPrintPickList = false;
+        $this->lineWarning = 'Order saved. Choose print options, then OK.';
+    }
+
+    public function confirmPrintDialog(): void
+    {
+        if (! $this->salesOrder?->exists) {
+            $this->showPrintDialog = false;
+            $this->redirect(route('sales.orders.index'), navigate: true);
+
+            return;
         }
 
+        $order = $this->salesOrder->fresh(['lines', 'customer', 'invoice']);
+        $needInvoice = $this->optCreateInvoicePayment || $this->optCreatePrintInvoice;
+        $invoice = $order->invoice;
+
+        if ($needInvoice && (! $invoice || $order->status !== 'Invoiced')) {
+            try {
+                $invoice = $this->createInvoiceForOrder($order);
+                $order = $order->fresh(['lines', 'customer', 'invoice']);
+            } catch (\Throwable $e) {
+                $this->lineWarning = 'Could not create invoice: '.$e->getMessage();
+                $this->showPrintDialog = false;
+
+                return;
+            }
+        }
+
+        $urls = [];
+        if ($this->optPrintSalesOrder) {
+            $urls[] = route('sales.orders.print', $order);
+        }
+        if ($this->optCreatePrintInvoice && $invoice) {
+            $urls[] = route('sales.invoices.pdf', $invoice);
+        }
+        if ($this->optPrintPickList) {
+            $urls[] = route('sales.orders.pick-list', $order);
+        }
+
+        $this->showPrintDialog = false;
+
+        if ($urls !== []) {
+            $this->dispatch('open-order-print-urls', urls: $urls);
+        }
+
+        if ($this->optCreateInvoicePayment && $invoice) {
+            session()->flash('status', 'Invoice '.$invoice->invoice_number.' created. Open Payments to collect.');
+            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            return;
+        }
+
+        if ($this->optCreatePrintInvoice && $invoice) {
+            session()->flash('status', 'Invoice '.$invoice->invoice_number.' created.');
+            $this->redirect(route('sales.orders.show', $order), navigate: true);
+
+            return;
+        }
+
+        session()->flash('status', 'Order '.$order->order_number.' saved.');
         $this->redirect(route('sales.orders.index'), navigate: true);
+    }
+
+    public function cancelPrintDialog(): void
+    {
+        $this->showPrintDialog = false;
+        session()->flash('status', 'Order saved.');
+        $this->redirect(route('sales.orders.index'), navigate: true);
+    }
+
+    protected function createInvoiceForOrder(SalesOrder $order): Invoice
+    {
+        return DB::transaction(function () use ($order) {
+            $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($order->id);
+            abort_unless($order->company_id === auth()->user()->company_id, 403);
+
+            if ($order->invoice) {
+                return $order->invoice;
+            }
+
+            $lineDiscount = (float) $order->lines->sum('discount');
+            $invoice = Invoice::query()->create([
+                'company_id' => $order->company_id,
+                'invoice_number' => Invoice::nextNumber($order->company_id),
+                'invoice_date' => now()->toDateString(),
+                'sales_order_id' => $order->id,
+                'customer_id' => $order->customer_id,
+                'status' => 'NOT PAID',
+                'subtotal' => $order->subtotal,
+                'total_discount' => $lineDiscount,
+                'trade_discount' => $order->trade_discount,
+                'freight' => $order->freight,
+                'miscellaneous' => $order->miscellaneous,
+                'tax' => $order->tax,
+                'invoice_total' => $order->total,
+                'driver' => null,
+            ]);
+
+            app(InventoryService::class)->applyInvoiceStock($order, $invoice);
+            $order->update(['status' => 'Invoiced']);
+
+            if ($order->customer) {
+                $customer = $order->customer;
+                $updates = [
+                    'last_order_on' => $order->order_date ?? now()->toDateString(),
+                    'number_of_orders' => (int) $customer->number_of_orders + 1,
+                    'total_sales' => (float) $customer->total_sales + (float) $order->total,
+                    'balance' => (float) $customer->balance + (float) $order->total,
+                ];
+                if (blank($customer->customer_since)) {
+                    $updates['customer_since'] = $order->order_date ?? now()->toDateString();
+                }
+                $customer->update($updates);
+            }
+
+            return $invoice;
+        });
     }
 }; ?>
 
@@ -2550,6 +2682,38 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             </div>
         </div>
     @endif
+
+    @if ($showPrintDialog)
+        <div class="desk-modal-backdrop so-print-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="so-print-dialog-title">
+            <div class="desk-modal so-print-dialog">
+                <div class="desk-modal-head">
+                    <span id="so-print-dialog-title">Print Dialog</span>
+                </div>
+                <div class="so-print-dialog-body">
+                    <label class="so-print-opt">
+                        <input type="checkbox" wire:model="optCreateInvoicePayment" />
+                        <span>Create/Edit Invoice &amp; Payment</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="checkbox" wire:model="optPrintSalesOrder" />
+                        <span>Print Sales order Document</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="checkbox" wire:model="optCreatePrintInvoice" />
+                        <span>Create &amp; Print Invoice</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="checkbox" wire:model="optPrintPickList" />
+                        <span>Print Pick list</span>
+                    </label>
+                    <div class="so-print-dialog-actions">
+                        <button type="button" wire:click="confirmPrintDialog" class="desk-btn desk-btn-primary">OK</button>
+                        <button type="button" wire:click="cancelPrintDialog" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>
 
 @script
@@ -2558,6 +2722,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');
+    });
+
+    $wire.on('open-order-print-urls', (payload) => {
+        const urls = payload?.urls ?? payload?.[0]?.urls ?? [];
+        (Array.isArray(urls) ? urls : []).forEach((url, i) => {
+            if (!url) return;
+            setTimeout(() => window.open(url, '_blank'), i * 250);
+        });
     });
 
     $wire.on('open-item-record', (payload) => {

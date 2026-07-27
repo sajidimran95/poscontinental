@@ -74,15 +74,15 @@
         }
         table.items th.col-qty,
         table.items td.col-qty {
-            width: 70px;
+            width: 80px;
             text-align: right;
-            padding-right: 14px;
+            padding-right: 28px;
         }
         table.items th.col-item,
         table.items td.col-item {
-            width: 90px;
+            width: 100px;
             text-align: left;
-            padding-left: 10px;
+            padding-left: 18px;
         }
         table.items th.col-desc,
         table.items td.col-desc {

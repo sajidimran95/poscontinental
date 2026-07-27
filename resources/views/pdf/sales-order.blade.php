@@ -40,18 +40,17 @@
             padding: 4px 4px 4px 3px;
         }
         .addr-box td + td { border-left: 1px solid #222; }
+        .addr-box tr.addr-meta td {
+            border-top: 1px solid #ccc;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            vertical-align: top;
+        }
         .addr-lbl { font-weight: bold; margin: 0 0 2px; text-align: left; }
         .addr-name { font-weight: bold; font-size: 11px; text-align: left; }
         .addr-line { margin: 0; padding: 0; text-align: left; }
-        .addr-foot {
-            margin-top: 6px;
-            padding-top: 4px;
-            border-top: 1px solid #ccc;
-            font-size: 10px;
-            text-align: left;
-        }
-        .addr-foot .info-pair { margin: 0 0 1px; text-align: left; }
-        .addr-foot .lbl { font-weight: bold; }
+        .addr-meta .info-pair { margin: 0 0 1px; text-align: left; font-size: 10px; }
+        .addr-meta .lbl { font-weight: bold; }
         table.items {
             width: 100%;
             margin-top: 10px;
@@ -191,10 +190,6 @@
                         @if ($order->bill_to_phone)
                             <div class="addr-line">Tel:{{ $order->bill_to_phone }}</div>
                         @endif
-                        <div class="addr-foot">
-                            <div class="info-pair"><span class="lbl">Account No.:</span> {{ $accountNo }}</div>
-                            <div class="info-pair"><span class="lbl">Payment Terms:</span> {{ $paymentLabel }}</div>
-                        </div>
                     </td>
                     <td>
                         <div class="addr-lbl">Ship To:</div>
@@ -208,10 +203,16 @@
                         @if ($order->ship_to_phone ?: $order->bill_to_phone)
                             <div class="addr-line">Tel:{{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
                         @endif
-                        <div class="addr-foot">
-                            <div class="info-pair"><span class="lbl">Driver:</span> {{ $driverLabel }}</div>
-                            <div class="info-pair"><span class="lbl">Route:</span> {{ $routeLabel }}</div>
-                        </div>
+                    </td>
+                </tr>
+                <tr class="addr-meta">
+                    <td>
+                        <div class="info-pair"><span class="lbl">Account No.:</span> {{ $accountNo }}</div>
+                        <div class="info-pair"><span class="lbl">Payment Terms:</span> {{ $paymentLabel }}</div>
+                    </td>
+                    <td>
+                        <div class="info-pair"><span class="lbl">Driver:</span> {{ $driverLabel }}</div>
+                        <div class="info-pair"><span class="lbl">Route:</span> {{ $routeLabel }}</div>
                     </td>
                 </tr>
             </table>

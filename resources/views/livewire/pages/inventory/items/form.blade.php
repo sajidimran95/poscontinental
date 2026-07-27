@@ -161,7 +161,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             abort_unless($item->company_id === auth()->user()->company_id, 403);
             $this->item = $item->load(['upcs', 'prices', 'itemSuppliers', 'substitutes']);
 
-            $this->fill($item->only([
+            $data = $item->only([
                 'item_code', 'item_type', 'class', 'description', 'extended_description', 'product_highlights',
                 'list_price', 'msrp', 'standard_cost', 'current_cost', 'last_cost', 'average_cost',
                 'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'back_order_qty',
@@ -173,7 +173,31 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'shipping_weight', 'tare_weight', 'manufacturer', 'item_line_message', 'comments',
                 'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
                 'manu_promotion_code', 'manu_base_count', 'primary_upc', 'image_path', 'thumbnail_path',
-            ]));
+            ]);
+
+            foreach ([
+                'item_code', 'item_type', 'class', 'description', 'extended_description', 'product_highlights',
+                'list_price', 'msrp', 'standard_cost', 'current_cost', 'last_cost', 'average_cost',
+                'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'back_order_qty',
+                'reorder_point', 'restock_level', 'lead_time_days', 'unit_of_measure',
+                'item_tracking', 'barcode_format', 'shipping_weight', 'tare_weight',
+                'manufacturer', 'item_line_message', 'comments',
+                'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
+                'manu_promotion_code', 'manu_base_count', 'primary_upc',
+            ] as $stringProp) {
+                if (! array_key_exists($stringProp, $data) || $data[$stringProp] === null) {
+                    $data[$stringProp] = in_array($stringProp, [
+                        'list_price', 'msrp', 'standard_cost', 'current_cost', 'last_cost', 'average_cost',
+                    ], true) ? '0.00' : (in_array($stringProp, [
+                        'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'back_order_qty',
+                        'reorder_point', 'restock_level', 'lead_time_days', 'shipping_weight', 'tare_weight',
+                    ], true) ? '0' : '');
+                } else {
+                    $data[$stringProp] = (string) $data[$stringProp];
+                }
+            }
+
+            $this->fill($data);
 
             // Keep image paths as plain strings for reliable preview URLs.
             $this->image_path = filled($item->image_path) ? (string) $item->image_path : null;

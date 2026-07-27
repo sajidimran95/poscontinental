@@ -28,7 +28,7 @@ class DocumentPdfController extends Controller
     {
         abort_unless($salesOrder->company_id === auth()->user()->company_id, 403);
 
-        return $pdfs->streamSalesOrderInvoiceStyle($salesOrder, auth()->user());
+        return $pdfs->streamSalesOrder($salesOrder, auth()->user());
     }
 
     public function salesOrderPickList(SalesOrder $salesOrder, DocumentPdfService $pdfs): Response

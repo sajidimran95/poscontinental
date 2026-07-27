@@ -210,6 +210,22 @@ class DocumentPdfService
         return $pdf->stream($name);
     }
 
+    public function salesOrderPickListPdf(SalesOrder $order, ?User $user = null)
+    {
+        $order->loadMissing(['lines', 'customer', 'salesRep']);
+
+        return Pdf::loadView('pdf.pick-list', [
+            'order' => $order,
+            'company' => $user?->company ?? $order->customer?->company ?? auth()->user()?->company,
+        ])->setPaper('letter');
+    }
+
+    public function streamSalesOrderPickList(SalesOrder $order, ?User $user = null): Response
+    {
+        return $this->salesOrderPickListPdf($order, $user)
+            ->stream('pick-list-'.$order->order_number.'.pdf');
+    }
+
     public function purchaseOrderPdf(PurchaseOrder $order, ?User $user = null)
     {
         $order->loadMissing([

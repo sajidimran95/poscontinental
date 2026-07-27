@@ -35,7 +35,7 @@ class AppFeatures
             'sales.orders' => [
                 'label' => 'Sales Orders',
                 'group' => 'Sales',
-                'routes' => ['sales.orders.index', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.show', 'sales.orders.print'],
+                'routes' => ['sales.orders.index', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.show', 'sales.orders.print', 'sales.orders.pick-list'],
             ],
             'sales.customers' => [
                 'label' => 'Customers',

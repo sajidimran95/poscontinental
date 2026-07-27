@@ -91,9 +91,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $ship_date = '';
 
-    public string $no_of_boxes = '0';
+    public string $no_of_boxes = '';
 
-    public string $no_of_pallets = '0';
+    public string $no_of_pallets = '';
 
     public string $custom_field_1 = '';
 
@@ -107,13 +107,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $comments = '';
 
-    public string $freight = '0';
+    public string $freight = '';
 
-    public string $trade_discount = '0';
+    public string $trade_discount = '';
 
-    public string $miscellaneous = '0';
+    public string $miscellaneous = '';
 
-    public string $tax = '0';
+    public string $tax = '';
 
     public string $customerAlert = '';
 
@@ -145,6 +145,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public string $lineMsgItemCode = '';
 
     public string $lineMsgDescription = '';
+
+    public string $orderLineMessagePopup = '';
 
     public bool $showUomModal = false;
 
@@ -210,22 +212,33 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->order_date = optional($salesOrder->order_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($salesOrder->required_date)?->format('Y-m-d') ?? '';
             $this->ship_date = optional($salesOrder->ship_date)?->format('Y-m-d') ?? '';
-            $this->no_of_boxes = (string) ($salesOrder->no_of_boxes ?? 0);
-            $this->no_of_pallets = (string) ($salesOrder->no_of_pallets ?? 0);
+            $this->no_of_boxes = $this->blankZeroAmount($salesOrder->no_of_boxes ?? 0);
+            $this->no_of_pallets = $this->blankZeroAmount($salesOrder->no_of_pallets ?? 0);
+            $this->freight = $this->blankZeroAmount($this->freight);
+            $this->trade_discount = $this->blankZeroAmount($this->trade_discount);
+            $this->miscellaneous = $this->blankZeroAmount($this->miscellaneous);
+            $this->tax = $this->blankZeroAmount($this->tax);
             $this->customerAlert = $salesOrder->customer?->messages_alerts ?? '';
             $this->taxManual = true;
-            $this->lines = $salesOrder->lines->map(fn ($l) => [
-                'item_id' => $l->item_id,
-                'item_code' => $l->item_code ?? '',
-                'description' => $l->description ?? '',
-                'uom' => $l->uom ?? '',
-                'qty_ordered' => (string) $l->qty_ordered,
-                'qty_shipped' => (string) ($l->qty_shipped ?? 0),
-                'price' => (string) $l->price,
-                'discount' => (string) $l->discount,
-                'line_message' => (string) ($l->line_message ?? ''),
-                'instructions' => (string) ($l->instructions ?? ''),
-            ])->all();
+            $this->lines = $salesOrder->lines->map(function ($l) {
+                $qty = (float) $l->qty_ordered;
+                $discount = (float) $l->discount;
+                $unitDiscount = $qty > 0 ? round($discount / $qty, 4) : $discount;
+
+                return [
+                    'item_id' => $l->item_id,
+                    'item_code' => $l->item_code ?? '',
+                    'description' => $l->description ?? '',
+                    'uom' => $l->uom ?? '',
+                    'qty_ordered' => $this->blankZeroAmount($l->qty_ordered) !== '' ? (string) $l->qty_ordered : '',
+                    'qty_shipped' => $this->blankZeroAmount($l->qty_shipped ?? 0),
+                    'price' => $this->blankZeroAmount($l->price),
+                    'unit_discount' => $this->blankZeroAmount($unitDiscount),
+                    'discount' => $this->blankZeroAmount($l->discount),
+                    'line_message' => (string) ($l->line_message ?? ''),
+                    'instructions' => (string) ($l->instructions ?? ''),
+                ];
+            })->all();
             $this->boxes = $salesOrder->boxes->map(fn ($b) => [
                 'box_number' => $b->box_number ?? '',
                 'tracking_number' => $b->tracking_number ?? '',
@@ -272,15 +285,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         return [
             'item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '',
-            'qty_ordered' => '1', 'qty_shipped' => '0', 'price' => '0', 'discount' => '0',
+            'qty_ordered' => '1', 'qty_shipped' => '', 'price' => '',
+            'unit_discount' => '', 'discount' => '',
             'line_message' => '', 'instructions' => '',
         ];
+    }
+
+    /** Show empty input with placeholder 0 instead of a real zero value. */
+    protected function blankZeroAmount(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+        if (is_numeric($value) && abs((float) $value) < 0.0000001) {
+            return '';
+        }
+
+        return is_string($value) ? $value : (string) $value;
     }
 
     public function selectLine(int $index): void
     {
         $this->selectedLineIndex = $index;
         $this->syncLineContextHeader($index);
+        $msg = trim((string) ($this->lines[$index]['line_message'] ?? ''));
+        $this->orderLineMessagePopup = $msg;
     }
 
     protected function syncLineContextHeader(?int $index = null): void
@@ -303,6 +332,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $this->removeLine($this->selectedLineIndex);
         $this->selectedLineIndex = null;
+        $this->orderLineMessagePopup = '';
         $this->syncLineContextHeader(null);
     }
 
@@ -528,7 +558,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $filledLines = collect($this->lines)->filter(fn ($l) => filled($l['item_code'] ?? null));
         $subtotal = $filledLines->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
         if ($this->pendingTradePercent > 0 && $subtotal > 0) {
-            $this->trade_discount = number_format($subtotal * ($this->pendingTradePercent / 100), 2, '.', '');
+            $this->trade_discount = $this->blankZeroAmount(number_format($subtotal * ($this->pendingTradePercent / 100), 2, '.', ''));
         }
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
 
@@ -631,7 +661,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $schedule = \App\Models\DiscountSchedule::query()->find($customer->discount_schedule_id);
             if ($schedule && (float) $schedule->percent > 0) {
                 // Soft-apply as percent of current subtotal (recomputed in with()); seed from schedule percent of 0 until lines exist
-                $this->trade_discount = '0';
+                $this->trade_discount = '';
                 $this->pendingTradePercent = (float) $schedule->percent;
             }
         }
@@ -708,10 +738,85 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->refreshCreditWarning();
     }
 
-    public function updatedLines(): void
+    public function updatedLines($value = null, $key = null): void
     {
+        if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount)$/', $key, $m)) {
+            $this->recalcLineDiscount((int) $m[1]);
+        }
         $this->refreshCreditWarning();
         $this->suggestTax();
+    }
+
+    public function adjustLineQty(int $index, int $delta): void
+    {
+        $this->nudgeLineField($index, 'qty_ordered', (float) $delta);
+    }
+
+    public function nudgeLineField(int $index, string $field, float $delta): void
+    {
+        if ($this->viewMode || ! isset($this->lines[$index])) {
+            return;
+        }
+        if (! in_array($field, ['qty_ordered', 'price', 'unit_discount'], true)) {
+            return;
+        }
+        if ($field !== 'price' && ! filled($this->lines[$index]['item_code'] ?? null)) {
+            return;
+        }
+
+        $current = (float) ($this->lines[$index][$field] ?? 0);
+        $next = max(0, round($current + $delta, 4));
+        if ($field === 'qty_ordered') {
+            $this->lines[$index][$field] = (string) (fmod($next, 1.0) === 0.0 ? (int) $next : $next);
+            $this->recalcLineDiscount($index);
+        } elseif ($field === 'unit_discount') {
+            $this->lines[$index][$field] = $this->blankZeroAmount((string) (int) round($next));
+            $this->recalcLineDiscount($index);
+        } else {
+            $this->lines[$index][$field] = $this->blankZeroAmount((string) (int) round($next));
+        }
+
+        $this->selectedLineIndex = $index;
+        $this->syncLineContextHeader($index);
+        if ($field === 'qty_ordered') {
+            $this->taxManual = false;
+        }
+        $this->refreshCreditWarning();
+        $this->suggestTax();
+    }
+
+    public function nudgeAmount(string $field, float $delta): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        if (! in_array($field, ['trade_discount', 'freight', 'miscellaneous', 'tax', 'no_of_boxes', 'no_of_pallets'], true)) {
+            return;
+        }
+
+        $current = (float) ($this->{$field} ?? 0);
+        $next = max(0, (int) round($current + $delta));
+        $this->{$field} = $this->blankZeroAmount((string) $next);
+
+        if ($field === 'tax') {
+            $this->taxManual = true;
+        }
+        if (in_array($field, ['trade_discount', 'freight', 'miscellaneous', 'tax'], true)) {
+            $this->refreshCreditWarning();
+            if ($field === 'trade_discount' && ! $this->taxManual) {
+                $this->suggestTax();
+            }
+        }
+    }
+
+    protected function recalcLineDiscount(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+        $qty = (float) ($this->lines[$index]['qty_ordered'] ?? 0);
+        $unit = (float) ($this->lines[$index]['unit_discount'] ?? 0);
+        $this->lines[$index]['discount'] = $this->blankZeroAmount(number_format(max(0, $qty * $unit), 4, '.', ''));
     }
 
     protected function refreshTaxExemptWarning($customer): void
@@ -793,14 +898,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $taxable = max(0, $taxable - (float) $this->trade_discount);
         if ($taxable <= 0) {
-            $this->tax = '0';
+            $this->tax = '';
 
             return;
         }
         // Scale suggested tax after trade discount proportionally
         $gross = $filled->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
         $suggested = $gross > 0 ? $weighted * ($taxable / $gross) : 0;
-        $this->tax = number_format($suggested, 2, '.', '');
+        $this->tax = $this->blankZeroAmount(number_format($suggested, 2, '.', ''));
     }
 
     public function toggleCustomerBrowse(): void
@@ -881,7 +986,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($existingIndex !== null && $existingIndex !== $index) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
             $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->recalcLineDiscount($existingIndex);
             $this->lines[$index] = $this->emptyLine();
+            $this->selectedLineIndex = $existingIndex;
+            $this->syncLineContextHeader($existingIndex);
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
@@ -902,6 +1010,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder));
+    }
+
+    public function printPickList(): void
+    {
+        if (! $this->salesOrder?->exists) {
+            session()->flash('status', 'Save the sales order first, then print pick list.');
+
+            return;
+        }
+
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder));
     }
 
     public function addItemFromEntry(): void
@@ -1048,6 +1167,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($existingIndex !== null) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
             $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->recalcLineDiscount($existingIndex);
+            $this->selectedLineIndex = $existingIndex;
+            $this->syncLineContextHeader($existingIndex);
+            $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
+            $this->orderLineMessagePopup = $msg;
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
@@ -1118,20 +1242,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function fillLineFromItem(int $index, Item $item): void
     {
         $desc = trim((string) ($item->description ?? ''));
-        if (filled($item->item_line_message)) {
-            $desc = trim($desc.($desc !== '' ? ' | ' : '').$item->item_line_message);
-        }
         $this->lines[$index]['item_id'] = $item->id;
         $this->lines[$index]['item_code'] = $item->item_code;
         $this->lines[$index]['description'] = $desc;
         $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
         $this->lines[$index]['price'] = $this->resolveItemPrice($item);
         $this->lines[$index]['qty_ordered'] = $this->lines[$index]['qty_ordered'] ?: '1';
-        $this->lines[$index]['qty_shipped'] = $this->lines[$index]['qty_shipped'] ?? '0';
-        $this->lines[$index]['discount'] = $this->lines[$index]['discount'] ?: '0';
+        $this->lines[$index]['qty_shipped'] = $this->blankZeroAmount($this->lines[$index]['qty_shipped'] ?? '');
+        if (! isset($this->lines[$index]['unit_discount']) || $this->lines[$index]['unit_discount'] === '' || (float) $this->lines[$index]['unit_discount'] == 0.0) {
+            $this->lines[$index]['unit_discount'] = '';
+        }
+        $this->recalcLineDiscount($index);
+        $this->lines[$index]['price'] = $this->blankZeroAmount($this->lines[$index]['price']);
         $this->lines[$index]['line_message'] = (string) ($item->item_line_message ?? '');
         $this->lines[$index]['instructions'] = $this->lines[$index]['instructions'] ?? '';
         $this->selectedLineIndex = $index;
+        $this->syncLineContextHeader($index);
+        $this->orderLineMessagePopup = trim((string) ($this->lines[$index]['line_message'] ?? ''));
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1333,7 +1460,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 }
                 $qty = (float) $line['qty_ordered'];
                 $price = (float) $line['price'];
-                $discount = (float) $line['discount'];
+                $unitDiscount = (float) ($line['unit_discount'] ?? 0);
+                $discount = isset($line['unit_discount'])
+                    ? round($qty * $unitDiscount, 4)
+                    : (float) ($line['discount'] ?? 0);
                 $order->lines()->create([
                     'item_id' => (int) $line['item_id'],
                     'item_code' => $line['item_code'],
@@ -1657,6 +1787,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 >
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
+                    @if (filled($orderLineMessagePopup))
+                        <div class="so-line-msg-banner" role="status">
+                            <strong>Line message:</strong>{{ $orderLineMessagePopup }}
+                        </div>
+                    @endif
                     <div class="so-items-grid">
                         <table class="so-lines-table">
                             <thead>
@@ -1672,7 +1807,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </thead>
                             <tbody>
                                 @foreach ($lines as $i => $line)
-                                    @php $filled = filled($line['item_code'] ?? null); @endphp
+                                    @php
+                                        $filled = filled($line['item_code'] ?? null);
+                                        $qty = (float) ($line['qty_ordered'] ?? 0);
+                                        $unitDisc = (float) ($line['unit_discount'] ?? 0);
+                                        $lineDisc = (float) ($line['discount'] ?? ($qty * $unitDisc));
+                                    @endphp
                                     <tr
                                         wire:key="so-line-{{ $i }}"
                                         @class(['is-selected' => $selectedLineIndex === $i, 'is-filled' => $filled])
@@ -1682,35 +1822,63 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         <td class="col-code desk-num">{{ $filled ? $line['item_code'] : '—' }}</td>
                                         <td class="col-desc" title="{{ $line['description'] ?? '' }}">
                                             {{ $filled ? ($line['description'] ?: '—') : '—' }}
-                                            @if (filled($line['line_message'] ?? null) || filled($line['instructions'] ?? null))
-                                                <span class="so-line-msg-flag" title="{{ trim(($line['line_message'] ?? '').' '.($line['instructions'] ?? '')) }}">✉</span>
+                                            @if (filled($line['line_message'] ?? null))
+                                                <span class="so-line-msg-flag" title="Internal line message">✉</span>
+                                            @endif
+                                            @if (filled($line['instructions'] ?? null))
+                                                <span class="so-line-msg-flag" title="Pick list instructions">📋</span>
                                             @endif
                                         </td>
                                         <td class="col-uom">{{ $filled ? ($line['uom'] ?: '—') : '—' }}</td>
                                         <td class="col-num">
-                                            @if ($selectedLineIndex === $i && ! $viewMode)
-                                                <input wire:model.live="lines.{{ $i }}.qty_ordered" wire:click.stop class="so-cell-input text-right" />
+                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled)
+                                                <div class="so-qty-stepper" wire:click.stop>
+                                                    <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
+                                                    <input
+                                                        wire:model.live="lines.{{ $i }}.qty_ordered"
+                                                        wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'qty_ordered', 1)"
+                                                        wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_ordered', -1)"
+                                                        class="so-cell-input text-right"
+                                                        placeholder="0"
+                                                    />
+                                                    <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
+                                                </div>
                                             @else
-                                                {{ $filled ? number_format((float) ($line['qty_ordered'] ?? 0), 0) : '' }}
+                                                {{ $filled ? number_format($qty, 0) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num">
                                             @if ($selectedLineIndex === $i && ! $viewMode)
-                                                <input wire:model.live="lines.{{ $i }}.price" wire:click.stop class="so-cell-input text-right" />
+                                                <input
+                                                    wire:model.live="lines.{{ $i }}.price"
+                                                    wire:click.stop
+                                                    wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'price', 1)"
+                                                    wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'price', -1)"
+                                                    class="so-cell-input text-right"
+                                                    placeholder="0"
+                                                />
                                             @else
-                                                {{ $filled ? number_format((float) ($line['price'] ?? 0), 2) : '' }}
+                                                {{ $filled && (float) ($line['price'] ?? 0) != 0.0 ? number_format((float) $line['price'], 2) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num">
-                                            @if ($selectedLineIndex === $i && ! $viewMode)
-                                                <input wire:model.live="lines.{{ $i }}.discount" wire:click.stop class="so-cell-input text-right" />
+                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled)
+                                                <input
+                                                    wire:model.live="lines.{{ $i }}.unit_discount"
+                                                    wire:click.stop
+                                                    wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'unit_discount', 1)"
+                                                    wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'unit_discount', -1)"
+                                                    class="so-cell-input text-right"
+                                                    placeholder="0"
+                                                    title="{{ $lineDisc > 0 ? 'Line discount: $'.number_format($lineDisc, 2).' (per unit × qty)' : 'Discount per unit' }}"
+                                                />
                                             @else
-                                                {{ $filled ? number_format((float) ($line['discount'] ?? 0), 2) : '' }}
+                                                {{ $filled && $lineDisc > 0 ? number_format($lineDisc, 2) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num so-line-total">
                                             @if ($filled)
-                                                ${{ number_format(((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'], 2) }}
+                                                ${{ number_format(($qty * (float) $line['price']) - $lineDisc, 2) }}
                                             @endif
                                         </td>
                                     </tr>
@@ -1737,6 +1905,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </button>
                             <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
+                            </button>
+                            <button type="button" wire:click="printPickList" class="so-icon-btn" title="Print pick list" tabindex="-1" aria-label="Print pick list">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 2h8v8H2zM4 4h4M4 6h4M4 8h2"/></svg>
                             </button>
                             <button type="button" wire:click="removeSelectedLine" class="so-icon-btn" title="Delete selected line" tabindex="-1" aria-label="Delete line">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
@@ -1784,19 +1955,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Trade Discount:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" class="so-totals-input" @disabled($viewMode) /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="trade_discount" wire:keydown.up.prevent="nudgeAmount('trade_discount', 1)" wire:keydown.down.prevent="nudgeAmount('trade_discount', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Freight:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" class="so-totals-input" @disabled($viewMode) /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="freight" wire:keydown.up.prevent="nudgeAmount('freight', 1)" wire:keydown.down.prevent="nudgeAmount('freight', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Miscellaneous:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" class="so-totals-input" @disabled($viewMode) /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" wire:keydown.up.prevent="nudgeAmount('miscellaneous', 1)" wire:keydown.down.prevent="nudgeAmount('miscellaneous', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row">
                             <span class="so-totals-lbl">Tax:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" class="so-totals-input" @disabled($viewMode) /></label>
+                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" wire:keydown.up.prevent="nudgeAmount('tax', 1)" wire:keydown.down.prevent="nudgeAmount('tax', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
                         </div>
                         <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>
@@ -1840,11 +2011,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </div>
                             <div class="so-ship-row">
                                 <label class="so-ship-lbl" for="no_of_boxes">No. of Boxes:</label>
-                                <input id="no_of_boxes" type="number" min="0" wire:model="no_of_boxes" class="so-input so-w-num" />
+                                <input id="no_of_boxes" type="number" min="0" wire:model="no_of_boxes" wire:keydown.up.prevent="nudgeAmount('no_of_boxes', 1)" wire:keydown.down.prevent="nudgeAmount('no_of_boxes', -1)" class="so-input so-w-num" placeholder="0" />
                             </div>
                             <div class="so-ship-row">
                                 <label class="so-ship-lbl" for="no_of_pallets">No. of Pallets:</label>
-                                <input id="no_of_pallets" type="number" min="0" wire:model="no_of_pallets" class="so-input so-w-num" />
+                                <input id="no_of_pallets" type="number" min="0" wire:model="no_of_pallets" wire:keydown.up.prevent="nudgeAmount('no_of_pallets', 1)" wire:keydown.down.prevent="nudgeAmount('no_of_pallets', -1)" class="so-input so-w-num" placeholder="0" />
                             </div>
                         </div>
                         <div class="so-ship-col">
@@ -1921,6 +2092,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <a href="{{ route('sales.orders.edit', $salesOrder) }}" wire:navigate class="so-btn-save">Edit Order</a>
                 @endif
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save">Print Invoice</button>
+                <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)
                 <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
             @endif
@@ -2152,11 +2324,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                     <div class="so-msg-modal-row">
                         <label class="so-msg-modal-lbl" for="line-msg-field">Line Message</label>
-                        <input id="line-msg-field" type="text" wire:model="lineMessageEdit" class="so-input" />
+                        <div>
+                            <input id="line-msg-field" type="text" wire:model="lineMessageEdit" class="so-input" />
+                            <p class="item-hint" style="margin:0.25rem 0 0">Internal only — shows as a popup on the order screen. Not printed.</p>
+                        </div>
                     </div>
                     <div class="so-msg-modal-row so-msg-modal-row-top">
                         <label class="so-msg-modal-lbl" for="line-msg-instr">Instructions</label>
-                        <textarea id="line-msg-instr" wire:model="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
+                        <div>
+                            <textarea id="line-msg-instr" wire:model="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
+                            <p class="item-hint" style="margin:0.25rem 0 0">Warehouse notes — printed on the pick list.</p>
+                        </div>
                     </div>
                     <div class="so-msg-modal-actions">
                         <button type="button" wire:click="saveLineMessage" class="desk-btn desk-btn-primary">OK</button>

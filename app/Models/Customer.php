@@ -12,6 +12,7 @@ class Customer extends Model
         'company_id',
         'customer_id',
         'is_inactive',
+        'is_favorite',
         'contact',
         'company_name',
         'address',
@@ -80,6 +81,7 @@ class Customer extends Model
     {
         return [
             'is_inactive' => 'boolean',
+            'is_favorite' => 'boolean',
             'is_tax_exempt' => 'boolean',
             'certificate_on_file' => 'boolean',
             'drivers_accept_returns' => 'boolean',

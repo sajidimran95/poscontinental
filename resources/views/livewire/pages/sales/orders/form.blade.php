@@ -35,6 +35,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $favorite = 'new';
 
+    public bool $customerFavoritesOnly = false;
+
     public string $order_number = '';
 
     public string $order_type = 'Sales Order';
@@ -123,6 +125,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $lineWarning = '';
 
+    public string $orderLockMessage = '';
+
     public bool $showSubstitutePrompt = false;
 
     public ?int $pendingItemId = null;
@@ -147,6 +151,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public string $lineMsgDescription = '';
 
     public string $orderLineMessagePopup = '';
+
+    public bool $showLineMessageAlert = false;
 
     public bool $showUomModal = false;
 
@@ -200,7 +206,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 return;
             }
             $this->salesOrder = $salesOrder->load(['lines', 'boxes', 'customer', 'invoice']);
-            $this->fill($salesOrder->only([
+            if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
+                $invNo = $salesOrder->invoice?->invoice_number;
+                $this->orderLockMessage = $invNo
+                    ? 'This sales order is invoiced (Invoice #'.$invNo.'). It is view-only and cannot be edited.'
+                    : 'This sales order is invoiced. It is view-only and cannot be edited.';
+            }
+            $data = $salesOrder->only([
                 'order_number', 'order_type', 'status', 'priority', 'customer_id', 'ship_to_address_id',
                 'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
                 'ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip',
@@ -208,7 +220,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'ship_from_site_id', 'no_of_boxes', 'no_of_pallets', 'custom_field_1', 'custom_field_2',
                 'custom_field_3', 'custom_field_4', 'custom_field_5', 'comments',
                 'freight', 'trade_discount', 'miscellaneous', 'tax',
-            ]));
+            ]);
+
+            foreach ([
+                'order_number', 'order_type', 'status', 'priority',
+                'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
+                'ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip',
+                'customer_po_no', 'reference_no',
+                'no_of_boxes', 'no_of_pallets', 'custom_field_1', 'custom_field_2',
+                'custom_field_3', 'custom_field_4', 'custom_field_5', 'comments',
+                'freight', 'trade_discount', 'miscellaneous', 'tax',
+            ] as $stringProp) {
+                if (! array_key_exists($stringProp, $data) || $data[$stringProp] === null) {
+                    $data[$stringProp] = '';
+                } else {
+                    $data[$stringProp] = (string) $data[$stringProp];
+                }
+            }
+
+            $this->fill($data);
             $this->order_date = optional($salesOrder->order_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($salesOrder->required_date)?->format('Y-m-d') ?? '';
             $this->ship_date = optional($salesOrder->ship_date)?->format('Y-m-d') ?? '';
@@ -310,6 +340,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncLineContextHeader($index);
         $msg = trim((string) ($this->lines[$index]['line_message'] ?? ''));
         $this->orderLineMessagePopup = $msg;
+        // Internal only: popup on order screen — never printed on pick list / invoice.
+        $this->showLineMessageAlert = $msg !== '';
+    }
+
+    public function dismissLineMessageAlert(): void
+    {
+        $this->showLineMessageAlert = false;
     }
 
     protected function syncLineContextHeader(?int $index = null): void
@@ -333,6 +370,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->removeLine($this->selectedLineIndex);
         $this->selectedLineIndex = null;
         $this->orderLineMessagePopup = '';
+        $this->showLineMessageAlert = false;
         $this->syncLineContextHeader(null);
     }
 
@@ -429,6 +467,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lines[$i]['line_message'] = trim($this->lineMessageEdit);
         $this->lines[$i]['instructions'] = trim($this->lineInstructionsEdit);
         $this->showLineMessageModal = false;
+        $this->orderLineMessagePopup = (string) $this->lines[$i]['line_message'];
+        $this->showLineMessageAlert = $this->orderLineMessagePopup !== '';
     }
 
     public function cancelLineMessage(): void
@@ -565,11 +605,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $customerQuery = Customer::query()
             ->where('company_id', $companyId)
             ->where('is_inactive', false)
+            ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
+            ->orderByDesc('is_favorite')
             ->orderBy('company_name');
 
         $browseCustomers = collect();
         if ($this->showCustomerBrowse) {
-            $browseCustomers = (clone $customerQuery)
+            $browseCustomers = Customer::query()
+                ->where('company_id', $companyId)
+                ->where('is_inactive', false)
+                ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
                 ->when(filled($this->customerSearch), function ($q) {
                     $term = '%'.$this->customerSearch.'%';
                     $q->where(function ($inner) use ($term) {
@@ -579,15 +624,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             ->orWhere('telephone', 'like', $term);
                     });
                 })
+                ->orderByDesc('is_favorite')
+                ->orderBy('company_name')
                 ->limit(80)
-                ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'city', 'state']);
+                ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'city', 'state', 'is_favorite']);
         }
 
+        $selectedCustomer = $this->customer_id
+            ? Customer::query()->with('shippingAddresses')->find($this->customer_id)
+            : null;
+
         return [
-            'customers' => $customerQuery->get(['id', 'customer_id', 'company_name']),
-            'selectedCustomer' => $this->customer_id
-                ? Customer::query()->with('shippingAddresses')->find($this->customer_id)
-                : null,
+            'customers' => $customerQuery->get(['id', 'customer_id', 'company_name', 'is_favorite']),
+            'selectedCustomer' => $selectedCustomer,
+            'selectedCustomerIsFavorite' => (bool) ($selectedCustomer?->is_favorite),
+            'pageTitle' => $this->viewMode
+                ? 'View Sales Order — '.($this->order_number ?: '—')
+                : ($this->salesOrder?->exists
+                    ? 'Edit Sales Order — '.$this->order_number
+                    : 'New Sales Order'),
             'salesReps' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
@@ -629,6 +684,53 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'today' => 'Today & Yesterday',
             ],
         ];
+    }
+
+    public function toggleCustomerFavoriteIcon(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+
+        // With a customer selected: mark/unmark that customer as favorite.
+        if ($this->customer_id) {
+            $customer = Customer::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->find($this->customer_id);
+            if (! $customer) {
+                $this->lineWarning = 'Customer not found.';
+
+                return;
+            }
+            $customer->is_favorite = ! (bool) $customer->is_favorite;
+            $customer->save();
+            $this->lineWarning = $customer->is_favorite
+                ? $customer->customer_id.' added to favorites.'
+                : $customer->customer_id.' removed from favorites.';
+
+            return;
+        }
+
+        // No customer selected: toggle favorites-only filter on the dropdown/browse list.
+        $this->customerFavoritesOnly = ! $this->customerFavoritesOnly;
+        $this->lineWarning = $this->customerFavoritesOnly
+            ? 'Showing favorite customers only. Click the star again to show all.'
+            : 'Showing all customers.';
+    }
+
+    public function toggleBrowseCustomerFavorite(int $customerId): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($customerId);
+        if (! $customer) {
+            return;
+        }
+        $customer->is_favorite = ! (bool) $customer->is_favorite;
+        $customer->save();
     }
 
     public function updatedFavorite(string $value): void
@@ -1004,22 +1106,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function printInvoiceStyle(): void
     {
         if (! $this->salesOrder?->exists) {
-            session()->flash('status', 'Save the sales order first, then print.');
+            $this->lineWarning = 'Save the sales order first, then print.';
 
             return;
         }
 
+        $this->lineWarning = '';
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder));
     }
 
     public function printPickList(): void
     {
         if (! $this->salesOrder?->exists) {
-            session()->flash('status', 'Save the sales order first, then print pick list.');
+            $this->lineWarning = 'Save the sales order first, then print pick list.';
 
             return;
         }
 
+        $this->lineWarning = '';
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder));
     }
 
@@ -1172,6 +1276,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->syncLineContextHeader($existingIndex);
             $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
             $this->orderLineMessagePopup = $msg;
+            $this->showLineMessageAlert = $msg !== '';
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
@@ -1259,6 +1364,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->selectedLineIndex = $index;
         $this->syncLineContextHeader($index);
         $this->orderLineMessagePopup = trim((string) ($this->lines[$index]['line_message'] ?? ''));
+        $this->showLineMessageAlert = $this->orderLineMessagePopup !== '';
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1376,10 +1482,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lineWarning = '';
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
+        $decimal = static fn ($v): float => ($v === null || $v === '') ? 0.0 : (float) $v;
         $subtotal = collect($this->lines)->sum(fn ($l) => filled($l['item_code'] ?? null)
             ? (((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount'])
             : 0);
-        $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
+        $tradeDiscount = $decimal($this->trade_discount);
+        $freight = $decimal($this->freight);
+        $miscellaneous = $decimal($this->miscellaneous);
+        $tax = $decimal($this->tax);
+        $total = $subtotal - $tradeDiscount + $freight + $miscellaneous + $tax;
 
         $companyId = (int) auth()->user()->company_id;
 
@@ -1405,27 +1516,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'ship_to_zip' => $this->ship_to_zip,
             'order_date' => $this->order_date ?: null,
             'required_date' => $this->required_date ?: null,
-            'customer_po_no' => $this->customer_po_no,
-            'reference_no' => $this->reference_no,
+            'customer_po_no' => $this->customer_po_no !== '' ? $this->customer_po_no : null,
+            'reference_no' => $this->reference_no !== '' ? $this->reference_no : null,
             'sales_rep_id' => $nullableId($this->sales_rep_id),
             'payment_term_id' => $nullableId($this->payment_term_id),
             'route_id' => $nullableId($this->route_id),
             'ship_via_id' => $nullableId($this->ship_via_id),
             'ship_from_site_id' => $nullableId($this->ship_from_site_id),
             'ship_date' => $this->ship_date ?: null,
-            'no_of_boxes' => (int) $this->no_of_boxes,
-            'no_of_pallets' => (int) $this->no_of_pallets,
-            'custom_field_1' => $this->custom_field_1,
-            'custom_field_2' => $this->custom_field_2,
-            'custom_field_3' => $this->custom_field_3,
-            'custom_field_4' => $this->custom_field_4,
-            'custom_field_5' => $this->custom_field_5,
-            'comments' => $this->comments,
+            'no_of_boxes' => (int) ($this->no_of_boxes !== '' ? $this->no_of_boxes : 0),
+            'no_of_pallets' => (int) ($this->no_of_pallets !== '' ? $this->no_of_pallets : 0),
+            'custom_field_1' => $this->custom_field_1 !== '' ? $this->custom_field_1 : null,
+            'custom_field_2' => $this->custom_field_2 !== '' ? $this->custom_field_2 : null,
+            'custom_field_3' => $this->custom_field_3 !== '' ? $this->custom_field_3 : null,
+            'custom_field_4' => $this->custom_field_4 !== '' ? $this->custom_field_4 : null,
+            'custom_field_5' => $this->custom_field_5 !== '' ? $this->custom_field_5 : null,
+            'comments' => $this->comments !== '' ? $this->comments : null,
             'subtotal' => $subtotal,
-            'trade_discount' => $this->trade_discount,
-            'freight' => $this->freight,
-            'miscellaneous' => $this->miscellaneous,
-            'tax' => $this->tax,
+            'trade_discount' => $tradeDiscount,
+            'freight' => $freight,
+            'miscellaneous' => $miscellaneous,
+            'tax' => $tax,
             'total' => $total,
             'created_by' => $this->salesOrder?->created_by ?? auth()->id(),
         ];
@@ -1511,10 +1622,28 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 }; ?>
 
 <div class="so-page">
-    <x-action-bar title="Action" class="so-action-full" />
+    <x-action-bar :title="$pageTitle" class="so-action-full" />
 
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
         <fieldset class="so-form-fields" @disabled($viewMode)>
+        @if (session('status'))
+            <div class="so-msg so-msg-info" role="status">{{ session('status') }}</div>
+        @endif
+        @if (filled($orderLockMessage))
+            <div class="so-msg so-msg-danger" role="alert">
+                <strong>Locked:</strong> {{ $orderLockMessage }}
+            </div>
+        @endif
+        @if ($errors->any())
+            <div class="so-msg so-msg-danger" role="alert">
+                <strong>Error:</strong>
+                <ul style="margin:0.35rem 0 0;padding-left:1.15rem">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
         @if (filled($customerAlert))
             <div class="so-msg so-msg-alert" role="alert">
                 <strong>Alert:</strong> {{ $customerAlert }}
@@ -1535,9 +1664,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <strong>Note:</strong> {{ $lineWarning }}
             </div>
         @endif
-        @error('lines')
-            <div class="so-msg so-msg-danger" role="alert">{{ $message }}</div>
-        @enderror
 
         <div class="so-body">
             @if ($activeTab === 'general')
@@ -1578,8 +1704,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
                                             @endforeach
                                         </select>
-                                        <button type="button" class="so-icon-btn" title="Favorite" tabindex="-1" aria-label="Favorite">
-                                            <svg viewBox="0 0 12 12" fill="currentColor"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
+                                        <button
+                                            type="button"
+                                            wire:click="toggleCustomerFavoriteIcon"
+                                            @class(['so-icon-btn', 'is-fav-on' => $customerFavoritesOnly || $selectedCustomerIsFavorite])
+                                            title="{{ $customer_id ? ($selectedCustomerIsFavorite ? 'Remove from favorites' : 'Add to favorites') : ($customerFavoritesOnly ? 'Show all customers' : 'Show favorite customers only') }}"
+                                            aria-label="Customer favorite"
+                                            aria-pressed="{{ ($customerFavoritesOnly || $selectedCustomerIsFavorite) ? 'true' : 'false' }}"
+                                            @disabled($viewMode)
+                                        >
+                                            <svg viewBox="0 0 12 12" fill="{{ ($customerFavoritesOnly || $selectedCustomerIsFavorite) ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.2"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
                                         </button>
                                         <button type="button" wire:click="toggleCustomerBrowse" class="so-icon-btn" title="Search" aria-label="Search customer">
                                             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3.2"/><path d="M7.5 7.5L10.5 10.5"/></svg>
@@ -1600,11 +1734,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             </div>
                                             <table class="so-lookup-table">
                                                 <thead>
-                                                    <tr><th>ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>City</th></tr>
+                                                    <tr><th style="width:2rem"></th><th>ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>City</th></tr>
                                                 </thead>
                                                 <tbody>
                                                     @forelse ($browseCustomers as $bc)
-                                                        <tr wire:click="pickCustomer({{ $bc->id }})" class="cursor-pointer hover:bg-sky-100">
+                                                        <tr wire:click="pickCustomer({{ $bc->id }})" class="cursor-pointer so-lookup-row-pick">
+                                                            <td class="text-center" wire:click.stop>
+                                                                <button
+                                                                    type="button"
+                                                                    wire:click="toggleBrowseCustomerFavorite({{ $bc->id }})"
+                                                                    @class(['so-icon-btn', 'so-icon-btn-sm', 'is-fav-on' => $bc->is_favorite])
+                                                                    title="{{ $bc->is_favorite ? 'Remove favorite' : 'Add favorite' }}"
+                                                                    aria-label="Toggle favorite"
+                                                                >
+                                                                    <svg viewBox="0 0 12 12" fill="{{ $bc->is_favorite ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.2"><path d="M6 10.2l-3.5-2.1A2.7 2.7 0 016 2.4a2.7 2.7 0 013.5 5.7L6 10.2z"/></svg>
+                                                                </button>
+                                                            </td>
                                                             <td class="font-mono">{{ $bc->customer_id }}</td>
                                                             <td>{{ $bc->company_name }}</td>
                                                             <td>{{ $bc->contact }}</td>
@@ -1612,7 +1757,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                             <td>{{ $bc->city }}{{ $bc->state ? ', '.$bc->state : '' }}</td>
                                                         </tr>
                                                     @empty
-                                                        <tr><td colspan="5" class="text-slate-500 px-2 py-2">No customers found.</td></tr>
+                                                        <tr><td colspan="6" class="text-slate-500 px-2 py-2">{{ $customerFavoritesOnly ? 'No favorite customers found.' : 'No customers found.' }}</td></tr>
                                                     @endforelse
                                                 </tbody>
                                             </table>
@@ -1787,9 +1932,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 >
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
-                    @if (filled($orderLineMessagePopup))
+                    @if ($selectedLineIndex !== null && filled($lines[$selectedLineIndex]['line_message'] ?? null))
                         <div class="so-line-msg-banner" role="status">
-                            <strong>Line message:</strong>{{ $orderLineMessagePopup }}
+                            <strong>Line message:</strong>{{ $lines[$selectedLineIndex]['line_message'] }}
                         </div>
                     @endif
                     <div class="so-items-grid">
@@ -1823,10 +1968,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         <td class="col-desc" title="{{ $line['description'] ?? '' }}">
                                             {{ $filled ? ($line['description'] ?: '—') : '—' }}
                                             @if (filled($line['line_message'] ?? null))
-                                                <span class="so-line-msg-flag" title="Internal line message">✉</span>
+                                                <span class="so-line-msg-flag" title="Line message (order screen)">✉</span>
                                             @endif
                                             @if (filled($line['instructions'] ?? null))
-                                                <span class="so-line-msg-flag" title="Pick list instructions">📋</span>
+                                                <span class="so-line-msg-flag" title="Instructions (pick list)">📋</span>
                                             @endif
                                         </td>
                                         <td class="col-uom">{{ $filled ? ($line['uom'] ?: '—') : '—' }}</td>
@@ -2308,11 +2453,37 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showLineMessageAlert && filled($orderLineMessagePopup))
+        <div class="desk-modal-backdrop so-line-msg-alert" wire:click.self="dismissLineMessageAlert" role="dialog" aria-modal="true" aria-labelledby="line-msg-alert-title" style="z-index:90">
+            <div class="desk-modal so-msg-modal" style="max-width:28rem">
+                <div class="desk-modal-head">
+                    <span id="line-msg-alert-title">Line Message</span>
+                    <button type="button" wire:click="dismissLineMessageAlert" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-msg-modal-body">
+                    <div class="so-msg-modal-row so-msg-modal-row-pair">
+                        <label class="so-msg-modal-lbl">Item code</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgItemCode }}" readonly />
+                        <label class="so-msg-modal-lbl">Description</label>
+                        <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly />
+                    </div>
+                    <p style="margin:0;padding:0.65rem;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:14px;color:#111827">
+                        {{ $orderLineMessagePopup }}
+                    </p>
+                    <p class="item-hint" style="margin:0">Shows on Create/Edit Order only. Not printed on pick list.</p>
+                    <div class="so-msg-modal-actions">
+                        <button type="button" wire:click="dismissLineMessageAlert" class="desk-btn desk-btn-primary">OK</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showLineMessageModal)
-        <div class="desk-modal-backdrop" wire:click.self="cancelLineMessage" role="dialog" aria-modal="true" aria-labelledby="line-msg-title">
+        <div class="desk-modal-backdrop" wire:click.self="cancelLineMessage" role="dialog" aria-modal="true" aria-labelledby="line-msg-title" style="z-index:95">
             <div class="desk-modal so-msg-modal">
                 <div class="desk-modal-head">
-                    <span id="line-msg-title">Messages &amp; Instructions</span>
+                    <span id="line-msg-title">Line Message &amp; Instructions</span>
                     <button type="button" wire:click="cancelLineMessage" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-msg-modal-body">
@@ -2326,14 +2497,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <label class="so-msg-modal-lbl" for="line-msg-field">Line Message</label>
                         <div>
                             <input id="line-msg-field" type="text" wire:model="lineMessageEdit" class="so-input" />
-                            <p class="item-hint" style="margin:0.25rem 0 0">Internal only — shows as a popup on the order screen. Not printed.</p>
+                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Create/Edit Order (popup + banner). Not on pick list.</p>
                         </div>
                     </div>
                     <div class="so-msg-modal-row so-msg-modal-row-top">
                         <label class="so-msg-modal-lbl" for="line-msg-instr">Instructions</label>
                         <div>
                             <textarea id="line-msg-instr" wire:model="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
-                            <p class="item-hint" style="margin:0.25rem 0 0">Warehouse notes — printed on the pick list.</p>
+                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Pick List print only.</p>
                         </div>
                     </div>
                     <div class="so-msg-modal-actions">

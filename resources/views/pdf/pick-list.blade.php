@@ -109,6 +109,7 @@
                             {{ $line->instructions }}
                         </div>
                     @endif
+                    {{-- line_message is order-screen only — never print on pick list --}}
                 </td>
                 <td class="right">{{ $line->uom ?: '—' }}</td>
                 <td class="right"><strong>{{ number_format((float) $line->qty_ordered, 2) }}</strong></td>

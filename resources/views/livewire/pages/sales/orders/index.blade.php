@@ -200,6 +200,27 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $order));
     }
 
+    public function printPickListSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return;
+        }
+
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return;
+        }
+
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $order));
+    }
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -475,10 +496,16 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print selected" aria-label="Print selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice / order" aria-label="Print selected" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
+                    </svg>
+                </button>
+                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <rect x="3" y="2" width="10" height="12" rx="1"/>
+                        <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">

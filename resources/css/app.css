@@ -1171,6 +1171,27 @@
         border-color: #94a3b8;
     }
 
+    .so-icon-btn.is-fav-on {
+        color: #b45309;
+        border-color: #f59e0b;
+        background: #fffbeb;
+    }
+
+    .so-icon-btn.is-fav-on:hover {
+        background: #fef3c7;
+        border-color: #d97706;
+    }
+
+    .so-icon-btn-sm {
+        width: 1.65rem;
+        height: 1.65rem;
+        min-width: 1.65rem;
+    }
+
+    .so-lookup-row-pick:hover {
+        background: #e5e7eb;
+    }
+
     .so-icon-btn svg {
         width: 13px;
         height: 13px;

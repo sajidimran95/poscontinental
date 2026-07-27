@@ -984,7 +984,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                                 </select>
                                             </td>
                                             <td>
-                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0.00" />
+                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0" />
                                             </td>
                                             <td>
                                                 <input type="text" class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.comments" placeholder="Optional" />
@@ -1061,7 +1061,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                                     <td class="desk-num">{{ $selectedMemo?->salesOrder?->order_number ?: '—' }}</td>
                                                 @endif
                                                 <td>
-                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftCredits.{{ $i }}.amount" />
+                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftCredits.{{ $i }}.amount" placeholder="0" />
                                                 </td>
                                             </tr>
                                         @empty

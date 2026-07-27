@@ -94,12 +94,38 @@ class DocumentPdfService
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)
     {
-        $memo->load(['customer', 'salesOrder', 'lines']);
+        $memo->loadMissing([
+            'customer.paymentTerm',
+            'salesOrder.paymentTerm',
+            'salesOrder.route',
+            'lines',
+        ]);
+
+        $company = $user?->company ?? auth()->user()?->company;
+
+        $logoCandidates = [
+            public_path('images/logo.png'),
+            public_path('images/logo.jpg'),
+            public_path('logo.png'),
+            storage_path('app/public/logo.png'),
+        ];
+        $logoPath = null;
+        foreach ($logoCandidates as $candidate) {
+            if (is_file($candidate)) {
+                $logoPath = $candidate;
+                break;
+            }
+        }
 
         return Pdf::loadView('pdf.credit-memo', [
             'memo' => $memo,
-            'company' => $user?->company ?? auth()->user()?->company,
-        ]);
+            'company' => $company,
+            'logoPath' => $logoPath,
+            'companyAddress' => config('company.address', '3802 TRADE CENTER DR'),
+            'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
+            'companyTel' => config('company.tel', 'Tel:7346773510'),
+            'companyFax' => config('company.fax', 'Fax:7346773567'),
+        ])->setPaper('letter');
     }
 
     public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null, ?int $priceLevelId = null, array $priceLevelIds = [])

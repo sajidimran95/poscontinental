@@ -4786,6 +4786,227 @@
         font-weight: 700;
     }
 
+    .cm-form {
+        padding-bottom: 1.25rem;
+    }
+
+    .cm-steps {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin: 0 0 1rem;
+        padding: 0.65rem 0.85rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .cm-step {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .cm-step-num {
+        width: 1.35rem;
+        height: 1.35rem;
+        border-radius: 999px;
+        border: 1px solid #cbd5e1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        background: #f8fafc;
+    }
+
+    .cm-step.is-active {
+        color: #1e40af;
+    }
+
+    .cm-step.is-active .cm-step-num {
+        border-color: #93c5fd;
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .cm-step.is-done {
+        color: #166534;
+    }
+
+    .cm-step.is-done .cm-step-num {
+        border-color: #86efac;
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .cm-step-line {
+        flex: 1 1 auto;
+        height: 1px;
+        background: #e2e8f0;
+        min-width: 1.5rem;
+    }
+
+    .cm-form-top {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(220px, 0.85fr);
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+    }
+
+    .cm-card {
+        background: #fff;
+    }
+
+    .cm-summary-card {
+        background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+    }
+
+    .cm-summary-amount {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        margin-bottom: 0.75rem;
+        padding: 0.7rem 0.75rem;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        background: #fef2f2;
+        text-align: right;
+    }
+
+    .cm-summary-amount span {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #991b1b;
+    }
+
+    .cm-summary-amount strong {
+        font-size: 1.45rem;
+        font-variant-numeric: tabular-nums;
+        color: #7f1d1d;
+        line-height: 1.1;
+    }
+
+    .cm-restock {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #334155;
+    }
+
+    .cm-field-error {
+        margin: 0.15rem 0 0.35rem;
+        font-size: 12px;
+        color: #b91c1c;
+    }
+
+    .cm-lines-section .entity-section-head {
+        align-items: center;
+    }
+
+    .cm-lines-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .cm-form-footer {
+        margin-top: 1rem;
+        justify-content: flex-end;
+    }
+
+    .cm-lines-wrap {
+        overflow-x: auto;
+    }
+
+    .cm-lines-table {
+        table-layout: fixed;
+        width: 100%;
+        min-width: 720px;
+    }
+
+    .cm-lines-table col.col-code { width: 7.5rem; }
+    .cm-lines-table col.col-find { width: 3.5rem; }
+    .cm-lines-table col.col-desc { width: auto; }
+    .cm-lines-table col.col-uom { width: 5.5rem; }
+    .cm-lines-table col.col-qty { width: 5.5rem; }
+    .cm-lines-table col.col-price { width: 6.5rem; }
+    .cm-lines-table col.col-total { width: 5.5rem; }
+    .cm-lines-table col.col-action { width: 2.75rem; }
+
+    .cm-pick-row {
+        display: flex;
+        gap: 0.35rem;
+        align-items: center;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .cm-pick-row .so-input {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .cm-lines-table th,
+    .cm-lines-table td {
+        vertical-align: middle;
+        padding: 0.35rem 0.4rem;
+    }
+
+    .cm-lines-table th.col-qty,
+    .cm-lines-table th.col-price,
+    .cm-lines-table th.col-total,
+    .cm-lines-table td.col-qty,
+    .cm-lines-table td.col-price,
+    .cm-lines-table td.col-total {
+        text-align: right;
+    }
+
+    .cm-lines-table th.col-uom,
+    .cm-lines-table td.col-uom {
+        text-align: center;
+    }
+
+    .cm-lines-table .cm-cell {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 1100px) {
+        .cm-form-top {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .cm-summary-card {
+            grid-column: 1 / -1;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .cm-form-top {
+            grid-template-columns: 1fr;
+        }
+
+        .cm-steps {
+            flex-wrap: wrap;
+        }
+
+        .cm-step-line {
+            display: none;
+        }
+    }
+
     @media (max-width: 980px) {
         .inv-top-grid,
         .inv-balance-row {

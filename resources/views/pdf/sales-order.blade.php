@@ -55,34 +55,37 @@
             width: 100%;
             margin-top: 10px;
             table-layout: fixed;
+            border-collapse: collapse;
         }
+        table.items col.col-qty { width: 12%; }
+        table.items col.col-item { width: 14%; }
+        table.items col.col-desc { width: 42%; }
+        table.items col.col-uom { width: 8%; }
+        table.items col.col-price { width: 12%; }
+        table.items col.col-total { width: 12%; }
         table.items th {
             border-top: 1px solid #222;
             border-bottom: 1px solid #222;
             font-size: 9.5px;
             font-weight: bold;
-            text-align: left;
             padding: 5px 4px;
             vertical-align: bottom;
+            white-space: nowrap;
         }
         table.items td {
-            padding: 3px 4px;
+            padding: 4px;
             font-size: 10px;
             vertical-align: top;
             border: none;
-            text-align: left;
+            word-wrap: break-word;
         }
         table.items th.col-qty,
         table.items td.col-qty {
-            width: 80px;
             text-align: right;
-            padding-right: 28px;
         }
         table.items th.col-item,
         table.items td.col-item {
-            width: 100px;
             text-align: left;
-            padding-left: 18px;
         }
         table.items th.col-desc,
         table.items td.col-desc {
@@ -90,22 +93,26 @@
         }
         table.items th.col-uom,
         table.items td.col-uom {
-            width: 45px;
             text-align: center;
         }
         table.items th.col-price,
-        table.items td.col-price {
-            width: 70px;
-            text-align: right;
-        }
+        table.items td.col-price,
         table.items th.col-total,
         table.items td.col-total {
-            width: 80px;
             text-align: right;
+            white-space: nowrap;
+        }
+        table.items tr.uom-head td {
+            font-weight: bold;
+            font-size: 10px;
+            padding-top: 8px;
+            padding-bottom: 3px;
+            border-bottom: 1px solid #999;
+            background: #f3f3f3;
         }
         table.items tr.uom-end td {
             border-bottom: 1px solid #222;
-            padding-bottom: 5px;
+            padding-bottom: 6px;
         }
         table.items tr.uom-start td {
             padding-top: 5px;
@@ -121,6 +128,8 @@
         .totals td {
             padding: 3px 6px;
             font-size: 10px;
+            text-align: right;
+            white-space: nowrap;
         }
         .totals .grand td {
             border-top: 1px solid #222;
@@ -238,8 +247,16 @@
     </tr>
 </table>
 
-{{-- Lines grouped by U/M with border between groups --}}
+{{-- Lines grouped by U/M with section headers --}}
 <table class="items">
+    <colgroup>
+        <col class="col-qty">
+        <col class="col-item">
+        <col class="col-desc">
+        <col class="col-uom">
+        <col class="col-price">
+        <col class="col-total">
+    </colgroup>
     <thead>
         <tr>
             <th class="col-qty">Quantity</th>
@@ -252,17 +269,24 @@
     </thead>
     <tbody>
         @forelse ($uomGroups as $uom => $lines)
+            <tr class="uom-head">
+                <td colspan="6">U/M: {{ $uom !== '' ? $uom : '—' }}</td>
+            </tr>
             @foreach ($lines as $idx => $line)
                 @php
                     $isFirst = $idx === 0;
                     $isLast = $idx === $lines->count() - 1;
                     $rowClass = trim(($isFirst ? 'uom-start' : '').' '.($isLast ? 'uom-end' : ''));
+                    $qty = (float) $line->qty_ordered;
+                    $qtyLabel = fmod($qty, 1.0) == 0.0
+                        ? number_format($qty, 0)
+                        : number_format($qty, 2);
                 @endphp
                 <tr class="{{ $rowClass }}">
-                    <td class="col-qty">{{ fmod((float) $line->qty_ordered, 1.0) == 0.0 ? number_format((float) $line->qty_ordered, 0) : rtrim(rtrim(number_format((float) $line->qty_ordered, 2, '.', ''), '0'), '.') }}</td>
+                    <td class="col-qty">{{ $qtyLabel }}</td>
                     <td class="col-item">{{ $line->item_code }}</td>
                     <td class="col-desc">{{ $line->description }}</td>
-                    <td class="col-uom">{{ $line->uom }}</td>
+                    <td class="col-uom">{{ $line->uom ?: '—' }}</td>
                     <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
                     <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>
                 </tr>
@@ -278,35 +302,27 @@
 <table class="totals">
     <tr>
         <td class="right">Subtotal</td>
-        <td class="right" style="width:90px">{{ number_format((float) $order->subtotal, 2) }}</td>
+        <td class="right" style="width:90px">{{ number_format((float) ($order->subtotal ?? 0), 2) }}</td>
     </tr>
-    @if ((float) $order->trade_discount != 0)
-        <tr>
-            <td class="right">Trade Discount</td>
-            <td class="right">{{ number_format((float) $order->trade_discount, 2) }}</td>
-        </tr>
-    @endif
-    @if ((float) $order->freight != 0)
-        <tr>
-            <td class="right">Freight</td>
-            <td class="right">{{ number_format((float) $order->freight, 2) }}</td>
-        </tr>
-    @endif
-    @if ((float) $order->miscellaneous != 0)
-        <tr>
-            <td class="right">Miscellaneous</td>
-            <td class="right">{{ number_format((float) $order->miscellaneous, 2) }}</td>
-        </tr>
-    @endif
-    @if ((float) $order->tax != 0)
-        <tr>
-            <td class="right">Tax</td>
-            <td class="right">{{ number_format((float) $order->tax, 2) }}</td>
-        </tr>
-    @endif
+    <tr>
+        <td class="right">Trade Discount</td>
+        <td class="right">{{ number_format((float) ($order->trade_discount ?? 0), 2) }}</td>
+    </tr>
+    <tr>
+        <td class="right">Freight</td>
+        <td class="right">{{ number_format((float) ($order->freight ?? 0), 2) }}</td>
+    </tr>
+    <tr>
+        <td class="right">Miscellaneous</td>
+        <td class="right">{{ number_format((float) ($order->miscellaneous ?? 0), 2) }}</td>
+    </tr>
+    <tr>
+        <td class="right">Tax</td>
+        <td class="right">{{ number_format((float) ($order->tax ?? 0), 2) }}</td>
+    </tr>
     <tr class="grand">
-        <td class="right">Order Total</td>
-        <td class="right">{{ number_format((float) $order->total, 2) }}</td>
+        <td class="right">{{ ($docTitle ?? 'Sales Order') === 'Invoice' ? 'Invoice Total' : 'Order Total' }}</td>
+        <td class="right">{{ number_format((float) ($order->total ?? 0), 2) }}</td>
     </tr>
 </table>
 </body>

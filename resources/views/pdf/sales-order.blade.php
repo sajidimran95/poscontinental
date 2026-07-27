@@ -220,7 +220,7 @@
         <td style="width:28%">
             <div class="doc-title">Sales Order</div>
             <div class="barcode-wrap">
-                {!! Code128Barcode::html($barcodeValue, 1, 36) !!}
+                {!! Code128Barcode::html($barcodeValue, 2, 44) !!}
             </div>
             <div class="page-under-barcode">Page {{ $pageLabel ?? '1 of 1' }}</div>
             <div class="meta">

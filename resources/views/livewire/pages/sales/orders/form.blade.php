@@ -155,6 +155,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $batchInfo = '';
 
+    /** @var array<int, array{batch_number:string,tracking_type:string,quantity:string,expiry_date:string,received_at:string,notes:string}> */
+    public array $batchRows = [];
+
     public bool $showCustomerBrowse = false;
 
     public string $customerSearch = '';
@@ -473,8 +476,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncLineContextHeader($i);
         $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
         $item = $itemId > 0
-            ? Item::query()->where('company_id', auth()->user()->company_id)->find($itemId)
+            ? Item::query()->with('batches')->where('company_id', auth()->user()->company_id)->find($itemId)
             : null;
+        $this->batchRows = [];
         if (! $item) {
             $this->batchInfo = 'No item on this line.';
         } else {
@@ -484,9 +488,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ."\nAllocated: ".number_format((float) $item->allocated_qty, 2)
                 ."\nAvailable: ".number_format((float) $item->available_quantity, 2)
                 ."\nUOM: ".($item->unit_of_measure ?: '—');
-            if ($tracking === 'None' || $tracking === '') {
-                $this->batchInfo .= "\n\nNo lot/serial batch details for this item.";
-            }
+            $this->batchRows = $item->batches->map(fn ($b) => [
+                'batch_number' => (string) $b->batch_number,
+                'tracking_type' => (string) $b->tracking_type,
+                'quantity' => number_format((float) $b->quantity, 2),
+                'expiry_date' => optional($b->expiry_date)?->format('Y-m-d') ?? '—',
+                'received_at' => optional($b->received_at)?->format('Y-m-d') ?? '—',
+                'notes' => (string) ($b->notes ?? ''),
+            ])->values()->all();
         }
         $this->showBatchModal = true;
     }
@@ -2073,7 +2082,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     @if ($showBatchModal)
         <div class="desk-modal-backdrop" wire:click.self="$set('showBatchModal', false)" role="dialog" aria-modal="true" aria-labelledby="line-batch-title">
-            <div class="desk-modal so-msg-modal">
+            <div class="desk-modal so-msg-modal" style="max-width:42rem">
                 <div class="desk-modal-head">
                     <span id="line-batch-title">Item Batch details</span>
                     <button type="button" wire:click="$set('showBatchModal', false)" class="desk-modal-close" aria-label="Close">×</button>
@@ -2086,6 +2095,38 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly wire:key="batch-desc-{{ $lineMsgItemCode }}" />
                     </div>
                     <pre class="text-sm font-mono" style="white-space:pre-wrap;margin:0;padding:0.65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px">{{ $batchInfo }}</pre>
+                    <div class="desk-grid" style="max-height:14rem;overflow:auto;border:1px solid #cbd5e1;border-radius:4px">
+                        <table class="desk-table" style="margin:0">
+                            <thead>
+                                <tr>
+                                    <th>Batch #</th>
+                                    <th>Type</th>
+                                    <th class="text-right">Qty</th>
+                                    <th>Expiry</th>
+                                    <th>Received</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($batchRows as $row)
+                                    <tr>
+                                        <td class="font-mono">{{ $row['batch_number'] }}</td>
+                                        <td>{{ $row['tracking_type'] }}</td>
+                                        <td class="text-right">{{ $row['quantity'] }}</td>
+                                        <td>{{ $row['expiry_date'] }}</td>
+                                        <td>{{ $row['received_at'] }}</td>
+                                        <td>{{ $row['notes'] !== '' ? $row['notes'] : '—' }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" class="text-slate-500 text-sm" style="padding:0.75rem">
+                                            No batches set up. Add them on Item → Batches.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
                     <div class="so-msg-modal-actions">
                         <button type="button" wire:click="$set('showBatchModal', false)" class="desk-btn desk-btn-primary">OK</button>
                         <button type="button" wire:click="$set('showBatchModal', false)" class="desk-btn">Cancel</button>

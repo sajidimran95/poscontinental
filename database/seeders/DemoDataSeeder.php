@@ -51,6 +51,7 @@ class DemoDataSeeder extends Seeder
         $this->seedSuppliers($companyId);
         $this->seedCustomers($companyId, $lookups, $salesRepId);
         $this->seedItems($companyId, $tree, $lookups);
+        $this->seedItemSubstitutesAndBatches($companyId);
         $this->seedDocuments($companyId, $lookups, $salesRepId);
 
         $this->command?->info('Demo data seeded (master + SO / PO / Receiving / Invoice / RTV).');
@@ -539,6 +540,126 @@ class DemoDataSeeder extends Seeder
                         'sort_order' => $i,
                     ]);
                 }
+            }
+        }
+    }
+
+    protected function seedItemSubstitutesAndBatches(int $companyId): void
+    {
+        $byCode = Item::query()
+            ->where('company_id', $companyId)
+            ->whereIn('item_code', [
+                'WATER-24PK',
+                'PAPER-TOWEL',
+                'MARL-RED-CTN',
+                'MARL-GOLD-CTN',
+                'PEPSI-12PK-CS',
+                'COKE-12PK-CS',
+                'LOW-STOCK-01',
+            ])
+            ->get()
+            ->keyBy('item_code');
+
+        $water = $byCode->get('WATER-24PK');
+        if ($water) {
+            $water->update(['item_tracking' => 'Lot']);
+            if ($water->batches()->count() === 0) {
+                $water->batches()->createMany([
+                    [
+                        'company_id' => $companyId,
+                        'batch_number' => 'LOT-WTR-2401',
+                        'tracking_type' => 'Lot',
+                        'quantity' => 180,
+                        'expiry_date' => now()->addMonths(10)->toDateString(),
+                        'received_at' => now()->subDays(20)->toDateString(),
+                        'notes' => 'Spring warehouse receipt',
+                        'sort_order' => 0,
+                    ],
+                    [
+                        'company_id' => $companyId,
+                        'batch_number' => 'LOT-WTR-2402',
+                        'tracking_type' => 'Lot',
+                        'quantity' => 170,
+                        'expiry_date' => now()->addMonths(14)->toDateString(),
+                        'received_at' => now()->subDays(5)->toDateString(),
+                        'notes' => 'Latest receipt',
+                        'sort_order' => 1,
+                    ],
+                ]);
+            }
+        }
+
+        $paper = $byCode->get('PAPER-TOWEL');
+        if ($paper) {
+            $paper->update(['item_tracking' => 'Serial']);
+            if ($paper->batches()->count() === 0) {
+                $paper->batches()->createMany([
+                    [
+                        'company_id' => $companyId,
+                        'batch_number' => 'SN-PT-10001',
+                        'tracking_type' => 'Serial',
+                        'quantity' => 1,
+                        'expiry_date' => null,
+                        'received_at' => now()->subDays(12)->toDateString(),
+                        'notes' => null,
+                        'sort_order' => 0,
+                    ],
+                    [
+                        'company_id' => $companyId,
+                        'batch_number' => 'SN-PT-10002',
+                        'tracking_type' => 'Serial',
+                        'quantity' => 1,
+                        'expiry_date' => null,
+                        'received_at' => now()->subDays(12)->toDateString(),
+                        'notes' => null,
+                        'sort_order' => 1,
+                    ],
+                    [
+                        'company_id' => $companyId,
+                        'batch_number' => 'SN-PT-10003',
+                        'tracking_type' => 'Serial',
+                        'quantity' => 1,
+                        'expiry_date' => null,
+                        'received_at' => now()->subDays(3)->toDateString(),
+                        'notes' => 'Display unit',
+                        'sort_order' => 2,
+                    ],
+                ]);
+            }
+        }
+
+        $marlRed = $byCode->get('MARL-RED-CTN');
+        $marlGold = $byCode->get('MARL-GOLD-CTN');
+        if ($marlRed && $marlGold && $marlRed->substitutes()->count() === 0) {
+            $marlRed->substitutes()->create([
+                'substitute_item_id' => $marlGold->id,
+                'quantity' => 1,
+                'force_substitute' => false,
+                'sort_order' => 0,
+            ]);
+        }
+
+        $pepsi = $byCode->get('PEPSI-12PK-CS');
+        $coke = $byCode->get('COKE-12PK-CS');
+        if ($pepsi && $coke && $pepsi->substitutes()->count() === 0) {
+            $pepsi->substitutes()->create([
+                'substitute_item_id' => $coke->id,
+                'quantity' => 1,
+                'force_substitute' => false,
+                'sort_order' => 0,
+            ]);
+        }
+
+        $lowStock = $byCode->get('LOW-STOCK-01');
+        if ($lowStock && $paper) {
+            $lowStock->update(['quantity_in_stock' => 0]);
+            if ($lowStock->substitutes()->count() === 0) {
+                $lowStock->substitutes()->create([
+                    'substitute_item_id' => $paper->id,
+                    'quantity' => 1,
+                    'force_substitute' => true,
+                    'sort_order' => 0,
+                ]);
             }
         }
     }

@@ -154,6 +154,11 @@ class Item extends Model
         return $this->hasMany(ItemSubstitute::class)->orderBy('sort_order');
     }
 
+    public function batches(): HasMany
+    {
+        return $this->hasMany(ItemBatch::class)->orderBy('sort_order');
+    }
+
     public function getAvailableQuantityAttribute(): float
     {
         return (float) $this->quantity_in_stock - (float) $this->allocated_qty;

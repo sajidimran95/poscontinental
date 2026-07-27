@@ -5,6 +5,7 @@ use App\Models\Department;
 use App\Models\DiscountSchedule;
 use App\Models\InventoryJournalEntry;
 use App\Models\Item;
+use App\Models\ItemBatch;
 use App\Models\ItemPrice;
 use App\Models\ItemSubstitute;
 use App\Models\ItemSupplier;
@@ -151,6 +152,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     /** @var array<int, array{substitute_item_id:?int,quantity:string,force_substitute:bool}> */
     public array $substitutes = [];
 
+    /** @var array<int, array{batch_number:string,quantity:string,expiry_date:?string,received_at:?string,notes:string}> */
+    public array $batches = [];
+
     public bool $showJournal = false;
 
     public function mount(?Item $item = null): void
@@ -159,7 +163,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         if ($item?->exists) {
             abort_unless($item->company_id === auth()->user()->company_id, 403);
-            $this->item = $item->load(['upcs', 'prices', 'itemSuppliers', 'substitutes']);
+            $this->item = $item->load(['upcs', 'prices', 'itemSuppliers', 'substitutes', 'batches']);
 
             $data = $item->only([
                 'item_code', 'item_type', 'class', 'description', 'extended_description', 'product_highlights',
@@ -236,6 +240,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'quantity' => (string) $s->quantity,
                 'force_substitute' => (bool) $s->force_substitute,
             ])->all();
+
+            $this->batches = $item->batches->map(fn (ItemBatch $b) => [
+                'batch_number' => (string) $b->batch_number,
+                'quantity' => (string) $b->quantity,
+                'expiry_date' => optional($b->expiry_date)?->format('Y-m-d'),
+                'received_at' => optional($b->received_at)?->format('Y-m-d'),
+                'notes' => (string) ($b->notes ?? ''),
+            ])->all();
         }
 
         if ($this->upcs === []) {
@@ -264,6 +276,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'quantity' => '1',
                 'force_substitute' => false,
             ];
+        }
+
+        if ($this->batches === []) {
+            $this->addBatch();
         }
     }
 
@@ -389,6 +405,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'extended' => 'Extended Description',
                 'suppliers' => 'Suppliers',
                 'substitutes' => 'Substitutes',
+                'batches' => 'Batches',
                 'options' => 'Options & Comments',
             ],
             'availableQty' => (float) $this->quantity_in_stock - (float) $this->allocated_qty,
@@ -508,6 +525,30 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $this->substitutes = array_values($this->substitutes);
         if ($this->substitutes === []) {
             $this->addSubstitute();
+        }
+    }
+
+    public function addBatch(): void
+    {
+        if (! in_array($this->item_tracking, ['Lot', 'Serial'], true)) {
+            $this->item_tracking = 'Lot';
+        }
+
+        $this->batches[] = [
+            'batch_number' => '',
+            'quantity' => '0',
+            'expiry_date' => null,
+            'received_at' => null,
+            'notes' => '',
+        ];
+    }
+
+    public function removeBatch(int $index): void
+    {
+        unset($this->batches[$index]);
+        $this->batches = array_values($this->batches);
+        if ($this->batches === []) {
+            $this->addBatch();
         }
     }
 
@@ -767,6 +808,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'suppliers.*.supplier_id' => 'nullable|integer|exists:suppliers,id',
                 'substitutes.*.substitute_item_id' => 'nullable|integer|exists:items,id',
                 'substitutes.*.quantity' => 'nullable|numeric',
+                'batches.*.batch_number' => 'nullable|string|max:64',
+                'batches.*.quantity' => 'nullable|numeric|min:0',
+                'batches.*.expiry_date' => 'nullable|date',
+                'batches.*.received_at' => 'nullable|date',
+                'batches.*.notes' => 'nullable|string|max:500',
             ], [
                 'item_code.required' => 'Item Code is required.',
                 'description.required' => 'Description is required.',
@@ -917,6 +963,28 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     'substitute_item_id' => $row['substitute_item_id'],
                     'quantity' => $row['quantity'] ?? 1,
                     'force_substitute' => (bool) ($row['force_substitute'] ?? false),
+                    'sort_order' => $i,
+                ]);
+            }
+
+            $trackingType = in_array($this->item_tracking, ['Lot', 'Serial'], true)
+                ? $this->item_tracking
+                : 'Lot';
+
+            $item->batches()->delete();
+            foreach (array_values($this->batches) as $i => $row) {
+                $batchNumber = trim((string) ($row['batch_number'] ?? ''));
+                if ($batchNumber === '') {
+                    continue;
+                }
+                $item->batches()->create([
+                    'company_id' => auth()->user()->company_id,
+                    'batch_number' => $batchNumber,
+                    'tracking_type' => $trackingType,
+                    'quantity' => $row['quantity'] ?? 0,
+                    'expiry_date' => filled($row['expiry_date'] ?? null) ? $row['expiry_date'] : null,
+                    'received_at' => filled($row['received_at'] ?? null) ? $row['received_at'] : null,
+                    'notes' => filled($row['notes'] ?? null) ? trim((string) $row['notes']) : null,
                     'sort_order' => $i,
                 ]);
             }
@@ -1437,6 +1505,99 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Suggested replacements when this item is out of stock.</p>
                 </div>
 
+            @elseif ($activeTab === 'batches')
+                <div class="entity-section" style="margin-top:0">
+                    <div class="entity-section-head" style="flex-wrap:wrap;gap:0.5rem">
+                        <h3 class="entity-section-title">Item Batches</h3>
+                        <div class="so-form-row so-form-row-side" style="margin:0;align-items:center">
+                            <label class="so-form-lbl" for="batch_item_tracking" style="margin:0">Tracking</label>
+                            <select id="batch_item_tracking" wire:model.live="item_tracking" class="so-input" style="max-width:9rem" @disabled($viewMode)>
+                                @foreach ($trackingOptions as $opt)<option value="{{ $opt }}">{{ $opt }}</option>@endforeach
+                            </select>
+                        </div>
+                        @if (! $viewMode)
+                            <button type="button" wire:click="addBatch" class="desk-btn desk-btn-sm desk-btn-primary">Add Batch</button>
+                        @endif
+                    </div>
+                    @if (! in_array($item_tracking, ['Lot', 'Serial'], true))
+                        <p class="item-hint" style="margin-bottom:0.75rem">
+                            Choose <strong>Lot</strong> or <strong>Serial</strong> in Tracking above (or click <strong>Add Batch</strong> to start with Lot), then enter batch rows.
+                        </p>
+                    @endif
+                    <div class="desk-grid item-lines-wrap">
+                        <table class="desk-table item-lines-table item-sub-table">
+                            <colgroup>
+                                <col style="width:18%" />
+                                <col style="width:10%" />
+                                <col style="width:14%" />
+                                <col style="width:14%" />
+                                <col />
+                                <col style="width:7rem" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Batch #</th>
+                                    <th class="text-center">Qty</th>
+                                    <th>Expiry</th>
+                                    <th>Received</th>
+                                    <th>Notes</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($batches as $i => $row)
+                                    <tr>
+                                        <td>
+                                            <input
+                                                wire:model="batches.{{ $i }}.batch_number"
+                                                class="so-input font-mono item-cell-ctl"
+                                                placeholder="{{ $item_tracking === 'Serial' ? 'Serial #' : 'Lot #' }}"
+                                                aria-label="Batch number {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td class="text-center">
+                                            <input
+                                                wire:model="batches.{{ $i }}.quantity"
+                                                class="so-input text-right item-cell-qty"
+                                                aria-label="Batch quantity {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="date"
+                                                wire:model="batches.{{ $i }}.expiry_date"
+                                                class="so-input item-cell-ctl"
+                                                aria-label="Expiry date {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="date"
+                                                wire:model="batches.{{ $i }}.received_at"
+                                                class="so-input item-cell-ctl"
+                                                aria-label="Received date {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td>
+                                            <input
+                                                wire:model="batches.{{ $i }}.notes"
+                                                class="so-input item-cell-ctl"
+                                                aria-label="Batch notes {{ $i + 1 }}"
+                                            />
+                                        </td>
+                                        <td class="text-center">
+                                            @if (! $viewMode)
+                                                <button type="button" wire:click="removeBatch({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="item-hint">Lot/serial batches for this item. Shown on Sales Order → Item Batch details.</p>
+                </div>
+
             @else
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card">
@@ -1459,7 +1620,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <div class="inv-card-title">Tracking & weight</div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="item_tracking">Item Tracking</label>
-                            <select id="item_tracking" wire:model="item_tracking" class="so-input" style="max-width:10rem">
+                            <select id="item_tracking" wire:model.live="item_tracking" class="so-input" style="max-width:10rem">
                                 @foreach ($trackingOptions as $opt)<option value="{{ $opt }}">{{ $opt }}</option>@endforeach
                             </select>
                         </div>

@@ -11,6 +11,7 @@ use App\Models\ShipVia;
 use App\Models\Site;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Support\SalesOrderLinePresentation;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -217,7 +218,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
                 return;
             }
-            $this->salesOrder = $salesOrder->load(['lines', 'boxes', 'customer', 'invoice']);
+            $this->salesOrder = $salesOrder->load(['lines.item', 'boxes', 'customer', 'invoice']);
             if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
                 $invNo = $salesOrder->invoice?->invoice_number;
                 $this->orderLockMessage = $invNo
@@ -277,7 +278,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'price' => $this->blankZeroAmount($l->price),
                     'unit_discount' => $this->blankZeroAmount($unitDiscount),
                     'discount' => $this->blankZeroAmount($l->discount),
-                    'line_message' => (string) ($l->line_message ?? ''),
+                    'line_message' => (string) (SalesOrderLinePresentation::lineMessage($l) ?? ''),
                     'instructions' => (string) ($l->instructions ?? ''),
                 ];
             })->all();
@@ -496,6 +497,41 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showLineMessageModal = false;
         $this->lineMessageEdit = '';
         $this->lineInstructionsEdit = '';
+    }
+
+    protected function flushPendingLineMessageEdits(): void
+    {
+        if (! $this->showLineMessageModal || $this->selectedLineIndex === null) {
+            return;
+        }
+
+        $i = $this->selectedLineIndex;
+        if (! isset($this->lines[$i])) {
+            return;
+        }
+
+        $this->lines[$i]['line_message'] = trim($this->lineMessageEdit);
+        $this->lines[$i]['instructions'] = trim($this->lineInstructionsEdit);
+        $this->showLineMessageModal = false;
+    }
+
+    protected function persistableLineMessage(array $line): ?string
+    {
+        $message = trim((string) ($line['line_message'] ?? ''));
+        if ($message !== '') {
+            return $message;
+        }
+
+        if (empty($line['item_id'])) {
+            return null;
+        }
+
+        $item = Item::query()
+            ->where('company_id', (int) auth()->user()->company_id)
+            ->find((int) $line['item_id']);
+        $fromItem = trim((string) ($item?->item_line_message ?? ''));
+
+        return $fromItem !== '' ? $fromItem : null;
     }
 
     public function openLineUom(?int $index = null): void
@@ -1134,7 +1170,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->lineWarning = '';
-        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder));
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder));
     }
 
     public function printPickList(): void
@@ -1415,6 +1451,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
+        $this->flushPendingLineMessageEdits();
+
         if ($this->salesOrder?->exists) {
             $this->salesOrder->refresh()->loadMissing('invoice');
             if ($this->salesOrder->status === 'Invoiced' || $this->salesOrder->invoice) {
@@ -1616,7 +1654,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'qty_shipped' => (float) ($line['qty_shipped'] ?? 0),
                     'price' => $price,
                     'discount' => $discount,
-                    'line_message' => filled($line['line_message'] ?? null) ? $line['line_message'] : null,
+                    'line_message' => $this->persistableLineMessage($line),
                     'instructions' => filled($line['instructions'] ?? null) ? $line['instructions'] : null,
                     'line_total' => ($qty * $price) - $discount,
                     'line_no' => $i + 1,

@@ -138,10 +138,7 @@
         }
         .logo-img { max-height: 52px; max-width: 180px; margin-bottom: 4px; }
         .line-msg {
-            margin-top: 3px;
-            padding: 3px 6px;
-            border: 1px solid #666;
-            background: #eeeeee;
+            margin-top: 2px;
             font-size: 9px;
             color: #111;
             line-height: 1.35;
@@ -180,6 +177,7 @@
     $statusLabel = $statusLabel ?? ($order->status ?: '');
     $barcodeValue = (string) ($barcodeValue ?? $order->order_number);
     $docTitle = $docTitle ?? 'Sales Order';
+    $showLineMessage = $showLineMessage ?? true;
     $metaLines = $metaLines ?? [
         ['label' => 'Order No:', 'value' => $order->order_number],
         ['label' => 'Order Date:', 'value' => optional($order->order_date)?->format('m/d/Y')],
@@ -301,7 +299,7 @@
                     <td class="col-item">{{ $line->item_code }}</td>
                     <td class="col-desc">
                         <div>{{ $line->description }}</div>
-                        @if ($lineMsg = SalesOrderLinePresentation::lineMessage($line))
+                        @if ($showLineMessage && ($lineMsg = SalesOrderLinePresentation::lineMessage($line)))
                             <div class="line-msg">
                                 <span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}
                             </div>

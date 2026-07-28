@@ -163,10 +163,7 @@
         }
 
         .instr {
-            margin-top: 3px;
-            padding: 3px 6px;
-            border: 1px solid #666;
-            background: #eeeeee;
+            margin-top: 2px;
             font-size: 9px;
             color: #111;
             line-height: 1.35;

@@ -7,8 +7,6 @@
 </head>
 <body>
 @php
-    use App\Support\SalesOrderLinePresentation;
-
     $order = $invoice->salesOrder;
     $isPaid = $invoice->status === 'PAID';
     $companyName = $company?->name ?? 'Continental Wholesale Inc';
@@ -105,11 +103,6 @@
                 <td class="mono">{{ $line->item_code }}</td>
                 <td>
                     <div>{{ $line->description }}</div>
-                    @if ($lineMsg = SalesOrderLinePresentation::lineMessage($line))
-                        <div class="line-msg">
-                            <strong>Line Message:</strong> {{ $lineMsg }}
-                        </div>
-                    @endif
                 </td>
                 <td class="right">{{ number_format((float) $line->qty_ordered, 2) }}</td>
                 <td class="right">${{ number_format((float) $line->price, 2) }}</td>

@@ -35,7 +35,7 @@ class DocumentPdfService
     {
         $invoice->loadMissing([
             'customer',
-            'salesOrder.lines.item',
+            'salesOrder.lines',
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
@@ -81,6 +81,7 @@ class DocumentPdfService
             'companyTel' => config('company.tel', 'Tel:7346773510'),
             'companyFax' => config('company.fax', 'Fax:7346773567'),
             'docTitle' => 'Invoice',
+            'showLineMessage' => false,
             'barcodeValue' => (string) $invoice->invoice_number,
             'statusLabel' => $invoice->status,
             'metaLines' => [
@@ -224,7 +225,7 @@ class DocumentPdfService
     public function salesOrderPdf(SalesOrder $order, ?User $user = null)
     {
         $order->loadMissing([
-            'lines',
+            'lines.item',
             'customer',
             'salesRep',
             'paymentTerm',
@@ -256,6 +257,7 @@ class DocumentPdfService
             'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
             'companyTel' => config('company.tel', 'Tel:7346773510'),
             'companyFax' => config('company.fax', 'Fax:7346773567'),
+            'showLineMessage' => true,
         ])->setPaper('letter');
     }
 

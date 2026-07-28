@@ -159,10 +159,7 @@
         color: #64748b;
     }
     .line-msg {
-        margin-top: 3px;
-        padding: 3px 6px;
-        border: 1px solid #94a3b8;
-        background: #f1f5f9;
+        margin-top: 2px;
         font-size: 9px;
         color: #0f172a;
         line-height: 1.35;

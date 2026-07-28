@@ -72,7 +72,7 @@ class TobaccoXmlService
             $inv->loadMissing(['customer', 'salesOrder.lines.item']);
             $row = $sales->addChild('Sale');
             $row->addChild('InvoiceNo', htmlspecialchars((string) $inv->invoice_number, ENT_XML1));
-            $row->addChild('InvoiceDate', optional($inv->invoice_date)?->format('Y-m-d') ?? '');
+            $row->addChild('InvoiceDate', optional($inv->invoice_date)?->format('Y-m-d') ?: $periodEnd);
             $row->addChild('CustomerFEIN', htmlspecialchars((string) ($inv->customer?->fein_no ?? ''), ENT_XML1));
             $row->addChild('CustomerName', htmlspecialchars((string) (($inv->customer?->company_name ?: $inv->customer?->contact) ?? ''), ENT_XML1));
             $row->addChild('OrderNo', htmlspecialchars((string) ($inv->salesOrder?->order_number ?? ''), ENT_XML1));

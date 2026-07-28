@@ -35,7 +35,7 @@ class DocumentPdfService
     {
         $invoice->loadMissing([
             'customer',
-            'salesOrder.lines',
+            'salesOrder.lines.item',
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',

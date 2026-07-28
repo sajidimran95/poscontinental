@@ -1497,7 +1497,7 @@
     .so-lines-table .col-code { width: 7.5rem; }
     .so-lines-table .col-desc { width: auto; }
     .so-lines-table .col-uom { width: 4rem; }
-    .so-lines-table .col-num { width: 6.25rem; }
+    .so-lines-table .col-num { width: 5.5rem; }
 
     .so-lines-table tbody tr {
         cursor: pointer;

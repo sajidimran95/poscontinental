@@ -871,18 +871,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->viewMode || ! isset($this->lines[$index])) {
             return;
         }
-        if (! in_array($field, ['qty_ordered', 'price', 'unit_discount'], true)) {
+        if (! in_array($field, ['qty_ordered', 'qty_shipped', 'price', 'unit_discount'], true)) {
             return;
         }
-        if ($field !== 'price' && ! filled($this->lines[$index]['item_code'] ?? null)) {
+        if (! in_array($field, ['price'], true) && ! filled($this->lines[$index]['item_code'] ?? null)) {
             return;
         }
 
         $current = (float) ($this->lines[$index][$field] ?? 0);
         $next = max(0, round($current + $delta, 4));
-        if ($field === 'qty_ordered') {
+        if (in_array($field, ['qty_ordered', 'qty_shipped'], true)) {
             $this->lines[$index][$field] = (string) (fmod($next, 1.0) === 0.0 ? (int) $next : $next);
-            $this->recalcLineDiscount($index);
+            if ($field === 'qty_ordered') {
+                $this->recalcLineDiscount($index);
+            }
         } elseif ($field === 'unit_discount') {
             $this->lines[$index][$field] = $this->blankZeroAmount((string) (int) round($next));
             $this->recalcLineDiscount($index);
@@ -1446,6 +1448,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
                     return;
                 }
+            }
+            $shipped = (float) ($line['qty_shipped'] ?? 0);
+            $ordered = (float) ($line['qty_ordered'] ?? 0);
+            if ($shipped > $ordered + 0.0001) {
+                $this->addError('lines', 'Qty Shipped cannot exceed Qty Ordered for item '.$line['item_code'].'.');
+                $this->activeTab = 'items';
+
+                return;
             }
         }
 
@@ -2077,6 +2087,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     <th class="col-desc">Description</th>
                                     <th class="col-uom">U of M</th>
                                     <th class="col-num">Qty Ordered</th>
+                                    <th class="col-num">Qty Shipped</th>
                                     <th class="col-num">Price</th>
                                     <th class="col-num">Discount</th>
                                     <th class="col-num">Total</th>
@@ -2087,6 +2098,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @php
                                         $filled = filled($line['item_code'] ?? null);
                                         $qty = (float) ($line['qty_ordered'] ?? 0);
+                                        $qtyShipped = (float) ($line['qty_shipped'] ?? 0);
                                         $unitDisc = (float) ($line['unit_discount'] ?? 0);
                                         $lineDisc = (float) ($line['discount'] ?? ($qty * $unitDisc));
                                     @endphp
@@ -2122,6 +2134,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 </div>
                                             @else
                                                 {{ $filled ? number_format($qty, 0) : '' }}
+                                            @endif
+                                        </td>
+                                        <td class="col-num">
+                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled)
+                                                <div class="so-qty-stepper" wire:click.stop>
+                                                    <button type="button" class="so-qty-btn" wire:click="nudgeLineField({{ $i }}, 'qty_shipped', -1)" aria-label="Decrease shipped qty">−</button>
+                                                    <input
+                                                        wire:model.live="lines.{{ $i }}.qty_shipped"
+                                                        wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'qty_shipped', 1)"
+                                                        wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_shipped', -1)"
+                                                        class="so-cell-input text-right"
+                                                        placeholder="0"
+                                                        title="Qty shipped (used on invoice if set)"
+                                                    />
+                                                    <button type="button" class="so-qty-btn" wire:click="nudgeLineField({{ $i }}, 'qty_shipped', 1)" aria-label="Increase shipped qty">+</button>
+                                                </div>
+                                            @else
+                                                {{ $filled && $qtyShipped > 0 ? number_format($qtyShipped, fmod($qtyShipped, 1.0) === 0.0 ? 0 : 2) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num">

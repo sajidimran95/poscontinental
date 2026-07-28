@@ -137,11 +137,25 @@
             padding-top: 6px;
         }
         .logo-img { max-height: 52px; max-width: 180px; margin-bottom: 4px; }
+        .line-msg {
+            margin-top: 3px;
+            padding: 3px 6px;
+            border: 1px solid #666;
+            background: #eeeeee;
+            font-size: 9px;
+            color: #111;
+            line-height: 1.35;
+        }
+        .line-msg-lbl {
+            font-weight: bold;
+            margin-right: 3px;
+        }
     </style>
 </head>
 <body>
 @php
     use App\Support\Code128Barcode;
+    use App\Support\SalesOrderLinePresentation;
 
     $companyName = $company?->name ?? 'Continental Wholesale Inc';
     $companyAddress = $companyAddress ?? '3802 TRADE CENTER DR';
@@ -285,7 +299,14 @@
                 <tr class="{{ $rowClass }}">
                     <td class="col-qty">{{ $qtyLabel }}</td>
                     <td class="col-item">{{ $line->item_code }}</td>
-                    <td class="col-desc">{{ $line->description }}</td>
+                    <td class="col-desc">
+                        <div>{{ $line->description }}</div>
+                        @if ($lineMsg = SalesOrderLinePresentation::lineMessage($line))
+                            <div class="line-msg">
+                                <span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}
+                            </div>
+                        @endif
+                    </td>
                     <td class="col-uom">{{ $line->uom ?: '—' }}</td>
                     <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
                     <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>

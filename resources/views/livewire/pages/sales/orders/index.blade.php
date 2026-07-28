@@ -226,12 +226,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = SalesOrder::query()
-            ->with(['customer', 'createdBy'])
+            ->with(['customer', 'createdBy', 'invoice'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
                 $q->where(function ($inner) use ($term) {
                     $inner->where('order_number', 'like', $term)
+                        ->orWhereHas('invoice', fn ($inv) => $inv->where('invoice_number', 'like', $term))
                         ->orWhereHas('customer', fn ($c) => $c->where('customer_id', 'like', $term)
                             ->orWhere('company_name', 'like', $term)
                             ->orWhere('contact', 'like', $term)
@@ -353,7 +354,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         id="orders-search"
                         type="search"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Order #, customer, phone…"
+                        placeholder="Order #, invoice #, customer…"
                         class="desk-search orders-search-input"
                         aria-label="Search Orders"
                     />
@@ -384,6 +385,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
                                 <th>Order #</th>
+                                <th>Invoice #</th>
                                 <th>Type</th>
                                 <th>Order Date</th>
                                 <th>Ship Date</th>
@@ -420,6 +422,19 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <td class="desk-num">
                                         <a href="{{ route('sales.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
                                     </td>
+                                    <td class="desk-num">
+                                        @if ($order->invoice)
+                                            <a
+                                                href="{{ route('sales.invoices.pdf', $order->invoice) }}"
+                                                target="_blank"
+                                                rel="noopener"
+                                                wire:click.stop
+                                                title="Open invoice PDF for order {{ $order->order_number }}"
+                                            >{{ $order->invoice->invoice_number }}</a>
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
                                     <td>{{ $order->order_type }}</td>
                                     <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
                                     <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
@@ -448,7 +463,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="16">No orders found.</td>
+                                    <td colspan="17">No orders found.</td>
                                 </tr>
                             @endforelse
                         </tbody>

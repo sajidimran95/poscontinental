@@ -81,10 +81,32 @@
             line-height: 1.35;
         }
 
-        /* Lines: department groups + serial */
+        /* Department blocks: title + table + border */
+        .dept-block {
+            margin-bottom: 0;
+            page-break-inside: avoid;
+        }
+        .dept-title {
+            font-weight: bold;
+            font-size: 11px;
+            padding: 8px 6px 4px;
+            border: 1px solid #222;
+            border-bottom: none;
+            background: #f5f5f5;
+        }
+        .dept-rule {
+            border: none;
+            border-top: 1.5px solid #222;
+            margin: 12px 0 4px;
+            height: 0;
+        }
+
         table.items {
             width: 100%;
             table-layout: fixed;
+            border: 1px solid #222;
+            border-top: none;
+            margin-bottom: 0;
         }
         table.items col.col-no { width: 5%; }
         table.items col.col-qty { width: 8%; }
@@ -96,19 +118,25 @@
             font-size: 9px;
             font-weight: bold;
             text-align: left;
-            padding: 3px 3px 4px;
+            padding: 4px 4px 5px;
             border-bottom: 1px solid #222;
+            border-top: 1px solid #222;
             text-transform: uppercase;
             letter-spacing: 0.03em;
+            background: #fafafa;
         }
         table.items thead th.col-no,
         table.items thead th.col-qty { text-align: right; }
         table.items thead th.col-uom { text-align: center; }
 
         table.items td {
-            padding: 2px 3px;
+            padding: 3px 4px;
             font-size: 10px;
             vertical-align: top;
+            border-bottom: 1px solid #ddd;
+        }
+        table.items tbody tr:last-child td {
+            border-bottom: none;
         }
         table.items td.col-no {
             text-align: right;
@@ -128,14 +156,11 @@
         table.items td.col-uom { text-align: center; }
         table.items td.col-desc { word-wrap: break-word; }
 
-        tr.dept-head td {
-            font-weight: bold;
-            font-size: 11px;
-            padding-top: 10px;
-            padding-bottom: 3px;
-            border-bottom: 1px solid #222;
+        .empty-msg {
+            padding: 12px 0;
+            color: #666;
+            font-size: 10px;
         }
-        tr.dept-first td { padding-top: 4px; }
 
         .instr {
             margin-top: 3px;
@@ -281,52 +306,55 @@
     </tr>
 </table>
 
-{{-- DEPARTMENT groups + serial # + item code + description (+ instructions) --}}
-<table class="items">
-    <colgroup>
-        <col class="col-no">
-        <col class="col-qty">
-        <col class="col-item">
-        <col class="col-uom">
-        <col class="col-desc">
-    </colgroup>
-    <thead>
-        <tr>
-            <th class="col-no">#</th>
-            <th class="col-qty">Qty</th>
-            <th class="col-item">Item Code</th>
-            <th class="col-uom">UOM</th>
-            <th class="col-desc">Description</th>
-        </tr>
-    </thead>
-    <tbody>
-        @forelse ($groups as $deptLabel => $lines)
-            <tr class="dept-head">
-                <td colspan="5">{{ $deptLabel }}</td>
-            </tr>
-            @foreach ($lines as $i => $line)
-                <tr @class(['dept-first' => $i === 0])>
-                    <td class="col-no">{{ $i + 1 }}</td>
-                    <td class="col-qty">{{ $formatQty($line->qty_ordered) }}</td>
-                    <td class="col-item">{{ $line->item_code }}</td>
-                    <td class="col-uom">{{ $line->uom ?: '' }}</td>
-                    <td class="col-desc">
-                        <div>{{ $line->description }}</div>
-                        @if (filled($line->instructions))
-                            <div class="instr">
-                                <span class="instr-lbl">Instructions:</span>
-                                {{ $line->instructions }}
-                            </div>
-                        @endif
-                    </td>
-                </tr>
-            @endforeach
-        @empty
-            <tr>
-                <td colspan="5" style="padding:12px 0;color:#666">No line items on this sales order.</td>
-            </tr>
-        @endforelse
-    </tbody>
-</table>
+{{-- Department-wise: name → table (serial #) → border → next department --}}
+@if ($groups->isEmpty())
+    <p class="empty-msg">No line items on this sales order.</p>
+@else
+    @foreach ($groups as $deptLabel => $lines)
+        <div class="dept-block">
+            <div class="dept-title">{{ $deptLabel }}</div>
+            <table class="items">
+                <colgroup>
+                    <col class="col-no">
+                    <col class="col-qty">
+                    <col class="col-item">
+                    <col class="col-uom">
+                    <col class="col-desc">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th class="col-no">#</th>
+                        <th class="col-qty">Qty</th>
+                        <th class="col-item">Item Code</th>
+                        <th class="col-uom">UOM</th>
+                        <th class="col-desc">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($lines as $i => $line)
+                        <tr>
+                            <td class="col-no">{{ $i + 1 }}</td>
+                            <td class="col-qty">{{ $formatQty($line->qty_ordered) }}</td>
+                            <td class="col-item">{{ $line->item_code }}</td>
+                            <td class="col-uom">{{ $line->uom ?: '' }}</td>
+                            <td class="col-desc">
+                                <div>{{ $line->description }}</div>
+                                @if (filled($line->instructions))
+                                    <div class="instr">
+                                        <span class="instr-lbl">Instructions:</span>
+                                        {{ $line->instructions }}
+                                    </div>
+                                @endif
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+        @if (! $loop->last)
+            <hr class="dept-rule">
+        @endif
+    @endforeach
+@endif
 </body>
 </html>

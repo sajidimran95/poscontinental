@@ -352,13 +352,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncLineContextHeader($index);
         $msg = trim((string) ($this->lines[$index]['line_message'] ?? ''));
         $this->orderLineMessagePopup = $msg;
-        // Internal only: popup on order screen — never printed on pick list / invoice.
         $this->showLineMessageAlert = $msg !== '';
     }
 
     public function dismissLineMessageAlert(): void
     {
         $this->showLineMessageAlert = false;
+    }
+
+    protected function dismissTransientOverlays(): void
+    {
+        $this->showLineMessageAlert = false;
+        $this->showLineMessageModal = false;
+        $this->showBrowse = false;
+        $this->showBatchModal = false;
+        $this->showLineSubstitutes = false;
     }
 
     protected function syncLineContextHeader(?int $index = null): void
@@ -871,7 +879,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->viewMode || ! isset($this->lines[$index])) {
             return;
         }
-        if (! in_array($field, ['qty_ordered', 'qty_shipped', 'price', 'unit_discount'], true)) {
+        if (! in_array($field, ['qty_ordered', 'price', 'unit_discount'], true)) {
             return;
         }
         if (! in_array($field, ['price'], true) && ! filled($this->lines[$index]['item_code'] ?? null)) {
@@ -880,7 +888,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $current = (float) ($this->lines[$index][$field] ?? 0);
         $next = max(0, round($current + $delta, 4));
-        if (in_array($field, ['qty_ordered', 'qty_shipped'], true)) {
+        if (in_array($field, ['qty_ordered'], true)) {
             $this->lines[$index][$field] = (string) (fmod($next, 1.0) === 0.0 ? (int) $next : $next);
             if ($field === 'qty_ordered') {
                 $this->recalcLineDiscount($index);
@@ -1156,6 +1164,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = '';
         $this->showBrowse = false;
         $this->queueItemOrPromptSubstitute($item);
+    }
+
+    public function clearItemEntry(): void
+    {
+        $this->itemEntry = '';
+        if (str_contains(strtolower($this->lineWarning), 'was not found')) {
+            $this->lineWarning = '';
+        }
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -1449,14 +1465,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     return;
                 }
             }
-            $shipped = (float) ($line['qty_shipped'] ?? 0);
-            $ordered = (float) ($line['qty_ordered'] ?? 0);
-            if ($shipped > $ordered + 0.0001) {
-                $this->addError('lines', 'Qty Shipped cannot exceed Qty Ordered for item '.$line['item_code'].'.');
-                $this->activeTab = 'items';
-
-                return;
-            }
         }
 
         $neededByItem = [];
@@ -1515,6 +1523,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $total = $subtotal - $tradeDiscount + $freight + $miscellaneous + $tax;
 
         $companyId = (int) auth()->user()->company_id;
+        $isNewOrder = ! $this->salesOrder?->exists;
 
         $data = [
             'company_id' => $companyId,
@@ -1638,12 +1647,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         app(InventoryService::class)->syncAllocatedQty($itemIds);
 
+        $this->dismissTransientOverlays();
         $this->showPrintDialog = true;
         $this->optCreateInvoicePayment = false;
         $this->optPrintSalesOrder = false;
         $this->optCreatePrintInvoice = false;
         $this->optPrintPickList = false;
-        $this->lineWarning = 'Order saved. Choose print options, then OK.';
+        $this->lineWarning = $isNewOrder
+            ? 'Order created. Choose print options, then OK.'
+            : 'Order saved. Choose print options, then OK.';
     }
 
     public function confirmPrintDialog(): void
@@ -1690,26 +1702,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($this->optCreateInvoicePayment && $invoice) {
             session()->flash('status', 'Invoice '.$invoice->invoice_number.' created. Open Payments to collect.');
-            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            $this->redirect(route('sales.orders.index'), navigate: true);
 
             return;
         }
 
         if ($this->optCreatePrintInvoice && $invoice) {
             session()->flash('status', 'Invoice '.$invoice->invoice_number.' created.');
-            $this->redirect(route('sales.orders.show', $order), navigate: true);
-
-            return;
+        } else {
+            session()->flash('status', 'Order '.$order->order_number.' saved.');
         }
 
-        session()->flash('status', 'Order '.$order->order_number.' saved.');
         $this->redirect(route('sales.orders.index'), navigate: true);
     }
 
     public function cancelPrintDialog(): void
     {
         $this->showPrintDialog = false;
-        session()->flash('status', 'Order saved.');
+        $number = $this->salesOrder?->order_number;
+        session()->flash('status', $number !== '' && $number !== null ? 'Order '.$number.' saved.' : 'Order saved.');
         $this->redirect(route('sales.orders.index'), navigate: true);
     }
 
@@ -2081,16 +2093,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     @endif
                     <div class="so-items-grid">
                         <table class="so-lines-table">
+                            <colgroup>
+                                <col class="col-code" />
+                                <col class="col-desc" />
+                                <col class="col-uom" />
+                                <col class="col-num" />
+                                <col class="col-num" />
+                                <col class="col-num" />
+                                <col class="col-num" />
+                                <col class="col-action" />
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th class="col-code">Item Code</th>
                                     <th class="col-desc">Description</th>
                                     <th class="col-uom">U of M</th>
                                     <th class="col-num">Qty Ordered</th>
-                                    <th class="col-num">Qty Shipped</th>
                                     <th class="col-num">Price</th>
                                     <th class="col-num">Discount</th>
                                     <th class="col-num">Total</th>
+                                    <th class="col-action"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2098,7 +2120,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @php
                                         $filled = filled($line['item_code'] ?? null);
                                         $qty = (float) ($line['qty_ordered'] ?? 0);
-                                        $qtyShipped = (float) ($line['qty_shipped'] ?? 0);
                                         $unitDisc = (float) ($line['unit_discount'] ?? 0);
                                         $lineDisc = (float) ($line['discount'] ?? ($qty * $unitDisc));
                                     @endphp
@@ -2137,24 +2158,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             @endif
                                         </td>
                                         <td class="col-num">
-                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled)
-                                                <div class="so-qty-stepper" wire:click.stop>
-                                                    <button type="button" class="so-qty-btn" wire:click="nudgeLineField({{ $i }}, 'qty_shipped', -1)" aria-label="Decrease shipped qty">−</button>
-                                                    <input
-                                                        wire:model.live="lines.{{ $i }}.qty_shipped"
-                                                        wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'qty_shipped', 1)"
-                                                        wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_shipped', -1)"
-                                                        class="so-cell-input text-right"
-                                                        placeholder="0"
-                                                        title="Qty shipped (used on invoice if set)"
-                                                    />
-                                                    <button type="button" class="so-qty-btn" wire:click="nudgeLineField({{ $i }}, 'qty_shipped', 1)" aria-label="Increase shipped qty">+</button>
-                                                </div>
-                                            @else
-                                                {{ $filled && $qtyShipped > 0 ? number_format($qtyShipped, fmod($qtyShipped, 1.0) === 0.0 ? 0 : 2) : '' }}
-                                            @endif
-                                        </td>
-                                        <td class="col-num">
                                             @if ($selectedLineIndex === $i && ! $viewMode)
                                                 <input
                                                     wire:model.live="lines.{{ $i }}.price"
@@ -2188,6 +2191,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 ${{ number_format(($qty * (float) $line['price']) - $lineDisc, 2) }}
                                             @endif
                                         </td>
+                                        <td class="col-action">
+                                            @if ($filled && ! $viewMode)
+                                                <button
+                                                    type="button"
+                                                    wire:click.stop="removeLine({{ $i }})"
+                                                    class="so-icon-btn so-icon-btn-sm so-line-remove-btn"
+                                                    title="Remove item"
+                                                    aria-label="Remove item {{ $line['item_code'] }}"
+                                                >
+                                                    <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                                </button>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -2198,18 +2214,32 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                     <div class="so-entry">
                         <span class="so-entry-label">Enter item code (F2)</span>
-                        <input
-                            wire:model="itemEntry"
-                            wire:keydown.enter.prevent="addItemFromEntry"
-                            wire:keydown.f2.prevent="toggleBrowse"
-                            class="so-input so-entry-input"
-                            id="so-item-entry"
-                            @disabled($viewMode)
-                        />
+                        <div class="so-lookup-row so-entry-lookup">
+                            <input
+                                wire:model="itemEntry"
+                                wire:keydown.enter.prevent="addItemFromEntry"
+                                wire:keydown.f2.prevent="toggleBrowse"
+                                class="so-input so-entry-input"
+                                id="so-item-entry"
+                                @disabled($viewMode)
+                            />
+                            @unless ($viewMode)
+                                <button
+                                    type="button"
+                                    wire:click="clearItemEntry"
+                                    class="so-icon-btn"
+                                    title="Clear item code"
+                                    aria-label="Clear item code"
+                                >
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                </button>
+                                <button type="button" wire:click="addItemFromEntry" class="so-icon-btn so-entry-add-btn" title="Add item" tabindex="-1" aria-label="Add item">
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                </button>
+                            @endunless
+                        </div>
                         @unless ($viewMode)
-                            <button type="button" wire:click="addItemFromEntry" class="so-icon-btn" title="Add" tabindex="-1" aria-label="Add item">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                            </button>
+                            <div class="so-entry-tools">
                             <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
                             </button>
@@ -2223,6 +2253,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                             </button>
                             <button type="button" wire:click="toggleBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                            </div>
                         @endunless
                     </div>
                 </div>
@@ -2714,10 +2745,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     @endif
 
     @if ($showPrintDialog)
-        <div class="desk-modal-backdrop so-print-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="so-print-dialog-title">
+        <div class="desk-modal-backdrop so-print-dialog-backdrop" wire:click.self="cancelPrintDialog" role="dialog" aria-modal="true" aria-labelledby="so-print-dialog-title">
             <div class="desk-modal so-print-dialog">
                 <div class="desk-modal-head">
                     <span id="so-print-dialog-title">Print Dialog</span>
+                    <button type="button" wire:click="cancelPrintDialog" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-print-dialog-body">
                     <label class="so-print-opt">

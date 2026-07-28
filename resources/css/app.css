@@ -677,6 +677,7 @@
     .so-body {
         display: flex;
         flex-direction: column;
+        align-items: stretch;
         padding: 0.75rem 0.75rem 0.5rem;
         gap: 0.5rem;
         background: #eef1f4;
@@ -684,6 +685,7 @@
         min-height: 0;
         overflow: auto;
         width: 100%;
+        max-width: none;
         box-sizing: border-box;
     }
 
@@ -1230,6 +1232,17 @@
         border-top: 1px solid #e5e7eb;
     }
 
+    .so-created-dialog-msg {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.45;
+        color: #1f2937;
+    }
+
+    .so-created-dialog-msg .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
     .so-icon-btn svg {
         width: 13px;
         height: 13px;
@@ -1406,12 +1419,112 @@
         display: flex;
         flex-direction: column;
         flex: 1 1 auto;
-        align-self: stretch;
         width: min(100%, 70rem);
         max-width: 100%;
-        gap: 0.55rem;
+        min-width: 0;
+        gap: 0.9rem;
         min-height: 0;
         box-sizing: border-box;
+    }
+
+    .so-expand-panel .so-items-title {
+        padding: 0.55rem 0.8rem;
+    }
+
+    .so-expand-panel .so-lines-table thead th {
+        padding: 0.55rem 0.75rem;
+    }
+
+    .so-expand-panel .so-lines-table td {
+        padding: 0.52rem 0.75rem;
+        line-height: 1.4;
+    }
+
+    .so-expand-panel .so-lines-table col.col-code { width: 10%; }
+    .so-expand-panel .so-lines-table col.col-desc { width: 38%; }
+    .so-expand-panel .so-lines-table col.col-uom { width: 6%; }
+    .so-expand-panel .so-lines-table col.col-num { width: 9%; }
+    .so-expand-panel .so-lines-table col.col-action { width: 3%; }
+
+    .so-expand-panel .so-lines-table td.col-desc {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    .so-expand-panel .so-cell-input {
+        height: 1.8rem;
+        padding: 0 0.45rem;
+        max-width: 6rem;
+    }
+
+    .so-expand-panel .so-qty-stepper {
+        gap: 0.35rem;
+    }
+
+    .so-expand-panel .so-qty-stepper .so-cell-input {
+        max-width: 4rem;
+    }
+
+    .so-expand-panel .so-entry {
+        gap: 0.7rem;
+        padding: 0.75rem 0.9rem;
+    }
+
+    .so-expand-panel .so-entry .so-input,
+    .so-expand-panel .so-entry-input {
+        height: 2.05rem;
+    }
+
+    .so-expand-panel .so-entry-lookup .so-entry-input {
+        width: 15rem;
+        flex: 0 1 15rem;
+    }
+
+    .so-expand-panel .so-entry-add-btn {
+        border-color: #16a34a;
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .so-expand-panel .so-entry-add-btn:hover {
+        background: #bbf7d0;
+        border-color: #15803d;
+    }
+
+    .so-expand-panel .so-entry-tools {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-left: 0.35rem;
+    }
+
+    .so-expand-panel .so-footer {
+        padding: 0.9rem 1.05rem;
+        gap: 1.35rem 2.75rem;
+    }
+
+    .so-expand-panel .so-counters {
+        gap: 1.5rem 3rem;
+    }
+
+    .so-expand-panel .so-counter-col {
+        gap: 0.5rem;
+        min-width: 13rem;
+    }
+
+    .so-expand-panel .so-totals-row {
+        padding: 0.38rem 0;
+        gap: 1.5rem;
+    }
+
+    .so-expand-panel .so-line-msg-banner {
+        margin: 0.55rem 0.75rem 0.35rem;
+    }
+
+    .so-expand-panel .so-icon-btn {
+        margin: 0 0.1rem;
     }
 
     .so-items-wrap {
@@ -1498,6 +1611,17 @@
     .so-lines-table .col-desc { width: auto; }
     .so-lines-table .col-uom { width: 4rem; }
     .so-lines-table .col-num { width: 5.5rem; }
+    .so-lines-table .col-action { width: 2.25rem; text-align: center; }
+
+    .so-lines-table .so-line-remove-btn {
+        margin: 0 auto;
+    }
+
+    .so-entry-lookup .so-entry-input {
+        max-width: none !important;
+        width: 14rem;
+        flex: 0 1 14rem;
+    }
 
     .so-lines-table tbody tr {
         cursor: pointer;
@@ -3901,9 +4025,13 @@
         border: 0;
         margin: 0;
         padding: 0;
+        width: 100%;
+        max-width: none;
         min-width: 0;
         min-height: 0;
         overflow: hidden;
+        align-self: stretch;
+        box-sizing: border-box;
     }
 
     .item-header-media {

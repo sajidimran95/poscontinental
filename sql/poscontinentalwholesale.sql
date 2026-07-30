@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Jul 28, 2026 at 02:50 PM
+-- Generation Time: Jul 30, 2026 at 04:41 PM
 -- Server version: 8.4.3
 -- PHP Version: 8.4.12
 
@@ -163,7 +163,17 @@ CREATE TABLE `companies` (
   `id` bigint UNSIGNED NOT NULL,
   `code` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `state` varchar(2) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `zip_code` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fax` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fein_no` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `state_license_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `transmitter_account_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `customer_app_api_active` tinyint(1) NOT NULL DEFAULT '1',
   `mail_mailer` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'log',
@@ -182,8 +192,8 @@ CREATE TABLE `companies` (
 -- Dumping data for table `companies`
 --
 
-INSERT INTO `companies` (`id`, `code`, `name`, `fein_no`, `is_active`, `customer_app_api_active`, `mail_mailer`, `mail_host`, `mail_port`, `mail_username`, `mail_password`, `mail_encryption`, `mail_from_address`, `mail_from_name`, `created_at`, `updated_at`) VALUES
-(1, 'CWI', 'Continental Wholesale Inc', NULL, 1, 1, 'log', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-21 08:14:32', '2026-07-21 08:14:32');
+INSERT INTO `companies` (`id`, `code`, `name`, `address`, `city`, `state`, `zip_code`, `phone`, `fax`, `email`, `contact_name`, `fein_no`, `state_license_number`, `transmitter_account_number`, `is_active`, `customer_app_api_active`, `mail_mailer`, `mail_host`, `mail_port`, `mail_username`, `mail_password`, `mail_encryption`, `mail_from_address`, `mail_from_name`, `created_at`, `updated_at`) VALUES
+(1, 'CWI', 'Continental Wholesale Inc', '3802 TRADE CENTER DR', 'ANN ARBOR', 'MI', '48108', '7346773510', '7346773567', 'office@continentalwholesale.test', 'Office Desk', '38-2658491', '82001456', '82001456', 1, 1, 'log', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-21 08:14:32', '2026-07-30 10:02:12');
 
 -- --------------------------------------------------------
 
@@ -796,6 +806,11 @@ CREATE TABLE `items` (
   `shipping_weight` decimal(12,4) NOT NULL DEFAULT '0.0000',
   `tare_weight` decimal(12,4) NOT NULL DEFAULT '0.0000',
   `manufacturer` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tobacco_product_type` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tobacco_brand_code` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cigarette_pack_size` smallint UNSIGNED DEFAULT NULL,
+  `tobacco_total_oz` decimal(14,4) DEFAULT NULL,
+  `tobacco_stick_count` bigint UNSIGNED DEFAULT NULL,
   `item_line_message` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `manu_product_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `manu_promotion_item` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -813,22 +828,22 @@ CREATE TABLE `items` (
 -- Dumping data for table `items`
 --
 
-INSERT INTO `items` (`id`, `company_id`, `item_code`, `item_type`, `class`, `description`, `extended_description`, `product_highlights`, `image_path`, `thumbnail_path`, `list_price`, `msrp`, `standard_cost`, `current_cost`, `last_cost`, `average_cost`, `quantity_in_stock`, `allocated_qty`, `on_order_qty`, `back_order_qty`, `reorder_point`, `restock_level`, `lead_time_days`, `last_received_at`, `last_ordered_at`, `last_sold_at`, `last_count_date`, `department_id`, `category_id`, `subcategory_id`, `uom_schedule_id`, `tax_schedule_id`, `promotion_schedule_id`, `pricing_method_id`, `unit_of_measure`, `is_inactive`, `can_order`, `can_sell`, `allow_back_order`, `available_on_website`, `item_tracking`, `shipping_weight`, `tare_weight`, `manufacturer`, `item_line_message`, `manu_product_id`, `manu_promotion_item`, `manu_promotion_description`, `manu_promotion_code`, `manu_base_count`, `barcode_format`, `primary_upc`, `comments`, `created_at`, `updated_at`) VALUES
-(1, 1, '1229W', 'Standard Item', NULL, 'SOUR PATCH WATERMELON 240CT', NULL, NULL, NULL, NULL, 9.9900, 0.0000, 8.9700, 0.0000, 0.0000, 0.0000, 3.0000, 3.0000, 0.0000, 0.0000, 10.0000, 0.0000, 0, NULL, NULL, '2026-07-23', NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, NULL, NULL, NULL, '2026-07-21 08:15:10', '2026-07-28 08:26:38'),
-(2, 1, 'MARL-RED-CTN', 'Standard Item', 'CIG', 'Marlboro Red Carton', 'Premium carton', 'Full flavor', NULL, NULL, 72.5000, 89.9900, 58.0000, 2.0000, 2.0000, 57.3388, 117.0000, 5.0000, 0.0000, 0.0000, 24.0000, 96.0000, 3, '2026-07-21', '2026-07-21', '2026-07-28', NULL, 1, 1, 1, 1, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028200003123', NULL, '2026-07-21 08:39:38', '2026-07-28 08:25:13'),
-(3, 1, 'imran1', 'Standard Item', 'iiiiiiu', 'aaaaaaaaaaaaaaaaaa', '', '', NULL, NULL, 500.0000, 0.0000, 0.0000, 1000.0000, 1000.0000, 1000.0000, 20.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, '2026-07-23', '2026-07-23', NULL, NULL, 1, 1, 1, NULL, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', '', '', '', '', '', 0.0000, 'UPC-A', 'ffffffffffffffffff', '', '2026-07-23 21:20:47', '2026-07-23 21:41:44'),
-(4, 1, '111111111111111', 'Standard Item', '11111111111111', '1111111111111111111', 'vnhgjj', 'mhjmk', 'items/images/72e72065-3ed3-4f75-ad62-ec661080b941.png', 'items/thumbnails/6de324e6-cb81-4a95-8fec-1fac7d7b9aff.png', 400.0000, 400.0000, 20.0000, 300.0000, 300.0000, 300.0000, 9.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, '2026-07-23', '2026-07-23', '2026-07-23', NULL, NULL, NULL, NULL, 3, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', 'kjh,kj', '', '', '', '', 0.0000, 'UPC-A', 'rthyujy', 'jk,jk', '2026-07-23 22:13:50', '2026-07-23 23:29:17'),
-(5, 1, 'MARL-GOLD-CTN', 'Standard Item', NULL, 'Marlboro Gold Carton', NULL, NULL, NULL, NULL, 71.0000, 85.2000, 56.0000, 56.0000, 56.0000, 56.0000, 83.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-19', NULL, 1, 1, 1, 5, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028200003456', NULL, '2026-07-24 08:03:43', '2026-07-24 08:07:32'),
-(6, 1, 'NEWP-MENT-CTN', 'Standard Item', NULL, 'Newport Menthol Carton', NULL, NULL, NULL, NULL, 74.0000, 88.8000, 58.5000, 58.5000, 58.5000, 58.5000, 64.0000, 1.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 1, 1, 1, 5, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '026200009988', NULL, '2026-07-24 08:03:43', '2026-07-27 13:01:48'),
-(7, 1, 'PEPSI-12PK-CS', 'Standard Item', NULL, 'Pepsi 12oz 12-Pack Case', NULL, NULL, NULL, NULL, 18.5000, 22.2000, 12.2500, 12.2500, 12.2500, 12.2500, 240.0000, 10.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 2, 3, 5, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '012000001111', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(8, 1, 'COKE-12PK-CS', 'Standard Item', NULL, 'Coca-Cola 12oz 12-Pack Case', NULL, NULL, NULL, NULL, 18.7500, 22.5000, 12.4000, 12.4000, 12.4000, 12.4000, 195.0000, 20.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-28', NULL, 2, 3, 5, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '049000001122', NULL, '2026-07-24 08:03:43', '2026-07-28 08:25:13'),
-(9, 1, 'WATER-24PK', 'Standard Item', NULL, 'Purified Water 16.9oz 24-Pack', NULL, NULL, NULL, NULL, 6.9900, 8.3900, 4.1000, 4.1000, 4.1000, 4.1000, 338.0000, 40.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-12', NULL, 2, 4, 7, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'Lot', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '078742001234', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(10, 1, 'LAYS-CLASSIC', 'Standard Item', NULL, 'Lay\'s Classic Potato Chips 8oz', NULL, NULL, NULL, NULL, 3.4900, 4.1900, 2.1000, 2.1000, 2.1000, 2.1000, 518.0000, 24.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, '2026-07-12', NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400001001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(11, 1, 'DORITOS-NACH', 'Standard Item', NULL, 'Doritos Nacho Cheese 9.25oz', NULL, NULL, NULL, NULL, 3.7900, 4.5500, 2.2500, 2.2500, 2.2500, 2.2500, 360.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400002002', NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(12, 1, 'SNICKERS-BX', 'Standard Item', NULL, 'Snickers Bar Box (24ct)', NULL, NULL, NULL, NULL, 28.0000, 33.6000, 18.5000, 18.5000, 18.5000, 18.5000, 100.0000, 6.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, NULL, NULL, 3, 6, 9, 2, 1, NULL, 1, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '040000003003', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(13, 1, 'PAPER-TOWEL', 'Standard Item', NULL, 'Paper Towels 6-Roll Pack', NULL, NULL, NULL, NULL, 12.9900, 15.5900, 8.2000, 8.2000, 8.2000, 8.2000, 171.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-20', NULL, '2026-07-19', NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'Serial', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '037000004004', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(14, 1, 'LOW-STOCK-01', 'Standard Item', NULL, 'Demo Low Stock Item', NULL, NULL, NULL, NULL, 9.9900, 11.9900, 5.0000, 5.0000, 5.0000, 5.0000, 0.0000, 0.0000, 0.0000, 0.0000, 10.0000, 40.0000, 3, NULL, NULL, NULL, NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '999000000001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(15, 1, '1111', 'Standard Item', 'dfvbfggbhgf', 'fgbnhnb', '', '', 'items/images/3bb23049-b658-4b95-a82c-110f025b2da9.webp', 'items/thumbnails/409ced5e-184a-4668-85ea-69a6910862bc.webp', 700.0000, 600.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, NULL, NULL, NULL, NULL, 2, 4, 7, 5, NULL, NULL, NULL, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', '', '', '', '', '', 0.0000, 'UPC-A', '', '', '2026-07-24 09:01:13', '2026-07-24 09:01:13');
+INSERT INTO `items` (`id`, `company_id`, `item_code`, `item_type`, `class`, `description`, `extended_description`, `product_highlights`, `image_path`, `thumbnail_path`, `list_price`, `msrp`, `standard_cost`, `current_cost`, `last_cost`, `average_cost`, `quantity_in_stock`, `allocated_qty`, `on_order_qty`, `back_order_qty`, `reorder_point`, `restock_level`, `lead_time_days`, `last_received_at`, `last_ordered_at`, `last_sold_at`, `last_count_date`, `department_id`, `category_id`, `subcategory_id`, `uom_schedule_id`, `tax_schedule_id`, `promotion_schedule_id`, `pricing_method_id`, `unit_of_measure`, `is_inactive`, `can_order`, `can_sell`, `allow_back_order`, `available_on_website`, `item_tracking`, `shipping_weight`, `tare_weight`, `manufacturer`, `tobacco_product_type`, `tobacco_brand_code`, `cigarette_pack_size`, `tobacco_total_oz`, `tobacco_stick_count`, `item_line_message`, `manu_product_id`, `manu_promotion_item`, `manu_promotion_description`, `manu_promotion_code`, `manu_base_count`, `barcode_format`, `primary_upc`, `comments`, `created_at`, `updated_at`) VALUES
+(1, 1, '1229W', 'Standard Item', NULL, 'SOUR PATCH WATERMELON 240CT', NULL, NULL, NULL, NULL, 9.9900, 0.0000, 8.9700, 0.0000, 0.0000, 0.0000, 3.0000, 3.0000, 0.0000, 0.0000, 10.0000, 0.0000, 0, NULL, NULL, '2026-07-23', NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, NULL, NULL, NULL, '2026-07-21 08:15:10', '2026-07-28 08:26:38'),
+(2, 1, 'MARL-RED-CTN', 'Standard Item', 'CIG', 'Marlboro Red Carton', 'Premium carton', 'Full flavor', NULL, NULL, 72.5000, 89.9900, 58.0000, 2.0000, 2.0000, 57.3388, 117.0000, 5.0000, 0.0000, 0.0000, 24.0000, 96.0000, 3, '2026-07-21', '2026-07-21', '2026-07-28', NULL, 1, 1, 1, 1, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028200003123', NULL, '2026-07-21 08:39:38', '2026-07-28 08:25:13'),
+(3, 1, 'imran1', 'Standard Item', 'iiiiiiu', 'aaaaaaaaaaaaaaaaaa', '', '', NULL, NULL, 500.0000, 0.0000, 0.0000, 1000.0000, 1000.0000, 1000.0000, 20.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, '2026-07-23', '2026-07-23', NULL, NULL, 1, 1, 1, NULL, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', NULL, NULL, NULL, NULL, NULL, '', '', '', '', '', 0.0000, 'UPC-A', 'ffffffffffffffffff', '', '2026-07-23 21:20:47', '2026-07-23 21:41:44'),
+(4, 1, '111111111111111', 'Standard Item', '11111111111111', '1111111111111111111', 'vnhgjj', 'mhjmk', 'items/images/72e72065-3ed3-4f75-ad62-ec661080b941.png', 'items/thumbnails/6de324e6-cb81-4a95-8fec-1fac7d7b9aff.png', 400.0000, 400.0000, 20.0000, 300.0000, 300.0000, 300.0000, 9.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, '2026-07-23', '2026-07-23', '2026-07-23', NULL, NULL, NULL, NULL, 3, NULL, NULL, NULL, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', NULL, NULL, NULL, NULL, NULL, 'kjh,kj', '', '', '', '', 0.0000, 'UPC-A', 'rthyujy', 'jk,jk', '2026-07-23 22:13:50', '2026-07-23 23:29:17'),
+(5, 1, 'MARL-GOLD-CTN', 'Standard Item', NULL, 'Marlboro Gold Carton', NULL, NULL, NULL, NULL, 71.0000, 85.2000, 56.0000, 56.0000, 56.0000, 56.0000, 83.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-19', NULL, 1, 1, 1, 5, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028200003456', NULL, '2026-07-24 08:03:43', '2026-07-24 08:07:32'),
+(6, 1, 'NEWP-MENT-CTN', 'Standard Item', NULL, 'Newport Menthol Carton', NULL, NULL, NULL, NULL, 74.0000, 88.8000, 58.5000, 58.5000, 58.5000, 58.5000, 64.0000, 1.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 1, 1, 1, 5, 1, NULL, 1, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '026200009988', NULL, '2026-07-24 08:03:43', '2026-07-27 13:01:48'),
+(7, 1, 'PEPSI-12PK-CS', 'Standard Item', NULL, 'Pepsi 12oz 12-Pack Case', NULL, NULL, NULL, NULL, 18.5000, 22.2000, 12.2500, 12.2500, 12.2500, 12.2500, 240.0000, 10.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 2, 3, 5, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '012000001111', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(8, 1, 'COKE-12PK-CS', 'Standard Item', NULL, 'Coca-Cola 12oz 12-Pack Case', NULL, NULL, NULL, NULL, 18.7500, 22.5000, 12.4000, 12.4000, 12.4000, 12.4000, 195.0000, 20.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-28', NULL, 2, 3, 5, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '049000001122', NULL, '2026-07-24 08:03:43', '2026-07-28 08:25:13'),
+(9, 1, 'WATER-24PK', 'Standard Item', NULL, 'Purified Water 16.9oz 24-Pack', NULL, NULL, NULL, NULL, 6.9900, 8.3900, 4.1000, 4.1000, 4.1000, 4.1000, 338.0000, 40.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-12', NULL, 2, 4, 7, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'Lot', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '078742001234', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(10, 1, 'LAYS-CLASSIC', 'Standard Item', NULL, 'Lay\'s Classic Potato Chips 8oz', NULL, NULL, NULL, NULL, 3.4900, 4.1900, 2.1000, 2.1000, 2.1000, 2.1000, 518.0000, 24.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, '2026-07-12', NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400001001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(11, 1, 'DORITOS-NACH', 'Standard Item', NULL, 'Doritos Nacho Cheese 9.25oz', NULL, NULL, NULL, NULL, 3.7900, 4.5500, 2.2500, 2.2500, 2.2500, 2.2500, 360.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400002002', NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
+(12, 1, 'SNICKERS-BX', 'Standard Item', NULL, 'Snickers Bar Box (24ct)', NULL, NULL, NULL, NULL, 28.0000, 33.6000, 18.5000, 18.5000, 18.5000, 18.5000, 100.0000, 6.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, NULL, NULL, 3, 6, 9, 2, 1, NULL, 1, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '040000003003', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(13, 1, 'PAPER-TOWEL', 'Standard Item', NULL, 'Paper Towels 6-Roll Pack', NULL, NULL, NULL, NULL, 12.9900, 15.5900, 8.2000, 8.2000, 8.2000, 8.2000, 171.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-20', NULL, '2026-07-19', NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'Serial', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '037000004004', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(14, 1, 'LOW-STOCK-01', 'Standard Item', NULL, 'Demo Low Stock Item', NULL, NULL, NULL, NULL, 9.9900, 11.9900, 5.0000, 5.0000, 5.0000, 5.0000, 0.0000, 0.0000, 0.0000, 0.0000, 10.0000, 40.0000, 3, NULL, NULL, NULL, NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '999000000001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(15, 1, '1111', 'Standard Item', 'dfvbfggbhgf', 'fgbnhnb', '', '', 'items/images/3bb23049-b658-4b95-a82c-110f025b2da9.webp', 'items/thumbnails/409ced5e-184a-4668-85ea-69a6910862bc.webp', 700.0000, 600.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, NULL, NULL, NULL, NULL, 2, 4, 7, 5, NULL, NULL, NULL, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', NULL, NULL, NULL, NULL, NULL, '', '', '', '', '', 0.0000, 'UPC-A', '', '', '2026-07-24 09:01:13', '2026-07-24 09:01:13');
 
 -- --------------------------------------------------------
 
@@ -1129,7 +1144,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES
 (41, '2026_07_24_040000_role_permissions_price_levels_and_extras', 19),
 (42, '2026_07_27_234800_add_line_message_and_instructions_to_sales_order_lines', 20),
 (43, '2026_07_28_000100_create_item_batches_table', 21),
-(44, '2026_07_28_004800_add_is_favorite_to_customers_table', 22);
+(44, '2026_07_28_004800_add_is_favorite_to_customers_table', 22),
+(45, '2026_07_30_211000_add_tobacco_filing_fields', 23),
+(46, '2026_07_30_220000_add_company_address_contact_fields', 24);
 
 -- --------------------------------------------------------
 
@@ -1607,7 +1624,7 @@ CREATE TABLE `sessions` (
 --
 
 INSERT INTO `sessions` (`id`, `user_id`, `ip_address`, `user_agent`, `payload`, `last_activity`) VALUES
-('38pLZPvl5MFRTm24dCGCqPduTcDLR2P9zSZUz7Ud', 1, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'eyJfdG9rZW4iOiJvdG5jdXFDUlJ5MjVNdjk1c1M3OVdJVkxJcUNzREhUUEUzdGdmMDdQIiwiX3ByZXZpb3VzIjp7InVybCI6Imh0dHBzOlwvXC93d3cucG9zY29udGluZW50YWx3aG9sZXNhbGUudGVzdFwvc2FsZXNcL2ludm9pY2VzIiwicm91dGUiOiJzYWxlcy5pbnZvaWNlcy5pbmRleCJ9LCJfZmxhc2giOnsib2xkIjpbXSwibmV3IjpbXX0sImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjoxLCJjb21wYW55X2lkIjoxLCJzaXRlX2lkIjoxLCJjb21wYW55X25hbWUiOiJDb250aW5lbnRhbCBXaG9sZXNhbGUgSW5jIiwic2l0ZV9jb2RlIjoiV1MifQ==', 1785250194);
+('Y5V8RjVWaAH1zpmUk8z4lV1NXpU7iCQQCl2GCNIh', 1, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'eyJfdG9rZW4iOiJQRFZjUlZMOEJ2VlpRdlM4em5DemZSa285SWRwTERXSHZWTHlaOHJXIiwiX3ByZXZpb3VzIjp7InVybCI6Imh0dHBzOlwvXC93d3cucG9zY29udGluZW50YWx3aG9sZXNhbGUudGVzdFwvaG9tZSIsInJvdXRlIjoiaG9tZSJ9LCJfZmxhc2giOnsib2xkIjpbXSwibmV3IjpbXX0sImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjoxLCJjb21wYW55X2lkIjoxLCJzaXRlX2lkIjoxLCJjb21wYW55X25hbWUiOiJDb250aW5lbnRhbCBXaG9sZXNhbGUgSW5jIiwic2l0ZV9jb2RlIjoiV1MifQ==', 1785429595);
 
 -- --------------------------------------------------------
 
@@ -1843,15 +1860,40 @@ CREATE TABLE `tobacco_stamp_inventories` (
   `notes` text COLLATE utf8mb4_unicode_ci,
   `created_by` bigint UNSIGNED DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `beginning_unaffixed_r1` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_unaffixed_r2` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_unaffixed_r3` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_unaffixed_r4` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_unaffixed_r5` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_unaffixed_r6` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r1` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r2` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r3` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r4` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r5` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_unaffixed_r6` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r1` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r2` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r3` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r4` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r5` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `beginning_affixed_r6` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r1` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r2` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r3` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r4` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r5` bigint UNSIGNED NOT NULL DEFAULT '0',
+  `ending_affixed_r6` bigint UNSIGNED NOT NULL DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `tobacco_stamp_inventories`
 --
 
-INSERT INTO `tobacco_stamp_inventories` (`id`, `company_id`, `period_start`, `period_end`, `r1_beginning_unaffixed`, `r2_beginning_affixed`, `r3_purchased`, `r4_affixed`, `r5_ending_unaffixed`, `r6_ending_affixed`, `notes`, `created_by`, `created_at`, `updated_at`) VALUES
-(1, 1, '2026-07-21', '2026-07-22', 10.00, 20.00, 5.00, 3.00, 12.00, 22.00, 'cli test', 1, '2026-07-21 12:05:50', '2026-07-21 12:05:50');
+INSERT INTO `tobacco_stamp_inventories` (`id`, `company_id`, `period_start`, `period_end`, `r1_beginning_unaffixed`, `r2_beginning_affixed`, `r3_purchased`, `r4_affixed`, `r5_ending_unaffixed`, `r6_ending_affixed`, `notes`, `created_by`, `created_at`, `updated_at`, `beginning_unaffixed_r1`, `beginning_unaffixed_r2`, `beginning_unaffixed_r3`, `beginning_unaffixed_r4`, `beginning_unaffixed_r5`, `beginning_unaffixed_r6`, `ending_unaffixed_r1`, `ending_unaffixed_r2`, `ending_unaffixed_r3`, `ending_unaffixed_r4`, `ending_unaffixed_r5`, `ending_unaffixed_r6`, `beginning_affixed_r1`, `beginning_affixed_r2`, `beginning_affixed_r3`, `beginning_affixed_r4`, `beginning_affixed_r5`, `beginning_affixed_r6`, `ending_affixed_r1`, `ending_affixed_r2`, `ending_affixed_r3`, `ending_affixed_r4`, `ending_affixed_r5`, `ending_affixed_r6`) VALUES
+(1, 1, '2026-07-21', '2026-07-22', 10.00, 20.00, 5.00, 3.00, 12.00, 22.00, 'cli test', 1, '2026-07-21 12:05:50', '2026-07-21 12:05:50', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+(2, 1, '2026-07-01', '2026-07-31', 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, NULL, 1, '2026-07-30 09:31:07', '2026-07-30 09:31:07', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -2589,7 +2631,7 @@ ALTER TABLE `jobs`
 -- AUTO_INCREMENT for table `migrations`
 --
 ALTER TABLE `migrations`
-  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
+  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
 
 --
 -- AUTO_INCREMENT for table `payment_terms`
@@ -2721,7 +2763,7 @@ ALTER TABLE `tax_schedules`
 -- AUTO_INCREMENT for table `tobacco_stamp_inventories`
 --
 ALTER TABLE `tobacco_stamp_inventories`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `uom_schedules`

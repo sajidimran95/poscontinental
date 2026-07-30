@@ -196,7 +196,7 @@ new #[Layout('layouts.app'), Title('Stamp Inventory')] class extends Component
                     <span wire:loading wire:target="save">Saving…</span>
                 </button>
                 <button type="button" wire:click="resetMatrix" class="desk-btn">Reset to 0</button>
-                <a href="{{ route('tobacco.filing') }}" wire:navigate class="desk-btn">Back to MSA Report</a>
+                <a href="{{ route('reports.msa') }}" wire:navigate class="desk-btn">Back to MSA Report</a>
             </div>
         </form>
 

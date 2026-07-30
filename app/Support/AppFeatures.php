@@ -65,7 +65,13 @@ class AppFeatures
             'inventory.stock_counts' => [
                 'label' => 'Stock Counts',
                 'group' => 'Inventory',
-                'routes' => ['inventory.stock-counts.index', 'inventory.stock-counts.create', 'inventory.stock-counts.edit'],
+                'routes' => [
+                    'inventory.stock-counts.index',
+                    'inventory.stock-counts.create',
+                    'inventory.stock-counts.edit',
+                    'tobacco.stamp-inventory',
+                    'inventory.stamp-inventory',
+                ],
             ],
             'inventory.bulk_pricing' => [
                 'label' => 'Bulk Pricing',
@@ -100,12 +106,7 @@ class AppFeatures
             'reports' => [
                 'label' => 'Reports',
                 'group' => 'Reports',
-                'routes' => ['reports.sales', 'reports.price-list', 'reports.msa', 'tobacco.filing'],
-            ],
-            'tobacco' => [
-                'label' => 'MSA Report',
-                'group' => 'Tobacco',
-                'routes' => ['tobacco.stamp-inventory', 'tobacco.filing', 'reports.msa'],
+                'routes' => ['reports.sales', 'reports.price-list', 'reports.msa'],
             ],
         ];
     }

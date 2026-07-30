@@ -45,6 +45,7 @@
                                 ['New Item', 'inventory.items.create'],
                                 ['Stock Counts', 'inventory.stock-counts.index'],
                                 ['Bulk Pricing', 'inventory.bulk-pricing'],
+                                ['Stamp Inventory', 'inventory.stamp-inventory'],
                             ],
                             'Sales' => [
                                 ['New Sales Order', 'sales.orders.create'],
@@ -67,10 +68,6 @@
                                 ['Sales Report', 'reports.sales'],
                                 ['Price List', 'reports.price-list'],
                                 ['MSA Report', 'reports.msa'],
-                            ],
-                            'Tobacco' => [
-                                ['Stamp Inventory', 'tobacco.stamp-inventory'],
-                                ['MSA Report', 'tobacco.filing'],
                             ],
                         ];
                     @endphp
@@ -135,10 +132,9 @@
                     'reports.price-list' => 'Price List',
                     'reports.msa' => 'MSA Report',
                     'inventory.bulk-pricing' => 'Bulk Pricing',
+                    'inventory.stamp-inventory' => 'Stamp Inventory',
                     'inquiries.stock-status' => 'Stock Status',
                     'inquiries.item-velocity' => 'Item Velocity',
-                    'tobacco.stamp-inventory' => 'Stamp Inventory',
-                    'tobacco.filing' => 'MSA Report',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

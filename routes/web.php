@@ -101,9 +101,10 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::post('sales/credit-memos/{memo}/email', [DocumentPdfController::class, 'emailCreditMemo'])
         ->name('sales.credit-memos.email');
 
-    // Tobacco
-    Volt::route('tobacco/stamp-inventory', 'pages.tobacco.stamp-inventory')->name('tobacco.stamp-inventory');
-    Volt::route('tobacco/filing', 'pages.tobacco.filing')->name('tobacco.filing');
+    // Stamp inventory (Inventory menu) + MSA report (Reports menu)
+    Volt::route('inventory/stamp-inventory', 'pages.tobacco.stamp-inventory')->name('inventory.stamp-inventory');
+    Route::redirect('tobacco/stamp-inventory', '/inventory/stamp-inventory');
+    Route::redirect('tobacco/filing', '/reports/msa');
 
     // Inquiries & Reports
     Volt::route('inquiries/stock-status', 'pages.inquiries.stock-status')->name('inquiries.stock-status');

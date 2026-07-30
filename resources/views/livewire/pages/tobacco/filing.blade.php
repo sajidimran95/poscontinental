@@ -320,7 +320,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 <button type="button" wire:click="downloadTxt" class="desk-btn desk-btn-primary">Download TXT</button>
                 <button type="button" wire:click="downloadXml" class="desk-btn">Download XML</button>
                 @if ($needsStamps)
-                    <a href="{{ route('tobacco.stamp-inventory') }}" wire:navigate class="desk-btn">Stamp Inventory</a>
+                    <a href="{{ route('inventory.stamp-inventory') }}" wire:navigate class="desk-btn">Stamp Inventory</a>
                 @endif
             </div>
         </div>
@@ -407,7 +407,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 @if ($needsStamps && ! $includes_stamps)
                     <div class="msa-stamp-warn">
                         Stamp inventory is required for this return. Save a period in
-                        <a href="{{ route('tobacco.stamp-inventory') }}" wire:navigate>Stamp Inventory</a>
+                        <a href="{{ route('inventory.stamp-inventory') }}" wire:navigate>Stamp Inventory</a>
                         before downloading Production XML.
                     </div>
                 @endif

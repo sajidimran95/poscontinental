@@ -15,8 +15,8 @@
     <table>
         <tr>
             <td>
-                <div class="brand-name">{{ $companyName }}</div>
-                <div class="brand-sub">Inventory · Item Master</div>
+                @include('pdf._company-brand')
+                <div class="brand-sub" style="margin-top:4px">Inventory · Item Master</div>
             </td>
             <td style="text-align:right">
                 <div class="doc-title">ITEMS LIST</div>

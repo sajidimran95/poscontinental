@@ -118,6 +118,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $manufacturer = '';
 
+    public string $tobacco_product_type = '';
+
+    public string $tobacco_brand_code = '';
+
+    public string $cigarette_pack_size = '';
+
+    public string $tobacco_total_oz = '';
+
+    public string $tobacco_stick_count = '';
+
     public string $item_line_message = '';
 
     public string $comments = '';
@@ -174,7 +184,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'tax_schedule_id', 'promotion_schedule_id', 'pricing_method_id',
                 'unit_of_measure', 'is_inactive', 'can_sell', 'can_order', 'allow_back_order',
                 'available_on_website', 'item_tracking', 'barcode_format',
-                'shipping_weight', 'tare_weight', 'manufacturer', 'item_line_message', 'comments',
+                'shipping_weight', 'tare_weight', 'manufacturer', 'tobacco_product_type', 'tobacco_brand_code',
+                'cigarette_pack_size', 'tobacco_total_oz', 'tobacco_stick_count',
+                'item_line_message', 'comments',
                 'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
                 'manu_promotion_code', 'manu_base_count', 'primary_upc', 'image_path', 'thumbnail_path',
             ]);
@@ -185,7 +197,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'back_order_qty',
                 'reorder_point', 'restock_level', 'lead_time_days', 'unit_of_measure',
                 'item_tracking', 'barcode_format', 'shipping_weight', 'tare_weight',
-                'manufacturer', 'item_line_message', 'comments',
+                'manufacturer', 'tobacco_product_type', 'tobacco_brand_code', 'cigarette_pack_size',
+                'tobacco_total_oz', 'tobacco_stick_count', 'item_line_message', 'comments',
                 'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
                 'manu_promotion_code', 'manu_base_count', 'primary_upc',
             ] as $stringProp) {
@@ -438,6 +451,28 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     {
         $this->category_id = null;
         $this->subcategory_id = null;
+    }
+
+    public function updatedTobaccoProductType(): void
+    {
+        if ($this->tobacco_product_type === '') {
+            $this->tobacco_brand_code = '';
+            $this->cigarette_pack_size = '';
+            $this->tobacco_total_oz = '';
+            $this->tobacco_stick_count = '';
+
+            return;
+        }
+
+        if ($this->tobacco_product_type !== 'cigarettes') {
+            $this->cigarette_pack_size = '';
+        }
+        if (! in_array($this->tobacco_product_type, ['ryo', 'otp'], true)) {
+            $this->tobacco_total_oz = '';
+        }
+        if (! in_array($this->tobacco_product_type, ['pc1', 'otp'], true)) {
+            $this->tobacco_stick_count = '';
+        }
     }
 
     public function updatedCategoryId(): void
@@ -885,6 +920,19 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'shipping_weight' => $this->shipping_weight,
             'tare_weight' => $this->tare_weight,
             'manufacturer' => $this->manufacturer,
+            'tobacco_product_type' => $this->tobacco_product_type !== '' ? $this->tobacco_product_type : null,
+            'tobacco_brand_code' => $this->tobacco_product_type !== '' && $this->tobacco_brand_code !== ''
+                ? strtoupper($this->tobacco_brand_code)
+                : null,
+            'cigarette_pack_size' => $this->tobacco_product_type === 'cigarettes' && filled($this->cigarette_pack_size)
+                ? (int) $this->cigarette_pack_size
+                : null,
+            'tobacco_total_oz' => in_array($this->tobacco_product_type, ['ryo', 'otp'], true) && filled($this->tobacco_total_oz)
+                ? $this->tobacco_total_oz
+                : null,
+            'tobacco_stick_count' => in_array($this->tobacco_product_type, ['pc1', 'otp'], true) && filled($this->tobacco_stick_count)
+                ? (int) $this->tobacco_stick_count
+                : null,
             'item_line_message' => $this->item_line_message,
             'comments' => $this->comments,
             'manu_product_id' => $this->manu_product_id,
@@ -1633,6 +1681,45 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" /></div>
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" /></div>
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="tobacco_product_type">Tobacco Type</label>
+                            <select id="tobacco_product_type" wire:model.live="tobacco_product_type" class="so-input">
+                                <option value="">— Not tobacco —</option>
+                                <option value="cigarettes">Cigarettes</option>
+                                <option value="otp">OTP</option>
+                                <option value="pc1">Premium Cigar (PC1)</option>
+                                <option value="ryo">RYO</option>
+                            </select>
+                        </div>
+                        @if ($tobacco_product_type !== '')
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tobacco_brand_code">Brand Code</label><input id="tobacco_brand_code" wire:model="tobacco_brand_code" class="so-input" placeholder="CIG / OTP / PC1 / 034…" /></div>
+                            @if ($tobacco_product_type === 'cigarettes')
+                                <div class="so-form-row so-form-row-side">
+                                    <label class="so-form-lbl" for="cigarette_pack_size">Cig Pack Size</label>
+                                    <input
+                                        id="cigarette_pack_size"
+                                        type="number"
+                                        min="1"
+                                        max="99"
+                                        step="1"
+                                        wire:model="cigarette_pack_size"
+                                        class="so-input text-right"
+                                        style="max-width:8rem"
+                                        placeholder="20 / 25 / 35…"
+                                    />
+                                </div>
+                                <p class="item-hint" style="grid-column:1/-1;margin:0.15rem 0 0.35rem">
+                                    Enter any pack size used in your warehouse (e.g. 20, 25, 35).
+                                    Michigan MSA XML only accepts <strong>20</strong> or <strong>25</strong> — other sizes are stored here but filed as 20 if not 20/25.
+                                </p>
+                            @endif
+                            @if ($tobacco_product_type === 'ryo' || $tobacco_product_type === 'otp')
+                                <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tobacco_total_oz">Total Oz (RYO)</label><input id="tobacco_total_oz" wire:model="tobacco_total_oz" class="so-input text-right" style="max-width:8rem" /></div>
+                            @endif
+                            @if ($tobacco_product_type === 'pc1' || $tobacco_product_type === 'otp')
+                                <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tobacco_stick_count">Stick Count (PC1)</label><input id="tobacco_stick_count" wire:model="tobacco_stick_count" class="so-input text-right" style="max-width:8rem" /></div>
+                            @endif
+                        @endif
                     </div>
                     <div class="inv-card">
                         <div class="inv-card-title">Notes</div>

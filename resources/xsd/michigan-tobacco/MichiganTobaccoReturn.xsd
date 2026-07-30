@@ -1,127 +1,165 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           targetNamespace="http://www.michigan.gov/treasury/tobacco"
-           xmlns:t="http://www.michigan.gov/treasury/tobacco"
+           targetNamespace="http://www.irs.gov/efile"
+           xmlns:t="http://www.irs.gov/efile"
            elementFormDefault="qualified"
            attributeFormDefault="unqualified">
 
-    <xs:element name="MichiganTobaccoReturn" type="t:MichiganTobaccoReturnType"/>
+    <xs:element name="Transmission" type="t:TransmissionType"/>
 
-    <xs:complexType name="MichiganTobaccoReturnType">
+    <xs:complexType name="TransmissionType">
         <xs:sequence>
-            <xs:element name="CompanyName" type="xs:string"/>
-            <xs:element name="CompanyFEIN" type="xs:string"/>
-            <xs:element name="PeriodStart" type="xs:date"/>
-            <xs:element name="PeriodEnd" type="xs:date"/>
-            <xs:element name="GeneratedAt" type="xs:dateTime"/>
-            <xs:element name="FilingType" type="t:FilerType"/>
-            <xs:element name="ProductType" type="t:ProductType"/>
-            <xs:element name="PurchaserSellers" type="t:PurchaserSellersType"/>
-            <xs:element name="Sales" type="t:SalesType"/>
-            <xs:element name="StampInventory" type="t:StampInventoryType" minOccurs="0"/>
-            <xs:element name="OtherTobaccoProducts" type="t:OtherTobaccoProductsType" minOccurs="0"/>
+            <xs:element name="TransmissionHeader" type="t:TransmissionHeaderType"/>
+            <xs:element name="TobCigFiling" type="t:TobCigFilingType"/>
         </xs:sequence>
-        <xs:attribute name="filerType" type="t:FilerType" use="required"/>
-        <xs:attribute name="product" type="t:ProductType" use="required"/>
-        <xs:attribute name="schemaVersion" type="xs:string" use="required"/>
     </xs:complexType>
 
-    <xs:simpleType name="FilerType">
-        <xs:restriction base="xs:string">
-            <xs:enumeration value="secondary_wholesaler"/>
-            <xs:enumeration value="unclassified_acquirer"/>
-        </xs:restriction>
-    </xs:simpleType>
-
-    <xs:simpleType name="ProductType">
-        <xs:restriction base="xs:string">
-            <xs:enumeration value="cigarettes"/>
-            <xs:enumeration value="otp"/>
-        </xs:restriction>
-    </xs:simpleType>
-
-    <xs:complexType name="PurchaserSellersType">
-        <xs:choice minOccurs="0" maxOccurs="unbounded">
-            <xs:element name="Seller" type="t:PartyType"/>
-            <xs:element name="Buyer" type="t:BuyerType"/>
-        </xs:choice>
-    </xs:complexType>
-
-    <xs:complexType name="PartyType">
+    <xs:complexType name="TransmissionHeaderType">
         <xs:sequence>
-            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="Jurisdiction" type="xs:string"/>
+            <xs:element name="TransmissionID" type="xs:string"/>
+            <xs:element name="Timestamp" type="xs:dateTime"/>
+            <xs:element name="Transmitter" type="xs:string"/>
+            <xs:element name="ProcessType">
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="T"/>
+                        <xs:enumeration value="P"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="TobCigFilingType">
+        <xs:sequence>
+            <xs:element name="SubmissionId" type="xs:string"/>
+            <xs:element name="TobaccoCigaretteHeader" type="t:ReturnHeaderType"/>
+            <xs:choice>
+                <xs:element name="CigaretteSecondaryWholesalerReturn" type="t:CigaretteReturnType"/>
+                <xs:element name="TobaccoSecondaryWholesalerReturn" type="t:OtpReturnType"/>
+                <xs:element name="CigaretteUnclassifiedAcquirerReturn" type="t:CigaretteUaReturnType"/>
+                <xs:element name="TobaccoUnclassifiedAcquirerReturn" type="t:OtpReturnType"/>
+            </xs:choice>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ReturnHeaderType">
+        <xs:sequence>
+            <xs:element name="Jurisdiction" type="xs:string"/>
+            <xs:element name="Timestamp" type="xs:dateTime"/>
+            <xs:element name="TaxPeriodEndDate" type="xs:date"/>
+            <xs:element name="TypeOfFiling" type="xs:string"/>
+            <xs:element name="Filer" type="t:FilerType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="FilerType">
+        <xs:sequence>
+            <xs:element name="FEIN" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CigaretteReturnType">
+        <xs:sequence>
+            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="StateLicenseNumber" type="xs:string"/>
+            <xs:choice>
+                <xs:element name="CigSndWholeSchedule" type="t:CigaretteScheduleListType"/>
+                <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType"/>
+            </xs:choice>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CigaretteUaReturnType">
+        <xs:sequence>
+            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="StateLicenseNumber" type="xs:string"/>
+            <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType" minOccurs="0"/>
+            <xs:element name="BeginningUnaffixedInventory" type="t:StampCountsType"/>
+            <xs:element name="EndingUnaffixedInventory" type="t:StampCountsType"/>
+            <xs:element name="BeginningAffixedInventory" type="t:StampCountsType"/>
+            <xs:element name="EndingAffixedInventory" type="t:StampCountsType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="OtpReturnType">
+        <xs:sequence>
+            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="StateLicenseNumber" type="xs:string"/>
+            <xs:choice>
+                <xs:element name="TobSndWholeSchedule" type="t:OtpScheduleListType"/>
+                <xs:element name="TobUnAcqSchedule" type="t:OtpScheduleListType"/>
+            </xs:choice>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CigaretteScheduleListType">
+        <xs:sequence>
+            <xs:element name="Schedule" type="t:CigaretteScheduleType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="OtpScheduleListType">
+        <xs:sequence>
+            <xs:element name="Schedule" type="t:OtpScheduleType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CigaretteScheduleType">
+        <xs:sequence>
+            <xs:element name="ScheduleCode" type="xs:string"/>
+            <xs:element name="DateReceived" type="xs:date"/>
+            <xs:element name="InvoiceDate" type="xs:date"/>
+            <xs:element name="InvoiceNumber" type="xs:string"/>
             <xs:element name="PurchaserSellerFEIN" type="xs:string"/>
-            <xs:element name="Address" type="xs:string"/>
+            <xs:element name="PurchaserSellerName" type="xs:string"/>
+            <xs:element name="BrandCode" type="xs:string"/>
+            <xs:element name="CigPackSize" type="xs:string"/>
+            <xs:element name="PackCount" type="xs:string"/>
+            <xs:element name="Address" type="t:AddressType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="OtpScheduleType">
+        <xs:sequence>
+            <xs:element name="ScheduleCode" type="xs:string"/>
+            <xs:element name="DateReceivedOrSold" type="xs:date"/>
+            <xs:element name="InvoiceDate" type="xs:date"/>
+            <xs:element name="InvoiceNumber" type="xs:string"/>
+            <xs:element name="PurchaserSellerFEIN" type="xs:string"/>
+            <xs:element name="PurchaserSellerName" type="xs:string"/>
+            <xs:element name="BrandCode" type="xs:string"/>
+            <xs:element name="WholesalePrice" type="xs:decimal"/>
+            <xs:element name="TotalOz" type="xs:decimal" minOccurs="0"/>
+            <xs:element name="StickCount" type="xs:string" minOccurs="0"/>
+            <xs:element name="Address" type="t:AddressType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="AddressType">
+        <xs:sequence>
+            <xs:element name="USAddress" type="t:USAddressType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="USAddressType">
+        <xs:sequence>
+            <xs:element name="AddressLine1" type="xs:string"/>
             <xs:element name="City" type="xs:string"/>
             <xs:element name="State" type="xs:string"/>
-            <xs:element name="ZIP" type="xs:string"/>
+            <xs:element name="ZIPCode" type="xs:string"/>
         </xs:sequence>
     </xs:complexType>
 
-    <xs:complexType name="BuyerType">
-        <xs:complexContent>
-            <xs:extension base="t:PartyType">
-                <xs:sequence>
-                    <xs:element name="CigaretteTaxClassId" type="xs:positiveInteger" minOccurs="0"/>
-                </xs:sequence>
-            </xs:extension>
-        </xs:complexContent>
-    </xs:complexType>
-
-    <xs:complexType name="SalesType">
+    <xs:complexType name="StampCountsType">
         <xs:sequence>
-            <xs:element name="Sale" type="t:SaleType" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="SaleType">
-        <xs:sequence>
-            <xs:element name="InvoiceNo" type="xs:string"/>
-            <xs:element name="InvoiceDate" type="xs:date"/>
-            <xs:element name="CustomerFEIN" type="xs:string"/>
-            <xs:element name="CustomerName" type="xs:string"/>
-            <xs:element name="OrderNo" type="xs:string"/>
-            <xs:element name="WholesaleTotal" type="xs:decimal"/>
-            <xs:element name="TaxAmount" type="xs:decimal"/>
-            <xs:element name="Lines" type="t:LinesType"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="LinesType">
-        <xs:sequence>
-            <xs:element name="Line" type="t:LineType" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="LineType">
-        <xs:sequence>
-            <xs:element name="ItemCode" type="xs:string"/>
-            <xs:element name="Description" type="xs:string"/>
-            <xs:element name="Qty" type="xs:decimal"/>
-            <xs:element name="UnitPrice" type="xs:decimal"/>
-            <xs:element name="Extended" type="xs:decimal"/>
-            <xs:element name="UOM" type="xs:string"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="StampInventoryType">
-        <xs:sequence>
-            <xs:element name="R1_BeginningUnaffixed" type="xs:integer"/>
-            <xs:element name="R2_BeginningAffixed" type="xs:integer"/>
-            <xs:element name="R3_Purchased" type="xs:integer"/>
-            <xs:element name="R4_Affixed" type="xs:integer"/>
-            <xs:element name="R5_EndingUnaffixed" type="xs:integer"/>
-            <xs:element name="R6_EndingAffixed" type="xs:integer"/>
-            <xs:element name="PeriodStart" type="xs:date"/>
-            <xs:element name="PeriodEnd" type="xs:date"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="OtherTobaccoProductsType">
-        <xs:sequence>
-            <xs:element name="Note" type="xs:string"/>
-            <xs:element name="InvoiceCount" type="xs:nonNegativeInteger"/>
-            <xs:element name="WholesaleTotal" type="xs:decimal"/>
+            <xs:element name="R1" type="xs:integer"/>
+            <xs:element name="R2" type="xs:integer"/>
+            <xs:element name="R3" type="xs:integer"/>
+            <xs:element name="R4" type="xs:integer"/>
+            <xs:element name="R5" type="xs:integer"/>
+            <xs:element name="R6" type="xs:integer"/>
         </xs:sequence>
     </xs:complexType>
 </xs:schema>

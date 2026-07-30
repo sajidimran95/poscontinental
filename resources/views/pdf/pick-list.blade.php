@@ -263,6 +263,12 @@
         </td>
         <td class="top-center">
             <div class="co-name">{{ $companyName }}</div>
+            @php
+                $plAddress = $company?->letterheadAddress() ?? config('company.address', '3802 TRADE CENTER DR');
+                $plCity = $company?->letterheadCityLine() ?? config('company.city_line', 'ANN ARBOR, MI 48108');
+                $plTel = $company?->letterheadTel() ?? config('company.tel', 'Tel:7346773510');
+            @endphp
+            <div class="co-line" style="font-size:8px;color:#475569">{{ $plAddress }} · {{ $plCity }} · {{ $plTel }}</div>
             <div class="doc-title">Pick List</div>
         </td>
         <td class="top-right">

@@ -42,6 +42,22 @@ class DemoDataSeeder extends Seeder
         }
 
         $companyId = (int) $company->id;
+
+        $company->fill([
+            'name' => $company->name ?: 'Continental Wholesale Inc',
+            'address' => $company->address ?: '3802 TRADE CENTER DR',
+            'city' => $company->city ?: 'ANN ARBOR',
+            'state' => $company->state ?: 'MI',
+            'zip_code' => $company->zip_code ?: '48108',
+            'phone' => $company->phone ?: '7346773510',
+            'fax' => $company->fax ?: '7346773567',
+            'email' => $company->email ?: 'office@continentalwholesale.test',
+            'contact_name' => $company->contact_name ?: 'Office Desk',
+            'fein_no' => $company->fein_no ?: '38-1234567',
+            'state_license_number' => $company->state_license_number ?: '10001234',
+            'transmitter_account_number' => $company->transmitter_account_number ?: '381234567',
+        ])->save();
+
         $salesRepId = User::query()->where('company_id', $companyId)->where('email', 'sales@continental.local')->value('id')
             ?? User::query()->where('company_id', $companyId)->value('id');
 

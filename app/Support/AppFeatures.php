@@ -15,7 +15,7 @@ class AppFeatures
             'admin.users' => [
                 'label' => 'Users & Roles',
                 'group' => 'Admin',
-                'routes' => ['admin.users.index'],
+                'routes' => ['admin.users.index', 'admin.company-settings'],
             ],
             'admin.email' => [
                 'label' => 'Email Setup & Logs',
@@ -100,12 +100,12 @@ class AppFeatures
             'reports' => [
                 'label' => 'Reports',
                 'group' => 'Reports',
-                'routes' => ['reports.sales', 'reports.price-list'],
+                'routes' => ['reports.sales', 'reports.price-list', 'reports.msa', 'tobacco.filing'],
             ],
             'tobacco' => [
-                'label' => 'Tobacco Filing',
+                'label' => 'MSA Report',
                 'group' => 'Tobacco',
-                'routes' => ['tobacco.stamp-inventory', 'tobacco.filing'],
+                'routes' => ['tobacco.stamp-inventory', 'tobacco.filing', 'reports.msa'],
             ],
         ];
     }

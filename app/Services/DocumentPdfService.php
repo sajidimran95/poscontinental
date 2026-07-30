@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Company;
 use App\Models\CreditMemo;
 use App\Models\DocumentEmailLog;
 use App\Models\InventoryReceiving;
@@ -46,10 +47,11 @@ class DocumentPdfService
         ]);
 
         $order = $invoice->salesOrder;
-        if (! $order) {
+            if (! $order) {
             return Pdf::loadView('pdf.invoice', [
                 'invoice' => $invoice,
                 'company' => $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company,
+                ...$this->letterhead($user?->company ?? $invoice->customer?->company ?? auth()->user()?->company),
             ])->setPaper('letter');
         }
 
@@ -76,10 +78,7 @@ class DocumentPdfService
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
-            'companyAddress' => config('company.address', '3802 TRADE CENTER DR'),
-            'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
-            'companyTel' => config('company.tel', 'Tel:7346773510'),
-            'companyFax' => config('company.fax', 'Fax:7346773567'),
+            ...$this->letterhead($company),
             'docTitle' => 'Invoice',
             'showLineMessage' => false,
             'barcodeValue' => (string) $invoice->invoice_number,
@@ -122,10 +121,7 @@ class DocumentPdfService
             'memo' => $memo,
             'company' => $company,
             'logoPath' => $logoPath,
-            'companyAddress' => config('company.address', '3802 TRADE CENTER DR'),
-            'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
-            'companyTel' => config('company.tel', 'Tel:7346773510'),
-            'companyFax' => config('company.fax', 'Fax:7346773567'),
+            ...$this->letterhead($company),
         ])->setPaper('letter');
     }
 
@@ -253,10 +249,7 @@ class DocumentPdfService
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
-            'companyAddress' => config('company.address', '3802 TRADE CENTER DR'),
-            'companyCityLine' => config('company.city_line', 'ANN ARBOR, MI 48108'),
-            'companyTel' => config('company.tel', 'Tel:7346773510'),
-            'companyFax' => config('company.fax', 'Fax:7346773567'),
+            ...$this->letterhead($company),
             'showLineMessage' => true,
         ])->setPaper('letter');
     }
@@ -321,6 +314,7 @@ class DocumentPdfService
         return Pdf::loadView('pdf.invoice', [
             'invoice' => $invoice,
             'company' => $user?->company ?? $order->customer?->company ?? auth()->user()?->company,
+            ...$this->letterhead($user?->company ?? $order->customer?->company ?? auth()->user()?->company),
         ])->setPaper('letter');
     }
 
@@ -550,5 +544,26 @@ class DocumentPdfService
             ->orderBy('item_code')
             ->limit(2000)
             ->get();
+    }
+
+    /**
+     * Company letterhead for invoices, sales orders, credit memos, and other PDFs.
+     *
+     * @return array{companyAddress: string, companyCityLine: string, companyTel: string, companyFax: string, companyEmail: string, companyContact: string}
+     */
+    protected function letterhead(?Company $company): array
+    {
+        if ($company) {
+            return $company->letterhead();
+        }
+
+        return [
+            'companyAddress' => (string) config('company.address', '3802 TRADE CENTER DR'),
+            'companyCityLine' => (string) config('company.city_line', 'ANN ARBOR, MI 48108'),
+            'companyTel' => (string) config('company.tel', 'Tel:7346773510'),
+            'companyFax' => (string) config('company.fax', 'Fax:7346773567'),
+            'companyEmail' => '',
+            'companyContact' => '',
+        ];
     }
 }

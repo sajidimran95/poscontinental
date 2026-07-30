@@ -30,8 +30,38 @@ class DatabaseSeeder extends Seeder
     {
         $company = Company::query()->firstOrCreate(
             ['code' => 'CWI'],
-            ['name' => 'Continental Wholesale Inc', 'is_active' => true]
+            [
+                'name' => 'Continental Wholesale Inc',
+                'is_active' => true,
+                'address' => '3802 TRADE CENTER DR',
+                'city' => 'ANN ARBOR',
+                'state' => 'MI',
+                'zip_code' => '48108',
+                'phone' => '7346773510',
+                'fax' => '7346773567',
+                'email' => 'office@continentalwholesale.test',
+                'contact_name' => 'Office Desk',
+                'fein_no' => '38-1234567',
+                'state_license_number' => '10001234',
+                'transmitter_account_number' => '381234567',
+            ]
         );
+
+        $company->fill([
+            'name' => $company->name ?: 'Continental Wholesale Inc',
+            'address' => $company->address ?: '3802 TRADE CENTER DR',
+            'city' => $company->city ?: 'ANN ARBOR',
+            'state' => $company->state ?: 'MI',
+            'zip_code' => $company->zip_code ?: '48108',
+            'phone' => $company->phone ?: '7346773510',
+            'fax' => $company->fax ?: '7346773567',
+            'email' => $company->email ?: 'office@continentalwholesale.test',
+            'contact_name' => $company->contact_name ?: 'Office Desk',
+            'fein_no' => $company->fein_no ?: '38-1234567',
+            'state_license_number' => $company->state_license_number ?: '10001234',
+            'transmitter_account_number' => $company->transmitter_account_number ?: '381234567',
+            'is_active' => true,
+        ])->save();
 
         $site = Site::query()->firstOrCreate(
             ['company_id' => $company->id, 'code' => 'WS'],

@@ -7,18 +7,18 @@
 </head>
 <body>
 @php
-    $companyName = $company?->name ?? 'Continental Wholesale Inc';
     $count = is_countable($items) ? count($items) : $items->count();
     $levels = $priceLevels ?? collect();
     $multi = $levels->isNotEmpty();
+    $companyName = $company?->name ?? 'Continental Wholesale Inc';
 @endphp
 
 <div class="brand-bar">
     <table>
         <tr>
             <td>
-                <div class="brand-name">{{ $companyName }}</div>
-                <div class="brand-sub">Product Pricing</div>
+                @include('pdf._company-brand')
+                <div class="brand-sub" style="margin-top:4px">Product Pricing</div>
             </td>
             <td style="text-align:right">
                 <div class="doc-title">PRICE LIST</div>

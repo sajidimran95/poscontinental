@@ -3064,6 +3064,22 @@
         -webkit-appearance: none;
     }
 
+    .desk-input {
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 0.35rem 0.55rem;
+        font-size: 13px;
+        background: #fff;
+        color: #0f172a;
+        height: 2.15rem;
+    }
+
+    .desk-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+    }
+
     .desk-select:focus {
         outline: none;
         border-color: #3b82f6;
@@ -3492,6 +3508,704 @@
         font-weight: 700;
         color: #0f172a;
         font-variant-numeric: tabular-nums;
+    }
+
+    /* MSA Tobacco Report */
+    .msa-report-page {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        background: #f1f5f9;
+    }
+
+    .msa-report-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.85rem 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .msa-report-hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem 1rem;
+        padding: 0.85rem 1rem;
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0f766e 100%);
+        border-radius: 0.5rem;
+        color: #f8fafc;
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.12);
+    }
+
+    .msa-report-title {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
+    .msa-report-sub {
+        margin: 0.25rem 0 0;
+        font-size: 0.78rem;
+        color: #cbd5e1;
+        max-width: 40rem;
+        line-height: 1.4;
+    }
+
+    .msa-report-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        align-items: center;
+    }
+
+    .msa-report-actions .desk-btn {
+        background: #fff;
+        border-color: #e2e8f0;
+        color: #0f172a;
+    }
+
+    .msa-report-actions .desk-btn-primary {
+        background: #14b8a6;
+        border-color: #0d9488;
+        color: #042f2e;
+        font-weight: 700;
+    }
+
+    .msa-alert {
+        border-radius: 0.45rem;
+        padding: 0.55rem 0.75rem;
+        font-size: 0.82rem;
+        line-height: 1.4;
+    }
+
+    .msa-alert ul {
+        margin: 0.35rem 0 0 1.1rem;
+        padding: 0;
+    }
+
+    .msa-alert-ok {
+        border: 1px solid #6ee7b7;
+        background: #ecfdf5;
+        color: #065f46;
+    }
+
+    .msa-alert-err {
+        border: 1px solid #fca5a5;
+        background: #fef2f2;
+        color: #991b1b;
+    }
+
+    .msa-report-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    .msa-card {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.5rem;
+        padding: 0.75rem 0.85rem 0.9rem;
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+    }
+
+    .msa-card-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.35rem 0.75rem;
+        margin-bottom: 0.65rem;
+        padding-bottom: 0.45rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .msa-card-head h3 {
+        margin: 0;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #0f172a;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .msa-card-hint {
+        font-size: 0.72rem;
+        color: #64748b;
+    }
+
+    .msa-return-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+
+    .msa-return-option {
+        display: flex;
+        gap: 0.65rem;
+        align-items: flex-start;
+        padding: 0.65rem 0.7rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.45rem;
+        background: #f8fafc;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .msa-return-option:hover {
+        border-color: #94a3b8;
+        background: #fff;
+    }
+
+    .msa-return-option.is-active {
+        border-color: #0f766e;
+        background: #f0fdfa;
+        box-shadow: 0 0 0 1px #0f766e inset;
+    }
+
+    .msa-return-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .msa-return-radio {
+        flex: 0 0 auto;
+        width: 1rem;
+        height: 1rem;
+        margin-top: 0.15rem;
+        border: 2px solid #94a3b8;
+        border-radius: 999px;
+        background: #fff;
+        position: relative;
+    }
+
+    .msa-return-option.is-active .msa-return-radio {
+        border-color: #0f766e;
+    }
+
+    .msa-return-option.is-active .msa-return-radio::after {
+        content: "";
+        position: absolute;
+        inset: 2px;
+        border-radius: 999px;
+        background: #0f766e;
+    }
+
+    .msa-return-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 0;
+    }
+
+    .msa-return-title {
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.25;
+    }
+
+    .msa-return-desc {
+        font-size: 0.75rem;
+        color: #475569;
+        line-height: 1.35;
+    }
+
+    .msa-return-codes {
+        font-size: 0.7rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: #0f766e;
+        font-weight: 600;
+    }
+
+    .msa-field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.55rem 0.65rem;
+    }
+
+    .msa-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .msa-field .desk-input,
+    .msa-field .desk-select {
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: 500;
+        width: 100%;
+    }
+
+    .msa-selected-box {
+        margin-top: 0.75rem;
+        padding: 0.65rem 0.7rem;
+        border-radius: 0.45rem;
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+    }
+
+    .msa-selected-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .msa-selected-title {
+        margin-top: 0.2rem;
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .msa-selected-desc {
+        margin-top: 0.15rem;
+        font-size: 0.75rem;
+        color: #475569;
+        line-height: 1.35;
+    }
+
+    .msa-selected-meta {
+        margin-top: 0.4rem;
+        font-size: 0.72rem;
+        color: #334155;
+    }
+
+    .msa-stamp-warn {
+        margin-top: 0.65rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.4rem;
+        border: 1px solid #fcd34d;
+        background: #fffbeb;
+        color: #92400e;
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    .msa-stamp-warn a {
+        color: #b45309;
+        font-weight: 700;
+        text-decoration: underline;
+    }
+
+    .msa-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.55rem;
+    }
+
+    .msa-stat {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.45rem;
+        padding: 0.65rem 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .msa-stat-lbl {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .msa-stat-val {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #0f172a;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+    }
+
+    .msa-stat-code {
+        font-size: 0.7rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: #0f766e;
+        font-weight: 600;
+    }
+
+    .msa-footnote {
+        margin: 0;
+        font-size: 0.72rem;
+        color: #64748b;
+        line-height: 1.4;
+    }
+
+    .msa-how-box {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.5rem;
+        padding: 0.75rem 0.9rem;
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+    }
+
+    .msa-how-box h3 {
+        margin: 0 0 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #0f172a;
+    }
+
+    .msa-how-box ul {
+        margin: 0;
+        padding-left: 1.1rem;
+        font-size: 0.8rem;
+        color: #334155;
+        line-height: 1.45;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .msa-how-box p {
+        margin: 0.55rem 0 0;
+        font-size: 0.75rem;
+        color: #64748b;
+        line-height: 1.4;
+    }
+
+    .msa-section-title {
+        margin: 0.35rem 0 0;
+        padding-top: 0.35rem;
+        border-top: 1px solid #e2e8f0;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #0f766e;
+    }
+
+    .stamp-inv-form .msa-section-title:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+    }
+
+    @media (max-width: 960px) {
+        .msa-report-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .msa-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 560px) {
+        .msa-field-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .msa-stats {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Stamp Inventory */
+    .stamp-inv-page {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        background: #f1f5f9;
+    }
+
+    .stamp-inv-flash {
+        margin: 0.55rem 0.85rem 0;
+        border-radius: 0.4rem;
+        padding: 0.45rem 0.7rem;
+        font-size: 0.8rem;
+        line-height: 1.4;
+    }
+
+    .stamp-inv-flash ul {
+        margin: 0.3rem 0 0 1.1rem;
+        padding: 0;
+    }
+
+    .stamp-inv-flash-ok {
+        border: 1px solid #6ee7b7;
+        background: #ecfdf5;
+        color: #065f46;
+    }
+
+    .stamp-inv-flash-err {
+        border: 1px solid #fca5a5;
+        background: #fef2f2;
+        color: #991b1b;
+    }
+
+    .stamp-inv-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.85rem 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+    }
+
+    .stamp-inv-form {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem 1rem;
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .stamp-inv-hint {
+        margin: 0;
+        font-size: 0.78rem;
+        color: #475569;
+        line-height: 1.4;
+    }
+
+    .stamp-inv-dates {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem 0.85rem;
+    }
+
+    .stamp-inv-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: #475569;
+    }
+
+    .stamp-inv-field em {
+        color: #dc2626;
+        font-style: normal;
+    }
+
+    .stamp-inv-field small {
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: 500;
+        color: #94a3b8;
+    }
+
+    .stamp-inv-field .desk-input,
+    .stamp-inv-notes textarea {
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: 500;
+    }
+
+    .stamp-inv-notes textarea {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 0.45rem 0.55rem;
+        font-size: 13px;
+        color: #0f172a;
+        resize: vertical;
+        min-height: 3.2rem;
+    }
+
+    .stamp-inv-notes textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+    }
+
+    .stamp-inv-table-wrap {
+        overflow-x: auto;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.4rem;
+    }
+
+    .stamp-inv-table {
+        width: 100%;
+        min-width: 44rem;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 0.82rem;
+        color: #0f172a;
+        background: #fff;
+    }
+
+    .stamp-inv-col-type {
+        width: 38%;
+    }
+
+    .stamp-inv-col-num {
+        width: 15.5%;
+    }
+
+    .stamp-inv-table thead th {
+        padding: 0.55rem 0.65rem;
+        background: #0f172a;
+        color: #f8fafc;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        text-align: center;
+        border-right: 1px solid #334155;
+        white-space: nowrap;
+    }
+
+    .stamp-inv-table thead th:first-child {
+        text-align: left;
+    }
+
+    .stamp-inv-table thead th:last-child {
+        border-right: 0;
+    }
+
+    .stamp-inv-table tbody th,
+    .stamp-inv-table tbody td {
+        padding: 0.35rem 0.45rem;
+        border-bottom: 1px solid #e2e8f0;
+        border-right: 1px solid #e2e8f0;
+        vertical-align: middle;
+    }
+
+    .stamp-inv-table tbody th {
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: #1e293b;
+        background: #f8fafc;
+        padding-left: 0.65rem;
+    }
+
+    .stamp-inv-table tbody td {
+        text-align: center;
+        background: #fff;
+    }
+
+    .stamp-inv-table tbody tr:last-child th,
+    .stamp-inv-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .stamp-inv-table tbody td:last-child,
+    .stamp-inv-table tbody th:last-child {
+        border-right: 0;
+    }
+
+    .stamp-inv-table tbody td input {
+        display: block;
+        width: 100%;
+        max-width: 7.5rem;
+        margin: 0 auto;
+        height: 2rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 5px;
+        padding: 0.2rem 0.45rem;
+        text-align: right;
+        font-size: 0.82rem;
+        font-variant-numeric: tabular-nums;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: #0f172a;
+        background: #fff;
+    }
+
+    .stamp-inv-table tbody td input:focus {
+        outline: none;
+        border-color: #0f766e;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+    }
+
+    .stamp-inv-table tbody td input::placeholder {
+        color: #94a3b8;
+    }
+
+    .stamp-inv-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+    }
+
+    .stamp-inv-saved h3 {
+        margin: 0 0 0.45rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #0f172a;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .stamp-inv-saved-wrap {
+        overflow-x: auto;
+        border: 1px solid #dbe3ef;
+        border-radius: 0.4rem;
+        background: #fff;
+    }
+
+    .stamp-inv-saved-table {
+        width: 100%;
+        min-width: 42rem;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 0.75rem;
+    }
+
+    .stamp-inv-saved-table thead th {
+        padding: 0.45rem 0.55rem;
+        background: #e2e8f0;
+        color: #334155;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        text-align: left;
+        border-bottom: 1px solid #cbd5e1;
+    }
+
+    .stamp-inv-saved-table thead th:not(:first-child),
+    .stamp-inv-saved-table tbody td:not(:first-child) {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .stamp-inv-saved-table tbody td {
+        padding: 0.45rem 0.55rem;
+        border-bottom: 1px solid #e2e8f0;
+        color: #0f172a;
+        vertical-align: middle;
+    }
+
+    .stamp-inv-saved-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .stamp-inv-empty {
+        text-align: center !important;
+        color: #64748b !important;
+        font-family: inherit !important;
+        padding: 1rem 0.55rem !important;
     }
 
     /* Bulk Pricing */

@@ -9,15 +9,14 @@
 @php
     $order = $invoice->salesOrder;
     $isPaid = $invoice->status === 'PAID';
-    $companyName = $company?->name ?? 'Continental Wholesale Inc';
 @endphp
 
 <div class="brand-bar">
     <table>
         <tr>
             <td>
-                <div class="brand-name">{{ $companyName }}</div>
-                <div class="brand-sub">Wholesale Invoice</div>
+                @include('pdf._company-brand')
+                <div class="brand-sub" style="margin-top:4px">Wholesale Invoice</div>
             </td>
             <td style="text-align:right">
                 <div class="doc-title">INVOICE</div>

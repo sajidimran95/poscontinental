@@ -29,6 +29,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('lookups', 'pages.lookups.index')->name('lookups.index');
 
     // Admin (company POS)
+    Volt::route('admin/company-settings', 'pages.tobacco.company-settings')->name('admin.company-settings');
+    Route::redirect('tobacco/filing-settings', '/admin/company-settings');
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
     Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');
     Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
@@ -108,6 +110,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('inquiries/item-velocity', 'pages.inquiries.item-velocity')->name('inquiries.item-velocity');
     Volt::route('reports/sales', 'pages.reports.sales')->name('reports.sales');
     Volt::route('reports/price-list', 'pages.reports.price-list')->name('reports.price-list');
+    Volt::route('reports/msa', 'pages.tobacco.filing')->name('reports.msa');
     Route::get('reports/price-list/print', [DocumentPdfController::class, 'priceList'])
         ->name('reports.price-list.print');
 });

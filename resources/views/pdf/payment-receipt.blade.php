@@ -6,16 +6,13 @@
     @include('pdf._styles')
 </head>
 <body>
-@php
-    $companyName = $company?->name ?? 'Continental Wholesale Inc';
-@endphp
 
 <div class="brand-bar">
     <table>
         <tr>
             <td>
-                <div class="brand-name">{{ $companyName }}</div>
-                <div class="brand-sub">Accounts Receivable</div>
+                @include('pdf._company-brand')
+                <div class="brand-sub" style="margin-top:4px">Accounts Receivable</div>
             </td>
             <td style="text-align:right">
                 <div class="doc-title">PAYMENT RECEIPT</div>

@@ -10,17 +10,18 @@
         margin: 0;
     }
     .brand-bar {
-        background: #1e3a5f;
-        color: #fff;
-        padding: 14px 16px;
-        margin: 0 0 16px;
+        background: #fff;
+        color: #0f172a;
+        padding: 0 0 12px;
+        margin: 0 0 14px;
+        border-bottom: 1.5px solid #0f172a;
     }
     .brand-bar table { width: 100%; border-collapse: collapse; }
-    .brand-bar td { border: none; padding: 0; vertical-align: middle; color: #fff; }
-    .brand-name { font-size: 16px; font-weight: bold; letter-spacing: 0.02em; }
-    .brand-sub { font-size: 9px; color: #cbd5e1; margin-top: 3px; }
-    .doc-title { font-size: 20px; font-weight: bold; text-align: right; }
-    .doc-meta { font-size: 9.5px; text-align: right; color: #e2e8f0; margin-top: 4px; }
+    .brand-bar td { border: none; padding: 0; vertical-align: top; color: #0f172a; }
+    .brand-name { font-size: 16px; font-weight: bold; letter-spacing: 0.02em; color: #0f172a; }
+    .brand-sub { font-size: 9px; color: #475569; margin-top: 2px; }
+    .doc-title { font-size: 18px; font-weight: bold; text-align: right; color: #0f172a; }
+    .doc-meta { font-size: 9.5px; text-align: right; color: #475569; margin-top: 4px; }
     .status {
         display: inline-block;
         margin-top: 6px;
@@ -28,12 +29,13 @@
         font-size: 9px;
         font-weight: bold;
         letter-spacing: 0.04em;
-        background: #dbeafe;
-        color: #1e3a8a;
+        background: #f1f5f9;
+        color: #334155;
+        border: 1px solid #cbd5e1;
     }
-    .status-paid, .status-ok { background: #bbf7d0; color: #14532d; }
-    .status-open, .status-warn { background: #fecaca; color: #7f1d1d; }
-    .status-credit { background: #fde68a; color: #92400e; }
+    .status-paid, .status-ok { background: #f1f5f9; color: #334155; }
+    .status-open, .status-warn { background: #f1f5f9; color: #334155; }
+    .status-credit { background: #f1f5f9; color: #334155; }
     .section { margin-bottom: 14px; }
     .cards { width: 100%; border-collapse: separate; border-spacing: 8px 0; margin: 0 -4px 12px; }
     .card {

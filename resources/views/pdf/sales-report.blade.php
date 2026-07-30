@@ -16,8 +16,8 @@
     <table>
         <tr>
             <td>
-                <div class="brand-name">{{ $companyName }}</div>
-                <div class="brand-sub">Sales Analytics</div>
+                @include('pdf._company-brand')
+                <div class="brand-sub" style="margin-top:4px">Sales Analytics</div>
             </td>
             <td style="text-align:right">
                 <div class="doc-title">SALES REPORT</div>

@@ -31,6 +31,7 @@
                         };
                         $menus = [
                             'File' => [
+                                ['Company Settings', 'admin.company-settings'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
@@ -65,10 +66,11 @@
                             'Reports' => [
                                 ['Sales Report', 'reports.sales'],
                                 ['Price List', 'reports.price-list'],
+                                ['MSA Report', 'reports.msa'],
                             ],
                             'Tobacco' => [
                                 ['Stamp Inventory', 'tobacco.stamp-inventory'],
-                                ['XML Filing', 'tobacco.filing'],
+                                ['MSA Report', 'tobacco.filing'],
                             ],
                         ];
                     @endphp
@@ -131,15 +133,12 @@
                     'lookups.index' => 'Lookups',
                     'reports.sales' => 'Sales Report',
                     'reports.price-list' => 'Price List',
+                    'reports.msa' => 'MSA Report',
                     'inventory.bulk-pricing' => 'Bulk Pricing',
                     'inquiries.stock-status' => 'Stock Status',
                     'inquiries.item-velocity' => 'Item Velocity',
                     'tobacco.stamp-inventory' => 'Stamp Inventory',
-                    'tobacco.filing' => 'Tobacco Filing',
-                    'admin.users.index' => 'Users & Roles',
-                    'admin.email-setup' => 'Email Setup',
-                    'admin.email-logs' => 'Email Send Log',
-                    'admin.terminal' => 'Terminal',
+                    'tobacco.filing' => 'MSA Report',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

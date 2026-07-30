@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Company extends Model
 {
     protected $fillable = [
-        'code', 'name', 'fein_no', 'is_active',
+        'code', 'name', 'address', 'city', 'state', 'zip_code',
+        'phone', 'fax', 'email', 'contact_name',
+        'fein_no', 'state_license_number', 'transmitter_account_number', 'is_active',
         'mail_mailer', 'mail_host', 'mail_port', 'mail_username', 'mail_password',
         'mail_encryption', 'mail_from_address', 'mail_from_name',
     ];
@@ -29,5 +31,69 @@ class Company extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /** Street line for invoices / sales order letterhead. */
+    public function letterheadAddress(): string
+    {
+        $address = trim((string) $this->address);
+        if ($address !== '') {
+            return strtoupper($address);
+        }
+
+        return (string) config('company.address', '3802 TRADE CENTER DR');
+    }
+
+    /** City, ST ZIP line for letterhead. */
+    public function letterheadCityLine(): string
+    {
+        $city = trim((string) $this->city);
+        $state = strtoupper(trim((string) $this->state));
+        $zip = trim((string) $this->zip_code);
+
+        if ($city !== '' || $state !== '' || $zip !== '') {
+            $left = collect([$city !== '' ? strtoupper($city) : null, $state !== '' ? $state : null])
+                ->filter()
+                ->implode(', ');
+
+            return trim($left.($zip !== '' ? ' '.$zip : ''));
+        }
+
+        return (string) config('company.city_line', 'ANN ARBOR, MI 48108');
+    }
+
+    public function letterheadTel(): string
+    {
+        $phone = preg_replace('/\s+/', '', (string) $this->phone);
+        if ($phone !== '') {
+            return str_starts_with(strtolower($phone), 'tel') ? $phone : 'Tel:'.$phone;
+        }
+
+        return (string) config('company.tel', 'Tel:7346773510');
+    }
+
+    public function letterheadFax(): string
+    {
+        $fax = preg_replace('/\s+/', '', (string) $this->fax);
+        if ($fax !== '') {
+            return str_starts_with(strtolower($fax), 'fax') ? $fax : 'Fax:'.$fax;
+        }
+
+        return (string) config('company.fax', 'Fax:7346773567');
+    }
+
+    /**
+     * @return array{companyAddress: string, companyCityLine: string, companyTel: string, companyFax: string, companyEmail: string, companyContact: string}
+     */
+    public function letterhead(): array
+    {
+        return [
+            'companyAddress' => $this->letterheadAddress(),
+            'companyCityLine' => $this->letterheadCityLine(),
+            'companyTel' => $this->letterheadTel(),
+            'companyFax' => $this->letterheadFax(),
+            'companyEmail' => trim((string) $this->email),
+            'companyContact' => trim((string) $this->contact_name),
+        ];
     }
 }

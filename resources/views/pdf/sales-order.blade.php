@@ -155,10 +155,12 @@
     use App\Support\SalesOrderLinePresentation;
 
     $companyName = $company?->name ?? 'Continental Wholesale Inc';
-    $companyAddress = $companyAddress ?? '3802 TRADE CENTER DR';
-    $companyCityLine = $companyCityLine ?? 'ANN ARBOR, MI 48108';
-    $companyTel = $companyTel ?? 'Tel:7346773510';
-    $companyFax = $companyFax ?? 'Fax:7346773567';
+    $companyAddress = $companyAddress ?? ($company?->letterheadAddress() ?? config('company.address', '3802 TRADE CENTER DR'));
+    $companyCityLine = $companyCityLine ?? ($company?->letterheadCityLine() ?? config('company.city_line', 'ANN ARBOR, MI 48108'));
+    $companyTel = $companyTel ?? ($company?->letterheadTel() ?? config('company.tel', 'Tel:7346773510'));
+    $companyFax = $companyFax ?? ($company?->letterheadFax() ?? config('company.fax', 'Fax:7346773567'));
+    $companyEmail = $companyEmail ?? trim((string) ($company?->email ?? ''));
+    $companyContact = $companyContact ?? trim((string) ($company?->contact_name ?? ''));
     $logoPath = $logoPath ?? null;
 
     $billCity = collect([$order->bill_to_city, $order->bill_to_state, $order->bill_to_zip])->filter()->implode(', ');
@@ -199,9 +201,15 @@
                 <img class="logo-img" src="{{ $logoPath }}" alt="Logo">
             @endif
             <div class="co-name">{{ $companyName }}</div>
+            @if ($companyContact !== '')
+                <div class="co-line">{{ $companyContact }}</div>
+            @endif
             <div class="co-line">{{ $companyAddress }}</div>
             <div class="co-line">{{ $companyCityLine }}</div>
             <div class="co-line">{{ $companyTel }} &nbsp; {{ $companyFax }}</div>
+            @if ($companyEmail !== '')
+                <div class="co-line">{{ $companyEmail }}</div>
+            @endif
 
             <table class="addr-box">
                 <tr>

@@ -61,25 +61,6 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         $this->is_active = (bool) ($company?->is_active ?? true);
     }
 
-    public function fillDemo(): void
-    {
-        $this->code = $this->code !== '' ? $this->code : 'CWI';
-        $this->name = 'Continental Wholesale Inc';
-        $this->address = '3802 TRADE CENTER DR';
-        $this->city = 'ANN ARBOR';
-        $this->state = 'MI';
-        $this->zip_code = '48108';
-        $this->phone = '7346773510';
-        $this->fax = '7346773567';
-        $this->email = 'office@continentalwholesale.test';
-        $this->contact_name = 'Office Desk';
-        $this->fein_no = '38-1234567';
-        $this->state_license_number = '10001234';
-        $this->transmitter_account_number = '381234567';
-        $this->is_active = true;
-        $this->statusMessage = 'Demo company address & filing values loaded — click Save Settings to keep them.';
-    }
-
     public function save(): void
     {
         $this->statusMessage = '';
@@ -161,18 +142,9 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
     @endif
 
     <div class="stamp-inv-body">
-        <div class="msa-how-box">
-            <h3>Where this prints</h3>
-            <ul>
-                <li><strong>Company name + address + phone/fax/email</strong> — letterhead on Invoices, Sales Orders, Credit Memos, Pick Lists, Payment Receipts, and other PDFs.</li>
-                <li><strong>Company FEIN / license / transmitter</strong> — MSA tobacco XML filer identity (not supplier/customer).</li>
-                <li><strong>Supplier / Customer FEIN</strong> — still set on Supplier and Customer forms for MSA schedule parties.</li>
-            </ul>
-        </div>
-
         <form wire:submit.prevent="save" class="stamp-inv-form" style="max-width: 40rem;" autocomplete="off">
             <p class="stamp-inv-hint">
-                System company identity for documents and Michigan MSA filing. Use <strong>Fill Demo</strong> for Ann Arbor sample values.
+                System company identity for documents and Michigan MSA filing.
             </p>
 
             <h3 class="msa-section-title">Company</h3>
@@ -252,7 +224,6 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
             <div class="stamp-inv-actions">
                 <button type="submit" class="desk-btn desk-btn-primary">Save Settings</button>
-                <button type="button" wire:click="fillDemo" class="desk-btn">Fill Demo</button>
                 <a href="{{ route('reports.msa') }}" wire:navigate class="desk-btn">Back to MSA Report</a>
             </div>
         </form>

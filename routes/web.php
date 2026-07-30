@@ -75,6 +75,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::get('sales/customers/print', [DocumentPdfController::class, 'customersList'])
         ->name('sales.customers.print');
     Volt::route('sales/customers/{customer}/edit', 'pages.sales.customers.form')->name('sales.customers.edit');
+    Volt::route('sales/customers/{customer}', 'pages.sales.customers.form')->name('sales.customers.show');
     Volt::route('sales/orders', 'pages.sales.orders.index')->name('sales.orders.index');
     Volt::route('sales/orders/create', 'pages.sales.orders.form')->name('sales.orders.create');
     Route::get('sales/orders/{salesOrder}/print', [DocumentPdfController::class, 'salesOrder'])

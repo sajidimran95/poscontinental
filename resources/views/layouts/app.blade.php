@@ -105,6 +105,7 @@
                     'sales.orders.show' => 'Order',
                     'sales.customers.create' => 'New Customer',
                     'sales.customers.edit' => 'Customer',
+                    'sales.customers.show' => 'Customer',
                     'sales.customers.index' => 'Customers',
                     'sales.orders.index' => 'Orders',
                     'sales.invoices.index' => 'Invoices',

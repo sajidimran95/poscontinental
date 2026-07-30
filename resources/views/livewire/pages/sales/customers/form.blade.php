@@ -19,6 +19,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 {
     public ?Customer $customer = null;
 
+    public bool $viewMode = false;
+
     public string $activeTab = 'name';
 
     public string $customer_id = '';
@@ -150,25 +152,55 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function mount(?Customer $customer = null): void
     {
+        $this->viewMode = request()->routeIs('sales.customers.show');
+
         if ($customer?->exists) {
             abort_unless($customer->company_id === auth()->user()->company_id, 403);
             $this->customer = $customer->load('shippingAddresses');
-            $this->fill($customer->only([
-                'customer_id', 'is_inactive', 'contact', 'company_name', 'address', 'city', 'state',
+
+            $stringFields = [
+                'customer_id', 'contact', 'company_name', 'address', 'city', 'state',
                 'zip_code', 'country', 'telephone', 'telephone2', 'mobile', 'fax', 'email', 'web_page',
-                'price_level_id', 'cigarette_tax_class_id', 'discount_schedule_id', 'purchase_limit_schedule_id',
-                'payment_term_id', 'sales_rep_id', 'delivery_route_id', 'lead_source', 'customer_category',
-                'opt_out_catalog', 'opt_out_email', 'opt_out_telemarketing', 'opt_out_mobile', 'opt_out_all',
-                'fein_no', 'account_type', 'credit_limit', 'balance', 'number_of_orders', 'total_sales',
-                'bad_checks_count', 'replacements_count', 'returns_count', 'messages_alerts', 'comments',
-                'is_tax_exempt', 'tax_certificate_no', 'certificate_on_file', 'order_day', 'location_no',
-                'drivers_accept_returns', 'is_employee', 'owner_name', 'owner_address', 'owner_city',
-                'owner_state', 'owner_zip', 'owner_country', 'owner_telephone', 'owner_fax', 'owner_email',
-            ]));
+                'lead_source', 'customer_category', 'fein_no', 'account_type',
+                'messages_alerts', 'comments', 'tax_certificate_no', 'order_day', 'location_no',
+                'owner_name', 'owner_address', 'owner_city', 'owner_state', 'owner_zip',
+                'owner_country', 'owner_telephone', 'owner_fax', 'owner_email',
+            ];
+            foreach ($stringFields as $field) {
+                $this->{$field} = (string) ($customer->{$field} ?? '');
+            }
+
+            $this->is_inactive = (bool) $customer->is_inactive;
+            $this->opt_out_catalog = (bool) $customer->opt_out_catalog;
+            $this->opt_out_email = (bool) $customer->opt_out_email;
+            $this->opt_out_telemarketing = (bool) $customer->opt_out_telemarketing;
+            $this->opt_out_mobile = (bool) $customer->opt_out_mobile;
+            $this->opt_out_all = (bool) $customer->opt_out_all;
+            $this->is_tax_exempt = (bool) $customer->is_tax_exempt;
+            $this->certificate_on_file = (bool) $customer->certificate_on_file;
+            $this->drivers_accept_returns = (bool) $customer->drivers_accept_returns;
+            $this->is_employee = (bool) $customer->is_employee;
+
+            $this->price_level_id = $customer->price_level_id !== null ? (int) $customer->price_level_id : null;
+            $this->cigarette_tax_class_id = $customer->cigarette_tax_class_id !== null ? (int) $customer->cigarette_tax_class_id : null;
+            $this->discount_schedule_id = $customer->discount_schedule_id !== null ? (int) $customer->discount_schedule_id : null;
+            $this->purchase_limit_schedule_id = $customer->purchase_limit_schedule_id !== null ? (int) $customer->purchase_limit_schedule_id : null;
+            $this->payment_term_id = $customer->payment_term_id !== null ? (int) $customer->payment_term_id : null;
+            $this->sales_rep_id = $customer->sales_rep_id !== null ? (int) $customer->sales_rep_id : null;
+            $this->delivery_route_id = $customer->delivery_route_id !== null ? (int) $customer->delivery_route_id : null;
+
+            $this->credit_limit = number_format((float) ($customer->credit_limit ?? 0), 2, '.', '');
+            $this->balance = number_format((float) ($customer->balance ?? 0), 2, '.', '');
+            $this->number_of_orders = (string) (int) ($customer->number_of_orders ?? 0);
+            $this->total_sales = number_format((float) ($customer->total_sales ?? 0), 2, '.', '');
+            $this->bad_checks_count = (string) (int) ($customer->bad_checks_count ?? 0);
+            $this->replacements_count = (string) (int) ($customer->replacements_count ?? 0);
+            $this->returns_count = (string) (int) ($customer->returns_count ?? 0);
+
             $this->tax_certificate_exp = optional($customer->tax_certificate_exp)?->format('Y-m-d') ?? '';
             $this->customer_since = optional($customer->customer_since)?->format('Y-m-d');
             $this->last_order_on = optional($customer->last_order_on)?->format('Y-m-d');
-            $this->owner_ssn = $customer->owner_ssn ?? '';
+            $this->owner_ssn = (string) ($customer->owner_ssn ?? '');
             $this->owner_ssn_display = $customer->owner_ssn_masked;
             $this->shippingAddresses = $customer->shippingAddresses->map(fn (CustomerShippingAddress $a) => [
                 'name' => $a->name ?? '',
@@ -219,6 +251,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function addShipTo(): void
     {
+        abort_if($this->viewMode, 403);
+
         $this->shippingAddresses[] = [
             'name' => '', 'address' => '', 'city' => '', 'state' => '', 'zip' => '',
             'telephone' => '', 'fax' => '', 'class' => '', 'is_primary' => false,
@@ -227,6 +261,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function removeShipTo(int $index): void
     {
+        abort_if($this->viewMode, 403);
+
         unset($this->shippingAddresses[$index]);
         $this->shippingAddresses = array_values($this->shippingAddresses);
         if ($this->shippingAddresses === []) {
@@ -236,6 +272,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function setPrimaryShipTo(int $index): void
     {
+        abort_if($this->viewMode, 403);
+
         foreach ($this->shippingAddresses as $i => $row) {
             $this->shippingAddresses[$i]['is_primary'] = $i === $index;
         }
@@ -271,6 +309,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
     public function save(): void
     {
+        abort_if($this->viewMode, 403);
+
         try {
             $this->validate([
                 'customer_id' => 'required|string|max:64',
@@ -407,10 +447,12 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form">
-        <x-action-bar :title="$customer ? 'Edit Customer — '.$customer_id : 'New Customer'" />
+    <form wire:submit="save" class="desk-main entity-form" @class(['entity-form-readonly' => $viewMode])>
+        <x-action-bar :title="$viewMode
+            ? 'View Customer — '.$customer_id
+            : ($customer ? 'Edit Customer — '.$customer_id : 'New Customer')" />
 
-        <div class="entity-body">
+        <fieldset class="entity-body" @disabled($viewMode)>
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
                     <label class="so-form-lbl so-field-req" for="customer_id">Customer ID</label>
@@ -464,7 +506,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 <div class="entity-section">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Shipping Addresses</h3>
-                        <button type="button" wire:click="addShipTo" class="desk-btn desk-btn-sm">Add Ship-To</button>
+                        @unless ($viewMode)
+                            <button type="button" wire:click="addShipTo" class="desk-btn desk-btn-sm">Add Ship-To</button>
+                        @endunless
                     </div>
                     <div class="desk-grid entity-ship-grid">
                         <table class="desk-table">
@@ -494,7 +538,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                         <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="so-input ship-col-phone" /></td>
                                         <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="so-input ship-col-fax" /></td>
                                         <td><input wire:model="shippingAddresses.{{ $i }}.class" class="so-input ship-col-class" /></td>
-                                        <td><button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
+                                        <td>
+                                            @unless ($viewMode)
+                                                <button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
+                                            @endunless
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -683,7 +731,7 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                     </div>
                 </div>
             @endif
-        </div>
+        </fieldset>
 
         <div class="entity-footer">
             <div class="entity-tabs" role="tablist" aria-label="Customer sections">
@@ -698,8 +746,12 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 @endforeach
             </div>
             <div class="entity-footer-actions">
-                <a href="{{ route('sales.customers.index') }}" wire:navigate class="desk-btn">Cancel</a>
-                <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
+                <a href="{{ route('sales.customers.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+                @if ($viewMode && $customer)
+                    <a href="{{ route('sales.customers.edit', $customer) }}" wire:navigate class="desk-btn desk-btn-primary">Edit Customer</a>
+                @elseif (! $viewMode)
+                    <button type="submit" class="desk-btn desk-btn-primary">Save Changes</button>
+                @endif
             </div>
         </div>
     </form>

@@ -40,7 +40,7 @@ class AppFeatures
             'sales.customers' => [
                 'label' => 'Customers',
                 'group' => 'Sales',
-                'routes' => ['sales.customers.index', 'sales.customers.create', 'sales.customers.edit'],
+                'routes' => ['sales.customers.index', 'sales.customers.create', 'sales.customers.edit', 'sales.customers.show'],
             ],
             'sales.invoices' => [
                 'label' => 'Invoices',

@@ -117,6 +117,27 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $this->resetPage();
     }
 
+    public function viewSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a customer first.');
+
+            return null;
+        }
+
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $customer) {
+            session()->flash('status', 'Customer not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.customers.show', $customer), navigate: true);
+    }
+
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
@@ -125,7 +146,17 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             return null;
         }
 
-        return $this->openCustomer($this->selectedId);
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $customer) {
+            session()->flash('status', 'Customer not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.customers.edit', $customer), navigate: true);
     }
 
     public function openCustomer(int $id): mixed
@@ -142,7 +173,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('sales.customers.edit', $customer), navigate: true);
+        return $this->redirect(route('sales.customers.show', $customer), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -330,7 +361,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('sales.customers.edit', $customer) }}" wire:navigate wire:click.stop>{{ $customer->customer_id }}</a>
+                                        <a href="{{ route('sales.customers.show', $customer) }}" wire:navigate wire:click.stop>{{ $customer->customer_id }}</a>
                                     </td>
                                     <td>{{ $customer->contact }}</td>
                                     <td>{{ $customer->company_name }}</td>
@@ -398,10 +429,10 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                        <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>

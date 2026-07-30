@@ -22,11 +22,22 @@ class PublicMediaController extends Controller
         }
 
         $allowed = str_starts_with($path, 'items/images/')
-            || str_starts_with($path, 'items/thumbnails/');
+            || str_starts_with($path, 'items/thumbnails/')
+            || str_starts_with($path, 'users/avatars/');
 
         abort_unless($allowed, 404);
 
         // Prefer public/uploads copy (static-friendly).
+        if (str_starts_with($path, 'users/avatars/')) {
+            $publicRelative = 'uploads/'.$path;
+            $publicFull = public_path($publicRelative);
+            if (is_file($publicFull)) {
+                return response()->file($publicFull, [
+                    'Cache-Control' => 'public, max-age=86400',
+                ]);
+            }
+        }
+
         $published = ItemMedia::publishToPublic($path);
         if ($published && is_file(public_path($published))) {
             return response()->file(public_path($published), [

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Jul 30, 2026 at 04:41 PM
+-- Generation Time: Jul 30, 2026 at 05:56 PM
 -- Server version: 8.4.3
 -- PHP Version: 8.4.12
 
@@ -87,6 +87,14 @@ CREATE TABLE `cache` (
   `value` mediumtext COLLATE utf8mb4_unicode_ci NOT NULL,
   `expiration` bigint NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `cache`
+--
+
+INSERT INTO `cache` (`key`, `value`, `expiration`) VALUES
+('continental-wholesale-cache-356a192b7913b04c54574d18c28d46e6395428ab', 'i:2;', 1785433605),
+('continental-wholesale-cache-356a192b7913b04c54574d18c28d46e6395428ab:timer', 'i:1785433605;', 1785433605);
 
 -- --------------------------------------------------------
 
@@ -193,7 +201,7 @@ CREATE TABLE `companies` (
 --
 
 INSERT INTO `companies` (`id`, `code`, `name`, `address`, `city`, `state`, `zip_code`, `phone`, `fax`, `email`, `contact_name`, `fein_no`, `state_license_number`, `transmitter_account_number`, `is_active`, `customer_app_api_active`, `mail_mailer`, `mail_host`, `mail_port`, `mail_username`, `mail_password`, `mail_encryption`, `mail_from_address`, `mail_from_name`, `created_at`, `updated_at`) VALUES
-(1, 'CWI', 'Continental Wholesale Inc', '3802 TRADE CENTER DR', 'ANN ARBOR', 'MI', '48108', '7346773510', '7346773567', 'office@continentalwholesale.test', 'Office Desk', '38-2658491', '82001456', '82001456', 1, 1, 'log', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-21 08:14:32', '2026-07-30 10:02:12');
+(1, 'CWI', 'Continental Wholesale Inc', '3802 TRADE CENTER DR', 'ANN ARBOR', 'MI', '48108', '7346773510', '7346773567', 'office@continentalwholesale.test', 'Office Desk', '38-2658491', '82001456', '820014561', 1, 1, 'log', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-21 08:14:32', '2026-07-30 11:29:26');
 
 -- --------------------------------------------------------
 
@@ -343,7 +351,7 @@ INSERT INTO `customers` (`id`, `company_id`, `customer_id`, `is_inactive`, `is_f
 (6, 1, 'C1002', 0, 0, 'Lisa Nguyen', 'Quick Stop Fuels', '88 Telegraph Rd', 'Southfield', 'MI', '48033', 'US', '248-555-1002', NULL, NULL, NULL, 'quickstop@demo.local', NULL, NULL, 0, NULL, 2, NULL, NULL, NULL, 1, 2, 'Sales Call', 'Retail', 0, 1, '38-2223344', 'COD', 5000.00, 0.00, NULL, NULL, 0, NULL, NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43', 0, 0, 0, 0, '2025-01-24', NULL, 12, 18500.00, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
 (7, 1, 'C1003', 0, 0, 'Tom Bradley', 'Great Lakes Chain Stores', '2100 Corporate Dr', 'Troy', 'MI', '48084', 'US', '248-555-1003', NULL, NULL, NULL, 'ap@glchain-demo.local', NULL, NULL, 0, NULL, 3, NULL, NULL, NULL, 1, 2, 'Sales Call', 'Chain', 0, 1, '38-3334455', 'Open Account', 75000.00, 8420.00, NULL, NULL, 0, NULL, NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43', 0, 0, 0, 0, '2025-01-24', NULL, 12, 18500.00, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
 (8, 1, 'C1004', 0, 0, 'Nina Kowalski', 'Harbor Wholesale Dist.', '15 Dock St', 'Port Huron', 'MI', '48060', 'US', '810-555-1004', NULL, NULL, NULL, 'orders@harbor-demo.local', NULL, NULL, 0, NULL, 4, NULL, NULL, NULL, 1, 2, 'Sales Call', 'Distributor', 0, 1, '38-4445566', 'Open Account', 100000.00, 2200.00, NULL, NULL, 0, NULL, NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43', 0, 0, 0, 0, '2025-01-24', NULL, 12, 18500.00, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
-(9, 1, 'C1005', 0, 0, 'Omar Hassan', 'Corner Smoke Shop', '301 Gratiot Ave', 'Detroit', 'MI', '48226', 'US', '313-555-1005', NULL, NULL, NULL, 'corner@demo.local', NULL, NULL, 0, NULL, 1, NULL, NULL, NULL, 1, 2, 'Sales Call', 'Wholesale', 0, 1, '38-5556677', 'Cash', 2500.00, 0.00, NULL, NULL, 0, NULL, NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43', 0, 0, 0, 0, '2025-01-24', NULL, 12, 18500.00, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+(9, 1, 'C1005', 0, 0, 'Omar Hassan', 'Corner Smoke Shop', '301 Gratiot Ave', 'Detroit', 'MI', '48226', 'US', '313-555-1005', '', '', '', 'corner@demo.local', NULL, NULL, 0, '', 1, NULL, NULL, NULL, 1, 2, 'Sales Call', 'Wholesale', 0, NULL, '38-5556677', 'Cash', 2500.00, 0.00, '', '', 1, '456608956567', '2026-09-30', '2026-07-24 08:03:43', '2026-07-30 11:04:23', 0, 0, 0, 0, '2025-01-24', NULL, 12, 18500.00, 0, 0, 0, 'Monday', 'ghnnjhl', 1, 1, 1, 'Emran Hossain', 'eyJpdiI6Ik9UR29JRkdpZjBUWkU1OGd3Y3NsV1E9PSIsInZhbHVlIjoicDVtVGdmWUtwUXpXekpiSG5lTS85UT09IiwibWFjIjoiOTFiNTI1MWYxZDQ0NGZlYTIxMjdiN2JjZmQzMWY5YjYyMWQ1MjZmNjMwNTcwOTNkMDU1YjY0YmU1ODU0MGQ2NiIsInRhZyI6IiJ9', 'Deira, Dubai', 'dubai', '000', '0000', 'Bangladesh', '01710796333', 'rfre43gft', 'Sajidimran95@gmail.com');
 
 -- --------------------------------------------------------
 
@@ -839,9 +847,9 @@ INSERT INTO `items` (`id`, `company_id`, `item_code`, `item_type`, `class`, `des
 (8, 1, 'COKE-12PK-CS', 'Standard Item', NULL, 'Coca-Cola 12oz 12-Pack Case', NULL, NULL, NULL, NULL, 18.7500, 22.5000, 12.4000, 12.4000, 12.4000, 12.4000, 195.0000, 20.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-28', NULL, 2, 3, 5, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '049000001122', NULL, '2026-07-24 08:03:43', '2026-07-28 08:25:13'),
 (9, 1, 'WATER-24PK', 'Standard Item', NULL, 'Purified Water 16.9oz 24-Pack', NULL, NULL, NULL, NULL, 6.9900, 8.3900, 4.1000, 4.1000, 4.1000, 4.1000, 338.0000, 40.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, '2026-07-12', NULL, 2, 4, 7, 4, 1, NULL, 1, 'CS', 0, 1, 1, 1, 0, 'Lot', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '078742001234', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
 (10, 1, 'LAYS-CLASSIC', 'Standard Item', NULL, 'Lay\'s Classic Potato Chips 8oz', NULL, NULL, NULL, NULL, 3.4900, 4.1900, 2.1000, 2.1000, 2.1000, 2.1000, 518.0000, 24.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, '2026-07-12', NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400001001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(11, 1, 'DORITOS-NACH', 'Standard Item', NULL, 'Doritos Nacho Cheese 9.25oz', NULL, NULL, NULL, NULL, 3.7900, 4.5500, 2.2500, 2.2500, 2.2500, 2.2500, 360.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400002002', NULL, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
+(11, 1, 'DORITOS-NACH', 'Standard Item', NULL, 'Doritos Nacho Cheese 9.25oz', NULL, NULL, NULL, NULL, 3.7900, 4.5500, 2.2500, 2.2500, 2.2500, 2.2500, 360.0000, 3.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, NULL, NULL, NULL, NULL, 3, 5, 8, 11, 1, NULL, 1, 'BAG', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '028400002002', NULL, '2026-07-24 08:03:43', '2026-07-30 10:58:34'),
 (12, 1, 'SNICKERS-BX', 'Standard Item', NULL, 'Snickers Bar Box (24ct)', NULL, NULL, NULL, NULL, 28.0000, 33.6000, 18.5000, 18.5000, 18.5000, 18.5000, 100.0000, 6.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-22', NULL, NULL, NULL, 3, 6, 9, 2, 1, NULL, 1, 'BX', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '040000003003', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
-(13, 1, 'PAPER-TOWEL', 'Standard Item', NULL, 'Paper Towels 6-Roll Pack', NULL, NULL, NULL, NULL, 12.9900, 15.5900, 8.2000, 8.2000, 8.2000, 8.2000, 171.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-20', NULL, '2026-07-19', NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'Serial', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '037000004004', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
+(13, 1, 'PAPER-TOWEL', 'Standard Item', '', 'Paper Towels 6-Roll Pack', '', '', 'items/images/61ff88e7-6737-4be6-b226-ca167d978751.jpg', 'items/thumbnails/16866590-c2d4-4374-807c-1be95253df90.jpg', 12.9900, 15.5900, 8.2000, 8.2000, 8.2000, 8.2000, 171.0000, 0.0000, 0.0000, 0.0000, 12.0000, 48.0000, 3, '2026-07-20', NULL, '2026-07-19', NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'Serial', 0.0000, 0.0000, '', NULL, NULL, NULL, NULL, NULL, '', '', '', '', '', 0.0000, 'UPC-A', '037000004004', '', '2026-07-24 08:03:43', '2026-07-30 11:55:37'),
 (14, 1, 'LOW-STOCK-01', 'Standard Item', NULL, 'Demo Low Stock Item', NULL, NULL, NULL, NULL, 9.9900, 11.9900, 5.0000, 5.0000, 5.0000, 5.0000, 0.0000, 0.0000, 0.0000, 0.0000, 10.0000, 40.0000, 3, NULL, NULL, NULL, NULL, 4, 7, 10, 2, 1, NULL, 1, 'EA', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0.0000, 'UPC-A', '999000000001', NULL, '2026-07-24 08:03:43', '2026-07-27 12:00:14'),
 (15, 1, '1111', 'Standard Item', 'dfvbfggbhgf', 'fgbnhnb', '', '', 'items/images/3bb23049-b658-4b95-a82c-110f025b2da9.webp', 'items/thumbnails/409ced5e-184a-4668-85ea-69a6910862bc.webp', 700.0000, 600.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0, NULL, NULL, NULL, NULL, 2, 4, 7, 5, NULL, NULL, NULL, 'CTN', 0, 1, 1, 1, 0, 'None', 0.0000, 0.0000, '', NULL, NULL, NULL, NULL, NULL, '', '', '', '', '', 0.0000, 'UPC-A', '', '', '2026-07-24 09:01:13', '2026-07-24 09:01:13');
 
@@ -873,9 +881,9 @@ CREATE TABLE `item_batches` (
 INSERT INTO `item_batches` (`id`, `company_id`, `item_id`, `batch_number`, `tracking_type`, `quantity`, `expiry_date`, `received_at`, `notes`, `sort_order`, `created_at`, `updated_at`) VALUES
 (1, 1, 9, 'LOT-WTR-2401', 'Lot', 180.0000, '2027-05-27', '2026-07-07', 'Spring warehouse receipt', 0, '2026-07-27 12:00:14', '2026-07-27 12:00:14'),
 (2, 1, 9, 'LOT-WTR-2402', 'Lot', 170.0000, '2027-09-27', '2026-07-22', 'Latest receipt', 1, '2026-07-27 12:00:14', '2026-07-27 12:00:14'),
-(3, 1, 13, 'SN-PT-10001', 'Serial', 1.0000, NULL, '2026-07-15', NULL, 0, '2026-07-27 12:00:14', '2026-07-27 12:00:14'),
-(4, 1, 13, 'SN-PT-10002', 'Serial', 1.0000, NULL, '2026-07-15', NULL, 1, '2026-07-27 12:00:14', '2026-07-27 12:00:14'),
-(5, 1, 13, 'SN-PT-10003', 'Serial', 1.0000, NULL, '2026-07-24', 'Display unit', 2, '2026-07-27 12:00:14', '2026-07-27 12:00:14');
+(6, 1, 13, 'SN-PT-10001', 'Serial', 1.0000, NULL, '2026-07-15', NULL, 0, '2026-07-30 11:55:37', '2026-07-30 11:55:37'),
+(7, 1, 13, 'SN-PT-10002', 'Serial', 1.0000, NULL, '2026-07-15', NULL, 1, '2026-07-30 11:55:37', '2026-07-30 11:55:37'),
+(8, 1, 13, 'SN-PT-10003', 'Serial', 1.0000, NULL, '2026-07-24', 'Display unit', 2, '2026-07-30 11:55:37', '2026-07-30 11:55:37');
 
 -- --------------------------------------------------------
 
@@ -926,11 +934,11 @@ INSERT INTO `item_prices` (`id`, `item_id`, `price_level_id`, `uom`, `price`, `a
 (29, 12, NULL, 'BX', 28.0000, 'SNICKERS-BX', 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
 (30, 12, 1, 'BX', 26.0000, NULL, 1, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
 (31, 12, 4, 'BX', 24.5000, NULL, 2, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(32, 13, NULL, 'EA', 12.9900, 'PAPER-TOWEL', 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(33, 13, 1, 'EA', 11.5000, NULL, 1, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(34, 13, 2, 'EA', 13.9900, NULL, 2, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
 (35, 14, NULL, 'EA', 9.9900, 'LOW-STOCK-01', 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(36, 15, NULL, 'CTN', 500.0000, NULL, 0, '2026-07-24 09:01:13', '2026-07-24 09:01:13');
+(36, 15, NULL, 'CTN', 500.0000, NULL, 0, '2026-07-24 09:01:13', '2026-07-24 09:01:13'),
+(37, 13, NULL, 'EA', 12.9900, 'PAPER-TOWEL', 0, '2026-07-30 11:55:37', '2026-07-30 11:55:37'),
+(38, 13, 1, 'EA', 11.5000, NULL, 1, '2026-07-30 11:55:37', '2026-07-30 11:55:37'),
+(39, 13, 2, 'EA', 13.9900, NULL, 2, '2026-07-30 11:55:37', '2026-07-30 11:55:37');
 
 -- --------------------------------------------------------
 
@@ -1046,8 +1054,8 @@ INSERT INTO `item_upcs` (`id`, `item_id`, `upc`, `is_primary`, `sort_order`, `cr
 (14, 10, '028400001001', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
 (15, 11, '028400002002', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
 (16, 12, '040000003003', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(17, 13, '037000004004', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
-(18, 14, '999000000001', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43');
+(18, 14, '999000000001', 1, 0, '2026-07-24 08:03:43', '2026-07-24 08:03:43'),
+(19, 13, '037000004004', 1, 0, '2026-07-30 11:55:37', '2026-07-30 11:55:37');
 
 -- --------------------------------------------------------
 
@@ -1146,7 +1154,8 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES
 (43, '2026_07_28_000100_create_item_batches_table', 21),
 (44, '2026_07_28_004800_add_is_favorite_to_customers_table', 22),
 (45, '2026_07_30_211000_add_tobacco_filing_fields', 23),
-(46, '2026_07_30_220000_add_company_address_contact_fields', 24);
+(46, '2026_07_30_220000_add_company_address_contact_fields', 24),
+(47, '2026_07_30_173331_add_avatar_path_to_users_table', 25);
 
 -- --------------------------------------------------------
 
@@ -1522,7 +1531,8 @@ INSERT INTO `sales_orders` (`id`, `company_id`, `order_number`, `order_type`, `s
 (12, 1, '3007', 'Sales Order', 'New', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-27', '2026-07-27', NULL, NULL, 1, 1, 1, 1, 1, '2026-07-27', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 74.0000, 0.0000, 0.0000, 0.0000, 0.0400, 74.0400, 1, '2026-07-27 13:01:48', '2026-07-27 13:01:48'),
 (13, 1, '3009', 'Sales Order', 'Invoiced', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-28', '2026-07-28', '111111111', NULL, 1, 1, 1, 1, 1, '2026-07-28', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 18.7500, 0.0000, 0.0000, 0.0000, 0.0100, 18.7600, 1, '2026-07-28 08:01:29', '2026-07-28 08:01:39'),
 (14, 1, '3010', 'Sales Order', 'Invoiced', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-28', '2026-07-28', NULL, NULL, 1, 1, 1, 1, 1, '2026-07-28', 1, 0, NULL, NULL, NULL, NULL, NULL, NULL, 91.2500, 0.0000, 0.0000, 0.0000, 0.0500, 91.3000, 1, '2026-07-28 08:18:44', '2026-07-28 08:25:13'),
-(15, 1, '3011', 'Sales Order', 'New', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-28', '2026-07-28', NULL, NULL, 1, 1, 1, 1, 1, '2026-07-28', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 9.9900, 0.0000, 0.0000, 0.0000, 0.0000, 9.9900, 1, '2026-07-28 08:26:38', '2026-07-28 08:26:38');
+(15, 1, '3011', 'Sales Order', 'New', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-28', '2026-07-28', NULL, NULL, 1, 1, 1, 1, 1, '2026-07-28', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 9.9900, 0.0000, 0.0000, 0.0000, 0.0000, 9.9900, 1, '2026-07-28 08:26:38', '2026-07-28 08:26:38'),
+(16, 1, '3012', 'Sales Order', 'New', 'Normal', 4, 4, 'Butler Melton LLC', '+1 (121) 216-9453', 'Molestias porro ut c', 'Adipisicing totam ad', 'Ad non libero sit ma', '74803', 'Assumenda ut laboris', 'Voluptate impedit c', 'Autem rerum laudanti', 'Est officia pariatu', 'Repellendus Sed off', 'Ut aut amet impedit', '2026-07-30', '2026-07-30', NULL, NULL, 1, 1, 1, 1, 1, '2026-07-30', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 8.3700, 0.0000, 0.0000, 0.0000, 0.0100, 8.3800, 1, '2026-07-30 10:58:34', '2026-07-30 10:58:34');
 
 -- --------------------------------------------------------
 
@@ -1602,7 +1612,8 @@ INSERT INTO `sales_order_lines` (`id`, `sales_order_id`, `item_id`, `item_code`,
 (22, 13, 8, 'COKE-12PK-CS', 'Coca-Cola 12oz 12-Pack Case', 'CS', 1.0000, 1.0000, 18.7500, 0.0000, NULL, NULL, 18.7500, 1, '2026-07-28 08:01:29', '2026-07-28 08:01:29'),
 (23, 14, 8, 'COKE-12PK-CS', 'Coca-Cola 12oz 12-Pack Case', 'CS', 1.0000, 1.0000, 18.7500, 0.0000, 'tjyuju', 'yjumkumui', 18.7500, 1, '2026-07-28 08:18:45', '2026-07-28 08:25:13'),
 (24, 14, 2, 'MARL-RED-CTN', 'Marlboro Red Carton', 'CTN', 1.0000, 1.0000, 72.5000, 0.0000, NULL, NULL, 72.5000, 2, '2026-07-28 08:18:45', '2026-07-28 08:25:13'),
-(25, 15, 1, '1229W', 'SOUR PATCH WATERMELON 240CT', 'BX', 1.0000, 0.0000, 9.9900, 0.0000, NULL, NULL, 9.9900, 1, '2026-07-28 08:26:38', '2026-07-28 08:41:31');
+(25, 15, 1, '1229W', 'SOUR PATCH WATERMELON 240CT', 'BX', 1.0000, 0.0000, 9.9900, 0.0000, NULL, NULL, 9.9900, 1, '2026-07-28 08:26:38', '2026-07-28 08:41:31'),
+(26, 16, 11, 'DORITOS-NACH', 'Doritos Nacho Cheese 9.25oz', 'BAG', 3.0000, 0.0000, 3.7900, 3.0000, NULL, NULL, 8.3700, 1, '2026-07-30 10:58:34', '2026-07-30 10:58:34');
 
 -- --------------------------------------------------------
 
@@ -1624,7 +1635,7 @@ CREATE TABLE `sessions` (
 --
 
 INSERT INTO `sessions` (`id`, `user_id`, `ip_address`, `user_agent`, `payload`, `last_activity`) VALUES
-('Y5V8RjVWaAH1zpmUk8z4lV1NXpU7iCQQCl2GCNIh', 1, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'eyJfdG9rZW4iOiJQRFZjUlZMOEJ2VlpRdlM4em5DemZSa285SWRwTERXSHZWTHlaOHJXIiwiX3ByZXZpb3VzIjp7InVybCI6Imh0dHBzOlwvXC93d3cucG9zY29udGluZW50YWx3aG9sZXNhbGUudGVzdFwvaG9tZSIsInJvdXRlIjoiaG9tZSJ9LCJfZmxhc2giOnsib2xkIjpbXSwibmV3IjpbXX0sImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjoxLCJjb21wYW55X2lkIjoxLCJzaXRlX2lkIjoxLCJjb21wYW55X25hbWUiOiJDb250aW5lbnRhbCBXaG9sZXNhbGUgSW5jIiwic2l0ZV9jb2RlIjoiV1MifQ==', 1785429595);
+('XZ5vL3O965R5JOBZ0P18gkQEFf6MjIb6UCkX9jea', 1, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'eyJfdG9rZW4iOiJWaWxrb2g0OXo0dUxRZUp0RmFNZ1NaN1lTeDA3TDVPTlYwMnpQRXpmIiwiX2ZsYXNoIjp7Im9sZCI6W10sIm5ldyI6W119LCJfcHJldmlvdXMiOnsidXJsIjoiaHR0cHM6XC9cL3d3dy5wb3Njb250aW5lbnRhbHdob2xlc2FsZS50ZXN0XC9pbnZlbnRvcnlcL2l0ZW1zXC8xM1wvZWRpdCIsInJvdXRlIjoiaW52ZW50b3J5Lml0ZW1zLmVkaXQifSwibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiOjEsImNvbXBhbnlfaWQiOjEsInNpdGVfaWQiOjEsImNvbXBhbnlfbmFtZSI6IkNvbnRpbmVudGFsIFdob2xlc2FsZSBJbmMiLCJzaXRlX2NvZGUiOiJXUyJ9', 1785434140);
 
 -- --------------------------------------------------------
 
@@ -1943,6 +1954,7 @@ CREATE TABLE `users` (
   `role_id` bigint UNSIGNED DEFAULT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `username` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `avatar_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -1956,9 +1968,9 @@ CREATE TABLE `users` (
 -- Dumping data for table `users`
 --
 
-INSERT INTO `users` (`id`, `company_id`, `site_id`, `role_id`, `name`, `username`, `email`, `email_verified_at`, `password`, `is_active`, `remember_token`, `created_at`, `updated_at`) VALUES
-(1, 1, 1, 1, 'POS Admin', 'admin@gmail.com', 'admin@gmail.com', '2026-07-21 08:14:33', '$2y$12$LeHh6vx20V4XQ4qcusxMN.tnGMFxrUhWU2qk7j4w592nDaLWjiHFe', 1, NULL, '2026-07-21 08:14:33', '2026-07-23 07:20:14'),
-(2, 1, 1, 2, 'Sales Rep', 'sales', 'sales@continental.local', '2026-07-21 08:14:33', '$2y$12$4SN8qoX1/pFjLvs.lYF2IOyZrW44dHl9GXqOpQK7oXk3XPpkscxX.', 1, NULL, '2026-07-21 08:14:33', '2026-07-21 08:14:33');
+INSERT INTO `users` (`id`, `company_id`, `site_id`, `role_id`, `name`, `username`, `avatar_path`, `email`, `email_verified_at`, `password`, `is_active`, `remember_token`, `created_at`, `updated_at`) VALUES
+(1, 1, 1, 1, 'POS Admin', 'admin@gmail.com', 'users/avatars/1_843a6a30-4fcc-4fec-bcde-56ba92c503a5.png', 'admin@gmail.com', '2026-07-21 08:14:33', '$2y$12$LeHh6vx20V4XQ4qcusxMN.tnGMFxrUhWU2qk7j4w592nDaLWjiHFe', 1, NULL, '2026-07-21 08:14:33', '2026-07-30 11:54:52'),
+(2, 1, 1, 2, 'Sales Rep', 'sales', NULL, 'sales@continental.local', '2026-07-21 08:14:33', '$2y$12$4SN8qoX1/pFjLvs.lYF2IOyZrW44dHl9GXqOpQK7oXk3XPpkscxX.', 1, NULL, '2026-07-21 08:14:33', '2026-07-21 08:14:33');
 
 --
 -- Indexes for dumped tables
@@ -2589,13 +2601,13 @@ ALTER TABLE `items`
 -- AUTO_INCREMENT for table `item_batches`
 --
 ALTER TABLE `item_batches`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- AUTO_INCREMENT for table `item_prices`
 --
 ALTER TABLE `item_prices`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=40;
 
 --
 -- AUTO_INCREMENT for table `item_substitutes`
@@ -2619,7 +2631,7 @@ ALTER TABLE `item_types`
 -- AUTO_INCREMENT for table `item_upcs`
 --
 ALTER TABLE `item_upcs`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
 
 --
 -- AUTO_INCREMENT for table `jobs`
@@ -2631,7 +2643,7 @@ ALTER TABLE `jobs`
 -- AUTO_INCREMENT for table `migrations`
 --
 ALTER TABLE `migrations`
-  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
+  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=48;
 
 --
 -- AUTO_INCREMENT for table `payment_terms`
@@ -2697,7 +2709,7 @@ ALTER TABLE `roles`
 -- AUTO_INCREMENT for table `sales_orders`
 --
 ALTER TABLE `sales_orders`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `sales_order_boxes`
@@ -2709,7 +2721,7 @@ ALTER TABLE `sales_order_boxes`
 -- AUTO_INCREMENT for table `sales_order_lines`
 --
 ALTER TABLE `sales_order_lines`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=27;
 
 --
 -- AUTO_INCREMENT for table `ship_vias`

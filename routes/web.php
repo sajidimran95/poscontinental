@@ -23,7 +23,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::view('home', 'home')->name('home');
     Route::redirect('dashboard', '/home')->name('dashboard');
 
-    Route::view('profile', 'profile')->name('profile');
+    Volt::route('profile', 'pages.profile')->name('profile');
 
     // Lookups
     Volt::route('lookups', 'pages.lookups.index')->name('lookups.index');

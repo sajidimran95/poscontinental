@@ -262,6 +262,90 @@
         background: var(--chief-status);
     }
 
+    .chief-status-user {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: inherit;
+        text-decoration: none;
+        max-width: min(100%, 28rem);
+        overflow: hidden;
+    }
+
+    .chief-status-user:hover {
+        color: #fde68a;
+    }
+
+    .chief-status-avatar,
+    img.chief-status-avatar {
+        width: 22px !important;
+        height: 22px !important;
+        max-width: 22px !important;
+        max-height: 22px !important;
+        border-radius: 999px !important;
+        object-fit: cover !important;
+        border: 1px solid rgb(255 255 255 / 0.35);
+        flex-shrink: 0 !important;
+        display: inline-block;
+    }
+
+    .profile-form {
+        max-width: 40rem;
+    }
+
+    .profile-avatar-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .profile-avatar-preview {
+        width: 5.5rem;
+        height: 5.5rem;
+        border-radius: 0.65rem;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+        background: #f1f5f9;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+    }
+
+    .profile-avatar-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .profile-avatar-placeholder {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #64748b;
+    }
+
+    .profile-avatar-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        align-items: flex-start;
+    }
+
+    .profile-file-btn {
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .profile-file-input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+    }
+
     /* Home: classic Chief launcher, extra modern */
     .home-x,
     .home-desk,

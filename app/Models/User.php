@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -20,6 +21,7 @@ class User extends Authenticatable
         'role_id',
         'name',
         'username',
+        'avatar_path',
         'email',
         'password',
         'is_active',
@@ -37,6 +39,32 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
         ];
+    }
+
+    public function avatarUrl(): ?string
+    {
+        if (! filled($this->avatar_path)) {
+            return null;
+        }
+
+        $path = str_replace('\\', '/', ltrim((string) $this->avatar_path, '/'));
+
+        if ($path === '' || str_contains($path, '..') || ! str_starts_with($path, 'users/avatars/')) {
+            return null;
+        }
+
+        $published = public_path('uploads/'.$path);
+        if (is_file($published)) {
+            return '/uploads/'.$path.'?v='.(filemtime($published) ?: time());
+        }
+
+        if (Storage::disk('public')->exists($path)) {
+            $version = Storage::disk('public')->lastModified($path);
+
+            return '/media/'.$path.'?v='.$version;
+        }
+
+        return null;
     }
 
     public function company(): BelongsTo

@@ -31,6 +31,7 @@
                         };
                         $menus = [
                             'File' => [
+                                ['My Profile', 'profile'],
                                 ['Company Settings', 'admin.company-settings'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
@@ -136,6 +137,8 @@
                     'inventory.stamp-inventory' => 'Stamp Inventory',
                     'inquiries.stock-status' => 'Stock Status',
                     'inquiries.item-velocity' => 'Item Velocity',
+                    'profile' => 'My Profile',
+                    'admin.company-settings' => 'Company Settings',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {
@@ -179,7 +182,20 @@
             </main>
 
             <footer class="chief-status-bar" role="contentinfo" aria-label="Status bar">
-                <span>User: <strong>{{ auth()->user()?->name ?? '—' }}@if(auth()->user()?->role) — {{ auth()->user()->role->label }}@endif</strong></span>
+                <a href="{{ route('profile') }}" wire:navigate class="chief-status-user" title="My Profile">
+                    @php $statusUser = auth()->user(); $statusAvatar = $statusUser?->avatarUrl(); @endphp
+                    @if ($statusAvatar)
+                        <img
+                            src="{{ $statusAvatar }}"
+                            alt=""
+                            class="chief-status-avatar"
+                            width="22"
+                            height="22"
+                            style="width:22px;height:22px;border-radius:999px;object-fit:cover;flex-shrink:0;display:inline-block;vertical-align:middle;"
+                        />
+                    @endif
+                    <span>User: <strong>{{ $statusUser?->name ?? '—' }}@if($statusUser?->role) — {{ $statusUser->role->label }}@endif</strong></span>
+                </a>
                 <span>Site: <strong>{{ session('site_code', auth()->user()?->site?->code ?? 'WS') }}</strong></span>
                 <span>Company: <strong>{{ session('company_name', auth()->user()?->company?->name ?? '—') }}</strong></span>
                 <span id="status-clock" class="ms-auto text-amber-200" title="Your local time" aria-live="polite">{{ now()->format('g:i A, n/j/Y') }}</span>

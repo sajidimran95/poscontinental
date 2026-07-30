@@ -1557,15 +1557,21 @@
         flex: 0 1 15rem;
     }
 
-    .so-expand-panel .so-entry-add-btn {
-        border-color: #16a34a;
-        background: #dcfce7;
-        color: #166534;
+    .so-entry-add-btn {
+        border-color: #16a34a !important;
+        background: #dcfce7 !important;
+        color: #166534 !important;
+        cursor: pointer;
     }
 
-    .so-expand-panel .so-entry-add-btn:hover {
-        background: #bbf7d0;
-        border-color: #15803d;
+    .so-entry-add-btn:hover {
+        background: #bbf7d0 !important;
+        border-color: #15803d !important;
+    }
+
+    .so-entry-add-btn:disabled {
+        opacity: 0.55;
+        cursor: wait;
     }
 
     .so-expand-panel .so-entry-tools {
@@ -1778,6 +1784,31 @@
         color: #1f2937;
     }
 
+    .so-stock-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.55rem 1rem;
+        margin: 0 0 0.45rem;
+        padding: 0.4rem 0.65rem;
+        background: #ecfdf5;
+        border: 1px solid #86efac;
+        border-left: 4px solid #16a34a;
+        font-size: 12px;
+        color: #14532d;
+    }
+
+    .so-stock-bar .so-stock-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-weight: 700;
+        margin-right: 0.15rem;
+    }
+
+    .so-stock-bar .so-stock-remain.is-low,
+    .so-stock-bar .so-stock-remain.is-low strong {
+        color: #b91c1c;
+    }
+
     .so-line-msg-banner strong {
         font-weight: 700;
         margin-right: 0.35rem;
@@ -1795,10 +1826,56 @@
         font-variant-numeric: tabular-nums;
     }
 
-    .so-line-msg-flag {
+    .so-line-msg-flag,
+    .so-line-inst-flag {
         margin-left: 0.25rem;
-        font-size: 11px;
-        opacity: 0.9;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        border-radius: 3px;
+        padding: 0.05rem 0.3rem;
+        vertical-align: middle;
+        cursor: pointer;
+        line-height: 1.3;
+    }
+
+    .so-line-msg-flag {
+        color: #64748b;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+    }
+
+    .so-line-msg-flag.is-on {
+        color: #1d4ed8;
+        background: #dbeafe;
+        border-color: #93c5fd;
+    }
+
+    .so-line-msg-flag:hover {
+        border-color: #3b82f6;
+        color: #1d4ed8;
+    }
+
+    .so-line-inst-flag {
+        color: #64748b;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+    }
+
+    .so-line-inst-flag.is-on {
+        color: #a16207;
+        background: #fef3c7;
+        border-color: #fcd34d;
+    }
+
+    .so-line-inst-flag:hover {
+        border-color: #eab308;
+        color: #a16207;
+    }
+
+    .so-line-msg-banner > div + div {
+        margin-top: 0.25rem;
     }
 
     .so-ctx-menu {

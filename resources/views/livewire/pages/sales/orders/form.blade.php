@@ -165,7 +165,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $orderLineMessagePopup = '';
 
+    public string $orderLineInstructionsPopup = '';
+
     public bool $showLineMessageAlert = false;
+
+    public string $selectedStockCode = '';
+
+    public string $selectedStockOnHand = '';
+
+    public string $selectedStockAllocated = '';
+
+    public string $selectedStockAvailable = '';
+
+    public string $selectedStockOrdered = '';
+
+    public string $selectedStockRemaining = '';
 
     public bool $showUomModal = false;
 
@@ -278,7 +292,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'price' => $this->blankZeroAmount($l->price),
                     'unit_discount' => $this->blankZeroAmount($unitDiscount),
                     'discount' => $this->blankZeroAmount($l->discount),
-                    'line_message' => (string) (SalesOrderLinePresentation::lineMessage($l) ?? ''),
+                    'line_message' => (string) ($l->line_message ?? ''),
                     'instructions' => (string) ($l->instructions ?? ''),
                 ];
             })->all();
@@ -351,23 +365,86 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->selectedLineIndex = $index;
         $this->syncLineContextHeader($index);
-        $msg = trim((string) ($this->lines[$index]['line_message'] ?? ''));
-        $this->orderLineMessagePopup = $msg;
-        $this->showLineMessageAlert = $msg !== '';
+        $this->refreshSelectedLineStock($index);
+        $this->lineWarning = '';
+        // Do not re-open the message popup on every click — only when an item is added.
     }
 
     public function dismissLineMessageAlert(): void
     {
         $this->showLineMessageAlert = false;
+        $this->orderLineMessagePopup = '';
+        $this->orderLineInstructionsPopup = '';
+        $this->lineWarning = '';
     }
 
     protected function dismissTransientOverlays(): void
     {
         $this->showLineMessageAlert = false;
+        $this->orderLineMessagePopup = '';
+        $this->orderLineInstructionsPopup = '';
         $this->showLineMessageModal = false;
         $this->showBrowse = false;
         $this->showBatchModal = false;
         $this->showLineSubstitutes = false;
+    }
+
+    protected function clearSelectedStock(): void
+    {
+        $this->selectedStockCode = '';
+        $this->selectedStockOnHand = '';
+        $this->selectedStockAllocated = '';
+        $this->selectedStockAvailable = '';
+        $this->selectedStockOrdered = '';
+        $this->selectedStockRemaining = '';
+    }
+
+    protected function refreshSelectedLineStock(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        if ($i === null || ! isset($this->lines[$i]) || empty($this->lines[$i]['item_id'])) {
+            $this->clearSelectedStock();
+
+            return;
+        }
+
+        $itemId = (int) $this->lines[$i]['item_id'];
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($itemId);
+
+        if (! $item) {
+            $this->clearSelectedStock();
+
+            return;
+        }
+
+        $onHand = (float) $item->quantity_in_stock;
+        $allocated = (float) $item->allocated_qty;
+        $available = (float) $item->available_quantity;
+        $orderedOnOrder = 0.0;
+        foreach ($this->lines as $line) {
+            if ((int) ($line['item_id'] ?? 0) === $itemId) {
+                $orderedOnOrder += (float) ($line['qty_ordered'] ?? 0);
+            }
+        }
+
+        // Unsaved order qty is not in allocated yet — show remaining after this order.
+        $remaining = $available - $orderedOnOrder;
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->loadMissing('lines');
+            $previousOnOrder = (float) $this->salesOrder->lines
+                ->where('item_id', $itemId)
+                ->sum('qty_ordered');
+            $remaining = $available - ($orderedOnOrder - $previousOnOrder);
+        }
+
+        $this->selectedStockCode = (string) $item->item_code;
+        $this->selectedStockOnHand = number_format($onHand, 0);
+        $this->selectedStockAllocated = number_format($allocated, 0);
+        $this->selectedStockAvailable = number_format($available, 0);
+        $this->selectedStockOrdered = number_format($orderedOnOrder, 0);
+        $this->selectedStockRemaining = number_format($remaining, 0);
     }
 
     protected function syncLineContextHeader(?int $index = null): void
@@ -391,8 +468,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->removeLine($this->selectedLineIndex);
         $this->selectedLineIndex = null;
         $this->orderLineMessagePopup = '';
+        $this->orderLineInstructionsPopup = '';
         $this->showLineMessageAlert = false;
         $this->syncLineContextHeader(null);
+        $this->clearSelectedStock();
     }
 
     public function openLineSubstitutes(?int $index = null): void
@@ -470,10 +549,18 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($i === null || ! isset($this->lines[$i])) {
             return;
         }
+        if (! filled($this->lines[$i]['item_code'] ?? null)) {
+            $this->lineWarning = 'Select a line with an item first.';
+
+            return;
+        }
+
         $this->selectedLineIndex = $i;
         $this->syncLineContextHeader($i);
+        $this->refreshSelectedLineStock($i);
         $this->lineMessageEdit = (string) ($this->lines[$i]['line_message'] ?? '');
         $this->lineInstructionsEdit = (string) ($this->lines[$i]['instructions'] ?? '');
+        $this->showLineMessageAlert = false;
         $this->showLineMessageModal = true;
     }
 
@@ -488,8 +575,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lines[$i]['line_message'] = trim($this->lineMessageEdit);
         $this->lines[$i]['instructions'] = trim($this->lineInstructionsEdit);
         $this->showLineMessageModal = false;
-        $this->orderLineMessagePopup = (string) $this->lines[$i]['line_message'];
-        $this->showLineMessageAlert = $this->orderLineMessagePopup !== '';
+        $this->showLineMessageAlert = false;
+        $this->orderLineMessagePopup = '';
+        $this->orderLineInstructionsPopup = '';
     }
 
     public function cancelLineMessage(): void
@@ -518,20 +606,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function persistableLineMessage(array $line): ?string
     {
         $message = trim((string) ($line['line_message'] ?? ''));
-        if ($message !== '') {
-            return $message;
-        }
 
-        if (empty($line['item_id'])) {
-            return null;
-        }
-
-        $item = Item::query()
-            ->where('company_id', (int) auth()->user()->company_id)
-            ->find((int) $line['item_id']);
-        $fromItem = trim((string) ($item?->item_line_message ?? ''));
-
-        return $fromItem !== '' ? $fromItem : null;
+        return $message !== '' ? $message : null;
     }
 
     public function openLineUom(?int $index = null): void
@@ -901,6 +977,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount)$/', $key, $m)) {
             $this->recalcLineDiscount((int) $m[1]);
         }
+        if (is_string($key) && (str_ends_with($key, 'qty_ordered') || str_ends_with($key, 'item_id'))) {
+            $this->refreshSelectedLineStock();
+        }
         $this->refreshCreditWarning();
         $this->suggestTax();
     }
@@ -940,6 +1019,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncLineContextHeader($index);
         if ($field === 'qty_ordered') {
             $this->taxManual = false;
+            $this->refreshSelectedLineStock($index);
         }
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1109,9 +1189,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lines = array_values($this->lines);
         if ($this->selectedLineIndex === $i) {
             $this->selectedLineIndex = null;
+            $this->clearSelectedStock();
         } elseif ($this->selectedLineIndex !== null && $this->selectedLineIndex > $i) {
             $this->selectedLineIndex--;
         }
+        $this->refreshSelectedLineStock();
         $this->refreshCreditWarning();
         $this->suggestTax();
     }
@@ -1185,10 +1267,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder));
     }
 
-    public function addItemFromEntry(): void
+    public function addItemFromEntry(?string $code = null): void
     {
-        $code = trim($this->itemEntry);
+        abort_if($this->viewMode, 403);
+
+        $code = trim($code ?? $this->itemEntry);
         if ($code === '') {
+            $this->lineWarning = 'Enter an item code, then click the check mark (or press Enter).';
+
             return;
         }
         $item = $this->findItem($code);
@@ -1199,6 +1285,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $this->itemEntry = '';
         $this->showBrowse = false;
+        $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
     }
 
@@ -1341,12 +1428,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->selectedLineIndex = $existingIndex;
             $this->syncLineContextHeader($existingIndex);
             $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
+            $instr = trim((string) ($this->lines[$existingIndex]['instructions'] ?? ''));
             $this->orderLineMessagePopup = $msg;
-            $this->showLineMessageAlert = $msg !== '';
+            $this->orderLineInstructionsPopup = $instr;
+            $this->showLineMessageAlert = $msg !== '' || $instr !== '';
+            $this->refreshSelectedLineStock($existingIndex);
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
-            $this->lineWarning = $item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.';
 
             return;
         }
@@ -1425,12 +1514,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $this->recalcLineDiscount($index);
         $this->lines[$index]['price'] = $this->blankZeroAmount($this->lines[$index]['price']);
-        $this->lines[$index]['line_message'] = (string) ($item->item_line_message ?? '');
-        $this->lines[$index]['instructions'] = $this->lines[$index]['instructions'] ?? '';
+        // Do not auto-fill from item master — Msg/Inst icons only after user adds them on this order.
+        $this->lines[$index]['line_message'] = '';
+        $this->lines[$index]['instructions'] = '';
         $this->selectedLineIndex = $index;
         $this->syncLineContextHeader($index);
-        $this->orderLineMessagePopup = trim((string) ($this->lines[$index]['line_message'] ?? ''));
-        $this->showLineMessageAlert = $this->orderLineMessagePopup !== '';
+        $this->orderLineMessagePopup = '';
+        $this->orderLineInstructionsPopup = '';
+        $this->showLineMessageAlert = false;
+        $this->refreshSelectedLineStock($index);
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1681,7 +1773,32 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $itemIds,
                 $savedOrder->lines()->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all()
             )));
-            $this->salesOrder = $savedOrder;
+            $this->salesOrder = $savedOrder->load(['lines.item', 'invoice']);
+            $this->lines = $this->salesOrder->lines->map(function ($l) {
+                $qty = (float) $l->qty_ordered;
+                $discount = (float) $l->discount;
+                $unitDiscount = $qty > 0 ? round($discount / $qty, 4) : $discount;
+
+                return [
+                    'item_id' => $l->item_id,
+                    'item_code' => $l->item_code ?? '',
+                    'description' => $l->description ?? '',
+                    'uom' => $l->uom ?? '',
+                    'qty_ordered' => $this->blankZeroAmount($l->qty_ordered) !== '' ? (string) $l->qty_ordered : '',
+                    'qty_shipped' => $this->blankZeroAmount($l->qty_shipped ?? 0),
+                    'price' => $this->blankZeroAmount($l->price),
+                    'unit_discount' => $this->blankZeroAmount($unitDiscount),
+                    'discount' => $this->blankZeroAmount($l->discount),
+                    'line_message' => (string) ($l->line_message ?? ''),
+                    'instructions' => (string) ($l->instructions ?? ''),
+                ];
+            })->values()->all();
+            while (count($this->lines) < 12) {
+                $this->lines[] = $this->emptyLine();
+            }
+            if ($this->selectedLineIndex !== null && isset($this->lines[$this->selectedLineIndex])) {
+                $this->selectLine($this->selectedLineIndex);
+            }
         }
         app(InventoryService::class)->syncAllocatedQty($itemIds);
 
@@ -2124,11 +2241,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 >
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
-                    @if ($selectedLineIndex !== null && filled($lines[$selectedLineIndex]['line_message'] ?? null))
-                        <div class="so-line-msg-banner" role="status">
-                            <strong>Line message:</strong>{{ $lines[$selectedLineIndex]['line_message'] }}
-                        </div>
-                    @endif
                     <div class="so-items-grid">
                         <table class="so-lines-table">
                             <colgroup>
@@ -2169,12 +2281,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     >
                                         <td class="col-code desk-num">{{ $filled ? $line['item_code'] : '—' }}</td>
                                         <td class="col-desc" title="{{ $line['description'] ?? '' }}">
-                                            {{ $filled ? ($line['description'] ?: '—') : '—' }}
-                                            @if (filled($line['line_message'] ?? null))
-                                                <span class="so-line-msg-flag" title="Line message (order screen)">✉</span>
+                                            <span class="so-line-desc-text">{{ $filled ? ($line['description'] ?: '—') : '—' }}</span>
+                                            @if ($filled && filled($line['line_message'] ?? null))
+                                                <button
+                                                    type="button"
+                                                    class="so-line-msg-flag is-on"
+                                                    title="Line message"
+                                                    aria-label="Open line message"
+                                                    wire:click.stop="openLineMessage({{ $i }})"
+                                                >Msg</button>
                                             @endif
-                                            @if (filled($line['instructions'] ?? null))
-                                                <span class="so-line-msg-flag" title="Instructions (pick list)">📋</span>
+                                            @if ($filled && filled($line['instructions'] ?? null))
+                                                <button
+                                                    type="button"
+                                                    class="so-line-inst-flag is-on"
+                                                    title="Instructions"
+                                                    aria-label="Open instructions"
+                                                    wire:click.stop="openLineMessage({{ $i }})"
+                                                >Inst</button>
                                             @endif
                                         </td>
                                         <td class="col-uom">{{ $filled ? ($line['uom'] ?: '—') : '—' }}</td>
@@ -2254,11 +2378,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <span class="so-entry-label">Enter item code (F2)</span>
                         <div class="so-lookup-row so-entry-lookup">
                             <input
-                                wire:model="itemEntry"
+                                wire:model.live="itemEntry"
                                 wire:keydown.enter.prevent="addItemFromEntry"
                                 wire:keydown.f2.prevent="toggleBrowse"
                                 class="so-input so-entry-input"
                                 id="so-item-entry"
+                                placeholder="Type item code…"
+                                autocomplete="off"
                                 @disabled($viewMode)
                             />
                             @unless ($viewMode)
@@ -2271,7 +2397,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 >
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
                                 </button>
-                                <button type="button" wire:click="addItemFromEntry" class="so-icon-btn so-entry-add-btn" title="Add item" tabindex="-1" aria-label="Add item">
+                                <button
+                                    type="button"
+                                    wire:click.prevent="addItemFromEntry"
+                                    class="so-icon-btn so-entry-add-btn"
+                                    title="Add item"
+                                    aria-label="Add item"
+                                    wire:loading.attr="disabled"
+                                    wire:target="addItemFromEntry"
+                                >
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                                 </button>
                             @endunless
@@ -2311,7 +2445,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineUom(ctxLine)">Unit of Measures</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openBatchDetails(ctxLine)">Item Batch details</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openItemRecord(ctxLine)">View/Edit item record</button>
-                    <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineMessage(ctxLine)">Line Message &amp; Instructions</button>
+                    <button type="button" role="menuitem" @click="if (ctxLine !== null) { $wire.openLineMessage(ctxLine); } closeCtx()">Line Message &amp; Instructions</button>
                 </div>
 
                 <div class="so-footer">
@@ -2684,11 +2818,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
-    @if ($showLineMessageAlert && filled($orderLineMessagePopup))
+    @if ($showLineMessageAlert && (filled($orderLineMessagePopup) || filled($orderLineInstructionsPopup)))
         <div class="desk-modal-backdrop so-line-msg-alert" wire:click.self="dismissLineMessageAlert" role="dialog" aria-modal="true" aria-labelledby="line-msg-alert-title" style="z-index:90">
             <div class="desk-modal so-msg-modal" style="max-width:28rem">
                 <div class="desk-modal-head">
-                    <span id="line-msg-alert-title">Line Message</span>
+                    <span id="line-msg-alert-title">Line Message &amp; Instructions</span>
                     <button type="button" wire:click="dismissLineMessageAlert" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-msg-modal-body">
@@ -2698,10 +2832,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <label class="so-msg-modal-lbl">Description</label>
                         <input type="text" class="so-input so-input-ro" value="{{ $lineMsgDescription }}" readonly />
                     </div>
-                    <p style="margin:0;padding:0.65rem;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:14px;color:#111827">
-                        {{ $orderLineMessagePopup }}
-                    </p>
-                    <p class="item-hint" style="margin:0">Shows on Create/Edit Order only. Not printed on pick list.</p>
+                    @if (filled($orderLineMessagePopup))
+                        <div>
+                            <div class="item-hint" style="margin:0 0 0.25rem;font-weight:700;color:#334155">Line message</div>
+                            <p style="margin:0;padding:0.65rem;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:14px;color:#111827">
+                                {{ $orderLineMessagePopup }}
+                            </p>
+                        </div>
+                    @endif
+                    @if (filled($orderLineInstructionsPopup))
+                        <div>
+                            <div class="item-hint" style="margin:0 0 0.25rem;font-weight:700;color:#334155">Instructions</div>
+                            <p style="margin:0;padding:0.65rem;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:14px;color:#111827;white-space:pre-wrap">
+                                {{ $orderLineInstructionsPopup }}
+                            </p>
+                        </div>
+                    @endif
+                    <p class="item-hint" style="margin:0">Line message shows on the order screen. Instructions also print on the pick list.</p>
                     <div class="so-msg-modal-actions">
                         <button type="button" wire:click="dismissLineMessageAlert" class="desk-btn desk-btn-primary">OK</button>
                     </div>
@@ -2727,15 +2874,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <div class="so-msg-modal-row">
                         <label class="so-msg-modal-lbl" for="line-msg-field">Line Message</label>
                         <div>
-                            <input id="line-msg-field" type="text" wire:model="lineMessageEdit" class="so-input" />
-                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Create/Edit Order (popup + banner). Not on pick list.</p>
+                            <input id="line-msg-field" type="text" wire:model.live="lineMessageEdit" class="so-input" />
+                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Create/Edit Order (banner + popup).</p>
                         </div>
                     </div>
                     <div class="so-msg-modal-row so-msg-modal-row-top">
                         <label class="so-msg-modal-lbl" for="line-msg-instr">Instructions</label>
                         <div>
-                            <textarea id="line-msg-instr" wire:model="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
-                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Pick List print only.</p>
+                            <textarea id="line-msg-instr" wire:model.live="lineInstructionsEdit" rows="4" class="so-input so-input-area"></textarea>
+                            <p class="item-hint" style="margin:0.25rem 0 0">Shows on Create/Edit Order and on Pick List print.</p>
                         </div>
                     </div>
                     <div class="so-msg-modal-actions">

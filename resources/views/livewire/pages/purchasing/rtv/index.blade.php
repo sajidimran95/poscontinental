@@ -227,6 +227,12 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('purchasing.rtv', 'delete')) {
+            session()->flash('status', 'Your role cannot delete RTVs.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select an RTV first.');
 

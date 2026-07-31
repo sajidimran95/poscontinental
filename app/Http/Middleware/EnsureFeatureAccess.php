@@ -26,10 +26,12 @@ class EnsureFeatureAccess
             return $next($request);
         }
 
-        if ($user->canAccessFeature($feature)) {
+        $action = AppFeatures::actionForRoute($routeName);
+
+        if ($user->canAccessFeature($feature, $action)) {
             return $next($request);
         }
 
-        abort(403, 'Your role does not have access to this feature.');
+        abort(403, 'Your role does not have '.$action.' access to this feature.');
     }
 }

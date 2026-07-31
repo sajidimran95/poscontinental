@@ -177,6 +177,12 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('purchasing.suppliers', 'delete')) {
+            session()->flash('status', 'Your role cannot delete suppliers.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select a supplier first.');
 

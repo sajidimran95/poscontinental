@@ -178,6 +178,12 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.customers', 'delete')) {
+            session()->flash('status', 'Your role cannot delete customers.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select a customer first.');
 

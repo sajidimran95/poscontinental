@@ -144,6 +144,12 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('inventory.stock_counts', 'delete')) {
+            session()->flash('status', 'Your role cannot delete stock counts.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select a stock count first.');
 

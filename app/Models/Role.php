@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AppFeatures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -21,22 +22,39 @@ class Role extends Model
         return $this->hasMany(User::class);
     }
 
-    public function allows(string $feature): bool
+    public function allows(string $feature, string $action = 'view'): bool
     {
         if ($this->name === 'admin') {
             return true;
         }
 
-        $perms = $this->permissions;
-        if ($perms === null) {
+        $map = AppFeatures::expand($this->permissions);
+        if ($map === null) {
             // Legacy roles with null permissions keep full access until edited.
             return true;
         }
 
-        if ($perms === []) {
+        if ($map === []) {
             return false;
         }
 
-        return in_array($feature, $perms, true);
+        $actions = $map[$feature] ?? [];
+
+        return in_array($action, $actions, true);
+    }
+
+    /** Whether the role can see the feature menu at all (any action). */
+    public function allowsAny(string $feature): bool
+    {
+        if ($this->name === 'admin') {
+            return true;
+        }
+
+        $map = AppFeatures::expand($this->permissions);
+        if ($map === null) {
+            return true;
+        }
+
+        return ($map[$feature] ?? []) !== [];
     }
 }

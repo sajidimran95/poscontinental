@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AppFeatures;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,13 +19,16 @@ class User extends Authenticatable
     protected $fillable = [
         'company_id',
         'site_id',
+        'department_id',
         'role_id',
         'name',
         'username',
+        'job_title',
         'avatar_path',
         'email',
         'password',
         'is_active',
+        'permissions',
     ];
 
     protected $hidden = [
@@ -38,6 +42,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'permissions' => 'array',
         ];
     }
 
@@ -77,6 +82,11 @@ class User extends Authenticatable
         return $this->belongsTo(Site::class);
     }
 
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
+
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
@@ -92,16 +102,23 @@ class User extends Authenticatable
         return $this->role?->name === 'admin';
     }
 
-    public function canAccessFeature(string $feature): bool
+    public function canAccessFeature(string $feature, string $action = 'view'): bool
     {
         if ($this->isAdmin()) {
             return true;
+        }
+
+        // Per-user permissions override the role when saved on the user.
+        if (is_array($this->permissions)) {
+            $map = AppFeatures::expand($this->permissions) ?? [];
+
+            return in_array($action, $map[$feature] ?? [], true);
         }
 
         if (! $this->role) {
             return true;
         }
 
-        return $this->role->allows($feature);
+        return $this->role->allows($feature, $action);
     }
 }

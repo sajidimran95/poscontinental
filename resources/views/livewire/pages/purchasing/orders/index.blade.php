@@ -189,6 +189,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('purchasing.orders', 'delete')) {
+            session()->flash('status', 'Your role cannot delete purchase orders.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select a purchase order first.');
 

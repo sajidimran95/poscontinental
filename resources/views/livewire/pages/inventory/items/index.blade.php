@@ -293,6 +293,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('inventory.items', 'delete')) {
+            session()->flash('status', 'Your role cannot delete items.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select an item first.');
 

@@ -1,10 +1,10 @@
 <?php
 
+use App\Models\Department;
 use App\Models\Role;
 use App\Models\Site;
 use App\Models\User;
 use App\Support\AppFeatures;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -41,11 +41,22 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public string $password = '';
 
+    public string $password_confirmation = '';
+
+    public bool $update_password = false;
+
     public ?int $role_id = null;
 
     public ?int $site_id = null;
 
+    public ?int $department_id = null;
+
+    public string $job_title = '';
+
     public bool $is_active = true;
+
+    /** @var array<int, string> Per-user menu permissions (does not change the role). */
+    public array $user_permissions = [];
 
     public bool $showRoleForm = false;
 
@@ -63,7 +74,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $usersQuery = User::query()
-            ->with(['role', 'site'])
+            ->with(['role', 'site', 'department'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -71,8 +82,10 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                     $inner->where('name', 'like', $term)
                         ->orWhere('username', 'like', $term)
                         ->orWhere('email', 'like', $term)
+                        ->orWhere('job_title', 'like', $term)
                         ->orWhereHas('role', fn ($r) => $r->where('label', 'like', $term)->orWhere('name', 'like', $term))
-                        ->orWhereHas('site', fn ($s) => $s->where('code', 'like', $term)->orWhere('name', 'like', $term));
+                        ->orWhereHas('site', fn ($s) => $s->where('code', 'like', $term)->orWhere('name', 'like', $term))
+                        ->orWhereHas('department', fn ($d) => $d->where('name', 'like', $term)->orWhere('code', 'like', $term));
                 });
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_active', true))
@@ -100,6 +113,11 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'users' => $usersQuery->paginate(40),
             'roles' => $rolesQuery->get(),
             'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
+            'departments' => Department::query()
+                ->where('company_id', $companyId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(),
             'favorites' => [
                 'users' => 'Users',
                 'roles' => 'Roles',
@@ -107,7 +125,100 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'listTitle' => $listTitle,
             'isShowingForm' => $this->showUserForm || $this->showRoleForm,
             'featureGroups' => AppFeatures::grouped(),
+            'menuCards' => AppFeatures::menuCards(),
+            'permActions' => AppFeatures::ACTIONS,
+            'selectedRoleLabel' => $this->role_id
+                ? (Role::query()->whereKey($this->role_id)->value('label') ?? 'Role')
+                : null,
         ];
+    }
+
+    /** @return list<string> */
+    protected function permissionsFromRole(?int $roleId): array
+    {
+        if (! $roleId) {
+            return [];
+        }
+
+        $role = Role::query()->find($roleId);
+        if (! $role) {
+            return [];
+        }
+
+        if ($role->name === 'admin') {
+            return AppFeatures::permissionTokens();
+        }
+
+        $map = AppFeatures::expand($role->permissions);
+
+        return $map === null
+            ? AppFeatures::permissionTokens()
+            : AppFeatures::flatten($map);
+    }
+
+    public function updatedRoleId(mixed $value): void
+    {
+        if (! $this->showUserForm) {
+            return;
+        }
+
+        $this->user_permissions = $this->permissionsFromRole($value ? (int) $value : null);
+    }
+
+    public function applyRolePermissionsToUser(): void
+    {
+        $this->user_permissions = $this->permissionsFromRole($this->role_id);
+    }
+
+    public function selectAllUserPermissions(): void
+    {
+        $this->user_permissions = AppFeatures::permissionTokens();
+    }
+
+    public function clearAllUserPermissions(): void
+    {
+        $this->user_permissions = [];
+    }
+
+    public function selectUserMenuGroup(string $menu): void
+    {
+        $current = $this->user_permissions;
+        foreach (AppFeatures::featuresForMenu($menu) as $feature) {
+            foreach (AppFeatures::ACTIONS as $action) {
+                $token = AppFeatures::token($feature, $action);
+                if (! in_array($token, $current, true)) {
+                    $current[] = $token;
+                }
+            }
+        }
+        $this->user_permissions = array_values($current);
+    }
+
+    public function clearUserMenuGroup(string $menu): void
+    {
+        $remove = [];
+        foreach (AppFeatures::featuresForMenu($menu) as $feature) {
+            foreach (AppFeatures::ACTIONS as $action) {
+                $remove[] = AppFeatures::token($feature, $action);
+            }
+        }
+        $this->user_permissions = array_values(array_diff($this->user_permissions, $remove));
+    }
+
+    public function toggleUserFeatureRow(string $feature): void
+    {
+        if (! in_array($feature, AppFeatures::keys(), true)) {
+            return;
+        }
+
+        $tokens = array_map(fn (string $a) => AppFeatures::token($feature, $a), AppFeatures::ACTIONS);
+        $allOn = collect($tokens)->every(fn (string $t) => in_array($t, $this->user_permissions, true));
+
+        if ($allOn) {
+            $this->user_permissions = array_values(array_diff($this->user_permissions, $tokens));
+        } else {
+            $this->user_permissions = array_values(array_unique([...$this->user_permissions, ...$tokens]));
+        }
     }
 
     public function updatingSearch(): void
@@ -180,6 +291,12 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'delete')) {
+            session()->flash('status', 'Your role cannot delete users or roles.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', $this->favorite === 'roles' ? 'Select a role first.' : 'Select a user first.');
 
@@ -257,6 +374,12 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function startNewUser(): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot create users.');
+
+            return;
+        }
+
         $this->favorite = 'users';
         $this->showUserForm = true;
         $this->showRoleForm = false;
@@ -265,15 +388,26 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->username = '';
         $this->email = '';
         $this->password = '';
+        $this->password_confirmation = '';
+        $this->update_password = true;
         $this->role_id = Role::query()->where('name', 'sales_rep')->value('id')
             ?? Role::query()->orderBy('id')->value('id');
         $this->site_id = auth()->user()->site_id;
+        $this->department_id = null;
+        $this->job_title = '';
         $this->is_active = true;
+        $this->user_permissions = $this->permissionsFromRole($this->role_id);
         $this->resetErrorBag();
     }
 
     public function editUser(int $id): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot edit users.');
+
+            return;
+        }
+
         $user = User::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
         $this->favorite = 'users';
         $this->showUserForm = true;
@@ -284,9 +418,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->username = (string) $user->username;
         $this->email = (string) $user->email;
         $this->password = '';
+        $this->password_confirmation = '';
+        $this->update_password = false;
         $this->role_id = $user->role_id;
         $this->site_id = $user->site_id;
+        $this->department_id = $user->department_id;
+        $this->job_title = (string) ($user->job_title ?? '');
         $this->is_active = (bool) $user->is_active;
+        $this->user_permissions = is_array($user->permissions)
+            ? AppFeatures::flatten(AppFeatures::expand($user->permissions) ?? [])
+            : $this->permissionsFromRole($user->role_id);
         $this->resetErrorBag();
     }
 
@@ -298,7 +439,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function saveUser(): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot save users.');
+
+            return;
+        }
+
         $companyId = auth()->user()->company_id;
+        $allowed = AppFeatures::permissionTokens();
+        $needsPassword = ! $this->editingUserId || $this->update_password;
+
         $this->validate([
             'name' => 'required|string|max:255',
             'username' => [
@@ -313,8 +463,18 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 Rule::unique('users', 'email')->ignore($this->editingUserId),
             ],
             'role_id' => 'required|exists:roles,id',
-            'site_id' => 'nullable|exists:sites,id',
-            'password' => $this->editingUserId ? 'nullable|string|min:6' : 'required|string|min:6',
+            'site_id' => [
+                'nullable',
+                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'department_id' => [
+                'nullable',
+                Rule::exists('departments', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'job_title' => 'nullable|string|max:255',
+            'password' => $needsPassword ? 'required|string|min:6|confirmed' : 'nullable',
+            'user_permissions' => 'array',
+            'user_permissions.*' => 'string|in:'.implode(',', $allowed),
         ]);
 
         $data = [
@@ -324,14 +484,19 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'email' => $this->email,
             'role_id' => $this->role_id,
             'site_id' => $this->site_id ?: null,
+            'department_id' => $this->department_id ?: null,
+            'job_title' => $this->job_title !== '' ? $this->job_title : null,
             'is_active' => $this->is_active,
+            'permissions' => array_values(array_unique(array_intersect($this->user_permissions, $allowed))),
         ];
-        if ($this->password !== '') {
-            $data['password'] = Hash::make($this->password);
+
+        if ($needsPassword && $this->password !== '') {
+            $data['password'] = $this->password;
         }
 
         if ($this->editingUserId) {
-            User::query()->where('company_id', $companyId)->whereKey($this->editingUserId)->update($data);
+            $user = User::query()->where('company_id', $companyId)->whereKey($this->editingUserId)->firstOrFail();
+            $user->update($data);
             session()->flash('status', 'User updated.');
         } else {
             User::query()->create($data);
@@ -343,18 +508,30 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function startNewRole(): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot create roles.');
+
+            return;
+        }
+
         $this->favorite = 'roles';
         $this->showRoleForm = true;
         $this->showUserForm = false;
         $this->editingRoleId = null;
         $this->role_name = '';
         $this->role_label = '';
-        $this->role_permissions = AppFeatures::keys();
+        $this->role_permissions = AppFeatures::permissionTokens();
         $this->resetErrorBag();
     }
 
     public function editRole(int $id): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot edit roles.');
+
+            return;
+        }
+
         $role = Role::query()->findOrFail($id);
         $this->favorite = 'roles';
         $this->showRoleForm = true;
@@ -362,21 +539,90 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->editingRoleId = $role->id;
         $this->role_name = $role->name;
         $this->role_label = $role->label;
-        $perms = $role->permissions;
-        $this->role_permissions = is_array($perms) && $perms !== []
-            ? array_values($perms)
-            : AppFeatures::keys();
+        $map = AppFeatures::expand($role->permissions);
+        $this->role_permissions = $map === null
+            ? AppFeatures::permissionTokens()
+            : AppFeatures::flatten($map);
         $this->resetErrorBag();
     }
 
     public function selectAllPermissions(): void
     {
-        $this->role_permissions = AppFeatures::keys();
+        $this->role_permissions = AppFeatures::permissionTokens();
     }
 
     public function clearAllPermissions(): void
     {
         $this->role_permissions = [];
+    }
+
+    public function selectAllAction(string $action): void
+    {
+        if (! in_array($action, AppFeatures::ACTIONS, true)) {
+            return;
+        }
+
+        $current = $this->role_permissions;
+        foreach (AppFeatures::keys() as $feature) {
+            $token = AppFeatures::token($feature, $action);
+            if (! in_array($token, $current, true)) {
+                $current[] = $token;
+            }
+        }
+        $this->role_permissions = array_values($current);
+    }
+
+    public function clearAllAction(string $action): void
+    {
+        if (! in_array($action, AppFeatures::ACTIONS, true)) {
+            return;
+        }
+
+        $this->role_permissions = array_values(array_filter(
+            $this->role_permissions,
+            fn (string $token) => ! str_ends_with($token, '.'.$action)
+        ));
+    }
+
+    public function toggleFeatureRow(string $feature): void
+    {
+        if (! in_array($feature, AppFeatures::keys(), true)) {
+            return;
+        }
+
+        $tokens = array_map(fn (string $a) => AppFeatures::token($feature, $a), AppFeatures::ACTIONS);
+        $allOn = collect($tokens)->every(fn (string $t) => in_array($t, $this->role_permissions, true));
+
+        if ($allOn) {
+            $this->role_permissions = array_values(array_diff($this->role_permissions, $tokens));
+        } else {
+            $this->role_permissions = array_values(array_unique([...$this->role_permissions, ...$tokens]));
+        }
+    }
+
+    public function selectMenuGroup(string $menu): void
+    {
+        $current = $this->role_permissions;
+        foreach (AppFeatures::featuresForMenu($menu) as $feature) {
+            foreach (AppFeatures::ACTIONS as $action) {
+                $token = AppFeatures::token($feature, $action);
+                if (! in_array($token, $current, true)) {
+                    $current[] = $token;
+                }
+            }
+        }
+        $this->role_permissions = array_values($current);
+    }
+
+    public function clearMenuGroup(string $menu): void
+    {
+        $remove = [];
+        foreach (AppFeatures::featuresForMenu($menu) as $feature) {
+            foreach (AppFeatures::ACTIONS as $action) {
+                $remove[] = AppFeatures::token($feature, $action);
+            }
+        }
+        $this->role_permissions = array_values(array_diff($this->role_permissions, $remove));
     }
 
     public function cancelRoleForm(): void
@@ -387,6 +633,14 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function saveRole(): void
     {
+        if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
+            session()->flash('status', 'Your role cannot save roles.');
+
+            return;
+        }
+
+        $allowed = AppFeatures::permissionTokens();
+
         $this->validate([
             'role_name' => [
                 'required',
@@ -397,13 +651,13 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             ],
             'role_label' => 'required|string|max:255',
             'role_permissions' => 'array',
-            'role_permissions.*' => 'string|in:'.implode(',', AppFeatures::keys()),
+            'role_permissions.*' => 'string|in:'.implode(',', $allowed),
         ]);
 
         $payload = [
             'name' => strtolower($this->role_name),
             'label' => $this->role_label,
-            'permissions' => array_values(array_unique($this->role_permissions)),
+            'permissions' => array_values(array_unique(array_intersect($this->role_permissions, $allowed))),
         ];
 
         if ($this->editingRoleId) {
@@ -423,7 +677,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         <x-favorite-list :favorites="$favorites" :active="$favorite" />
     @endunless
 
-    <div class="desk-main {{ $isShowingForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}">
+    <div class="desk-main {{ $isShowingForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}{{ ($showRoleForm || $showUserForm) ? ' role-perm-form' : '' }}">
         <x-action-bar :title="$showUserForm ? ($editingUserId ? 'Edit User' : 'New User') : ($showRoleForm ? ($editingRoleId ? 'Edit Role' : 'New Role') : 'Action')" />
 
         @if (session('status'))
@@ -444,7 +698,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                         </div>
                     </div>
 
-                    <div class="sc-general-grid">
+                    <div class="sc-general-grid role-perm-layout">
                         <div class="inv-card">
                             <div class="inv-card-title">Account</div>
                             <div class="so-form-row so-form-row-side sc-field">
@@ -462,24 +716,66 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 <input id="u-email" type="email" wire:model="email" class="so-input" />
                             </div>
                             @error('email') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
-                            <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="u-pass">Password</label>
-                                <input id="u-pass" type="password" wire:model="password" class="so-input" placeholder="{{ $editingUserId ? 'Leave blank to keep' : 'Required' }}" />
-                            </div>
-                            @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+
+                            @if (! $editingUserId)
+                                <div class="so-form-row so-form-row-side sc-field">
+                                    <label class="so-form-lbl" for="u-pass">Password</label>
+                                    <input id="u-pass" type="password" wire:model="password" class="so-input" autocomplete="new-password" />
+                                </div>
+                                @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                                <div class="so-form-row so-form-row-side sc-field">
+                                    <label class="so-form-lbl" for="u-pass2">Confirm Password</label>
+                                    <input id="u-pass2" type="password" wire:model="password_confirmation" class="so-input" autocomplete="new-password" />
+                                </div>
+                            @else
+                                <div class="so-form-row so-form-row-side sc-field">
+                                    <span class="so-form-lbl"></span>
+                                    <label class="entity-check">
+                                        <input type="checkbox" wire:model.live="update_password" /> Update password
+                                    </label>
+                                </div>
+                                @if ($update_password)
+                                    <div class="so-form-row so-form-row-side sc-field">
+                                        <label class="so-form-lbl" for="u-pass">New Password</label>
+                                        <input id="u-pass" type="password" wire:model="password" class="so-input" autocomplete="new-password" />
+                                    </div>
+                                    @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                                    <div class="so-form-row so-form-row-side sc-field">
+                                        <label class="so-form-lbl" for="u-pass2">Confirm Password</label>
+                                        <input id="u-pass2" type="password" wire:model="password_confirmation" class="so-input" autocomplete="new-password" />
+                                    </div>
+                                @endif
+                            @endif
                         </div>
 
                         <div class="inv-card">
-                            <div class="inv-card-title">Access</div>
+                            <div class="inv-card-title">Access &amp; Organization</div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="u-role">Role</label>
-                                <select id="u-role" wire:model="role_id" class="so-input">
+                                <select id="u-role" wire:model.live="role_id" class="so-input">
                                     @foreach ($roles as $role)
                                         <option value="{{ $role->id }}">{{ $role->label }}</option>
                                     @endforeach
                                 </select>
                             </div>
                             @error('role_id') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="u-dept">Department</label>
+                                <select id="u-dept" wire:model="department_id" class="so-input">
+                                    <option value="">— Select department —</option>
+                                    @forelse ($departments as $dept)
+                                        <option value="{{ $dept->id }}">{{ $dept->name }}@if($dept->code) ({{ $dept->code }})@endif</option>
+                                    @empty
+                                        <option value="" disabled>No departments — add in Lookups</option>
+                                    @endforelse
+                                </select>
+                            </div>
+                            @error('department_id') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="u-job">Job Title</label>
+                                <input id="u-job" wire:model="job_title" class="so-input" placeholder="e.g. Buyer, Warehouse Lead" />
+                            </div>
+                            @error('job_title') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="u-site">Site</label>
                                 <select id="u-site" wire:model="site_id" class="so-input">
@@ -495,6 +791,88 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <input type="checkbox" wire:model="is_active" /> Active
                                 </label>
                             </div>
+                        </div>
+
+                        <div class="inv-card role-perm-wrap" style="grid-column:1 / -1">
+                            <div class="inv-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
+                                <span>User feature permissions</span>
+                                <span class="flex gap-1 flex-wrap">
+                                    <button type="button" wire:click="applyRolePermissionsToUser" class="desk-btn desk-btn-sm" title="Reset to selected role defaults">Reset from role</button>
+                                    <button type="button" wire:click="selectAllUserPermissions" class="desk-btn desk-btn-sm">All</button>
+                                    <button type="button" wire:click="clearAllUserPermissions" class="desk-btn desk-btn-sm">None</button>
+                                </span>
+                            </div>
+                            <p class="item-hint" style="padding:0 0 0.65rem">
+                                Loaded from role
+                                <strong>{{ $selectedRoleLabel ?? '—' }}</strong>.
+                                Change features for this user only — the role itself is not updated.
+                            </p>
+
+                            <div class="role-menu-grid">
+                                @foreach ($menuCards as $menu => $submenus)
+                                    @php $seenFeatures = []; @endphp
+                                    <section class="role-menu-card">
+                                        <header class="role-menu-card-head">
+                                            <div class="role-menu-card-title">
+                                                <span class="role-menu-card-badge">{{ $menu }}</span>
+                                                <span class="role-menu-card-count">{{ count($submenus) }} submenu{{ count($submenus) === 1 ? '' : 's' }}</span>
+                                            </div>
+                                            <div class="role-menu-card-tools">
+                                                <button type="button" wire:click="selectUserMenuGroup('{{ $menu }}')" class="desk-btn desk-btn-sm">All</button>
+                                                <button type="button" wire:click="clearUserMenuGroup('{{ $menu }}')" class="desk-btn desk-btn-sm">None</button>
+                                            </div>
+                                        </header>
+                                        <div class="role-menu-col-heads" aria-hidden="true">
+                                            <span class="role-menu-col-submenu">Submenu</span>
+                                            @foreach (['View', 'Edit', 'Delete'] as $actionLabel)
+                                                <span class="role-menu-col-action">{{ $actionLabel }}</span>
+                                            @endforeach
+                                        </div>
+                                        <ul class="role-menu-sublist">
+                                            @foreach ($submenus as $row)
+                                                @php
+                                                    $feature = $row['feature'];
+                                                    $label = $row['label'];
+                                                    $isRepeat = isset($seenFeatures[$feature]);
+                                                    $seenFeatures[$feature] = $seenFeatures[$feature] ?? $label;
+                                                    $primaryLabel = $seenFeatures[$feature];
+                                                @endphp
+                                                <li @class(['role-menu-subrow', 'role-menu-subrow-linked' => $isRepeat])>
+                                                    <button
+                                                        type="button"
+                                                        class="role-menu-sublabel"
+                                                        wire:click="toggleUserFeatureRow('{{ $feature }}')"
+                                                        title="{{ $isRepeat ? 'Uses same permissions as '.$primaryLabel : 'Toggle for '.$label }}"
+                                                    >
+                                                        {{ $label }}
+                                                        @if ($isRepeat)
+                                                            <span class="role-menu-same">same as {{ $primaryLabel }}</span>
+                                                        @endif
+                                                    </button>
+                                                    @if ($isRepeat)
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                    @else
+                                                        @foreach ($permActions as $action)
+                                                            <label class="role-perm-check" title="{{ $label }} — {{ ucfirst($action) }}">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    value="{{ $feature }}.{{ $action }}"
+                                                                    wire:model="user_permissions"
+                                                                />
+                                                                <span class="sr-only">{{ $label }} {{ $action }}</span>
+                                                            </label>
+                                                        @endforeach
+                                                    @endif
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </section>
+                                @endforeach
+                            </div>
+                            @error('user_permissions') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            @error('user_permissions.*') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                         </div>
                     </div>
                 </div>
@@ -517,7 +895,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <input id="r-label-head" wire:model="role_label" class="so-input" placeholder="Display label" />
                         </div>
                     </div>
-                    <div class="sc-general-grid">
+                    <div class="sc-general-grid role-perm-layout">
                         <div class="inv-card">
                             <div class="inv-card-title">Role details</div>
                             <div class="so-form-row so-form-row-side sc-field">
@@ -534,28 +912,86 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 <p class="item-hint" style="padding:0.5rem 0 0">Admin always has full access to every feature.</p>
                             @endif
                         </div>
-                        <div class="inv-card">
-                            <div class="inv-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-                                <span>Features</span>
-                                <span class="flex gap-1">
-                                    <button type="button" wire:click="selectAllPermissions" class="desk-btn desk-btn-sm">All</button>
+                        <div class="inv-card role-perm-wrap">
+                            <div class="inv-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
+                                <span>Menu permissions</span>
+                                <span class="flex gap-1 flex-wrap">
+                                    <button type="button" wire:click="selectAllPermissions" class="desk-btn desk-btn-sm">All menus</button>
                                     <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
                                 </span>
                             </div>
-                            <p class="item-hint" style="padding:0 0 0.5rem">Show all features, then activate only what this role may use.</p>
-                            @foreach ($featureGroups as $group => $features)
-                                <div style="margin-bottom:0.75rem">
-                                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{{ $group }}</div>
-                                    <div class="grid gap-1" style="grid-template-columns:repeat(auto-fill,minmax(11rem,1fr))">
-                                        @foreach ($features as $key => $label)
-                                            <label class="entity-check" style="margin:0">
-                                                <input type="checkbox" value="{{ $key }}" wire:model="role_permissions" />
-                                                {{ $label }}
-                                            </label>
-                                        @endforeach
-                                    </div>
-                                </div>
-                            @endforeach
+                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete.</p>
+
+                            <div class="role-menu-grid">
+                                @foreach ($menuCards as $menu => $submenus)
+                                    @php
+                                        $seenFeatures = [];
+                                    @endphp
+                                    <section class="role-menu-card">
+                                        <header class="role-menu-card-head">
+                                            <div class="role-menu-card-title">
+                                                <span class="role-menu-card-badge">{{ $menu }}</span>
+                                                <span class="role-menu-card-count">{{ count($submenus) }} submenu{{ count($submenus) === 1 ? '' : 's' }}</span>
+                                            </div>
+                                            <div class="role-menu-card-tools">
+                                                <button type="button" wire:click="selectMenuGroup('{{ $menu }}')" class="desk-btn desk-btn-sm">All</button>
+                                                <button type="button" wire:click="clearMenuGroup('{{ $menu }}')" class="desk-btn desk-btn-sm">None</button>
+                                            </div>
+                                        </header>
+
+                                        <div class="role-menu-col-heads" aria-hidden="true">
+                                            <span class="role-menu-col-submenu">Submenu</span>
+                                            @foreach (['View', 'Edit', 'Delete'] as $actionLabel)
+                                                <span class="role-menu-col-action">{{ $actionLabel }}</span>
+                                            @endforeach
+                                        </div>
+
+                                        <ul class="role-menu-sublist">
+                                            @foreach ($submenus as $row)
+                                                @php
+                                                    $feature = $row['feature'];
+                                                    $label = $row['label'];
+                                                    $isRepeat = isset($seenFeatures[$feature]);
+                                                    $seenFeatures[$feature] = $seenFeatures[$feature] ?? $label;
+                                                    $primaryLabel = $seenFeatures[$feature];
+                                                @endphp
+                                                <li @class(['role-menu-subrow', 'role-menu-subrow-linked' => $isRepeat])>
+                                                    <button
+                                                        type="button"
+                                                        class="role-menu-sublabel"
+                                                        wire:click="toggleFeatureRow('{{ $feature }}')"
+                                                        title="{{ $isRepeat ? 'Uses same permissions as '.$primaryLabel : 'Toggle View / Edit / Delete for '.$label }}"
+                                                    >
+                                                        {{ $label }}
+                                                        @if ($isRepeat)
+                                                            <span class="role-menu-same">same as {{ $primaryLabel }}</span>
+                                                        @endif
+                                                    </button>
+                                                    @if ($isRepeat)
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                        <span class="role-menu-dash" aria-hidden="true">·</span>
+                                                    @else
+                                                        @foreach ($permActions as $action)
+                                                            <label class="role-perm-check" title="{{ $label }} — {{ ucfirst($action) }}">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    value="{{ $feature }}.{{ $action }}"
+                                                                    wire:model="role_permissions"
+                                                                />
+                                                                <span class="sr-only">{{ $label }} {{ $action }}</span>
+                                                            </label>
+                                                        @endforeach
+                                                    @endif
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </section>
+                                @endforeach
+                            </div>
+
+                            @error('role_permissions') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            @error('role_permissions.*') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                         </div>
                     </div>
                 </div>
@@ -621,6 +1057,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <th>Username</th>
                                     <th>Email Address</th>
                                     <th>Role</th>
+                                    <th>Department</th>
+                                    <th>Job Title</th>
                                     <th>Site</th>
                                     <th class="text-center">Active</th>
                                 </tr>
@@ -650,6 +1088,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                             @endif
                                         </td>
                                         <td>{{ $user->role?->label ?: '—' }}</td>
+                                        <td>{{ $user->department?->name ?: '—' }}</td>
+                                        <td>{{ $user->job_title ?: '—' }}</td>
                                         <td class="desk-num">{{ $user->site?->code ?: '—' }}</td>
                                         <td class="text-center" wire:click.stop>
                                             <button
@@ -666,7 +1106,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     </tr>
                                 @empty
                                     <tr class="is-empty">
-                                        <td colspan="7">No users found. Use the <strong>+</strong> button to create one.</td>
+                                        <td colspan="9">No users found. Use the <strong>+</strong> button to create one.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

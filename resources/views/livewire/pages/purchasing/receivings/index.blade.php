@@ -202,6 +202,12 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 
     public function deleteSelected(): void
     {
+        if (! auth()->user()?->canAccessFeature('purchasing.receivings', 'delete')) {
+            session()->flash('status', 'Your role cannot delete receivings.');
+
+            return;
+        }
+
         if (! $this->selectedId) {
             session()->flash('status', 'Select a receiving first.');
 

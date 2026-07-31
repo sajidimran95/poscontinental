@@ -26,9 +26,11 @@
                             if (! $feature) {
                                 return true;
                             }
+                            $action = \App\Support\AppFeatures::actionForRoute($route);
 
-                            return $menuUser?->canAccessFeature($feature) ?? false;
+                            return $menuUser?->canAccessFeature($feature, $action) ?? false;
                         };
+                        $routeExists = fn (?string $route) => $route && Route::has($route);
                         $menus = [
                             'File' => [
                                 ['My Profile', 'profile'],
@@ -73,21 +75,34 @@
                         ];
                     @endphp
                     @foreach ($menus as $menu => $items)
-                        @php $visible = collect($items)->filter(fn ($row) => $canRoute($row[1])); @endphp
-                        @continue($visible->isEmpty())
+                        @php $menuItems = collect($items)->filter(fn ($row) => $routeExists($row[1])); @endphp
+                        @continue($menuItems->isEmpty())
+                        @php $menuHasAccess = $menuItems->contains(fn ($row) => $canRoute($row[1])); @endphp
                         <div class="relative group">
-                            <button type="button" class="px-2 py-1 hover:bg-slate-200 rounded-sm" aria-haspopup="true">{{ $menu }}</button>
+                            <button
+                                type="button"
+                                @class(['px-2 py-1 rounded-sm', 'hover:bg-slate-200' => $menuHasAccess, 'chief-menu-inactive' => ! $menuHasAccess])
+                                aria-haspopup="true"
+                            >{{ $menu }}</button>
                             <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
-                                @foreach ($visible as [$label, $route])
-                                    <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
+                                @foreach ($menuItems as [$label, $route])
+                                    @if ($canRoute($route))
+                                        <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
+                                    @else
+                                        <span class="chief-menu-item-disabled" role="menuitem" aria-disabled="true" title="No permission">{{ $label }}</span>
+                                    @endif
                                 @endforeach
                             </div>
                         </div>
                     @endforeach
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
-                        @if ($canRoute('lookups.index'))
-                            <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
+                        @if ($routeExists('lookups.index'))
+                            @if ($canRoute('lookups.index'))
+                                <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
+                            @else
+                                <span class="text-sm font-medium chief-menu-inactive" title="No permission">Lookups</span>
+                            @endif
                         @endif
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf

@@ -10,7 +10,7 @@
 
     $lowStockCount = $lowStockItems->count();
 
-    $can = fn (string $feature) => $user->canAccessFeature($feature);
+    $can = fn (string $feature, string $action = 'view') => $user->canAccessFeature($feature, $action);
 
     $modules = [
         [
@@ -19,13 +19,13 @@
             'icon' => 'register',
             'feature' => 'sales.orders',
             'links' => [
-                ['New Sales Order', 'sales.orders.create', 'sales.orders'],
-                ['Sales Orders', 'sales.orders.index', 'sales.orders'],
-                ['New Customer', 'sales.customers.create', 'sales.customers'],
-                ['Customers', 'sales.customers.index', 'sales.customers'],
-                ['Invoices', 'sales.invoices.index', 'sales.invoices'],
-                ['Payments', 'sales.payments.index', 'sales.payments'],
-                ['Credit Memos', 'sales.credit-memos.index', 'sales.credit_memos'],
+                ['New Sales Order', 'sales.orders.create', 'sales.orders', 'edit'],
+                ['Sales Orders', 'sales.orders.index', 'sales.orders', 'view'],
+                ['New Customer', 'sales.customers.create', 'sales.customers', 'edit'],
+                ['Customers', 'sales.customers.index', 'sales.customers', 'view'],
+                ['Invoices', 'sales.invoices.index', 'sales.invoices', 'view'],
+                ['Payments', 'sales.payments.index', 'sales.payments', 'view'],
+                ['Credit Memos', 'sales.credit-memos.index', 'sales.credit_memos', 'view'],
             ],
         ],
         [
@@ -34,10 +34,10 @@
             'icon' => 'barcode',
             'feature' => 'inventory.items',
             'links' => [
-                ['Items', 'inventory.items.index', 'inventory.items'],
-                ['Stock Counts', 'inventory.stock-counts.index', 'inventory.stock_counts'],
-                ['New Item', 'inventory.items.create', 'inventory.items'],
-                ['Bulk Pricing', 'inventory.bulk-pricing', 'inventory.bulk_pricing'],
+                ['Items', 'inventory.items.index', 'inventory.items', 'view'],
+                ['Stock Counts', 'inventory.stock-counts.index', 'inventory.stock_counts', 'view'],
+                ['New Item', 'inventory.items.create', 'inventory.items', 'edit'],
+                ['Bulk Pricing', 'inventory.bulk-pricing', 'inventory.bulk_pricing', 'view'],
             ],
         ],
         [
@@ -46,28 +46,24 @@
             'icon' => 'clipboard',
             'feature' => 'purchasing.orders',
             'links' => [
-                ['Purchase Orders', 'purchasing.orders.index', 'purchasing.orders'],
-                ['Receiving', 'purchasing.receivings.index', 'purchasing.receivings'],
-                ['Return to Vendor', 'purchasing.rtv.index', 'purchasing.rtv'],
-                ['Suppliers', 'purchasing.suppliers.index', 'purchasing.suppliers'],
-                ['New Purchase Order', 'purchasing.orders.create', 'purchasing.orders'],
+                ['Purchase Orders', 'purchasing.orders.index', 'purchasing.orders', 'view'],
+                ['Receiving', 'purchasing.receivings.index', 'purchasing.receivings', 'view'],
+                ['Return to Vendor', 'purchasing.rtv.index', 'purchasing.rtv', 'view'],
+                ['Suppliers', 'purchasing.suppliers.index', 'purchasing.suppliers', 'view'],
+                ['New Purchase Order', 'purchasing.orders.create', 'purchasing.orders', 'edit'],
             ],
         ],
         [
             'title' => 'Inquiries',
             'color' => '#1f8a9a',
             'icon' => 'info',
-            'feature' => 'inquiries',
+            'feature' => 'inquiries.stock_status',
             'links' => [
-                ['Stock Status', 'inquiries.stock-status', 'inquiries'],
-                ['Item Velocity', 'inquiries.item-velocity', 'inquiries'],
+                ['Stock Status', 'inquiries.stock-status', 'inquiries.stock_status', 'view'],
+                ['Item Velocity', 'inquiries.item-velocity', 'inquiries.item_velocity', 'view'],
             ],
         ],
     ];
-
-    $modules = array_values(array_filter($modules, function ($mod) use ($can) {
-        return collect($mod['links'])->contains(fn ($l) => $can($l[2]));
-    }));
 @endphp
 
 <x-app-layout>
@@ -124,13 +120,21 @@
                     <h2 class="home-chief-title">{{ $module['title'] }}</h2>
 
                     <ul class="home-chief-links">
-                        @foreach ($module['links'] as [$label, $route, $feature])
-                            @continue(! $can($feature) || ! $route || ! Route::has($route))
+                        @foreach ($module['links'] as [$label, $route, $feature, $action])
+                            @continue(! $route || ! Route::has($route))
+                            @php $allowed = $can($feature, $action); @endphp
                             <li>
-                                <a href="{{ route($route) }}" wire:navigate>
-                                    <span class="home-chief-link-dot" aria-hidden="true"></span>
-                                    <span class="home-chief-link-text">{{ $label }}</span>
-                                </a>
+                                @if ($allowed)
+                                    <a href="{{ route($route) }}" wire:navigate>
+                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
+                                        <span class="home-chief-link-text">{{ $label }}</span>
+                                    </a>
+                                @else
+                                    <span class="home-chief-link-disabled" title="No permission" aria-disabled="true">
+                                        <span class="home-chief-link-dot" aria-hidden="true"></span>
+                                        <span class="home-chief-link-text">{{ $label }}</span>
+                                    </span>
+                                @endif
                             </li>
                         @endforeach
                     </ul>

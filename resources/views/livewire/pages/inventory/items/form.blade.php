@@ -48,31 +48,31 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $product_highlights = '';
 
-    public string $list_price = '0.00';
+    public string $list_price = '';
 
-    public string $msrp = '0.00';
+    public string $msrp = '';
 
-    public string $standard_cost = '0.00';
+    public string $standard_cost = '';
 
-    public string $current_cost = '0.00';
+    public string $current_cost = '';
 
-    public string $last_cost = '0.00';
+    public string $last_cost = '';
 
-    public string $average_cost = '0.00';
+    public string $average_cost = '';
 
-    public string $quantity_in_stock = '0';
+    public string $quantity_in_stock = '';
 
-    public string $allocated_qty = '0';
+    public string $allocated_qty = '';
 
-    public string $on_order_qty = '0';
+    public string $on_order_qty = '';
 
-    public string $back_order_qty = '0';
+    public string $back_order_qty = '';
 
-    public string $reorder_point = '0';
+    public string $reorder_point = '';
 
-    public string $restock_level = '0';
+    public string $restock_level = '';
 
-    public string $lead_time_days = '0';
+    public string $lead_time_days = '';
 
     public ?string $last_received_at = null;
 
@@ -96,7 +96,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public ?int $pricing_method_id = null;
 
-    public string $unit_of_measure = 'BX';
+    public string $unit_of_measure = '';
 
     public bool $is_inactive = false;
 
@@ -112,9 +112,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $barcode_format = 'UPC-A';
 
-    public string $shipping_weight = '0';
+    public string $shipping_weight = '';
 
-    public string $tare_weight = '0';
+    public string $tare_weight = '';
 
     public string $manufacturer = '';
 
@@ -140,7 +140,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $manu_promotion_code = '';
 
-    public string $manu_base_count = '0';
+    public string $manu_base_count = '';
 
     public string $primary_upc = '';
 
@@ -203,12 +203,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'manu_promotion_code', 'manu_base_count', 'primary_upc',
             ] as $stringProp) {
                 if (! array_key_exists($stringProp, $data) || $data[$stringProp] === null) {
-                    $data[$stringProp] = in_array($stringProp, [
-                        'list_price', 'msrp', 'standard_cost', 'current_cost', 'last_cost', 'average_cost',
-                    ], true) ? '0.00' : (in_array($stringProp, [
-                        'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'back_order_qty',
-                        'reorder_point', 'restock_level', 'lead_time_days', 'shipping_weight', 'tare_weight',
-                    ], true) ? '0' : '');
+                    $data[$stringProp] = '';
                 } else {
                     $data[$stringProp] = (string) $data[$stringProp];
                 }
@@ -268,17 +263,24 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
 
         if ($this->prices === []) {
-            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => '', 'price_level_id' => null];
+            $this->prices[] = [
+                'uom' => strtoupper(trim($this->unit_of_measure)),
+                'price' => $this->list_price,
+                'alias_code' => '',
+                'price_level_id' => null,
+            ];
         }
+
+        $this->syncPricingUomFromInventory();
 
         if ($this->suppliers === []) {
             $this->suppliers[] = [
                 'supplier_id' => null,
                 'supplier_item_code' => '',
-                'lead_time' => '0',
+                'lead_time' => '',
                 'is_default' => true,
-                'last_cost' => '0',
-                'avg_cost' => '0',
+                'last_cost' => '',
+                'avg_cost' => '',
                 'last_received_at' => null,
             ];
         }
@@ -293,6 +295,13 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         if ($this->batches === []) {
             $this->addBatch();
+        }
+    }
+
+    public function updatedActiveTab($value): void
+    {
+        if ($value === 'pricing') {
+            $this->syncPricingUomFromInventory();
         }
     }
 
@@ -324,25 +333,37 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     protected function syncPricingUomFromInventory(): void
     {
         $uom = strtoupper(trim($this->unit_of_measure));
-        if ($uom === '') {
+
+        // Reassign the whole array so Livewire detects nested UOM changes.
+        $prices = $this->prices;
+
+        if ($prices === []) {
+            $prices[] = [
+                'uom' => $uom,
+                'price' => $this->list_price,
+                'alias_code' => '',
+                'price_level_id' => null,
+            ];
+            $this->prices = $prices;
+
             return;
         }
 
-        if ($this->prices === []) {
-            $this->prices[] = ['uom' => $uom, 'price' => $this->list_price ?: '0.00', 'alias_code' => '', 'price_level_id' => null];
+        // Always mirror inventory on the first (default) price row — including empty.
+        $prices[0]['uom'] = $uom;
 
-            return;
-        }
-
-        // Update first price row (default sell UOM) to match inventory selection.
-        $this->prices[0]['uom'] = $uom;
-
-        // Also fill any other blank price UOM rows.
-        foreach ($this->prices as $i => $row) {
+        foreach ($prices as $i => $row) {
+            if ($i === 0) {
+                continue;
+            }
             if (! filled($row['uom'] ?? null)) {
-                $this->prices[$i]['uom'] = $uom;
+                $prices[$i]['uom'] = $uom;
+            } else {
+                $prices[$i]['uom'] = strtoupper(trim((string) $row['uom']));
             }
         }
+
+        $this->prices = $prices;
     }
 
     /**
@@ -504,7 +525,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public function addPrice(): void
     {
-        $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => '0.00', 'alias_code' => '', 'price_level_id' => null];
+        $uom = strtoupper(trim($this->unit_of_measure));
+        $this->prices = [
+            ...$this->prices,
+            ['uom' => $uom, 'price' => '', 'alias_code' => '', 'price_level_id' => null],
+        ];
     }
 
     public function removePrice(int $index): void
@@ -512,7 +537,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         unset($this->prices[$index]);
         $this->prices = array_values($this->prices);
         if ($this->prices === []) {
-            $this->prices[] = ['uom' => $this->unit_of_measure, 'price' => $this->list_price, 'alias_code' => '', 'price_level_id' => null];
+            $uom = strtoupper(trim($this->unit_of_measure));
+            $this->prices = [
+                ['uom' => $uom, 'price' => $this->list_price, 'alias_code' => '', 'price_level_id' => null],
+            ];
         }
     }
 
@@ -521,10 +549,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $this->suppliers[] = [
             'supplier_id' => null,
             'supplier_item_code' => '',
-            'lead_time' => '0',
+            'lead_time' => '',
             'is_default' => false,
-            'last_cost' => '0',
-            'avg_cost' => '0',
+            'last_cost' => '',
+            'avg_cost' => '',
             'last_received_at' => null,
         ];
     }
@@ -571,7 +599,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $this->batches[] = [
             'batch_number' => '',
-            'quantity' => '0',
+            'quantity' => '',
             'expiry_date' => null,
             'received_at' => null,
             'notes' => '',
@@ -825,7 +853,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             $this->validate([
                 'item_code' => 'required|string|max:64',
                 'description' => 'required|string|max:2000',
-                'unit_of_measure' => 'required|string|max:16',
+                'unit_of_measure' => 'nullable|string|max:16',
                 'list_price' => 'nullable|numeric|min:0',
                 'msrp' => 'nullable|numeric|min:0',
                 'standard_cost' => 'nullable|numeric|min:0',
@@ -851,13 +879,12 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             ], [
                 'item_code.required' => 'Item Code is required.',
                 'description.required' => 'Description is required.',
-                'unit_of_measure.required' => 'Unit of Measure is required.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             $keys = array_keys($e->errors());
             if (array_intersect($keys, ['item_code', 'description', 'list_price'])) {
                 $this->activeTab = 'general';
-            } elseif (array_intersect($keys, ['unit_of_measure', 'reorder_point', 'restock_level'])) {
+            } elseif (array_intersect($keys, ['reorder_point', 'restock_level'])) {
                 $this->activeTab = 'inventory';
             } elseif (array_intersect($keys, ['image_path', 'thumbnail_path', 'extended_description', 'product_highlights'])) {
                 $this->activeTab = 'extended';
@@ -882,6 +909,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $thumbPath = filled($this->thumbnail_path) ? $this->thumbnail_path : null;
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
+        $amount = static fn ($v) => ($v === null || $v === '') ? 0 : $v;
 
         $data = [
             'company_id' => auth()->user()->company_id,
@@ -893,15 +921,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'product_highlights' => $this->product_highlights,
             'image_path' => $imagePath,
             'thumbnail_path' => $thumbPath,
-            'list_price' => $this->list_price,
-            'msrp' => $this->msrp,
-            'standard_cost' => $this->standard_cost,
-            'current_cost' => $this->current_cost,
-            'last_cost' => $this->last_cost,
-            'average_cost' => $this->average_cost,
-            'reorder_point' => $this->reorder_point,
-            'restock_level' => $this->restock_level,
-            'lead_time_days' => (int) $this->lead_time_days,
+            'list_price' => $amount($this->list_price),
+            'msrp' => $amount($this->msrp),
+            'standard_cost' => $amount($this->standard_cost),
+            'current_cost' => $amount($this->current_cost),
+            'last_cost' => $amount($this->last_cost),
+            'average_cost' => $amount($this->average_cost),
+            'reorder_point' => $amount($this->reorder_point),
+            'restock_level' => $amount($this->restock_level),
+            'lead_time_days' => (int) $amount($this->lead_time_days),
             'department_id' => $nullableId($this->department_id),
             'category_id' => $nullableId($this->category_id),
             'subcategory_id' => $nullableId($this->subcategory_id),
@@ -909,7 +937,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'tax_schedule_id' => $nullableId($this->tax_schedule_id),
             'promotion_schedule_id' => $nullableId($this->promotion_schedule_id),
             'pricing_method_id' => $nullableId($this->pricing_method_id),
-            'unit_of_measure' => $this->unit_of_measure,
+            'unit_of_measure' => $this->unit_of_measure !== '' ? $this->unit_of_measure : null,
             'is_inactive' => $this->is_inactive,
             'can_sell' => $this->can_sell,
             'can_order' => $this->can_order,
@@ -917,8 +945,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'available_on_website' => $this->available_on_website,
             'item_tracking' => $this->item_tracking,
             'barcode_format' => $this->barcode_format,
-            'shipping_weight' => $this->shipping_weight,
-            'tare_weight' => $this->tare_weight,
+            'shipping_weight' => $amount($this->shipping_weight),
+            'tare_weight' => $amount($this->tare_weight),
             'manufacturer' => $this->manufacturer,
             'tobacco_product_type' => $this->tobacco_product_type !== '' ? $this->tobacco_product_type : null,
             'tobacco_brand_code' => $this->tobacco_product_type !== '' && $this->tobacco_brand_code !== ''
@@ -939,19 +967,19 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'manu_promotion_item' => $this->manu_promotion_item,
             'manu_promotion_description' => $this->manu_promotion_description,
             'manu_promotion_code' => $this->manu_promotion_code,
-            'manu_base_count' => $this->manu_base_count,
+            'manu_base_count' => $amount($this->manu_base_count),
             'primary_upc' => $this->primary_upc,
         ];
 
-        $item = DB::transaction(function () use ($data) {
+        $item = DB::transaction(function () use ($data, $amount) {
             if ($this->item) {
                 $this->item->update($data);
                 $item = $this->item->fresh();
             } else {
-                $data['quantity_in_stock'] = $this->quantity_in_stock;
-                $data['allocated_qty'] = $this->allocated_qty;
-                $data['on_order_qty'] = $this->on_order_qty;
-                $data['back_order_qty'] = $this->back_order_qty;
+                $data['quantity_in_stock'] = $amount($this->quantity_in_stock);
+                $data['allocated_qty'] = $amount($this->allocated_qty);
+                $data['on_order_qty'] = $amount($this->on_order_qty);
+                $data['back_order_qty'] = $amount($this->back_order_qty);
                 $data['last_received_at'] = $this->last_received_at ?: null;
                 $data['last_ordered_at'] = $this->last_ordered_at ?: null;
                 $data['last_sold_at'] = $this->last_sold_at ?: null;
@@ -978,7 +1006,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 }
                 $item->prices()->create([
                     'uom' => $row['uom'] ?: null,
-                    'price' => $row['price'] ?? 0,
+                    'price' => $amount($row['price'] ?? ''),
                     'alias_code' => $row['alias_code'] ?: null,
                     'price_level_id' => filled($row['price_level_id'] ?? null) ? (int) $row['price_level_id'] : null,
                     'sort_order' => $i,
@@ -993,10 +1021,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 $item->itemSuppliers()->create([
                     'supplier_id' => $row['supplier_id'],
                     'supplier_item_code' => $row['supplier_item_code'] ?: null,
-                    'lead_time' => (int) ($row['lead_time'] ?? 0),
+                    'lead_time' => (int) $amount($row['lead_time'] ?? ''),
                     'is_default' => (bool) ($row['is_default'] ?? false),
-                    'last_cost' => $row['last_cost'] ?? 0,
-                    'avg_cost' => $row['avg_cost'] ?? 0,
+                    'last_cost' => $amount($row['last_cost'] ?? ''),
+                    'avg_cost' => $amount($row['avg_cost'] ?? ''),
                     'last_received_at' => $row['last_received_at'] ?: null,
                     'sort_order' => $i,
                 ]);
@@ -1029,7 +1057,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     'company_id' => auth()->user()->company_id,
                     'batch_number' => $batchNumber,
                     'tracking_type' => $trackingType,
-                    'quantity' => $row['quantity'] ?? 0,
+                    'quantity' => $amount($row['quantity'] ?? ''),
                     'expiry_date' => filled($row['expiry_date'] ?? null) ? $row['expiry_date'] : null,
                     'received_at' => filled($row['received_at'] ?? null) ? $row['received_at'] : null,
                     'notes' => filled($row['notes'] ?? null) ? trim((string) $row['notes']) : null,
@@ -1042,7 +1070,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         session()->flash('status', 'Item saved.'.($imagePath ? ' Image stored.' : ''));
 
-        $this->redirect(route('inventory.items.edit', $item), navigate: true);
+        $this->redirect(route('inventory.items.index'), navigate: true);
     }
 }; ?>
 
@@ -1115,7 +1143,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         @error('description') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="list_price_general">List Price</label>
-                            <input id="list_price_general" wire:model.live="list_price" class="so-input text-right @error('list_price') is-invalid @enderror" style="max-width:8rem" />
+                            <input id="list_price_general" wire:model.live="list_price" class="so-input text-right @error('list_price') is-invalid @enderror" style="max-width:8rem" placeholder="0" />
                         </div>
                         @error('list_price') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                     </div>
@@ -1211,11 +1239,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl so-field-req" for="unit_of_measure">Unit of Measure</label>
+                            <label class="so-form-lbl" for="unit_of_measure">Unit of Measure</label>
                             <select id="unit_of_measure" wire:model.live="unit_of_measure" class="so-input @error('unit_of_measure') is-invalid @enderror" style="max-width:8rem">
                                 <option value="">— Select —</option>
                                 @foreach ($uomOptions as $uom)
-                                    <option value="{{ $uom }}">{{ $uom }}</option>
+                                    <option value="{{ $uom }}" @selected(strtoupper(trim((string) $unit_of_measure)) === $uom)>{{ $uom }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -1227,9 +1255,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                     <div class="inv-card">
                         <div class="inv-card-title">Reorder</div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="reorder_point">Reorder Point</label><input id="reorder_point" wire:model="reorder_point" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="restock_level">Restock Level</label><input id="restock_level" wire:model="restock_level" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="lead_time_days">Lead Time (days)</label><input id="lead_time_days" wire:model="lead_time_days" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="reorder_point">Reorder Point</label><input id="reorder_point" wire:model="reorder_point" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="restock_level">Restock Level</label><input id="restock_level" wire:model="restock_level" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="lead_time_days">Lead Time (days)</label><input id="lead_time_days" wire:model="lead_time_days" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
                     </div>
                     <div class="inv-card">
                         <div class="inv-card-title">History</div>
@@ -1308,30 +1336,30 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <div class="inv-card-title">Sell prices</div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="list_price">List Price</label>
-                            <input id="list_price" wire:model.live="list_price" class="so-input text-right" style="max-width:8.5rem" />
+                            <input id="list_price" wire:model.live="list_price" class="so-input text-right" style="max-width:8.5rem" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="msrp">MSRP</label>
-                            <input id="msrp" wire:model.live="msrp" class="so-input text-right" style="max-width:8.5rem" />
+                            <input id="msrp" wire:model.live="msrp" class="so-input text-right" style="max-width:8.5rem" placeholder="0" />
                         </div>
                     </div>
                     <div class="inv-card">
                         <div class="inv-card-title">Costs</div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="standard_cost">Standard Cost</label>
-                            <input id="standard_cost" wire:model.live="standard_cost" class="so-input text-right" style="max-width:8.5rem" />
+                            <input id="standard_cost" wire:model.live="standard_cost" class="so-input text-right" style="max-width:8.5rem" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="current_cost">Current Cost</label>
-                            <input id="current_cost" wire:model="current_cost" class="so-input text-right" style="max-width:8.5rem" />
+                            <input id="current_cost" wire:model="current_cost" class="so-input text-right" style="max-width:8.5rem" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="last_cost">Last Cost</label>
-                            <input id="last_cost" wire:model="last_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly />
+                            <input id="last_cost" wire:model="last_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="average_cost">Average Cost</label>
-                            <input id="average_cost" wire:model="average_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly />
+                            <input id="average_cost" wire:model="average_cost" class="so-input text-right so-input-ro" style="max-width:8.5rem" readonly placeholder="0" />
                         </div>
                     </div>
                     <div class="inv-card">
@@ -1396,14 +1424,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 @foreach ($prices as $i => $row)
                                     <tr>
                                         <td>
-                                            <select wire:model="prices.{{ $i }}.uom" class="so-input item-cell-ctl">
+                                            <select wire:model.live="prices.{{ $i }}.uom" wire:key="price-uom-{{ $i }}-{{ $row['uom'] ?? '' }}" class="so-input item-cell-ctl">
                                                 <option value="">—</option>
                                                 @foreach ($uomOptions as $uom)
-                                                    <option value="{{ $uom }}">{{ $uom }}</option>
+                                                    <option value="{{ $uom }}" @selected(strtoupper(trim((string) ($row['uom'] ?? ''))) === $uom)>{{ $uom }}</option>
                                                 @endforeach
                                             </select>
                                         </td>
-                                        <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" /></td>
+                                        <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" placeholder="0" /></td>
                                         <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input item-cell-ctl" /></td>
                                         <td>
                                             <select wire:model="prices.{{ $i }}.price_level_id" class="so-input item-cell-ctl">
@@ -1486,9 +1514,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                             </select>
                                         </td>
                                         <td><input wire:model="suppliers.{{ $i }}.supplier_item_code" class="so-input font-mono item-cell-ctl" /></td>
-                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right item-cell-qty" /></td>
-                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
-                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.lead_time" class="so-input text-right item-cell-qty" placeholder="0" /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.last_cost" class="so-input text-right item-cell-qty so-input-ro" readonly placeholder="0" /></td>
+                                        <td class="text-center"><input wire:model="suppliers.{{ $i }}.avg_cost" class="so-input text-right item-cell-qty so-input-ro" readonly placeholder="0" /></td>
                                         <td><input type="date" wire:model="suppliers.{{ $i }}.last_received_at" class="so-input item-cell-ctl" /></td>
                                         <td class="text-center"><button type="button" wire:click="removeSupplierRow({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
@@ -1607,6 +1635,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                             <input
                                                 wire:model="batches.{{ $i }}.quantity"
                                                 class="so-input text-right item-cell-qty"
+                                                placeholder="0"
                                                 aria-label="Batch quantity {{ $i + 1 }}"
                                             />
                                         </td>
@@ -1678,8 +1707,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 @foreach ($barcodeFormats as $fmt)<option value="{{ $fmt }}">{{ $fmt }}</option>@endforeach
                             </select>
                         </div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
+                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="tobacco_product_type">Tobacco Type</label>
@@ -1738,7 +1767,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_item">Promo Item</label><input id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input" /></div>
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_code">Promo Code</label><input id="manu_promotion_code" wire:model="manu_promotion_code" class="so-input" /></div>
                             <div class="so-form-row so-form-row-side" style="grid-column:span 2"><label class="so-form-lbl" for="manu_promotion_description">Promo Desc</label><input id="manu_promotion_description" wire:model="manu_promotion_description" class="so-input" /></div>
-                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_base_count">Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" /></div>
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_base_count">Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
                         </div>
                     </div>
                 </div>

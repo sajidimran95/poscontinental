@@ -50,17 +50,24 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
         if ($supplier?->exists) {
             abort_unless($supplier->company_id === auth()->user()->company_id, 403);
             $this->supplier = $supplier->load('contacts');
-            $this->fill($supplier->only([
+            $data = $supplier->only([
                 'supplier_id', 'is_inactive', 'is_tobacco_supplier', 'name', 'contact_name',
                 'address', 'city', 'state', 'zip_code', 'country', 'fein_no',
                 'phone1', 'phone2', 'fax', 'email', 'web_page',
-            ]));
+            ]);
+            foreach ([
+                'supplier_id', 'name', 'contact_name', 'address', 'city', 'state', 'zip_code',
+                'country', 'fein_no', 'phone1', 'phone2', 'fax', 'email', 'web_page',
+            ] as $stringProp) {
+                $data[$stringProp] = (string) ($data[$stringProp] ?? '');
+            }
+            $this->fill($data);
             $this->contacts = $supplier->contacts->map(fn ($c) => [
-                'department' => $c->department ?? '',
-                'contact_name' => $c->contact_name,
-                'title' => $c->title ?? '',
-                'phone' => $c->phone ?? '',
-                'ext' => $c->ext ?? '',
+                'department' => (string) ($c->department ?? ''),
+                'contact_name' => (string) ($c->contact_name ?? ''),
+                'title' => (string) ($c->title ?? ''),
+                'phone' => (string) ($c->phone ?? ''),
+                'ext' => (string) ($c->ext ?? ''),
             ])->all();
         }
 

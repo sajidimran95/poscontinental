@@ -47,13 +47,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public string $comments = '';
 
-    public string $freight = '0.00';
+    public string $freight = '';
 
-    public string $trade_discount = '0.00';
+    public string $trade_discount = '';
 
-    public string $miscellaneous = '0.00';
+    public string $miscellaneous = '';
 
-    public string $tax = '0.00';
+    public string $tax = '';
 
     public string $itemLookup = '';
 
@@ -79,8 +79,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->fill($purchaseOrder->only([
                 'po_number', 'order_type', 'reference_no', 'status', 'buyer_id', 'ship_to_site_id',
                 'supplier_id', 'ship_from', 'payment_term_id', 'ship_via_id', 'comments',
-                'freight', 'trade_discount', 'miscellaneous', 'tax',
             ]));
+            $this->freight = $this->blankZeroAmount($purchaseOrder->freight);
+            $this->trade_discount = $this->blankZeroAmount($purchaseOrder->trade_discount);
+            $this->miscellaneous = $this->blankZeroAmount($purchaseOrder->miscellaneous);
+            $this->tax = $this->blankZeroAmount($purchaseOrder->tax);
             $this->requisition_date = optional($purchaseOrder->requisition_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($purchaseOrder->required_date)?->format('Y-m-d') ?? '';
             $this->lines = $purchaseOrder->lines->map(fn ($l) => [
@@ -88,9 +91,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'item_code' => $l->item_code ?? '',
                 'description' => $l->description ?? '',
                 'uom' => $l->uom ?? '',
-                'qty_ordered' => (string) $l->qty_ordered,
-                'qty_received' => (string) $l->qty_received,
-                'unit_cost' => (string) $l->unit_cost,
+                'qty_ordered' => $this->blankZeroAmount($l->qty_ordered),
+                'qty_received' => $this->blankZeroAmount($l->qty_received),
+                'unit_cost' => $this->blankZeroAmount($l->unit_cost),
             ])->all();
         } else {
             $this->po_number = PurchaseOrder::nextNumber($companyId);
@@ -111,10 +114,26 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             'item_code' => '',
             'description' => '',
             'uom' => '',
-            'qty_ordered' => '1',
-            'qty_received' => '0',
-            'unit_cost' => '0.00',
+            'qty_ordered' => '',
+            'qty_received' => '',
+            'unit_cost' => '',
         ];
+    }
+
+    /** Empty string when value is null/blank/zero so inputs show placeholder 0. */
+    protected function blankZeroAmount(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        return is_numeric($value) && (float) $value == 0.0 ? '' : (string) $value;
+    }
+
+    /** Persist empty amount fields as 0. */
+    protected function amountOrZero(mixed $value): float
+    {
+        return ($value === null || $value === '') ? 0.0 : (float) $value;
     }
 
     public function with(): array
@@ -216,7 +235,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function lookupItem(int $index): void
     {
-        $code = trim($this->lines[$index]['item_code'] ?? '');
+        $code = trim((string) ($this->lines[$index]['item_code'] ?? ''));
         if ($code === '') {
             $this->openItemBrowse($index);
 
@@ -227,9 +246,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $item = Item::query()
             ->where('company_id', $companyId)
             ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)
-                    ->orWhere('primary_upc', $code)
-                    ->orWhereHas('itemSuppliers', fn ($s) => $s->where('supplier_item_code', $code));
+                $lower = mb_strtolower($code);
+                $q->whereRaw('LOWER(item_code) = ?', [$lower])
+                    ->orWhereRaw('LOWER(primary_upc) = ?', [$lower])
+                    ->orWhereHas('itemSuppliers', fn ($s) => $s->whereRaw(
+                        'LOWER(supplier_item_code) = ?',
+                        [$lower]
+                    ));
             })
             ->first();
 
@@ -242,7 +265,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $this->fillLineFromItem($index, $item);
-        $this->lookupMessage = 'Loaded item '.$item->item_code.'.';
+        $this->lookupMessage = 'Added item '.$item->item_code.'.';
+
+        // Ready next line for continuous code entry.
+        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
     }
 
     protected function fillLineFromItem(int $index, Item $item): void
@@ -252,14 +281,18 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ->orderByDesc('is_default')
             ->first();
 
-        $this->lines[$index]['item_id'] = $item->id;
-        $this->lines[$index]['item_code'] = $item->item_code;
-        $this->lines[$index]['description'] = $item->description ?? '';
-        $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $this->lines[$index]['unit_cost'] = (string) ($supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost);
-        if (! filled($this->lines[$index]['qty_ordered'] ?? null) || (float) $this->lines[$index]['qty_ordered'] <= 0) {
-            $this->lines[$index]['qty_ordered'] = '1';
+        $lines = $this->lines;
+        $lines[$index]['item_id'] = $item->id;
+        $lines[$index]['item_code'] = $item->item_code;
+        $lines[$index]['description'] = $item->description ?? '';
+        $lines[$index]['uom'] = $item->unit_of_measure ?? '';
+        $lines[$index]['unit_cost'] = $this->blankZeroAmount(
+            $supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost
+        );
+        if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
+            $lines[$index]['qty_ordered'] = '1';
         }
+        $this->lines = $lines;
     }
 
     public function save(): void
@@ -294,8 +327,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
-        $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty_ordered'] * (float) $l['unit_cost']);
-        $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
+        $subtotal = collect($this->lines)->sum(fn ($l) => $this->amountOrZero($l['qty_ordered'] ?? null) * $this->amountOrZero($l['unit_cost'] ?? null));
+        $total = $subtotal
+            - $this->amountOrZero($this->trade_discount)
+            + $this->amountOrZero($this->freight)
+            + $this->amountOrZero($this->miscellaneous)
+            + $this->amountOrZero($this->tax);
 
         $data = [
             'company_id' => auth()->user()->company_id,
@@ -313,10 +350,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             'ship_via_id' => $nullableId($this->ship_via_id),
             'comments' => $this->comments,
             'subtotal' => $subtotal,
-            'trade_discount' => $this->trade_discount,
-            'freight' => $this->freight,
-            'miscellaneous' => $this->miscellaneous,
-            'tax' => $this->tax,
+            'trade_discount' => $this->amountOrZero($this->trade_discount),
+            'freight' => $this->amountOrZero($this->freight),
+            'miscellaneous' => $this->amountOrZero($this->miscellaneous),
+            'tax' => $this->amountOrZero($this->tax),
             'total' => $total,
         ];
 
@@ -333,15 +370,15 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
                     continue;
                 }
-                $qty = (float) ($line['qty_ordered'] ?? 0);
-                $cost = (float) ($line['unit_cost'] ?? 0);
+                $qty = $this->amountOrZero($line['qty_ordered'] ?? null);
+                $cost = $this->amountOrZero($line['unit_cost'] ?? null);
                 $po->lines()->create([
                     'item_id' => $line['item_id'] ?: null,
                     'item_code' => $line['item_code'] ?: null,
                     'description' => $line['description'] ?: null,
                     'uom' => $line['uom'] ?: null,
                     'qty_ordered' => $qty,
-                    'qty_received' => (float) ($line['qty_received'] ?? 0),
+                    'qty_received' => $this->amountOrZero($line['qty_received'] ?? null),
                     'unit_cost' => $cost,
                     'extended_cost' => $qty * $cost,
                     'line_no' => $i + 1,
@@ -515,11 +552,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                             </div>
                             <div class="so-form-row so-form-row-side sc-field" style="display:block">
                                 <label class="so-form-lbl" for="trade_discount_general">Discount</label>
-                                <input id="trade_discount_general" wire:model.live="trade_discount" class="so-input text-right" />
+                                <input id="trade_discount_general" wire:model.live="trade_discount" class="so-input text-right" placeholder="0" />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field" style="display:block">
                                 <label class="so-form-lbl" for="freight_general">Freight</label>
-                                <input id="freight_general" wire:model.live="freight" class="so-input text-right" />
+                                <input id="freight_general" wire:model.live="freight" class="so-input text-right" placeholder="0" />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field" style="display:block">
                                 <label class="so-form-lbl">Order Total</label>
@@ -589,7 +626,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                         <td>
                                             <div class="so-lookup-row">
                                                 <input
-                                                    wire:model.blur="lines.{{ $i }}.item_code"
+                                                    wire:model="lines.{{ $i }}.item_code"
                                                     wire:keydown.tab="lookupItem({{ $i }})"
                                                     wire:keydown.enter.prevent="lookupItem({{ $i }})"
                                                     class="so-input font-mono item-cell-ctl"
@@ -601,9 +638,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                         </td>
                                         <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" /></td>
                                         <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" /></td>
-                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right item-cell-qty" /></td>
-                                        <td class="text-center"><input wire:model="lines.{{ $i }}.qty_received" class="so-input text-right item-cell-qty so-input-ro" readonly /></td>
-                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" /></td>
+                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right item-cell-qty" placeholder="0" /></td>
+                                        <td class="text-center"><input wire:model="lines.{{ $i }}.qty_received" class="so-input text-right item-cell-qty so-input-ro" readonly placeholder="0" /></td>
+                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" placeholder="0" /></td>
                                         <td class="desk-money">${{ number_format((float) $line['qty_ordered'] * (float) $line['unit_cost'], 2) }}</td>
                                         <td class="text-center"><button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
@@ -622,19 +659,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="trade_discount">Discount</label>
-                            <input id="trade_discount" wire:model.live="trade_discount" class="so-input text-right sc-date" />
+                            <input id="trade_discount" wire:model.live="trade_discount" class="so-input text-right sc-date" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="freight">Freight</label>
-                            <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" />
+                            <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="miscellaneous">Miscellaneous</label>
-                            <input id="miscellaneous" wire:model.live="miscellaneous" class="so-input text-right sc-date" />
+                            <input id="miscellaneous" wire:model.live="miscellaneous" class="so-input text-right sc-date" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
                             <label class="so-form-lbl" for="tax">Tax</label>
-                            <input id="tax" wire:model.live="tax" class="so-input text-right sc-date" />
+                            <input id="tax" wire:model.live="tax" class="so-input text-right sc-date" placeholder="0" />
                         </div>
                         <div class="so-form-row so-form-row-side sc-field po-total-row">
                             <label class="so-form-lbl">Total</label>

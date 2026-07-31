@@ -98,11 +98,7 @@
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
                         @if ($routeExists('lookups.index'))
-                            @if ($canRoute('lookups.index'))
-                                <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
-                            @else
-                                <span class="text-sm font-medium chief-menu-inactive" title="No permission">Lookups</span>
-                            @endif
+                            <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
                         @endif
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf

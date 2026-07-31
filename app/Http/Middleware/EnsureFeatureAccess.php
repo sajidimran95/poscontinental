@@ -17,7 +17,7 @@ class EnsureFeatureAccess
         }
 
         $routeName = $request->route()?->getName();
-        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show'], true)) {
+        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show', 'lookups.index', 'admin.terminal'], true)) {
             return $next($request);
         }
 

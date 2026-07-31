@@ -130,6 +130,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'savedBalance' => $savedBalance,
             'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
             'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
+            'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
         ];
     }
 
@@ -274,6 +275,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function openPayments(int $id): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot enter payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
         $this->selectedId = $id;
         $this->modalInvoiceId = $id;
         $invoice = Invoice::query()->find($id);
@@ -328,11 +335,23 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function addPaymentRow(): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot enter payments.');
+
+            return;
+        }
+
         $this->pushPaymentRow(true);
     }
 
     public function addRemainingDuePayment(): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot enter payments.');
+
+            return;
+        }
+
         $this->pushPaymentRow(true);
     }
 
@@ -397,6 +416,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function addCreditRow(): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot apply credits. Enable Payments & Credits permission.');
+
+            return;
+        }
+
         $invoice = Invoice::query()->find($this->modalInvoiceId);
         if (! $invoice) {
             return;
@@ -485,6 +510,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function saveAll(bool $print = false): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot save payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
         $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
         abort_unless($invoice->company_id === auth()->user()->company_id, 403);
 
@@ -844,12 +875,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Open invoice / payments" aria-label="Open invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Open invoice / payments' : 'No payment permission' }}" aria-label="Open invoice" @disabled(! $selectedId || ! $canEnterPayments)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="Enter payment" aria-label="Enter payment" @disabled(! $selectedId)>
+                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Enter payment' : 'No payment permission' }}" aria-label="Enter payment" @disabled(! $selectedId || ! $canEnterPayments)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
                         <path d="M5 8.2l2.1 2.1L11.2 6" stroke-width="1.7"/>

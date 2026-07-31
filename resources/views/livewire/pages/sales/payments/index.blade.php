@@ -47,6 +47,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'customers' => Customer::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('company_name')->get(),
             'openInvoices' => $invoices,
             'checkedTotal' => $checkedTotal,
+            'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
         ];
     }
 
@@ -67,6 +68,12 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     public function applyPayment(): void
     {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot apply payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
         $this->validate([
             'customer_id' => 'required',
             'pay_amount' => 'required|numeric|min:0.01',
@@ -169,16 +176,19 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     </div>
                 </div>
 
-                <div class="entity-fieldset" style="margin-top:1rem;max-width:48rem">
+                <div class="entity-fieldset" style="margin-top:1rem;max-width:48rem" @class(['opacity-60' => ! $canEnterPayments])>
                     <legend>Apply Payment</legend>
+                    @unless ($canEnterPayments)
+                        <p class="item-hint" style="padding:0 0 0.5rem">Payments are disabled for your role. Enable <strong>Payments &amp; Credits → Edit</strong> to apply.</p>
+                    @endunless
                     <div class="entity-grid-2" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.75rem">
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_date_cf">Date</label>
-                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" />
+                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" @disabled(! $canEnterPayments) />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_method_cf">Method</label>
-                            <select id="pay_method_cf" wire:model="pay_method" class="so-input">
+                            <select id="pay_method_cf" wire:model="pay_method" class="so-input" @disabled(! $canEnterPayments)>
                                 <option>Cash</option>
                                 <option>Credit Card</option>
                                 <option>Check</option>
@@ -186,12 +196,12 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_amount_cf">Amount</label>
-                            <input id="pay_amount_cf" wire:model="pay_amount" class="so-input text-right" />
+                            <input id="pay_amount_cf" wire:model="pay_amount" class="so-input text-right" @disabled(! $canEnterPayments) />
                         </div>
                     </div>
                     <div class="entity-footer-actions" style="margin-top:0.85rem;justify-content:space-between">
                         <div class="entity-value">Checked total: ${{ number_format($checkedTotal, 2) }}</div>
-                        <button type="button" wire:click="applyPayment" class="desk-btn desk-btn-primary">Apply Payment</button>
+                        <button type="button" wire:click="applyPayment" class="desk-btn desk-btn-primary" @disabled(! $canEnterPayments) title="{{ $canEnterPayments ? 'Apply payment' : 'No payment permission' }}">Apply Payment</button>
                     </div>
                 </div>
             @else

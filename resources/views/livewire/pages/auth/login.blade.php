@@ -66,7 +66,7 @@ new #[Layout('layouts.pos-login'), Title('Sign in')] class extends Component
             <section class="pos-login-panel">
                 <div class="pos-login-panel-head">
                     <h2>Sign in</h2>
-                    <p>Select your company, then enter your User ID and password.</p>
+                    <p>Select your company, then enter your email (User ID) and password.</p>
                 </div>
 
                 <x-auth-session-status class="pos-login-status" :status="session('status')" />
@@ -84,18 +84,18 @@ new #[Layout('layouts.pos-login'), Title('Sign in')] class extends Component
                     </div>
 
                     <div class="pos-login-field">
-                        <label for="username">User ID</label>
+                        <label for="email">User ID (Email)</label>
                         <input
-                            wire:model="form.username"
-                            id="username"
-                            type="text"
-                            name="username"
+                            wire:model="form.email"
+                            id="email"
+                            type="email"
+                            name="email"
                             required
                             autofocus
                             autocomplete="username"
-                            placeholder="Enter your email"
+                            placeholder="name@company.com"
                         />
-                        <x-input-error :messages="$errors->get('form.username')" class="pos-login-error" />
+                        <x-input-error :messages="$errors->get('form.email')" class="pos-login-error" />
                     </div>
 
                     <div class="pos-login-field">

@@ -14,7 +14,7 @@ class LoginForm extends Form
 {
     public ?int $company_id = null;
 
-    public string $username = '';
+    public string $email = '';
 
     public string $password = '';
 
@@ -24,7 +24,7 @@ class LoginForm extends Form
     {
         return [
             'company_id' => ['required', 'integer', 'exists:companies,id'],
-            'username' => ['required', 'string'],
+            'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
             'remember' => ['boolean'],
         ];
@@ -35,9 +35,11 @@ class LoginForm extends Form
         $this->validate();
         $this->ensureIsNotRateLimited();
 
+        $email = Str::lower(trim($this->email));
+
         $user = User::query()
             ->where('company_id', $this->company_id)
-            ->where('username', $this->username)
+            ->whereRaw('LOWER(email) = ?', [$email])
             ->where('is_active', true)
             ->first();
 
@@ -48,7 +50,7 @@ class LoginForm extends Form
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
-                'form.username' => trans('auth.failed'),
+                'form.email' => trans('auth.failed'),
             ]);
         }
 
@@ -75,7 +77,7 @@ class LoginForm extends Form
         $seconds = RateLimiter::availableIn($this->throttleKey());
 
         throw ValidationException::withMessages([
-            'form.username' => trans('auth.throttle', [
+            'form.email' => trans('auth.throttle', [
                 'seconds' => $seconds,
                 'minutes' => ceil($seconds / 60),
             ]),
@@ -84,6 +86,6 @@ class LoginForm extends Form
 
     protected function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->username).'|'.$this->company_id.'|'.request()->ip());
+        return Str::transliterate(Str::lower($this->email).'|'.$this->company_id.'|'.request()->ip());
     }
 }

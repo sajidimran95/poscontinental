@@ -48,16 +48,6 @@ class AppFeatures
                 'group' => 'File',
                 'routes' => ['admin.email-logs'],
             ],
-            'admin.terminal' => [
-                'label' => 'Terminal',
-                'group' => 'File',
-                'routes' => ['admin.terminal'],
-            ],
-            'lookups' => [
-                'label' => 'Lookups',
-                'group' => 'File',
-                'routes' => ['lookups.index'],
-            ],
             'inquiries.stock_status' => [
                 'label' => 'Stock Status',
                 'group' => 'Inquiry',
@@ -105,12 +95,12 @@ class AppFeatures
             'sales.invoices' => [
                 'label' => 'Invoices',
                 'group' => 'Sales',
-                'routes' => ['sales.invoices.index', 'sales.invoices.pdf', 'sales.invoices.email', 'sales.invoices.receipt'],
+                'routes' => ['sales.invoices.index', 'sales.invoices.pdf', 'sales.invoices.email', 'sales.invoices.pick-list'],
             ],
             'sales.payments' => [
                 'label' => 'Payments & Credits',
                 'group' => 'Sales',
-                'routes' => ['sales.payments.index'],
+                'routes' => ['sales.payments.index', 'sales.invoices.receipt'],
             ],
             'sales.credit_memos' => [
                 'label' => 'Credit Memos',
@@ -357,8 +347,6 @@ class AppFeatures
                 ['label' => 'Users & Roles', 'feature' => 'admin.users'],
                 ['label' => 'Email Setup', 'feature' => 'admin.email_setup'],
                 ['label' => 'Email Send Log', 'feature' => 'admin.email_logs'],
-                ['label' => 'Terminal', 'feature' => 'admin.terminal'],
-                ['label' => 'Lookups', 'feature' => 'lookups'],
             ],
             'Inquiry' => [
                 ['label' => 'Stock Status', 'feature' => 'inquiries.stock_status'],
@@ -409,5 +397,77 @@ class AppFeatures
         }
 
         return array_values(array_unique(array_column($cards[$menu], 'feature')));
+    }
+
+    /**
+     * File-menu admin features — off by default; enable only when needed.
+     *
+     * @return list<string>
+     */
+    public static function restrictedAdminFeatures(): array
+    {
+        return [
+            'admin.company',
+            'admin.users',
+            'admin.email_setup',
+            'admin.email_logs',
+        ];
+    }
+
+    /** Whether a feature is a restricted File admin feature. */
+    public static function isRestrictedAdminFeature(string $feature): bool
+    {
+        return in_array($feature, self::restrictedAdminFeatures(), true);
+    }
+
+    /**
+     * Default permission tokens for new non-admin roles (admin File items excluded).
+     *
+     * @return list<string>
+     */
+    public static function defaultRolePermissionTokens(): array
+    {
+        $blocked = self::restrictedAdminFeatures();
+
+        return array_values(array_filter(
+            self::permissionTokens(),
+            function (string $token) use ($blocked): bool {
+                foreach ($blocked as $feature) {
+                    if ($token === $feature || str_starts_with($token, $feature.'.')) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        ));
+    }
+
+    /**
+     * Remove restricted File admin tokens from a permission list.
+     *
+     * @param  list<string>|null  $tokens
+     * @return list<string>
+     */
+    public static function withoutRestrictedAdmin(?array $tokens): array
+    {
+        if (! is_array($tokens) || $tokens === []) {
+            return [];
+        }
+
+        $blocked = self::restrictedAdminFeatures();
+
+        return array_values(array_filter(
+            $tokens,
+            function (string $token) use ($blocked): bool {
+                foreach ($blocked as $feature) {
+                    if ($token === $feature || str_starts_with($token, $feature.'.')) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        ));
     }
 }

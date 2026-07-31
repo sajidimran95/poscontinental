@@ -15,7 +15,7 @@ new #[Layout('layouts.app'), Title('My Profile')] class extends Component
 {
     public string $name = '';
 
-    public string $username = '';
+    public string $email = '';
 
     public ?string $avatar_path = null;
 
@@ -35,7 +35,7 @@ new #[Layout('layouts.app'), Title('My Profile')] class extends Component
         abort_unless($user, 403);
 
         $this->name = (string) $user->name;
-        $this->username = (string) ($user->username ?? '');
+        $this->email = (string) ($user->email ?? '');
         $this->avatar_path = filled($user->avatar_path) ? (string) $user->avatar_path : null;
     }
 
@@ -129,17 +129,13 @@ new #[Layout('layouts.app'), Title('My Profile')] class extends Component
         $user = Auth::user();
         abort_unless($user instanceof User, 403);
 
-        $companyId = (int) $user->company_id;
-
         $rules = [
             'name' => ['required', 'string', 'max:255'],
-            'username' => [
+            'email' => [
                 'required',
-                'string',
-                'max:64',
-                Rule::unique('users', 'username')
-                    ->where(fn ($q) => $q->where('company_id', $companyId))
-                    ->ignore($user->id),
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
             ],
         ];
 
@@ -151,15 +147,18 @@ new #[Layout('layouts.app'), Title('My Profile')] class extends Component
         }
 
         $validated = $this->validate($rules, [
-            'username.required' => 'User ID is required.',
-            'username.unique' => 'That User ID is already in use.',
+            'email.required' => 'User ID (email) is required.',
+            'email.unique' => 'That email User ID is already in use.',
             'current_password.required' => 'Enter your current password to change it.',
             'current_password.current_password' => 'Current password is incorrect.',
         ]);
 
+        $email = strtolower(trim($validated['email']));
+
         $data = [
             'name' => $validated['name'],
-            'username' => $validated['username'],
+            'email' => $email,
+            'username' => $email,
         ];
 
         if ($changingPassword) {
@@ -252,8 +251,8 @@ new #[Layout('layouts.app'), Title('My Profile')] class extends Component
             <h3 class="msa-section-title">Account</h3>
 
             <label class="stamp-inv-field">
-                <span>User ID <em>*</em></span>
-                <input type="text" wire:model="username" class="desk-input font-mono" autocomplete="username" />
+                <span>User ID (Email) <em>*</em></span>
+                <input type="email" wire:model="email" class="desk-input" autocomplete="username" />
             </label>
 
             <label class="stamp-inv-field">

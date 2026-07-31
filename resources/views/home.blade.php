@@ -130,7 +130,7 @@
                                         <span class="home-chief-link-text">{{ $label }}</span>
                                     </a>
                                 @else
-                                    <span class="home-chief-link-disabled" title="No permission" aria-disabled="true">
+                                    <span class="home-chief-disabled" title="No permission" aria-disabled="true">
                                         <span class="home-chief-link-dot" aria-hidden="true"></span>
                                         <span class="home-chief-link-text">{{ $label }}</span>
                                     </span>

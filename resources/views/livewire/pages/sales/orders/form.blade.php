@@ -1823,6 +1823,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $order = $this->salesOrder->fresh(['lines', 'customer', 'invoice']);
+
+        $canPay = auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false;
+        $canInvoice = auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false;
+        if ($this->optCreateInvoicePayment && ! $canPay) {
+            $this->optCreateInvoicePayment = false;
+        }
+        if ($this->optCreatePrintInvoice && ! $canInvoice) {
+            $this->optCreatePrintInvoice = false;
+        }
+
         $needInvoice = $this->optCreateInvoicePayment || $this->optCreatePrintInvoice;
         $invoice = $order->invoice;
 
@@ -2937,17 +2947,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <button type="button" wire:click="cancelPrintDialog" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-print-dialog-body">
-                    <label class="so-print-opt">
-                        <input type="checkbox" wire:model="optCreateInvoicePayment" />
-                        <span>Create/Edit Invoice &amp; Payment</span>
+                    @php
+                        $canPay = auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false;
+                        $canInvoice = auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false;
+                    @endphp
+                    <label @class(['so-print-opt', 'chief-menu-inactive' => ! $canPay])>
+                        <input type="checkbox" wire:model="optCreateInvoicePayment" @disabled(! $canPay) />
+                        <span>Create/Edit Invoice &amp; Payment{{ $canPay ? '' : ' (no permission)' }}</span>
                     </label>
                     <label class="so-print-opt">
                         <input type="checkbox" wire:model="optPrintSalesOrder" />
                         <span>Print Sales order Document</span>
                     </label>
-                    <label class="so-print-opt">
-                        <input type="checkbox" wire:model="optCreatePrintInvoice" />
-                        <span>Create &amp; Print Invoice</span>
+                    <label @class(['so-print-opt', 'chief-menu-inactive' => ! $canInvoice])>
+                        <input type="checkbox" wire:model="optCreatePrintInvoice" @disabled(! $canInvoice) />
+                        <span>Create &amp; Print Invoice{{ $canInvoice ? '' : ' (no permission)' }}</span>
                     </label>
                     <label class="so-print-opt">
                         <input type="checkbox" wire:model="optPrintPickList" />

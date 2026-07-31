@@ -31,11 +31,11 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public bool $showUserForm = false;
 
+    public bool $viewMode = false;
+
     public ?int $editingUserId = null;
 
     public string $name = '';
-
-    public string $username = '';
 
     public string $email = '';
 
@@ -53,7 +53,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public string $job_title = '';
 
-    public bool $is_active = true;
+    public bool $is_active = false;
 
     /** @var array<int, string> Per-user menu permissions (does not change the role). */
     public array $user_permissions = [];
@@ -80,7 +80,6 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 $term = '%'.$this->search.'%';
                 $q->where(function ($inner) use ($term) {
                     $inner->where('name', 'like', $term)
-                        ->orWhere('username', 'like', $term)
                         ->orWhere('email', 'like', $term)
                         ->orWhere('job_title', 'like', $term)
                         ->orWhereHas('role', fn ($r) => $r->where('label', 'like', $term)->orWhere('name', 'like', $term))
@@ -151,9 +150,12 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
         $map = AppFeatures::expand($role->permissions);
 
-        return $map === null
-            ? AppFeatures::permissionTokens()
-            : AppFeatures::flatten($map);
+        // Null legacy = operational menus only (File admin items stay inactive until enabled).
+        if ($map === null) {
+            return AppFeatures::defaultRolePermissionTokens();
+        }
+
+        return AppFeatures::flatten($map);
     }
 
     public function updatedRoleId(mixed $value): void
@@ -272,6 +274,23 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->resetPage();
     }
 
+    public function viewSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', $this->favorite === 'roles' ? 'Select a role first.' : 'Select a user first.');
+
+            return;
+        }
+
+        if ($this->favorite === 'roles') {
+            $this->viewRole($this->selectedId);
+
+            return;
+        }
+
+        $this->viewUser($this->selectedId);
+    }
+
     public function editSelected(): void
     {
         if (! $this->selectedId) {
@@ -383,9 +402,9 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->favorite = 'users';
         $this->showUserForm = true;
         $this->showRoleForm = false;
+        $this->viewMode = false;
         $this->editingUserId = null;
         $this->name = '';
-        $this->username = '';
         $this->email = '';
         $this->password = '';
         $this->password_confirmation = '';
@@ -395,9 +414,14 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->site_id = auth()->user()->site_id;
         $this->department_id = null;
         $this->job_title = '';
-        $this->is_active = true;
+        $this->is_active = false;
         $this->user_permissions = $this->permissionsFromRole($this->role_id);
         $this->resetErrorBag();
+    }
+
+    public function viewUser(int $id): void
+    {
+        $this->fillUserForm($id, true);
     }
 
     public function editUser(int $id): void
@@ -408,14 +432,19 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             return;
         }
 
+        $this->fillUserForm($id, false);
+    }
+
+    protected function fillUserForm(int $id, bool $viewMode): void
+    {
         $user = User::query()->where('company_id', auth()->user()->company_id)->findOrFail($id);
         $this->favorite = 'users';
         $this->showUserForm = true;
         $this->showRoleForm = false;
+        $this->viewMode = $viewMode;
         $this->editingUserId = $user->id;
         $this->selectedId = $user->id;
         $this->name = $user->name;
-        $this->username = (string) $user->username;
         $this->email = (string) $user->email;
         $this->password = '';
         $this->password_confirmation = '';
@@ -434,11 +463,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
     public function cancelUserForm(): void
     {
         $this->showUserForm = false;
+        $this->viewMode = false;
         $this->resetErrorBag();
     }
 
     public function saveUser(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
             session()->flash('status', 'Your role cannot save users.');
 
@@ -448,18 +482,14 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $companyId = auth()->user()->company_id;
         $allowed = AppFeatures::permissionTokens();
         $needsPassword = ! $this->editingUserId || $this->update_password;
+        $email = strtolower(trim($this->email));
 
         $this->validate([
             'name' => 'required|string|max:255',
-            'username' => [
-                'required',
-                'string',
-                'max:64',
-                Rule::unique('users', 'username')->where(fn ($q) => $q->where('company_id', $companyId))->ignore($this->editingUserId),
-            ],
             'email' => [
                 'required',
                 'email',
+                'max:255',
                 Rule::unique('users', 'email')->ignore($this->editingUserId),
             ],
             'role_id' => 'required|exists:roles,id',
@@ -475,13 +505,17 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'password' => $needsPassword ? 'required|string|min:6|confirmed' : 'nullable',
             'user_permissions' => 'array',
             'user_permissions.*' => 'string|in:'.implode(',', $allowed),
+        ], [
+            'email.required' => 'User ID (email) is required.',
+            'email.unique' => 'That email User ID is already in use.',
         ]);
 
+        // Email is the login User ID; keep username in sync for legacy uniqueness.
         $data = [
             'company_id' => $companyId,
             'name' => $this->name,
-            'username' => $this->username,
-            'email' => $this->email,
+            'username' => $email,
+            'email' => $email,
             'role_id' => $this->role_id,
             'site_id' => $this->site_id ?: null,
             'department_id' => $this->department_id ?: null,
@@ -504,6 +538,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         }
 
         $this->showUserForm = false;
+        $this->viewMode = false;
     }
 
     public function startNewRole(): void
@@ -517,11 +552,17 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->favorite = 'roles';
         $this->showRoleForm = true;
         $this->showUserForm = false;
+        $this->viewMode = false;
         $this->editingRoleId = null;
         $this->role_name = '';
         $this->role_label = '';
-        $this->role_permissions = AppFeatures::permissionTokens();
+        $this->role_permissions = AppFeatures::defaultRolePermissionTokens();
         $this->resetErrorBag();
+    }
+
+    public function viewRole(int $id): void
+    {
+        $this->fillRoleForm($id, true);
     }
 
     public function editRole(int $id): void
@@ -532,22 +573,36 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             return;
         }
 
+        $this->fillRoleForm($id, false);
+    }
+
+    protected function fillRoleForm(int $id, bool $viewMode): void
+    {
         $role = Role::query()->findOrFail($id);
         $this->favorite = 'roles';
         $this->showRoleForm = true;
         $this->showUserForm = false;
+        $this->viewMode = $viewMode;
         $this->editingRoleId = $role->id;
         $this->role_name = $role->name;
         $this->role_label = $role->label;
         $map = AppFeatures::expand($role->permissions);
-        $this->role_permissions = $map === null
-            ? AppFeatures::permissionTokens()
-            : AppFeatures::flatten($map);
+        if ($role->name === 'admin') {
+            $this->role_permissions = AppFeatures::permissionTokens();
+        } elseif ($map === null) {
+            $this->role_permissions = AppFeatures::defaultRolePermissionTokens();
+        } else {
+            $this->role_permissions = AppFeatures::flatten($map);
+        }
         $this->resetErrorBag();
     }
 
     public function selectAllPermissions(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         $this->role_permissions = AppFeatures::permissionTokens();
     }
 
@@ -628,11 +683,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
     public function cancelRoleForm(): void
     {
         $this->showRoleForm = false;
+        $this->viewMode = false;
         $this->resetErrorBag();
     }
 
     public function saveRole(): void
     {
+        if ($this->viewMode) {
+            return;
+        }
+
         if (! auth()->user()?->canAccessFeature('admin.users', 'edit')) {
             session()->flash('status', 'Your role cannot save roles.');
 
@@ -669,6 +729,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         }
 
         $this->showRoleForm = false;
+        $this->viewMode = false;
     }
 }; ?>
 
@@ -677,8 +738,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         <x-favorite-list :favorites="$favorites" :active="$favorite" />
     @endunless
 
-    <div class="desk-main {{ $isShowingForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}{{ ($showRoleForm || $showUserForm) ? ' role-perm-form' : '' }}">
-        <x-action-bar :title="$showUserForm ? ($editingUserId ? 'Edit User' : 'New User') : ($showRoleForm ? ($editingRoleId ? 'Edit Role' : 'New Role') : 'Action')" />
+    <div class="desk-main {{ $isShowingForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}{{ ($showRoleForm || $showUserForm) ? ' role-perm-form' : '' }}{{ $viewMode ? ' entity-form-readonly' : '' }}">
+        <x-action-bar :title="$showUserForm ? ($viewMode ? 'View User' : ($editingUserId ? 'Edit User' : 'New User')) : ($showRoleForm ? ($viewMode ? 'View Role' : ($editingRoleId ? 'Edit Role' : 'New Role')) : 'Action')" />
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
@@ -707,36 +768,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             </div>
                             @error('name') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="u-user">Username</label>
-                                <input id="u-user" wire:model="username" class="so-input font-mono" />
-                            </div>
-                            @error('username') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
-                            <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="u-email">Email Address</label>
-                                <input id="u-email" type="email" wire:model="email" class="so-input" />
+                                <label class="so-form-lbl" for="u-email">User ID (Email)</label>
+                                <input id="u-email" type="email" wire:model="email" class="so-input" autocomplete="username" placeholder="name@company.com" />
                             </div>
                             @error('email') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            <p class="item-hint" style="padding:0 0 0.35rem">Email is the login User ID — not a separate username.</p>
 
-                            @if (! $editingUserId)
-                                <div class="so-form-row so-form-row-side sc-field">
-                                    <label class="so-form-lbl" for="u-pass">Password</label>
-                                    <input id="u-pass" type="password" wire:model="password" class="so-input" autocomplete="new-password" />
-                                </div>
-                                @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
-                                <div class="so-form-row so-form-row-side sc-field">
-                                    <label class="so-form-lbl" for="u-pass2">Confirm Password</label>
-                                    <input id="u-pass2" type="password" wire:model="password_confirmation" class="so-input" autocomplete="new-password" />
-                                </div>
-                            @else
-                                <div class="so-form-row so-form-row-side sc-field">
-                                    <span class="so-form-lbl"></span>
-                                    <label class="entity-check">
-                                        <input type="checkbox" wire:model.live="update_password" /> Update password
-                                    </label>
-                                </div>
-                                @if ($update_password)
+                            @unless ($viewMode)
+                                @if (! $editingUserId)
                                     <div class="so-form-row so-form-row-side sc-field">
-                                        <label class="so-form-lbl" for="u-pass">New Password</label>
+                                        <label class="so-form-lbl" for="u-pass">Password</label>
                                         <input id="u-pass" type="password" wire:model="password" class="so-input" autocomplete="new-password" />
                                     </div>
                                     @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
@@ -744,8 +785,26 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                         <label class="so-form-lbl" for="u-pass2">Confirm Password</label>
                                         <input id="u-pass2" type="password" wire:model="password_confirmation" class="so-input" autocomplete="new-password" />
                                     </div>
+                                @else
+                                    <div class="so-form-row so-form-row-side sc-field">
+                                        <span class="so-form-lbl"></span>
+                                        <label class="entity-check">
+                                            <input type="checkbox" wire:model.live="update_password" /> Update password
+                                        </label>
+                                    </div>
+                                    @if ($update_password)
+                                        <div class="so-form-row so-form-row-side sc-field">
+                                            <label class="so-form-lbl" for="u-pass">New Password</label>
+                                            <input id="u-pass" type="password" wire:model="password" class="so-input" autocomplete="new-password" />
+                                        </div>
+                                        @error('password') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                                        <div class="so-form-row so-form-row-side sc-field">
+                                            <label class="so-form-lbl" for="u-pass2">Confirm Password</label>
+                                            <input id="u-pass2" type="password" wire:model="password_confirmation" class="so-input" autocomplete="new-password" />
+                                        </div>
+                                    @endif
                                 @endif
-                            @endif
+                            @endunless
                         </div>
 
                         <div class="inv-card">
@@ -803,9 +862,13 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 </span>
                             </div>
                             <p class="item-hint" style="padding:0 0 0.65rem">
-                                Loaded from role
-                                <strong>{{ $selectedRoleLabel ?? '—' }}</strong>.
-                                Change features for this user only — the role itself is not updated.
+                                @if ($viewMode)
+                                    Permissions assigned to this user (read-only).
+                                @else
+                                    Loaded from role
+                                    <strong>{{ $selectedRoleLabel ?? '—' }}</strong>.
+                                    Change features for this user only — the role itself is not updated.
+                                @endif
                             </p>
 
                             <div class="role-menu-grid">
@@ -878,10 +941,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 </div>
 
                 <div class="entity-footer">
-                    <div class="entity-tabs"><span class="entity-tab is-active">User</span></div>
+                    <div class="entity-tabs"><span class="entity-tab is-active">{{ $viewMode ? 'View' : 'User' }}</span></div>
                     <div class="entity-footer-actions">
-                        <button type="button" wire:click="cancelUserForm" class="desk-btn">Cancel</button>
-                        <button type="submit" class="desk-btn desk-btn-primary">Save User</button>
+                        <button type="button" wire:click="cancelUserForm" class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</button>
+                        @if ($viewMode)
+                            @if (auth()->user()?->canAccessFeature('admin.users', 'edit'))
+                                <button type="button" wire:click="editUser({{ $editingUserId }})" class="desk-btn desk-btn-primary">Edit User</button>
+                            @endif
+                        @else
+                            <button type="submit" class="desk-btn desk-btn-primary">Save User</button>
+                        @endif
                     </div>
                 </div>
             </form>
@@ -920,7 +989,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
                                 </span>
                             </div>
-                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete.</p>
+                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Email, Users &amp; Roles) stay off by default — turn them on only when needed. Terminal and Lookups are always available.</p>
 
                             <div class="role-menu-grid">
                                 @foreach ($menuCards as $menu => $submenus)
@@ -996,10 +1065,16 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                     </div>
                 </div>
                 <div class="entity-footer">
-                    <div class="entity-tabs"><span class="entity-tab is-active">Role</span></div>
+                    <div class="entity-tabs"><span class="entity-tab is-active">{{ $viewMode ? 'View' : 'Role' }}</span></div>
                     <div class="entity-footer-actions">
-                        <button type="button" wire:click="cancelRoleForm" class="desk-btn">Cancel</button>
-                        <button type="submit" class="desk-btn desk-btn-primary">Save Role</button>
+                        <button type="button" wire:click="cancelRoleForm" class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</button>
+                        @if ($viewMode)
+                            @if (auth()->user()?->canAccessFeature('admin.users', 'edit'))
+                                <button type="button" wire:click="editRole({{ $editingRoleId }})" class="desk-btn desk-btn-primary">Edit Role</button>
+                            @endif
+                        @else
+                            <button type="submit" class="desk-btn desk-btn-primary">Save Role</button>
+                        @endif
                     </div>
                 </div>
             </form>
@@ -1013,7 +1088,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             id="users-search"
                             type="search"
                             wire:model.live.debounce.300ms="search"
-                            placeholder="Name, username, email, role…"
+                            placeholder="Name, email, role, department…"
                             class="desk-search orders-search-input"
                             aria-label="Search Users"
                         />
@@ -1054,8 +1129,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
                                     <th>Name</th>
-                                    <th>Username</th>
-                                    <th>Email Address</th>
+                                    <th>User ID (Email)</th>
                                     <th>Role</th>
                                     <th>Department</th>
                                     <th>Job Title</th>
@@ -1077,14 +1151,15 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                                 value="{{ $user->id }}"
                                                 @checked($selectedId === $user->id)
                                                 wire:click="selectRow({{ $user->id }})"
-                                                aria-label="Select user {{ $user->username }}"
+                                                aria-label="Select user {{ $user->email }}"
                                             />
                                         </td>
                                         <td>{{ $user->name }}</td>
-                                        <td class="desk-num">{{ $user->username }}</td>
-                                        <td>
+                                        <td class="desk-num">
                                             @if ($user->email)
                                                 <a href="mailto:{{ $user->email }}" wire:click.stop>{{ $user->email }}</a>
+                                            @else
+                                                —
                                             @endif
                                         </td>
                                         <td>{{ $user->role?->label ?: '—' }}</td>
@@ -1106,7 +1181,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     </tr>
                                 @empty
                                     <tr class="is-empty">
-                                        <td colspan="9">No users found. Use the <strong>+</strong> button to create one.</td>
+                                        <td colspan="8">No users found. Use the <strong>+</strong> button to create one.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -1128,10 +1203,10 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                         </svg>
                     </button>
-                    <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                            <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                            <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                    <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                            <circle cx="8" cy="8" r="2"/>
                         </svg>
                     </button>
                     <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
@@ -1261,10 +1336,10 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                         </svg>
                     </button>
-                    <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                            <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                            <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
+                    <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
+                            <circle cx="8" cy="8" r="2"/>
                         </svg>
                     </button>
                     <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>

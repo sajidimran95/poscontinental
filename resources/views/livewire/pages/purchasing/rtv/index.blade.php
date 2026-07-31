@@ -1,6 +1,7 @@
 <?php
 
-use App\Models\Item;
+use App\Models\InventoryReceiving;
+use App\Models\InventoryReceivingLine;
 use App\Models\ReturnToVendor;
 use App\Models\Site;
 use App\Models\Supplier;
@@ -42,6 +43,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public string $status = 'New';
 
     public string $reference_no = '';
+
+    public ?int $inventory_receiving_id = null;
 
     public ?int $supplier_id = null;
 
@@ -110,6 +113,34 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
         $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty'] * (float) $l['unit_cost']);
 
+        $supplierReceivings = ($this->showForm && $this->supplier_id)
+            ? InventoryReceiving::query()
+                ->with('purchaseOrder:id,po_number')
+                ->where('company_id', $companyId)
+                ->where('supplier_id', $this->supplier_id)
+                ->where('status', 'Processed')
+                ->orderByDesc('receipt_date')
+                ->orderByDesc('id')
+                ->limit(100)
+                ->get()
+            : collect();
+
+        $browseLines = ($this->showItemBrowse && $this->inventory_receiving_id)
+            ? InventoryReceivingLine::query()
+                ->where('inventory_receiving_id', $this->inventory_receiving_id)
+                ->where('qty_received', '>', 0)
+                ->when($this->itemBrowseSearch !== '', function ($q) {
+                    $term = '%'.$this->itemBrowseSearch.'%';
+                    $q->where(function ($inner) use ($term) {
+                        $inner->where('item_code', 'like', $term)
+                            ->orWhere('description', 'like', $term);
+                    });
+                })
+                ->orderBy('line_no')
+                ->limit(100)
+                ->get()
+            : collect();
+
         return [
             'records' => $records,
             'total' => $total,
@@ -121,6 +152,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'selectedSupplier' => $this->supplier_id
                 ? Supplier::query()->find($this->supplier_id)
                 : null,
+            'supplierReceivings' => $supplierReceivings,
+            'selectedReceiving' => $this->inventory_receiving_id
+                ? $supplierReceivings->firstWhere('id', $this->inventory_receiving_id)
+                    ?? InventoryReceiving::query()->with('purchaseOrder:id,po_number')->find($this->inventory_receiving_id)
+                : null,
             'favorites' => [
                 'all' => 'All RTVs',
                 'new' => 'New',
@@ -131,22 +167,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'orderTotal' => $subtotal - (float) $this->discount + (float) $this->freight,
             'isReturned' => $this->status === 'Returned',
             'isReadonly' => $this->viewMode || $this->status === 'Returned',
-            'browseItems' => $this->showItemBrowse
-                ? Item::query()
-                    ->where('company_id', $companyId)
-                    ->where('is_inactive', false)
-                    ->when($this->itemBrowseSearch !== '', function ($q) {
-                        $term = '%'.$this->itemBrowseSearch.'%';
-                        $q->where(function ($inner) use ($term) {
-                            $inner->where('item_code', 'like', $term)
-                                ->orWhere('description', 'like', $term)
-                                ->orWhere('primary_upc', 'like', $term);
-                        });
-                    })
-                    ->orderBy('item_code')
-                    ->limit(100)
-                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'standard_cost', 'current_cost', 'quantity_in_stock'])
-                : collect(),
+            'browseLines' => $browseLines,
         ];
     }
 
@@ -289,9 +310,53 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'item_code' => '',
             'description' => '',
             'uom' => '',
-            'qty' => '1',
-            'unit_cost' => '0',
+            'qty' => '',
+            'unit_cost' => '',
         ];
+    }
+
+    public function updatedSupplierId($value): void
+    {
+        $this->inventory_receiving_id = null;
+        $this->reference_no = '';
+        $this->lines = [$this->emptyLine()];
+        $this->lookupMessage = '';
+        $this->closeItemBrowse();
+    }
+
+    public function updatedInventoryReceivingId($value): void
+    {
+        if (! filled($value)) {
+            $this->inventory_receiving_id = null;
+            $this->reference_no = '';
+            $this->lines = [$this->emptyLine()];
+
+            return;
+        }
+
+        $receiving = InventoryReceiving::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
+            ->find((int) $value);
+
+        if (! $receiving) {
+            $this->inventory_receiving_id = null;
+            $this->reference_no = '';
+
+            return;
+        }
+
+        $this->inventory_receiving_id = $receiving->id;
+        $this->reference_no = $receiving->receipt_number;
+        if ($receiving->supplier_id) {
+            $this->supplier_id = $receiving->supplier_id;
+        }
+        if ($receiving->site_id) {
+            $this->site_id = $receiving->site_id;
+        }
+        $this->lines = [$this->emptyLine()];
+        $this->lookupMessage = 'Receiving '.$receiving->receipt_number.' selected — add items from this receipt only.';
+        $this->closeItemBrowse();
     }
 
     public function startNew(): void
@@ -305,6 +370,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->rtv_date = now()->toDateString();
         $this->status = 'New';
         $this->reference_no = '';
+        $this->inventory_receiving_id = null;
         $this->supplier_id = null;
         $this->requested_by_id = auth()->id();
         $this->site_id = auth()->user()->site_id;
@@ -346,6 +412,16 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'qty' => (string) $l->qty,
             'unit_cost' => (string) $l->unit_cost,
         ])->all() ?: [$this->emptyLine()];
+
+        $this->inventory_receiving_id = null;
+        if (filled($this->reference_no)) {
+            $this->inventory_receiving_id = InventoryReceiving::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
+                ->where('receipt_number', $this->reference_no)
+                ->value('id');
+        }
+
         $this->resetErrorBag();
     }
 
@@ -368,6 +444,19 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public function openItemBrowse(?int $lineIndex = null): void
     {
         abort_if($this->viewMode || $this->status === 'Returned', 403);
+
+        if (! $this->supplier_id) {
+            $this->lookupMessage = 'Select a supplier first.';
+
+            return;
+        }
+
+        if (! $this->inventory_receiving_id) {
+            $this->lookupMessage = 'Select a receiving (Reference) first. Items come from that receipt only.';
+
+            return;
+        }
+
         $this->browseLineIndex = $lineIndex;
         $this->itemBrowseSearch = '';
         $this->showItemBrowse = true;
@@ -380,71 +469,102 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->itemBrowseSearch = '';
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseReceivingLine(int $receivingLineId): void
     {
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->find($itemId);
-
-        if (! $item) {
+        $line = $this->findReceivingLine($receivingLineId);
+        if (! $line) {
             return;
         }
 
         if ($this->browseLineIndex !== null && isset($this->lines[$this->browseLineIndex])) {
-            $this->fillLineFromItem($this->browseLineIndex, $item);
+            $this->fillLineFromReceivingLine($this->browseLineIndex, $line);
         } else {
             $empty = collect($this->lines)->search(fn ($l) => ! filled($l['item_code'] ?? null));
             if ($empty === false) {
                 $this->addLine();
                 $empty = count($this->lines) - 1;
             }
-            $this->fillLineFromItem((int) $empty, $item);
+            $this->fillLineFromReceivingLine((int) $empty, $line);
         }
 
         $this->closeItemBrowse();
-        $this->lookupMessage = 'Added item '.$item->item_code.'.';
+        $this->lookupMessage = 'Added item '.$line->item_code.' from receiving.';
     }
 
     public function lookupItem(int $index): void
     {
-        $code = trim($this->lines[$index]['item_code'] ?? '');
+        if (! $this->inventory_receiving_id) {
+            $this->lookupMessage = 'Select a receiving (Reference) first.';
+
+            return;
+        }
+
+        $code = trim((string) ($this->lines[$index]['item_code'] ?? ''));
         if ($code === '') {
             $this->openItemBrowse($index);
 
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)
-                    ->orWhere('primary_upc', $code)
-                    ->orWhereHas('itemSuppliers', fn ($s) => $s->where('supplier_item_code', $code));
+        $lower = mb_strtolower($code);
+        $line = InventoryReceivingLine::query()
+            ->where('inventory_receiving_id', $this->inventory_receiving_id)
+            ->where('qty_received', '>', 0)
+            ->where(function ($q) use ($lower, $code) {
+                $q->whereRaw('LOWER(item_code) = ?', [$lower])
+                    ->orWhereHas('item', function ($item) use ($lower, $code) {
+                        $item->whereRaw('LOWER(primary_upc) = ?', [$lower])
+                            ->orWhereHas('itemSuppliers', fn ($s) => $s->whereRaw(
+                                'LOWER(supplier_item_code) = ?',
+                                [$lower]
+                            ));
+                    });
             })
             ->first();
 
-        if (! $item) {
-            $this->lookupMessage = 'Item “'.$code.'” not found. Use Browse to pick from inventory.';
+        if (! $line) {
+            $this->lookupMessage = 'Item “'.$code.'” is not on the selected receiving. Browse receipt lines.';
             $this->openItemBrowse($index);
             $this->itemBrowseSearch = $code;
 
             return;
         }
 
-        $this->fillLineFromItem($index, $item);
-        $this->lookupMessage = 'Loaded item '.$item->item_code.'.';
+        $this->fillLineFromReceivingLine($index, $line);
+        $this->lookupMessage = 'Added item '.$line->item_code.' from receiving.';
+
+        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
     }
 
-    protected function fillLineFromItem(int $index, Item $item): void
+    protected function findReceivingLine(int $receivingLineId): ?InventoryReceivingLine
     {
-        $this->lines[$index]['item_id'] = $item->id;
-        $this->lines[$index]['item_code'] = $item->item_code;
-        $this->lines[$index]['description'] = $item->description ?? '';
-        $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $this->lines[$index]['unit_cost'] = (string) ($item->current_cost ?: $item->standard_cost ?: 0);
-        if (! filled($this->lines[$index]['qty'] ?? null) || (float) $this->lines[$index]['qty'] <= 0) {
-            $this->lines[$index]['qty'] = '1';
+        if (! $this->inventory_receiving_id) {
+            return null;
         }
+
+        return InventoryReceivingLine::query()
+            ->where('inventory_receiving_id', $this->inventory_receiving_id)
+            ->where('qty_received', '>', 0)
+            ->find($receivingLineId);
+    }
+
+    protected function fillLineFromReceivingLine(int $index, InventoryReceivingLine $line): void
+    {
+        $lines = $this->lines;
+        $lines[$index]['item_id'] = $line->item_id;
+        $lines[$index]['item_code'] = $line->item_code ?? '';
+        $lines[$index]['description'] = $line->description ?? '';
+        $lines[$index]['uom'] = $line->uom ?? '';
+        $qty = (float) $line->qty_received;
+        $lines[$index]['qty'] = $qty > 0 ? rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') : '';
+        $cost = (float) $line->unit_cost;
+        $lines[$index]['unit_cost'] = $cost != 0.0
+            ? rtrim(rtrim(number_format($cost, 4, '.', ''), '0'), '.')
+            : '';
+        $this->lines = $lines;
     }
 
     public function save(): void
@@ -458,13 +578,29 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->validate([
             'rtv_number' => 'required|string|max:64',
             'supplier_id' => 'required|integer|exists:suppliers,id',
+            'inventory_receiving_id' => 'required|integer|exists:inventory_receivings,id',
             'rtv_date' => 'required|date',
         ], [
             'rtv_number.required' => 'RTV number is required.',
             'supplier_id.required' => 'Supplier is required.',
             'supplier_id.exists' => 'Select a valid supplier.',
+            'inventory_receiving_id.required' => 'Select a receiving (Reference).',
+            'inventory_receiving_id.exists' => 'Select a valid receiving.',
             'rtv_date.required' => 'RTV date is required.',
         ]);
+
+        $receiving = InventoryReceiving::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('supplier_id', $this->supplier_id)
+            ->find($this->inventory_receiving_id);
+
+        if (! $receiving) {
+            $this->addError('inventory_receiving_id', 'Receiving must belong to the selected supplier.');
+
+            return;
+        }
+
+        $this->reference_no = $receiving->receipt_number;
 
         $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty'] ?? 0) > 0);
         if (! $hasLines) {
@@ -596,10 +732,6 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 </div>
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="reference_no">Reference No.</label>
-                                <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($isReadonly) />
-                            </div>
-                            <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="site_id">Site</label>
                                 <select id="site_id" wire:model="site_id" class="so-input" @disabled($isReadonly)>
                                     <option value="">—</option>
@@ -608,9 +740,18 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                     @endforeach
                                 </select>
                             </div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="requested_by_id">Requested By</label>
+                                <select id="requested_by_id" wire:model="requested_by_id" class="so-input" @disabled($isReadonly)>
+                                    <option value="">—</option>
+                                    @foreach ($users as $u)
+                                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
                         </div>
                         <div class="inv-card">
-                            <div class="inv-card-title">Supplier</div>
+                            <div class="inv-card-title">Supplier &amp; Receiving</div>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl so-field-req" for="supplier_id">Supplier</label>
                                 <div class="so-form-ctl">
@@ -628,13 +769,30 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 <input type="text" class="so-input so-input-ro" readonly value="{{ $selectedSupplier?->supplier_id ?: '—' }}" />
                             </div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="requested_by_id">Requested By</label>
-                                <select id="requested_by_id" wire:model="requested_by_id" class="so-input" @disabled($isReadonly)>
-                                    <option value="">—</option>
-                                    @foreach ($users as $u)
-                                        <option value="{{ $u->id }}">{{ $u->name }}</option>
-                                    @endforeach
-                                </select>
+                                <label class="so-form-lbl so-field-req" for="inventory_receiving_id">Reference (Receiving)</label>
+                                <div class="so-form-ctl">
+                                    <select
+                                        id="inventory_receiving_id"
+                                        wire:model.live="inventory_receiving_id"
+                                        class="so-input @error('inventory_receiving_id') is-invalid @enderror"
+                                        @disabled($isReadonly || ! $supplier_id)
+                                    >
+                                        <option value="">{{ $supplier_id ? '— Select receiving —' : '— Select supplier first —' }}</option>
+                                        @foreach ($supplierReceivings as $rcv)
+                                            <option value="{{ $rcv->id }}">
+                                                {{ $rcv->receipt_number }}
+                                                @if ($rcv->receipt_date) — {{ $rcv->receipt_date->format('n/j/Y') }}@endif
+                                                @if ($rcv->purchaseOrder) — PO {{ $rcv->purchaseOrder->po_number }}@endif
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    @error('inventory_receiving_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                    @if ($supplier_id && $supplierReceivings->isEmpty())
+                                        <p class="item-hint" style="border:0;margin:0.35rem 0 0;padding:0">No processed receivings for this supplier.</p>
+                                    @elseif ($reference_no && ! $inventory_receiving_id)
+                                        <p class="item-hint" style="border:0;margin:0.35rem 0 0;padding:0">Saved ref: {{ $reference_no }} (not linked)</p>
+                                    @endif
+                                </div>
                             </div>
                             <div class="so-form-row so-form-row-side so-form-row-top sc-field">
                                 <label class="so-form-lbl" for="comments">Comments</label>
@@ -654,7 +812,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             @endunless
                         </div>
                         <p class="item-hint" style="border-bottom:1px solid #e2e8f0">
-                            Type an existing <strong>Item Code</strong> and press <strong>Enter</strong>, or click <strong>Browse Items</strong> to pick from inventory.
+                            Select <strong>supplier</strong> and <strong>receiving</strong> first. Item codes / Browse only show items from that receipt.
                         </p>
                         @if ($lookupMessage)
                             <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
@@ -687,19 +845,19 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             <td>
                                                 <div class="so-lookup-row">
                                                     <input
-                                                        wire:model.blur="lines.{{ $i }}.item_code"
+                                                        wire:model="lines.{{ $i }}.item_code"
                                                         wire:keydown.enter.prevent="lookupItem({{ $i }})"
                                                         class="so-input font-mono item-cell-ctl"
                                                         placeholder="Code + Enter"
                                                         @disabled($isReadonly)
                                                     />
-                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isReadonly) title="Browse items">…</button>
+                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isReadonly) title="Browse receiving items">…</button>
                                                 </div>
                                             </td>
                                             <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($isReadonly) /></td>
                                             <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" @disabled($isReadonly) /></td>
-                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" @disabled($isReadonly) /></td>
-                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" @disabled($isReadonly) /></td>
+                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" placeholder="0" @disabled($isReadonly) /></td>
+                                            <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" placeholder="0" @disabled($isReadonly) /></td>
                                             <td class="desk-money">${{ number_format((float) $line['qty'] * (float) $line['unit_cost'], 2) }}</td>
                                             <td class="text-center">
                                                 @unless ($isReadonly)
@@ -935,10 +1093,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     </div>
 
     @if ($showItemBrowse)
-        <div class="desk-modal-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Browse items">
+        <div class="desk-modal-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Browse receiving items">
             <div class="desk-modal" style="max-width:48rem">
                 <div class="desk-modal-head">
-                    <span>Browse Inventory Items</span>
+                    <span>Receiving Items{{ $selectedReceiving ? ' — '.$selectedReceiving->receipt_number : '' }}</span>
                     <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="desk-modal-body">
@@ -949,7 +1107,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             type="search"
                             wire:model.live.debounce.250ms="itemBrowseSearch"
                             class="desk-search"
-                            placeholder="Item code, description, UPC…"
+                            placeholder="Item code, description…"
                             autofocus
                         />
                     </div>
@@ -960,30 +1118,30 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                     <th>Item Code</th>
                                     <th>Description</th>
                                     <th class="text-center">UOM</th>
-                                    <th class="desk-money">In Stock</th>
+                                    <th class="desk-money">Qty Received</th>
                                     <th class="desk-money">Cost</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @forelse ($browseItems as $bi)
-                                    <tr class="cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
-                                        <td class="desk-num">{{ $bi->item_code }}</td>
-                                        <td>{{ $bi->description }}</td>
-                                        <td class="text-center">{{ $bi->unit_of_measure }}</td>
-                                        <td class="desk-money">{{ number_format((float) $bi->quantity_in_stock, 2) }}</td>
-                                        <td class="desk-money">${{ number_format((float) ($bi->current_cost ?: $bi->standard_cost), 2) }}</td>
+                                @forelse ($browseLines as $bl)
+                                    <tr class="cursor-pointer" wire:click="pickBrowseReceivingLine({{ $bl->id }})">
+                                        <td class="desk-num">{{ $bl->item_code }}</td>
+                                        <td>{{ $bl->description }}</td>
+                                        <td class="text-center">{{ $bl->uom }}</td>
+                                        <td class="desk-money">{{ number_format((float) $bl->qty_received, 2) }}</td>
+                                        <td class="desk-money">${{ number_format((float) $bl->unit_cost, 2) }}</td>
                                         <td>
-                                            <button type="button" wire:click.stop="pickBrowseItem({{ $bi->id }})" class="desk-btn desk-btn-sm desk-btn-primary">Add</button>
+                                            <button type="button" wire:click.stop="pickBrowseReceivingLine({{ $bl->id }})" class="desk-btn desk-btn-sm desk-btn-primary">Add</button>
                                         </td>
                                     </tr>
                                 @empty
-                                    <tr class="is-empty"><td colspan="6">No items found. Create items under Inventory → Items first.</td></tr>
+                                    <tr class="is-empty"><td colspan="6">No lines on this receiving (or none match your search).</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
                     </div>
-                    <p class="item-hint" style="padding:0.65rem 0 0">Click a row or <strong>Add</strong> to put that item on the RTV.</p>
+                    <p class="item-hint" style="padding:0.65rem 0 0">Only items from the selected receiving are listed. Qty and cost fill from the receipt.</p>
                 </div>
             </div>
         </div>

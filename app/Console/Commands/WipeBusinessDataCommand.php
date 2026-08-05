@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Company;
+use App\Models\Customer;
 use App\Models\Role;
 use App\Models\Site;
 use App\Models\User;
@@ -155,5 +156,7 @@ class WipeBusinessDataCommand extends Command
             'email_verified_at' => now(),
             'is_active' => true,
         ]);
+
+        Customer::ensureWalkIn((int) $company->id);
     }
 }

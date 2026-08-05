@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Customer extends Model
 {
+    public const WALK_IN_CODE = 'WALKIN';
+
+    public const WALK_IN_NAME = 'Walk-in Customer';
+
     protected $fillable = [
         'company_id',
         'customer_id',
@@ -134,6 +138,38 @@ class Customer extends Model
     public function salesOrders(): HasMany
     {
         return $this->hasMany(SalesOrder::class);
+    }
+
+    /**
+     * Default cash / counter customer for POS desk (one per company).
+     */
+    public static function ensureWalkIn(int $companyId): self
+    {
+        return static::query()->firstOrCreate(
+            [
+                'company_id' => $companyId,
+                'customer_id' => self::WALK_IN_CODE,
+            ],
+            [
+                'company_name' => self::WALK_IN_NAME,
+                'contact' => self::WALK_IN_NAME,
+                'lead_source' => 'Walk-in',
+                'customer_category' => 'Walk-in',
+                'account_type' => 'Cash',
+                'is_inactive' => false,
+                'is_favorite' => true,
+                'credit_limit' => 0,
+                'balance' => 0,
+                'customer_since' => now()->toDateString(),
+                'messages_alerts' => 'Default walk-in / cash counter customer.',
+                'comments' => 'System default — use for walk-in sales without a named account.',
+            ]
+        );
+    }
+
+    public function isWalkIn(): bool
+    {
+        return strtoupper((string) $this->customer_id) === self::WALK_IN_CODE;
     }
 
     public function getAvailableCreditAttribute(): float

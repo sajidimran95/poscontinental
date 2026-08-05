@@ -308,6 +308,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->ship_date = now()->toDateString();
             $this->sales_rep_id = auth()->id();
             $this->ship_from_site_id = auth()->user()->site_id;
+            // Default customer: Walk-in (cash / counter)
+            $walkIn = Customer::ensureWalkIn($companyId);
+            $this->customer_id = $walkIn->id;
+            $this->updatedCustomerId($walkIn->id);
         }
 
         if ($this->boxes === []) {

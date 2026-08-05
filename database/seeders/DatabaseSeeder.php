@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Company;
+use App\Models\Customer;
 use App\Models\Role;
 use App\Models\Site;
 use App\Models\User;
@@ -63,6 +64,8 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        $this->command?->info('Minimal seed: company + site + roles + admin only. No demo data.');
+        Customer::ensureWalkIn((int) $company->id);
+
+        $this->command?->info('Minimal seed: company + site + roles + admin + Walk-in customer.');
     }
 }

@@ -3,6 +3,7 @@
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
+use App\Models\User;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -62,6 +63,12 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         return [
             'customers' => $query->paginate(25),
+            'salesReps' => User::query()
+                ->where('company_id', $companyId)
+                ->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
+                ->orderBy('name')
+                ->get(['id', 'name', 'is_active']),
+            'canEditCustomers' => auth()->user()?->canAccessFeature('sales.customers', 'edit') ?? false,
             'favorites' => [
                 'all' => 'All Customers',
                 'active' => 'Active Customers',
@@ -267,6 +274,43 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $customer->update([$field => ! $customer->{$field}]);
         $this->selectedId = $id;
     }
+
+    /**
+     * Assign / change Sales Rep from the list page (click dropdown).
+     */
+    public function updateSalesRep(int $customerId, ?string $salesRepId = null): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.customers', 'edit')) {
+            session()->flash('status', 'Your role cannot assign sales reps.');
+
+            return;
+        }
+
+        $companyId = auth()->user()->company_id;
+        $customer = Customer::query()->where('company_id', $companyId)->findOrFail($customerId);
+
+        $repId = filled($salesRepId) ? (int) $salesRepId : null;
+
+        if ($repId !== null) {
+            $valid = User::query()
+                ->where('company_id', $companyId)
+                ->whereKey($repId)
+                ->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
+                ->exists();
+
+            if (! $valid) {
+                session()->flash('status', 'Select a user with role Sales Rep.');
+
+                return;
+            }
+        }
+
+        $customer->update(['sales_rep_id' => $repId]);
+        $this->selectedId = $customerId;
+        session()->flash('status', $repId
+            ? 'Sales rep assigned for '.$customer->customer_id.'.'
+            : 'Sales rep cleared for '.$customer->customer_id.'.');
+    }
 }; ?>
 
 <div class="desk-page">
@@ -341,7 +385,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                 <th>Address</th>
                                 <th>Telephone</th>
                                 <th>Email</th>
-                                <th>Sales Rep</th>
+                                <th>Sales Rep <span class="text-xs font-normal text-slate-500">(click to change)</span></th>
                                 <th class="text-right">Balance</th>
                                 <th class="text-center">Don't Call</th>
                                 <th class="text-center">Don't Email</th>
@@ -380,7 +424,32 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                             —
                                         @endif
                                     </td>
-                                    <td>{{ $customer->salesRep?->name ?: '—' }}</td>
+                                    <td wire:click.stop style="min-width:9rem">
+                                        @if ($canEditCustomers)
+                                            <select
+                                                class="so-input so-input-sm"
+                                                style="min-width:8.5rem;max-width:12rem;padding:0.2rem 0.35rem;font-size:0.8rem"
+                                                wire:change="updateSalesRep({{ $customer->id }}, $event.target.value)"
+                                                aria-label="Assign sales rep for {{ $customer->customer_id }}"
+                                                title="Change sales rep"
+                                            >
+                                                <option value="">— None —</option>
+                                                @foreach ($salesReps as $rep)
+                                                    <option value="{{ $rep->id }}" @selected((int) $customer->sales_rep_id === (int) $rep->id)>
+                                                        {{ $rep->name }}@if(! $rep->is_active) (inactive)@endif
+                                                    </option>
+                                                @endforeach
+                                                {{-- Keep current assignment visible if user is no longer sales_rep role --}}
+                                                @if ($customer->sales_rep_id && ! $salesReps->contains('id', $customer->sales_rep_id) && $customer->salesRep)
+                                                    <option value="{{ $customer->salesRep->id }}" selected>
+                                                        {{ $customer->salesRep->name }} (other role)
+                                                    </option>
+                                                @endif
+                                            </select>
+                                        @else
+                                            {{ $customer->salesRep?->name ?: '—' }}
+                                        @endif
+                                    </td>
                                     <td class="desk-money">${{ number_format($customer->balance, 2) }}</td>
                                     <td class="text-center" wire:click.stop>
                                         <input

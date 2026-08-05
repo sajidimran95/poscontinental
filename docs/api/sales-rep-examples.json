@@ -1,0 +1,161 @@
+{
+  "info": {
+    "title": "Sales Rep Mobile API",
+    "version": "1.1.1",
+    "updated": "2026-08-04",
+    "description": "Section 11.9 field sales tool. Only users with role sales_rep. Paths are relative to REP_API_BASE."
+  },
+  "base_url": {
+    "formula": "REP_API_BASE = {APP_URL}/api/rep",
+    "path_prefix": "/api/rep",
+    "no_trailing_slash": true,
+    "by_environment": {
+      "local_laragon_https": {
+        "app_url": "https://www.poscontinentalwholesale.test",
+        "rep_api_base": "https://www.poscontinentalwholesale.test/api/rep"
+      },
+      "local_laragon_http": {
+        "app_url": "http://poscontinentalwholesale.test",
+        "rep_api_base": "http://poscontinentalwholesale.test/api/rep"
+      },
+      "artisan_serve": {
+        "app_url": "http://127.0.0.1:8000",
+        "rep_api_base": "http://127.0.0.1:8000/api/rep"
+      },
+      "staging": {
+        "app_url": "https://staging.yourdomain.com",
+        "rep_api_base": "https://staging.yourdomain.com/api/rep"
+      },
+      "production": {
+        "app_url": "https://pos.yourdomain.com",
+        "rep_api_base": "https://pos.yourdomain.com/api/rep"
+      }
+    },
+    "default_for_docs": "https://www.poscontinentalwholesale.test/api/rep",
+    "full_url_examples": {
+      "login": "https://www.poscontinentalwholesale.test/api/rep/login",
+      "me": "https://www.poscontinentalwholesale.test/api/rep/me",
+      "logout": "https://www.poscontinentalwholesale.test/api/rep/logout",
+      "customers": "https://www.poscontinentalwholesale.test/api/rep/customers",
+      "customer_detail": "https://www.poscontinentalwholesale.test/api/rep/customers/{id}",
+      "catalog_items": "https://www.poscontinentalwholesale.test/api/rep/catalog/items",
+      "catalog_item_detail": "https://www.poscontinentalwholesale.test/api/rep/catalog/items/{id}",
+      "departments": "https://www.poscontinentalwholesale.test/api/rep/catalog/departments",
+      "categories": "https://www.poscontinentalwholesale.test/api/rep/catalog/categories",
+      "subcategories": "https://www.poscontinentalwholesale.test/api/rep/catalog/subcategories",
+      "brands": "https://www.poscontinentalwholesale.test/api/rep/catalog/brands",
+      "sales_orders": "https://www.poscontinentalwholesale.test/api/rep/sales-orders",
+      "sales_order_detail": "https://www.poscontinentalwholesale.test/api/rep/sales-orders/{id}"
+    },
+    "flutter": {
+      "dart_define": "REP_API_BASE",
+      "example": "flutter run --dart-define=REP_API_BASE=https://www.poscontinentalwholesale.test/api/rep",
+      "dio_baseUrl": "use REP_API_BASE only; call relative paths like /login, /customers"
+    },
+    "postman": {
+      "environment_variable": "REP_API_BASE",
+      "request_url_pattern": "{{REP_API_BASE}}/login"
+    }
+  },
+  "rules": {
+    "who_can_login": "role name must be sales_rep (Sales Rep)",
+    "who_cannot_login": ["admin", "buyer", "warehouse", "inactive users"],
+    "customer_scope": "only customers where sales_rep_id = authenticated user id",
+    "who_assigns_customers": "Admin in POS web: Sales → Customers list Sales Rep dropdown or customer edit form",
+    "order_status_on_create": "New"
+  },
+  "auth": {
+    "type": "Bearer",
+    "header": "Authorization: Bearer {token}",
+    "login": "POST {REP_API_BASE}/login",
+    "demo": {
+      "email": "sales@continental.local",
+      "password": "password",
+      "note": "admin@gmail.com cannot use this API (403)"
+    }
+  },
+  "examples": {
+    "login_request": {
+      "method": "POST",
+      "base": "https://www.poscontinentalwholesale.test/api/rep",
+      "path": "/login",
+      "full_url": "https://www.poscontinentalwholesale.test/api/rep/login",
+      "headers": {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "email": "sales@continental.local",
+        "password": "password",
+        "device_name": "flutter-android-01"
+      }
+    },
+    "login_response_200": {
+      "success": true,
+      "message": "Login successful.",
+      "data": {
+        "token": "1|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "token_type": "Bearer",
+        "user": {
+          "id": 2,
+          "name": "Sales Rep",
+          "email": "sales@continental.local",
+          "username": "sales",
+          "company_id": 1,
+          "site_id": 1,
+          "role": {
+            "id": 2,
+            "name": "sales_rep",
+            "label": "Sales Rep"
+          },
+          "site": null,
+          "is_sales_rep": true,
+          "is_admin": false
+        }
+      }
+    },
+    "login_response_403_not_sales_rep": {
+      "success": false,
+      "message": "Only Sales Representative users can log into this app. Admin must create your user with role Sales Rep.",
+      "errors": null,
+      "data": null
+    },
+    "customers_list_request": {
+      "method": "GET",
+      "full_url": "https://www.poscontinentalwholesale.test/api/rep/customers?search=smoke&page=1&per_page=25",
+      "path": "/customers"
+    },
+    "create_sales_order_request": {
+      "method": "POST",
+      "full_url": "https://www.poscontinentalwholesale.test/api/rep/sales-orders",
+      "path": "/sales-orders",
+      "body": {
+        "customer_id": 10,
+        "required_date": "2026-08-10",
+        "comments": "Deliver rear door",
+        "lines": [
+          { "item_code": "PAPER-TOWEL", "qty_ordered": 2 },
+          { "item_code": "WATER-CASE", "qty_ordered": 5 }
+        ]
+      }
+    },
+    "catalog_items_request": {
+      "method": "GET",
+      "full_url": "https://www.poscontinentalwholesale.test/api/rep/catalog/items?customer_id=10&search=towel",
+      "path": "/catalog/items"
+    },
+    "order_history_request": {
+      "method": "GET",
+      "full_url": "https://www.poscontinentalwholesale.test/api/rep/sales-orders?customer_id=10",
+      "path": "/sales-orders"
+    }
+  },
+  "flutter_flow": [
+    "Set REP_API_BASE = {APP_URL}/api/rep",
+    "POST {REP_API_BASE}/login",
+    "GET {REP_API_BASE}/customers",
+    "GET {REP_API_BASE}/catalog/items?customer_id={id}",
+    "POST {REP_API_BASE}/sales-orders",
+    "GET {REP_API_BASE}/sales-orders?customer_id={id}"
+  ]
+}

@@ -71,6 +71,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function with(): array
     {
+        $this->ensureSystemRoles();
+
         $companyId = auth()->user()->company_id;
 
         $usersQuery = User::query()
@@ -129,7 +131,40 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'selectedRoleLabel' => $this->role_id
                 ? (Role::query()->whereKey($this->role_id)->value('label') ?? 'Role')
                 : null,
+            'selectedRoleName' => $this->role_id
+                ? (Role::query()->whereKey($this->role_id)->value('name') ?? '')
+                : '',
         ];
+    }
+
+    /**
+     * Ensure Sales Rep and other core roles exist so admin can assign them to users.
+     */
+    protected function ensureSystemRoles(): void
+    {
+        $defaults = AppFeatures::defaultRolePermissionTokens();
+
+        foreach ([
+            ['name' => 'admin', 'label' => 'Administrator'],
+            ['name' => 'sales_rep', 'label' => 'Sales Rep'],
+            ['name' => 'buyer', 'label' => 'Buyer'],
+            ['name' => 'warehouse', 'label' => 'Warehouse'],
+        ] as $role) {
+            $existing = Role::query()->firstOrCreate(
+                ['name' => $role['name']],
+                [
+                    'label' => $role['label'],
+                    'permissions' => $role['name'] === 'admin'
+                        ? AppFeatures::permissionTokens()
+                        : $defaults,
+                ]
+            );
+
+            // Repair empty non-admin role permission sets once.
+            if ($role['name'] !== 'admin' && empty($existing->permissions)) {
+                $existing->update(['permissions' => $defaults]);
+            }
+        }
     }
 
     /** @return list<string> */
@@ -165,6 +200,11 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         }
 
         $this->user_permissions = $this->permissionsFromRole($value ? (int) $value : null);
+
+        $roleName = Role::query()->whereKey($value)->value('name');
+        if ($roleName === 'sales_rep' && trim($this->job_title) === '') {
+            $this->job_title = 'Sales Representative';
+        }
     }
 
     public function applyRolePermissionsToUser(): void
@@ -410,10 +450,10 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->password_confirmation = '';
         $this->update_password = true;
         $this->role_id = Role::query()->where('name', 'sales_rep')->value('id')
-            ?? Role::query()->orderBy('id')->value('id');
+            ?? Role::query()->orderBy('label')->value('id');
         $this->site_id = auth()->user()->site_id;
         $this->department_id = null;
-        $this->job_title = '';
+        $this->job_title = 'Sales Representative';
         $this->is_active = false;
         $this->user_permissions = $this->permissionsFromRole($this->role_id);
         $this->resetErrorBag();
@@ -531,11 +571,23 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         if ($this->editingUserId) {
             $user = User::query()->where('company_id', $companyId)->whereKey($this->editingUserId)->firstOrFail();
             $user->update($data);
-            session()->flash('status', 'User updated.');
+            $status = 'User updated.';
         } else {
             User::query()->create($data);
-            session()->flash('status', 'User created.');
+            $status = 'User created.';
         }
+
+        $roleName = Role::query()->whereKey($this->role_id)->value('name');
+        if ($roleName === 'sales_rep') {
+            $status .= ' Sales Rep mobile app: '.$email
+                .($this->is_active
+                    ? '. Assign customers on Sales → Customers → Sales Rep.'
+                    : '. Mark Active, then assign customers on Sales → Customers.');
+        } else {
+            $status .= ' Note: only role Sales Rep can use the field mobile app.';
+        }
+
+        session()->flash('status', $status);
 
         $this->showUserForm = false;
         $this->viewMode = false;
@@ -810,7 +862,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                         <div class="inv-card">
                             <div class="inv-card-title">Access &amp; Organization</div>
                             <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="u-role">Role</label>
+                                <label class="so-form-lbl so-field-req" for="u-role">Role</label>
                                 <select id="u-role" wire:model.live="role_id" class="so-input">
                                     @foreach ($roles as $role)
                                         <option value="{{ $role->id }}">{{ $role->label }}</option>
@@ -818,6 +870,15 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 </select>
                             </div>
                             @error('role_id') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
+                            @if (($selectedRoleName ?? '') === 'sales_rep')
+                                <p class="item-hint" style="border:0;margin:0 0 0.5rem;padding:0 0 0 0.15rem;font-size:0.75rem;color:#0369a1">
+                                    <strong>Sales Rep</strong> users can log into the field mobile app (email + password).
+                                    Add one or many. Activate the account, then assign customers under Sales → Customers → Sales Rep.
+                                </p>
+                            @endif
+                            <p class="item-hint" style="border:0;margin:0 0 0.5rem;padding:0 0 0 0.15rem;font-size:0.72rem;color:#64748b">
+                                Only the role <strong>Sales Rep</strong> can access the sales rep mobile app — not Admin / Buyer / Warehouse.
+                            </p>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="u-dept">Department</label>
                                 <select id="u-dept" wire:model="department_id" class="so-input">
@@ -832,7 +893,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             @error('department_id') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="u-job">Job Title</label>
-                                <input id="u-job" wire:model="job_title" class="so-input" placeholder="e.g. Buyer, Warehouse Lead" />
+                                <input id="u-job" wire:model="job_title" class="so-input" placeholder="e.g. Sales Representative" />
                             </div>
                             @error('job_title') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
                             <div class="so-form-row so-form-row-side sc-field">
@@ -847,7 +908,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <div class="so-form-row so-form-row-side sc-field">
                                 <span class="so-form-lbl"></span>
                                 <label class="entity-check">
-                                    <input type="checkbox" wire:model="is_active" /> Active
+                                    <input type="checkbox" wire:model="is_active" /> Active (required for login)
                                 </label>
                             </div>
                         </div>

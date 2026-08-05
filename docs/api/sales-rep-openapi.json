@@ -1,0 +1,426 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "POS Continental — Sales Rep Mobile API",
+    "version": "1.1.1",
+    "description": "Section 11.9 Field Sales Tool.\n\n**Base URL formula:** `{APP_URL}/api/rep`\n\n**Access:** only users with role `sales_rep`.\n**Scope:** customers assigned by admin (`customers.sales_rep_id`).\n**Orders:** create Sales Order status New."
+  },
+  "servers": [
+    {
+      "url": "https://www.poscontinentalwholesale.test/api/rep",
+      "description": "Local Laragon HTTPS (default dev)"
+    },
+    {
+      "url": "http://poscontinentalwholesale.test/api/rep",
+      "description": "Local Laragon HTTP"
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/rep",
+      "description": "php artisan serve"
+    },
+    {
+      "url": "https://staging.yourdomain.com/api/rep",
+      "description": "Staging — replace host"
+    },
+    {
+      "url": "https://pos.yourdomain.com/api/rep",
+      "description": "Production — replace host"
+    }
+  ],
+  "tags": [
+    { "name": "Auth" },
+    { "name": "Customers" },
+    { "name": "Catalog" },
+    { "name": "Sales Orders" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Sanctum"
+      }
+    },
+    "schemas": {
+      "ApiSuccess": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string", "nullable": true },
+          "data": {}
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors": { "nullable": true },
+          "data": { "nullable": true }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" },
+          "device_name": { "type": "string", "example": "flutter-android-01" }
+        }
+      },
+      "LoginData": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "token_type": { "type": "string", "example": "Bearer" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "username": { "type": "string", "nullable": true },
+          "company_id": { "type": "integer" },
+          "site_id": { "type": "integer", "nullable": true },
+          "role": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": { "type": "integer" },
+              "name": { "type": "string", "example": "sales_rep" },
+              "label": { "type": "string", "example": "Sales Rep" }
+            }
+          },
+          "is_sales_rep": { "type": "boolean" },
+          "is_admin": { "type": "boolean" }
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "customer_id": { "type": "string" },
+          "company_name": { "type": "string", "nullable": true },
+          "contact": { "type": "string", "nullable": true },
+          "telephone": { "type": "string", "nullable": true },
+          "email": { "type": "string", "nullable": true },
+          "balance": { "type": "number" },
+          "credit_limit": { "type": "number" },
+          "available_credit": { "type": "number" },
+          "messages_alerts": { "type": "string", "nullable": true },
+          "price_level_id": { "type": "integer", "nullable": true },
+          "sales_rep_id": { "type": "integer", "nullable": true }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "item_code": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "unit_of_measure": { "type": "string", "nullable": true },
+          "brand": { "type": "string", "nullable": true },
+          "list_price": { "type": "number" },
+          "unit_price": { "type": "number" },
+          "available_qty": { "type": "number" },
+          "is_new": { "type": "boolean" }
+        }
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["customer_id", "lines"],
+        "properties": {
+          "customer_id": { "type": "integer", "description": "Assigned customer PK" },
+          "required_date": { "type": "string", "format": "date" },
+          "customer_po_no": { "type": "string" },
+          "reference_no": { "type": "string" },
+          "comments": { "type": "string" },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["item_code", "qty_ordered"],
+              "properties": {
+                "item_code": { "type": "string" },
+                "qty_ordered": { "type": "number", "minimum": 0.0001 },
+                "price": { "type": "number", "nullable": true },
+                "uom": { "type": "string", "nullable": true },
+                "line_message": { "type": "string", "nullable": true }
+              }
+            }
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "properties": {
+          "current_page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total": { "type": "integer" },
+          "last_page": { "type": "integer" },
+          "from": { "type": "integer", "nullable": true },
+          "to": { "type": "integer", "nullable": true }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sales Rep login",
+        "description": "Fails with 403 if user role is not sales_rep or user is inactive.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiSuccess" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/LoginData" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Inactive, not in company, or not sales_rep role",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "422": { "description": "Validation / invalid credentials" }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Current user",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "OK" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Not sales rep" }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Revoke current token",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Logged out" }
+        }
+      }
+    },
+    "/customers": {
+      "get": {
+        "tags": ["Customers"],
+        "summary": "List assigned customers only",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "include_inactive", "in": "query", "schema": { "type": "boolean", "default": false } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer", "default": 25, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated customers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Customer" }
+                    },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/customers/{id}": {
+      "get": {
+        "tags": ["Customers"],
+        "summary": "Customer account card",
+        "description": "Balance, credit_limit, available_credit, messages_alerts.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Customer detail" },
+          "403": { "description": "Customer not assigned to this rep" }
+        }
+      }
+    },
+    "/catalog/items": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Catalog search / browse",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "department_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "category_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "subcategory_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "brand", "in": "query", "schema": { "type": "string" } },
+          { "name": "new_only", "in": "query", "schema": { "type": "boolean" } },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "schema": { "type": "integer" },
+            "description": "Assigned customer PK → unit_price from price level"
+          },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer", "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Item" }
+                    },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/items/{id}": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Item detail",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "customer_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "Not found / not sellable" }
+        }
+      }
+    },
+    "/catalog/departments": {
+      "get": {
+        "tags": ["Catalog"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/catalog/categories": {
+      "get": {
+        "tags": ["Catalog"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "department_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/catalog/subcategories": {
+      "get": {
+        "tags": ["Catalog"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "category_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/catalog/brands": {
+      "get": {
+        "tags": ["Catalog"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/sales-orders": {
+      "get": {
+        "tags": ["Sales Orders"],
+        "summary": "Order history",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "customer_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "example": "New" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Paginated orders" } }
+      },
+      "post": {
+        "tags": ["Sales Orders"],
+        "summary": "Create Sales Order (status New)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateOrderRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" },
+          "403": { "description": "Customer not assigned" },
+          "422": { "description": "Validation / stock" }
+        }
+      }
+    },
+    "/sales-orders/{id}": {
+      "get": {
+        "tags": ["Sales Orders"],
+        "summary": "Order detail",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "403": { "description": "Not your order" }
+        }
+      }
+    }
+  }
+}

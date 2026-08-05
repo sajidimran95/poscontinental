@@ -775,7 +775,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 : ($this->salesOrder?->exists
                     ? 'Edit Sales Order — '.$this->order_number
                     : 'New Sales Order'),
-            'salesReps' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'salesReps' => User::query()
+                ->with('role:id,name,label')
+                ->where('company_id', $companyId)
+                ->where(function ($q) {
+                    $q->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
+                        ->orWhere('id', $this->sales_rep_id);
+                })
+                ->orderBy('name')
+                ->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'shipVias' => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get(),

@@ -233,7 +233,15 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'discountSchedules' => DiscountSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'purchaseLimits' => PurchaseLimitSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
-            'salesReps' => User::query()->where('company_id', $companyId)->orderBy('name')->get(),
+            'salesReps' => User::query()
+                ->with('role:id,name,label')
+                ->where('company_id', $companyId)
+                ->where(function ($q) {
+                    $q->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
+                        ->orWhere('id', $this->sales_rep_id);
+                })
+                ->orderBy('name')
+                ->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'leadSources' => CustomerLookupOption::optionsFor($companyId, 'lead_source'),
             'customerCategories' => CustomerLookupOption::optionsFor($companyId, 'customer_category'),
@@ -594,8 +602,13 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                             <label class="so-form-lbl" for="sales_rep_id">Sales Rep</label>
                             <select id="sales_rep_id" wire:model="sales_rep_id" class="so-input">
                                 <option value="">—</option>
-                                @foreach ($salesReps as $rep)<option value="{{ $rep->id }}">{{ $rep->name }}</option>@endforeach
+                                @foreach ($salesReps as $rep)
+                                    <option value="{{ $rep->id }}">{{ $rep->name }}@if($rep->role) — {{ $rep->role->label }}@endif@if(!$rep->is_active) (inactive)@endif</option>
+                                @endforeach
                             </select>
+                            <p class="item-hint" style="border:0;margin:0.25rem 0 0;padding:0;font-size:0.72rem;color:#64748b">
+                                Users with role <strong>Sales Rep</strong> (File → Users). Those users log into the field app and see only their assigned customers.
+                            </p>
                         </div>
                         <div class="so-form-row">
                             <label class="so-form-lbl" for="customer_category">Category</label>

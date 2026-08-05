@@ -1,5 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\Rep\AuthController;
+use App\Http\Controllers\Api\Rep\CatalogController;
+use App\Http\Controllers\Api\Rep\CustomerController;
+use App\Http\Controllers\Api\Rep\SalesOrderController;
+use App\Http\Middleware\EnsureSalesRepApi;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrder;
@@ -12,7 +17,40 @@ use Illuminate\Validation\ValidationException;
 
 /*
 |--------------------------------------------------------------------------
-| Staff / Sales Rep API
+| Sales Rep Mobile API (Section 11.9) — Flutter backend
+| Base: /api/rep
+| Auth: Bearer Sanctum token
+|--------------------------------------------------------------------------
+*/
+Route::prefix('rep')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+
+    Route::middleware(['auth:sanctum', EnsureSalesRepApi::class])->group(function () {
+        Route::get('/me', [AuthController::class, 'me']);
+        Route::post('/logout', [AuthController::class, 'logout']);
+
+        // Assigned customers only
+        Route::get('/customers', [CustomerController::class, 'index']);
+        Route::get('/customers/{customer}', [CustomerController::class, 'show']);
+
+        // Catalog (Items module data)
+        Route::get('/catalog/items', [CatalogController::class, 'items']);
+        Route::get('/catalog/items/{item}', [CatalogController::class, 'showItem']);
+        Route::get('/catalog/departments', [CatalogController::class, 'departments']);
+        Route::get('/catalog/categories', [CatalogController::class, 'categories']);
+        Route::get('/catalog/subcategories', [CatalogController::class, 'subcategories']);
+        Route::get('/catalog/brands', [CatalogController::class, 'brands']);
+
+        // Sales orders — create New + history
+        Route::get('/sales-orders', [SalesOrderController::class, 'index']);
+        Route::post('/sales-orders', [SalesOrderController::class, 'store']);
+        Route::get('/sales-orders/{salesOrder}', [SalesOrderController::class, 'show']);
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Legacy staff API (kept for compatibility)
 |--------------------------------------------------------------------------
 */
 Route::post('/login', function (Request $request) {
@@ -133,7 +171,7 @@ Route::middleware('auth:sanctum')->group(function () {
                     ->first();
 
                 if (! $item) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'lines' => ["Item code {$line['item_code']} was not found or cannot be sold."],
                     ]);
                 }
@@ -147,7 +185,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 $item = Item::query()->lockForUpdate()->find($itemId);
                 $available = (float) $item->available_quantity;
                 if ($needed > $available + 0.0001) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'lines' => [
                             $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').',
                         ],

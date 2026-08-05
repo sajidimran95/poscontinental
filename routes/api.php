@@ -184,11 +184,15 @@ Route::middleware('auth:sanctum')->group(function () {
             foreach ($neededByItem as $itemId => $needed) {
                 $item = Item::query()->lockForUpdate()->find($itemId);
                 $available = (float) $item->available_quantity;
-                if ($needed > $available + 0.0001) {
+                $err = \App\Support\StockPolicy::orderQtyError(
+                    $item,
+                    $needed,
+                    $available,
+                    $user->company
+                );
+                if ($err) {
                     throw ValidationException::withMessages([
-                        'lines' => [
-                            $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').',
-                        ],
+                        'lines' => [$err],
                     ]);
                 }
             }

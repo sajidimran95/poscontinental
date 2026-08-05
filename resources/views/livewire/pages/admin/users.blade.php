@@ -1050,7 +1050,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
                                 </span>
                             </div>
-                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Email, Users &amp; Roles) stay off by default — turn them on only when needed. Terminal and Lookups are always available.</p>
+                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Overselling Settings, Email, Users &amp; Roles) stay off by default — turn them on only when needed. Terminal and Lookups are always available.</p>
 
                             <div class="role-menu-grid">
                                 @foreach ($menuCards as $menu => $submenus)

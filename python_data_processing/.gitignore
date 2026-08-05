@@ -1,0 +1,9 @@
+# Python Chief → POS MySQL import workspace
+staging/
+work/
+logs/
+*.pyc
+__pycache__/
+.env
+.venv/
+venv/

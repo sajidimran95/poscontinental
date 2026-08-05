@@ -7,6 +7,7 @@ use App\Models\Item;
 use App\Models\SalesOrder;
 use App\Models\User;
 use App\Support\ItemPricing;
+use App\Support\StockPolicy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -91,15 +92,12 @@ class CreateSalesOrderFromRep
             foreach ($neededByItem as $itemId => $needed) {
                 /** @var Item $locked */
                 $locked = Item::query()->lockForUpdate()->findOrFail($itemId);
-                if (! $locked->allow_back_order) {
-                    $available = (float) $locked->available_quantity;
-                    if ($needed > $available + 0.0001) {
-                        throw ValidationException::withMessages([
-                            'lines' => [
-                                $locked->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').',
-                            ],
-                        ]);
-                    }
+                $available = (float) $locked->available_quantity;
+                $err = StockPolicy::orderQtyError($locked, $needed, $available, $rep->company);
+                if ($err) {
+                    throw ValidationException::withMessages([
+                        'lines' => [$err],
+                    ]);
                 }
             }
 

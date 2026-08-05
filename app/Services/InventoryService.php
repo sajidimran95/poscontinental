@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Company;
 use App\Models\CreditMemo;
 use App\Models\InventoryJournalEntry;
 use App\Models\InventoryReceiving;
@@ -12,6 +13,7 @@ use App\Models\ReturnToVendor;
 use App\Models\SalesOrder;
 use App\Models\SalesOrderLine;
 use App\Models\StockCount;
+use App\Support\StockPolicy;
 use Illuminate\Support\Facades\DB;
 
 class InventoryService
@@ -42,9 +44,14 @@ class InventoryService
                 $oldQty = (float) $item->quantity_in_stock;
                 $oldAvg = (float) $item->average_cost;
                 $newQty = $oldQty + $qty;
-                $newAvg = $newQty > 0
-                    ? (($oldQty * $oldAvg) + ($qty * $cost)) / $newQty
-                    : $cost;
+                // Recovering from oversell (-10) + purchase 100 → 90; cost weights only positive landings.
+                if ($oldQty <= 0) {
+                    $newAvg = $cost;
+                } elseif ($newQty > 0) {
+                    $newAvg = (($oldQty * $oldAvg) + ($qty * $cost)) / $newQty;
+                } else {
+                    $newAvg = $cost;
+                }
 
                 $item->update([
                     'quantity_in_stock' => $newQty,
@@ -301,9 +308,11 @@ class InventoryService
             }
 
             $onHand = (float) $item->quantity_in_stock;
-            if ($qty > $onHand + 0.0001) {
+            $company = Company::query()->find($order->company_id);
+            $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
+            if ($err) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'invoice' => $item->item_code.' cannot invoice qty '.number_format($qty, 2).' — only '.number_format($onHand, 2).' in stock.',
+                    'invoice' => $err,
                 ]);
             }
 

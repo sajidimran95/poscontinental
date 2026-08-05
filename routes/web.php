@@ -30,6 +30,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
 
     // Admin (company POS)
     Volt::route('admin/company-settings', 'pages.tobacco.company-settings')->name('admin.company-settings');
+    Volt::route('admin/overselling-settings', 'pages.admin.overselling-settings')->name('admin.overselling-settings');
     Route::redirect('tobacco/filing-settings', '/admin/company-settings');
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
     Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');

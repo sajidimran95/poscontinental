@@ -13,14 +13,21 @@ class Company extends Model
         'fein_no', 'state_license_number', 'transmitter_account_number', 'is_active',
         'mail_mailer', 'mail_host', 'mail_port', 'mail_username', 'mail_password',
         'mail_encryption', 'mail_from_address', 'mail_from_name',
+        'allow_negative_stock',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'allow_negative_stock' => 'boolean',
             'mail_password' => 'encrypted',
         ];
+    }
+
+    public function allowsNegativeStock(): bool
+    {
+        return (bool) ($this->allow_negative_stock ?? true);
     }
 
     public function sites(): HasMany

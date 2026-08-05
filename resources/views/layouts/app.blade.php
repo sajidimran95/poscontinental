@@ -35,6 +35,7 @@
                             'File' => [
                                 ['My Profile', 'profile'],
                                 ['Company Settings', 'admin.company-settings'],
+                                ['Overselling Settings', 'admin.overselling-settings'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
@@ -150,6 +151,7 @@
                     'inquiries.item-velocity' => 'Item Velocity',
                     'profile' => 'My Profile',
                     'admin.company-settings' => 'Company Settings',
+                    'admin.overselling-settings' => 'Overselling Settings',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

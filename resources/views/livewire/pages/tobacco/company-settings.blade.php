@@ -145,6 +145,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         <form wire:submit.prevent="save" class="stamp-inv-form" style="max-width: 40rem;" autocomplete="off">
             <p class="stamp-inv-hint">
                 System company identity for documents and Michigan MSA filing.
+                Overselling is configured under <strong>File → Overselling Settings</strong>.
             </p>
 
             <h3 class="msa-section-title">Company</h3>

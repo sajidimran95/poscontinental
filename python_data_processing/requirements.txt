@@ -1,0 +1,5 @@
+# Python ETL dependencies — Chief (MS SQL) → POS Continental (MySQL)
+pymysql>=1.1.0
+python-dotenv>=1.0.0
+pandas>=2.1.0
+pyodbc>=5.0.0

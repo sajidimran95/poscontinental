@@ -33,6 +33,11 @@ class AppFeatures
                 'group' => 'File',
                 'routes' => ['admin.company-settings'],
             ],
+            'admin.overselling' => [
+                'label' => 'Overselling Settings',
+                'group' => 'File',
+                'routes' => ['admin.overselling-settings'],
+            ],
             'admin.users' => [
                 'label' => 'Users & Roles',
                 'group' => 'File',
@@ -344,6 +349,7 @@ class AppFeatures
         return [
             'File' => [
                 ['label' => 'Company Settings', 'feature' => 'admin.company'],
+                ['label' => 'Overselling Settings', 'feature' => 'admin.overselling'],
                 ['label' => 'Users & Roles', 'feature' => 'admin.users'],
                 ['label' => 'Email Setup', 'feature' => 'admin.email_setup'],
                 ['label' => 'Email Send Log', 'feature' => 'admin.email_logs'],
@@ -408,6 +414,7 @@ class AppFeatures
     {
         return [
             'admin.company',
+            'admin.overselling',
             'admin.users',
             'admin.email_setup',
             'admin.email_logs',

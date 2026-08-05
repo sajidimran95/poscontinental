@@ -12,6 +12,7 @@ use App\Models\Site;
 use App\Models\User;
 use App\Services\InventoryService;
 use App\Support\SalesOrderLinePresentation;
+use App\Support\StockPolicy;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -1372,11 +1373,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 
     /**
-     * Out-of-stock items cannot be added (use a force substitute with stock instead).
+     * Out-of-stock: still allowed when company allows negative stock / oversell.
      */
     protected function canAddItemToOrder(Item $item): bool
     {
-        if ((float) $item->available_quantity > 0) {
+        $available = (float) $item->available_quantity;
+        if ($available > 0) {
+            return true;
+        }
+
+        if (StockPolicy::allowsOversell(null, $item)) {
+            $this->lineWarning = $item->item_code
+                .' has no stock on hand — order will go negative on invoice (overselling is ON).';
+
             return true;
         }
 
@@ -1637,14 +1646,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 return;
             }
             $available = (float) $item->available_quantity + (float) ($previousByItem[$itemId] ?? 0);
-            if ($available <= 0) {
-                $this->addError('lines', $item->item_code.' has no stock available and cannot be saved on this order.');
-                $this->activeTab = 'items';
-
-                return;
-            }
-            if ($needed > $available + 0.0001) {
-                $this->addError('lines', $item->item_code.' ordered qty ('.number_format($needed, 2).') exceeds available stock ('.number_format($available, 2).').');
+            $err = StockPolicy::orderQtyError($item, $needed, $available);
+            if ($err) {
+                $this->addError('lines', $err);
                 $this->activeTab = 'items';
 
                 return;

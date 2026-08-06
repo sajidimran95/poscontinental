@@ -47,6 +47,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $browseSearch = '';
 
+    /** @var array<int, array{id:int,item_code:string,description:?string,unit_of_measure:?string,list_price:float|string|null,available:float,is_new:bool}> */
+    public array $browseRows = [];
+
+    public int $browseTotal = 0;
+
+    public bool $browseHasMore = false;
+
+    public bool $browseLoadingMore = false;
+
     public string $favorite = 'new';
 
     public bool $customerFavoritesOnly = false;
@@ -797,12 +806,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
 
-        $customerQuery = Customer::query()
-            ->where('company_id', $companyId)
-            ->where('is_inactive', false)
-            ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
-            ->orderByDesc('is_favorite')
-            ->orderBy('company_name');
+        $onGeneral = $this->activeTab === 'general';
+        $onShipping = $this->activeTab === 'shipping';
+        $needShipCustomer = $onGeneral || $this->showShipBrowse || $this->showShipToModal;
 
         $browseCustomers = collect();
         if ($this->showCustomerBrowse) {
@@ -825,12 +831,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'city', 'state', 'is_favorite']);
         }
 
-        $selectedCustomer = $this->customer_id
-            ? Customer::query()->with('shippingAddresses')->find($this->customer_id)
-            : null;
+        // Only hydrate full customer list on General (not on F2 / Items tab).
+        $customers = collect();
+        if ($onGeneral) {
+            $customers = Customer::query()
+                ->where('company_id', $companyId)
+                ->where('is_inactive', false)
+                ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
+                ->orderByDesc('is_favorite')
+                ->orderBy('company_name')
+                ->get(['id', 'customer_id', 'company_name', 'is_favorite']);
+        }
+
+        $selectedCustomer = null;
+        if ($this->customer_id && $needShipCustomer) {
+            $selectedCustomer = Customer::query()
+                ->with('shippingAddresses')
+                ->find($this->customer_id);
+        } elseif ($this->customer_id) {
+            $selectedCustomer = Customer::query()
+                ->find($this->customer_id, ['id', 'customer_id', 'company_name', 'is_favorite']);
+        }
 
         return [
-            'customers' => $customerQuery->get(['id', 'customer_id', 'company_name', 'is_favorite']),
+            'customers' => $customers,
             'selectedCustomer' => $selectedCustomer,
             'selectedCustomerIsFavorite' => (bool) ($selectedCustomer?->is_favorite),
             'pageTitle' => $this->viewMode
@@ -838,32 +862,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 : ($this->salesOrder?->exists
                     ? 'Edit Sales Order — '.$this->order_number
                     : 'New Sales Order'),
-            'salesReps' => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get(),
-            'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
-            'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
-            'shipVias' => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get(),
-            'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
-            'browseItems' => $this->showBrowse
-                ? Item::query()
-                    ->where('company_id', $companyId)
-                    ->where('is_inactive', false)
-                    ->where('can_sell', true)
-                    ->when($this->browseNewOnly, fn ($q) => $q->newItems())
-                    ->when(filled($this->browseSearch), function ($q) {
-                        $term = '%'.$this->browseSearch.'%';
-                        $q->where(function ($inner) use ($term) {
-                            $inner->where('item_code', 'like', $term)
-                                ->orWhere('description', 'like', $term)
-                                ->orWhere('primary_upc', 'like', $term);
-                        });
-                    })
-                    // In-stock first; out-of-stock last; newest "New" items higher within same stock group
-                    ->orderByRaw('(quantity_in_stock - COALESCE(allocated_qty, 0)) > 0 DESC')
-                    ->when($this->browseNewOnly, fn ($q) => $q->orderByDesc('created_at'))
-                    ->orderBy('item_code')
-                    ->limit(200)
-                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'created_at'])
+            'salesReps' => $onGeneral
+                ? User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get()
                 : collect(),
+            'paymentTerms' => $onShipping
+                ? PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get()
+                : collect(),
+            'routes' => $onShipping
+                ? RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get()
+                : collect(),
+            'shipVias' => $onShipping
+                ? ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get()
+                : collect(),
+            'sites' => $onShipping
+                ? Site::query()->where('company_id', $companyId)->orderBy('code')->get()
+                : collect(),
+            'browseItems' => collect($this->browseRows),
             'browseCustomers' => $browseCustomers,
             'subtotal' => $subtotal,
             'orderTotal' => $total,
@@ -874,6 +888,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalDiscounts' => $filledLines->sum(fn ($l) => (float) $l['discount']),
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
+            'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'favorites' => [
                 'all' => 'All Orders',
                 'new' => 'New Orders',
@@ -882,6 +897,142 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'today' => 'Today & Yesterday',
             ],
         ];
+    }
+
+    /**
+     * Progressive F2 list — fast open (first page), scroll loads the rest.
+     */
+    protected const BROWSE_PAGE_SIZE = 80;
+
+    public function updatedBrowseSearch(): void
+    {
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function updatedBrowseNewOnly(): void
+    {
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function toggleBrowse(): void
+    {
+        $this->showBrowse = ! $this->showBrowse;
+        $this->showCustomerBrowse = false;
+        $this->showShipBrowse = false;
+        if ($this->showBrowse) {
+            $this->browseSearch = trim($this->itemEntry);
+            if ($this->activeTab === 'expand') {
+                $this->activeTab = 'items';
+            }
+            $this->resetBrowseAndLoadFirstPage();
+        } else {
+            $this->clearBrowseState();
+        }
+    }
+
+    public function closeBrowse(): void
+    {
+        $this->showBrowse = false;
+        $this->clearBrowseState();
+    }
+
+    public function loadMoreBrowseItems(): void
+    {
+        if (! $this->showBrowse || ! $this->browseHasMore || $this->browseLoadingMore) {
+            return;
+        }
+
+        $this->browseLoadingMore = true;
+        $this->appendBrowsePage(count($this->browseRows));
+        $this->browseLoadingMore = false;
+    }
+
+    protected function clearBrowseState(): void
+    {
+        $this->browseRows = [];
+        $this->browseTotal = 0;
+        $this->browseHasMore = false;
+        $this->browseLoadingMore = false;
+    }
+
+    protected function resetBrowseAndLoadFirstPage(): void
+    {
+        $this->browseRows = [];
+        $this->browseHasMore = false;
+        $this->browseLoadingMore = false;
+        $companyId = (int) auth()->user()->company_id;
+        $this->browseTotal = $this->browseBaseQuery($companyId)->count();
+        $this->appendBrowsePage(0);
+    }
+
+    protected function appendBrowsePage(int $offset): void
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
+        $newSince = now()->subDays($newDays);
+
+        $rows = $this->browseBaseQuery($companyId)
+            ->when(
+                $this->browseNewOnly,
+                fn ($q) => $q->orderByDesc('created_at')->orderBy('item_code'),
+                fn ($q) => $q->orderByDesc('quantity_in_stock')->orderBy('item_code')
+            )
+            ->offset($offset)
+            ->limit(self::BROWSE_PAGE_SIZE)
+            ->get([
+                'id',
+                'item_code',
+                'description',
+                'unit_of_measure',
+                'list_price',
+                'quantity_in_stock',
+                'allocated_qty',
+                'created_at',
+            ]);
+
+        $mapped = $rows->map(function ($row) use ($newSince) {
+            $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
+
+            return [
+                'id' => (int) $row->id,
+                'item_code' => (string) $row->item_code,
+                'description' => $row->description,
+                'unit_of_measure' => $row->unit_of_measure,
+                'list_price' => $row->list_price,
+                'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
+                'is_new' => $created !== null && $created->gte($newSince),
+            ];
+        })->all();
+
+        $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
+        $this->browseHasMore = count($this->browseRows) < $this->browseTotal;
+    }
+
+    /**
+     * Shared filters for F2 browse (no ORDER / LIMIT).
+     */
+    protected function browseBaseQuery(int $companyId)
+    {
+        $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
+        $newSince = now()->subDays($newDays);
+
+        return DB::table('items')
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->when($this->browseNewOnly, fn ($q) => $q->where('created_at', '>=', $newSince))
+            ->when(filled($this->browseSearch), function ($q) {
+                $term = '%'.trim($this->browseSearch).'%';
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('item_code', 'like', $term)
+                        ->orWhere('description', 'like', $term)
+                        ->orWhere('primary_upc', 'like', $term);
+                });
+            });
     }
 
     public function toggleCustomerFavoriteIcon(): void
@@ -1637,21 +1788,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         return null;
-    }
-
-    public function toggleBrowse(): void
-    {
-        $this->showBrowse = ! $this->showBrowse;
-        $this->showCustomerBrowse = false;
-        $this->showShipBrowse = false;
-        if ($this->showBrowse) {
-            $this->browseSearch = trim($this->itemEntry);
-        }
-    }
-
-    public function closeBrowse(): void
-    {
-        $this->showBrowse = false;
     }
 
     protected function findItem(string $code): ?Item
@@ -2911,7 +3047,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <input
                         id="so-browse-search"
                         type="search"
-                        wire:model.live.debounce.200ms="browseSearch"
+                        wire:model.live.debounce.300ms="browseSearch"
                         class="so-input so-item-browse-search"
                         placeholder="Search code, description, UPC…"
                         aria-label="Search items"
@@ -2919,11 +3055,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     />
                     <label class="so-item-browse-check">
                         <input type="checkbox" wire:model.live="browseNewOnly" />
-                        New only ({{ \App\Models\Item::NEW_ITEM_DAYS }} days)
+                        New only ({{ $itemNewDays }} days)
                     </label>
-                    <span class="so-item-browse-count">{{ $browseItems->count() }} shown</span>
+                    <span class="so-item-browse-count" wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,loadMoreBrowseItems">
+                        {{ number_format(count($browseRows)) }} / {{ number_format($browseTotal) }}
+                    </span>
+                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,loadMoreBrowseItems">Loading…</span>
                 </div>
-                <div class="so-item-browse-scroll" tabindex="0">
+                <div
+                    class="so-item-browse-scroll"
+                    tabindex="0"
+                    x-data
+                    @scroll.passthrough="
+                        const el = $event.target;
+                        if (!el || {{ $browseHasMore ? 'false' : 'true' }}) return;
+                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+                            $wire.loadMoreBrowseItems();
+                        }
+                    "
+                >
                     <table class="so-item-browse-table">
                         <colgroup>
                             <col class="col-code" />
@@ -2944,42 +3094,56 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse ($browseItems as $bi)
-                                @php
-                                    $avail = (float) $bi->available_quantity;
-                                    $isNew = $bi->isNew();
-                                @endphp
+                            @forelse ($browseRows as $bi)
+                                @php $avail = (float) $bi['available']; @endphp
                                 <tr
+                                    wire:key="browse-item-{{ $bi['id'] }}"
                                     class="{{ $avail > 0 ? 'is-pickable' : 'is-disabled' }}"
-                                    @if ($avail > 0) wire:click="pickBrowseItem({{ $bi->id }})" @endif
+                                    @if ($avail > 0) wire:click="pickBrowseItem({{ $bi['id'] }})" @endif
                                     title="{{ $avail > 0 ? 'Click to add' : 'No stock' }}"
                                 >
-                                    <td class="font-mono">
-                                        {{ $bi->item_code }}
-                                        @if ($isNew)
-                                            <span class="desk-pill desk-pill-new" style="margin-left:0.25rem;font-size:10px;padding:0.1rem 0.35rem;vertical-align:middle">New</span>
-                                        @endif
-                                    </td>
-                                    <td class="col-desc-cell">{{ $bi->description }}</td>
-                                    <td>{{ $bi->unit_of_measure ?: '—' }}</td>
+                                    <td class="font-mono">{{ $bi['item_code'] }}</td>
+                                    <td class="col-desc-cell">{{ $bi['description'] }}</td>
+                                    <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
                                     <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
-                                    <td class="is-num">${{ number_format((float) $bi->list_price, 2) }}</td>
+                                    <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>
                                     <td class="is-center">
-                                        @if ($isNew)
+                                        @if (! empty($bi['is_new']))
                                             <span class="desk-pill desk-pill-new">New</span>
                                         @endif
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="so-item-browse-empty">No items found.</td>
+                                    <td colspan="6" class="so-item-browse-empty">
+                                        <span wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly">No items found.</span>
+                                        <span wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly">Loading items…</span>
+                                    </td>
                                 </tr>
                             @endforelse
+                            @if ($browseHasMore && count($browseRows) > 0)
+                                <tr wire:key="browse-load-more">
+                                    <td colspan="6" class="so-item-browse-empty" style="padding:0.75rem !important;">
+                                        <button
+                                            type="button"
+                                            class="desk-btn desk-btn-sm"
+                                            wire:click="loadMoreBrowseItems"
+                                            wire:loading.attr="disabled"
+                                            wire:target="loadMoreBrowseItems"
+                                        >
+                                            <span wire:loading.remove wire:target="loadMoreBrowseItems">Load more items…</span>
+                                            <span wire:loading wire:target="loadMoreBrowseItems">Loading…</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>
                 <div class="so-item-browse-foot">
-                    <span>Scroll for more · Click a row to add · Esc to close</span>
+                    <span>
+                        Fast open — loads 80 at a time · Scroll or <strong>Load more</strong> for all · Search filters list · Esc to close
+                    </span>
                     <button type="button" wire:click="closeBrowse" class="desk-btn">Close</button>
                 </div>
             </div>

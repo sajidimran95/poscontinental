@@ -186,11 +186,9 @@
         ['label' => 'Order Status:', 'value' => $statusLabel],
     ];
 
-    $grouped = $order->lines
-        ->sortBy(fn ($line) => [strtoupper((string) ($line->uom ?: '')), (int) $line->line_no])
+    $lines = $order->lines
+        ->sortBy(fn ($line) => (int) $line->line_no)
         ->values();
-
-    $uomGroups = $grouped->groupBy(fn ($line) => strtoupper((string) ($line->uom ?: '')));
 @endphp
 
 {{-- Header: company + Bill/Ship left; document title + barcode + meta right --}}
@@ -267,7 +265,6 @@
     </tr>
 </table>
 
-{{-- Lines grouped by U/M with section headers --}}
 <table class="items">
     <colgroup>
         <col class="col-qty">
@@ -288,36 +285,28 @@
         </tr>
     </thead>
     <tbody>
-        @forelse ($uomGroups as $uom => $lines)
-            <tr class="uom-head">
-                <td colspan="6">U/M: {{ $uom !== '' ? $uom : '—' }}</td>
+        @forelse ($lines as $line)
+            @php
+                $qty = (float) $line->qty_ordered;
+                $qtyLabel = fmod($qty, 1.0) == 0.0
+                    ? number_format($qty, 0)
+                    : number_format($qty, 2);
+            @endphp
+            <tr>
+                <td class="col-qty">{{ $qtyLabel }}</td>
+                <td class="col-item">{{ $line->item_code }}</td>
+                <td class="col-desc">
+                    <div>{{ $line->description }}</div>
+                    @if ($showLineMessage && ($lineMsg = SalesOrderLinePresentation::lineMessage($line)))
+                        <div class="line-msg">
+                            <span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}
+                        </div>
+                    @endif
+                </td>
+                <td class="col-uom">{{ $line->uom ?: '—' }}</td>
+                <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
+                <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>
             </tr>
-            @foreach ($lines as $idx => $line)
-                @php
-                    $isFirst = $idx === 0;
-                    $isLast = $idx === $lines->count() - 1;
-                    $rowClass = trim(($isFirst ? 'uom-start' : '').' '.($isLast ? 'uom-end' : ''));
-                    $qty = (float) $line->qty_ordered;
-                    $qtyLabel = fmod($qty, 1.0) == 0.0
-                        ? number_format($qty, 0)
-                        : number_format($qty, 2);
-                @endphp
-                <tr class="{{ $rowClass }}">
-                    <td class="col-qty">{{ $qtyLabel }}</td>
-                    <td class="col-item">{{ $line->item_code }}</td>
-                    <td class="col-desc">
-                        <div>{{ $line->description }}</div>
-                        @if ($showLineMessage && ($lineMsg = SalesOrderLinePresentation::lineMessage($line)))
-                            <div class="line-msg">
-                                <span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}
-                            </div>
-                        @endif
-                    </td>
-                    <td class="col-uom">{{ $line->uom ?: '—' }}</td>
-                    <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
-                    <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>
-                </tr>
-            @endforeach
         @empty
             <tr>
                 <td colspan="6" style="padding:12px;text-align:center;color:#666">No line items.</td>

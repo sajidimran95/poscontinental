@@ -162,6 +162,11 @@ class Customer extends Model
                 $existing->update(['is_inactive' => false]);
             }
 
+            // Drop legacy system alert so New SO does not show "Alert: Default walk-in..."
+            if (filled($existing->messages_alerts) && str_contains((string) $existing->messages_alerts, 'Default walk-in')) {
+                $existing->update(['messages_alerts' => null]);
+            }
+
             return $existing->refresh();
         }
 
@@ -178,7 +183,7 @@ class Customer extends Model
             'credit_limit' => 0,
             'balance' => 0,
             'customer_since' => now()->toDateString(),
-            'messages_alerts' => 'Default walk-in / cash counter customer.',
+            'messages_alerts' => null,
             'comments' => 'System default — use for walk-in sales without a named account.',
         ]);
     }

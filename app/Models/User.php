@@ -97,6 +97,24 @@ class User extends Authenticatable
         return $this->role?->name === 'sales_rep';
     }
 
+    /**
+     * Users who can be assigned as sales rep on customers / orders (desktop POS).
+     * Active company staff — not limited to role sales_rep (field app still is).
+     */
+    public static function assignableSalesRepsQuery(int $companyId, ?int $includeUserId = null)
+    {
+        return static::query()
+            ->with('role:id,name,label')
+            ->where('company_id', $companyId)
+            ->where(function ($q) use ($includeUserId) {
+                $q->where('is_active', true);
+                if ($includeUserId) {
+                    $q->orWhere('id', $includeUserId);
+                }
+            })
+            ->orderBy('name');
+    }
+
     public function isAdmin(): bool
     {
         return $this->role?->name === 'admin';

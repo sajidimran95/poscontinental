@@ -233,15 +233,7 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'discountSchedules' => DiscountSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'purchaseLimits' => PurchaseLimitSchedule::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
-            'salesReps' => User::query()
-                ->with('role:id,name,label')
-                ->where('company_id', $companyId)
-                ->where(function ($q) {
-                    $q->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
-                        ->orWhere('id', $this->sales_rep_id);
-                })
-                ->orderBy('name')
-                ->get(),
+            'salesReps' => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'leadSources' => CustomerLookupOption::optionsFor($companyId, 'lead_source'),
             'customerCategories' => CustomerLookupOption::optionsFor($companyId, 'customer_category'),
@@ -606,9 +598,6 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                                     <option value="{{ $rep->id }}">{{ $rep->name }}@if($rep->role) — {{ $rep->role->label }}@endif@if(!$rep->is_active) (inactive)@endif</option>
                                 @endforeach
                             </select>
-                            <p class="item-hint" style="border:0;margin:0.25rem 0 0;padding:0;font-size:0.72rem;color:#64748b">
-                                Users with role <strong>Sales Rep</strong> (File → Users). Those users log into the field app and see only their assigned customers.
-                            </p>
                         </div>
                         <div class="so-form-row">
                             <label class="so-form-lbl" for="customer_category">Category</label>

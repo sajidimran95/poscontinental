@@ -577,16 +577,6 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             $status = 'User created.';
         }
 
-        $roleName = Role::query()->whereKey($this->role_id)->value('name');
-        if ($roleName === 'sales_rep') {
-            $status .= ' Sales Rep mobile app: '.$email
-                .($this->is_active
-                    ? '. Assign customers on Sales → Customers → Sales Rep.'
-                    : '. Mark Active, then assign customers on Sales → Customers.');
-        } else {
-            $status .= ' Note: only role Sales Rep can use the field mobile app.';
-        }
-
         session()->flash('status', $status);
 
         $this->showUserForm = false;
@@ -870,15 +860,6 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 </select>
                             </div>
                             @error('role_id') <p class="text-xs text-red-700 px-1" role="alert">{{ $message }}</p> @enderror
-                            @if (($selectedRoleName ?? '') === 'sales_rep')
-                                <p class="item-hint" style="border:0;margin:0 0 0.5rem;padding:0 0 0 0.15rem;font-size:0.75rem;color:#0369a1">
-                                    <strong>Sales Rep</strong> users can log into the field mobile app (email + password).
-                                    Add one or many. Activate the account, then assign customers under Sales → Customers → Sales Rep.
-                                </p>
-                            @endif
-                            <p class="item-hint" style="border:0;margin:0 0 0.5rem;padding:0 0 0 0.15rem;font-size:0.72rem;color:#64748b">
-                                Only the role <strong>Sales Rep</strong> can access the sales rep mobile app — not Admin / Buyer / Warehouse.
-                            </p>
                             <div class="so-form-row so-form-row-side sc-field">
                                 <label class="so-form-lbl" for="u-dept">Department</label>
                                 <select id="u-dept" wire:model="department_id" class="so-input">

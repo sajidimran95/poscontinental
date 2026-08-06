@@ -63,11 +63,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         return [
             'customers' => $query->paginate(25),
-            'salesReps' => User::query()
-                ->where('company_id', $companyId)
-                ->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
-                ->orderBy('name')
-                ->get(['id', 'name', 'is_active']),
+            'salesReps' => User::assignableSalesRepsQuery($companyId)->get(['id', 'name', 'is_active', 'role_id']),
             'canEditCustomers' => auth()->user()?->canAccessFeature('sales.customers', 'edit') ?? false,
             'favorites' => [
                 'all' => 'All Customers',
@@ -295,11 +291,13 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             $valid = User::query()
                 ->where('company_id', $companyId)
                 ->whereKey($repId)
-                ->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
+                ->where(function ($q) use ($repId) {
+                    $q->where('is_active', true)->orWhere('id', $repId);
+                })
                 ->exists();
 
             if (! $valid) {
-                session()->flash('status', 'Select a user with role Sales Rep.');
+                session()->flash('status', 'Select a valid user.');
 
                 return;
             }

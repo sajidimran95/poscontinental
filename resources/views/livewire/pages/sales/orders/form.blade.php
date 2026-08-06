@@ -200,6 +200,28 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $showShipBrowse = false;
 
+    public bool $showShipToModal = false;
+
+    public string $newShipName = '';
+
+    public string $newShipPhone = '';
+
+    public string $newShipFax = '';
+
+    public string $newShipAddress = '';
+
+    public string $newShipCity = '';
+
+    public string $newShipState = '';
+
+    public string $newShipZip = '';
+
+    public string $newShipClass = '';
+
+    public bool $newShipPrimary = true;
+
+    public string $shipToFlash = '';
+
     public bool $taxManual = false;
 
     public float $pendingTradePercent = 0;
@@ -350,7 +372,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'credit_limit' => 0,
                 'balance' => 0,
                 'customer_since' => now()->toDateString(),
-                'messages_alerts' => 'Default walk-in / cash counter customer.',
+                'messages_alerts' => null,
                 'comments' => 'System default — use for walk-in sales without a named account.',
             ]
         );
@@ -816,15 +838,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 : ($this->salesOrder?->exists
                     ? 'Edit Sales Order — '.$this->order_number
                     : 'New Sales Order'),
-            'salesReps' => User::query()
-                ->with('role:id,name,label')
-                ->where('company_id', $companyId)
-                ->where(function ($q) {
-                    $q->whereHas('role', fn ($r) => $r->where('name', 'sales_rep'))
-                        ->orWhere('id', $this->sales_rep_id);
-                })
-                ->orderBy('name')
-                ->get(),
+            'salesReps' => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get(),
             'paymentTerms' => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'routes' => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'shipVias' => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get(),
@@ -843,6 +857,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 ->orWhere('primary_upc', 'like', $term);
                         });
                     })
+                    // In-stock first; out-of-stock (available <= 0) last
+                    ->orderByRaw('(quantity_in_stock - COALESCE(allocated_qty, 0)) > 0 DESC')
                     ->orderBy('item_code')
                     ->limit(200)
                     ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'created_at'])
@@ -966,6 +982,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->showCustomerBrowse = false;
+        $this->showShipToModal = false;
+        $this->shipToFlash = '';
         $this->refreshCreditWarning();
         $this->suggestTax();
         $this->repriceLinesForCustomer();
@@ -1225,6 +1243,114 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->ship_to_address_id = $addressId;
         $this->updatedShipToAddressId($addressId);
+        $this->showShipToModal = false;
+    }
+
+    public function openShipToModal(): void
+    {
+        if (! $this->customer_id || $this->viewMode) {
+            return;
+        }
+
+        $this->showShipBrowse = false;
+        $this->showCustomerBrowse = false;
+        $this->showShipToModal = true;
+        $this->shipToFlash = '';
+        $this->resetErrorBag(['newShipName', 'newShipAddress', 'newShipCity', 'newShipState', 'newShipZip', 'newShipPhone', 'newShipFax', 'newShipClass']);
+
+        $customer = Customer::query()->with('shippingAddresses')->find($this->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        // Prefill from current ship / bill fields so the form is ready
+        $this->newShipName = trim($this->ship_to_name) !== ''
+            ? trim($this->ship_to_name)
+            : trim((string) ($this->bill_to_name ?: $customer->company_name ?: $customer->contact));
+        $this->newShipPhone = trim($this->ship_to_phone) !== ''
+            ? trim($this->ship_to_phone)
+            : trim((string) ($this->bill_to_phone ?: $customer->telephone));
+        $this->newShipFax = trim((string) ($customer->fax ?? ''));
+        $this->newShipAddress = trim($this->ship_to_address) !== ''
+            ? trim($this->ship_to_address)
+            : trim((string) ($this->bill_to_address ?: $customer->address));
+        $this->newShipCity = trim($this->ship_to_city) !== ''
+            ? trim($this->ship_to_city)
+            : trim((string) ($this->bill_to_city ?: $customer->city));
+        $this->newShipState = trim($this->ship_to_state) !== ''
+            ? trim($this->ship_to_state)
+            : trim((string) ($this->bill_to_state ?: $customer->state));
+        $this->newShipZip = trim($this->ship_to_zip) !== ''
+            ? trim($this->ship_to_zip)
+            : trim((string) ($this->bill_to_zip ?: $customer->zip_code));
+        $this->newShipClass = '';
+        $this->newShipPrimary = $customer->shippingAddresses->isEmpty();
+    }
+
+    public function closeShipToModal(): void
+    {
+        $this->showShipToModal = false;
+        $this->resetErrorBag(['newShipName', 'newShipAddress', 'newShipCity', 'newShipState', 'newShipZip', 'newShipPhone', 'newShipFax', 'newShipClass']);
+    }
+
+    public function saveShipToAddress(): void
+    {
+        if (! $this->customer_id || $this->viewMode) {
+            return;
+        }
+
+        $this->validate([
+            'newShipName' => ['required', 'string', 'max:120'],
+            'newShipAddress' => ['required', 'string', 'max:255'],
+            'newShipCity' => ['nullable', 'string', 'max:100'],
+            'newShipState' => ['nullable', 'string', 'max:20'],
+            'newShipZip' => ['nullable', 'string', 'max:20'],
+            'newShipPhone' => ['nullable', 'string', 'max:40'],
+            'newShipFax' => ['nullable', 'string', 'max:40'],
+            'newShipClass' => ['nullable', 'string', 'max:50'],
+            'newShipPrimary' => ['boolean'],
+        ], [], [
+            'newShipName' => 'name',
+            'newShipAddress' => 'address',
+        ]);
+
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->customer_id);
+
+        if (! $customer) {
+            $this->addError('newShipName', 'Customer not found.');
+
+            return;
+        }
+
+        $isFirst = $customer->shippingAddresses()->count() === 0;
+        $makePrimary = $this->newShipPrimary || $isFirst;
+
+        if ($makePrimary) {
+            $customer->shippingAddresses()->update(['is_primary' => false]);
+        }
+
+        $maxSort = (int) $customer->shippingAddresses()->max('sort_order');
+
+        $ship = $customer->shippingAddresses()->create([
+            'name' => trim($this->newShipName),
+            'address' => trim($this->newShipAddress),
+            'city' => trim($this->newShipCity),
+            'state' => trim($this->newShipState),
+            'zip' => trim($this->newShipZip),
+            'telephone' => trim($this->newShipPhone),
+            'fax' => trim($this->newShipFax) !== '' ? trim($this->newShipFax) : null,
+            'class' => trim($this->newShipClass) !== '' ? trim($this->newShipClass) : null,
+            'is_primary' => $makePrimary,
+            'sort_order' => $maxSort + 1,
+        ]);
+
+        $this->ship_to_address_id = $ship->id;
+        $this->updatedShipToAddressId($ship->id);
+        $this->showShipToModal = false;
+        $this->shipToFlash = 'Ship-to address saved for this customer.';
+        $this->addressTab = 'ship';
     }
 
     public function addLine(): void
@@ -2149,14 +2275,36 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 @endforeach
                                             @endif
                                         </select>
+                                        <button
+                                            type="button"
+                                            wire:click="openShipToModal"
+                                            class="so-icon-btn"
+                                            title="{{ $customer_id ? 'Add ship-to address' : 'Select a customer first' }}"
+                                            aria-label="Add ship-to address"
+                                            @disabled(! $customer_id || $viewMode)
+                                        >
+                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                                        </button>
                                         <button type="button" wire:click="toggleShipBrowse" class="so-icon-btn" title="Browse" aria-label="Browse ship-to" @disabled(! $customer_id)>
                                             <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
                                         </button>
                                     </div>
+                                    @if ($shipToFlash !== '')
+                                        <p class="so-field-hint" style="color:#065f46;margin:.25rem 0 0;font-size:.78rem;" role="status">{{ $shipToFlash }}</p>
+                                    @endif
+                                    @if (! $viewMode && $customer_id && $selectedCustomer && $selectedCustomer->shippingAddresses->isEmpty())
+                                        <p class="so-field-hint" style="margin:.25rem 0 0;font-size:.78rem;color:#9a3412;">
+                                            No ship-to for this customer — click <strong>+</strong> to add one.
+                                        </p>
+                                    @endif
+
                                     @if ($showShipBrowse && $selectedCustomer)
                                         <div class="so-lookup-panel" role="dialog" aria-label="Ship-to browse">
                                             <div class="so-lookup-panel-head">
                                                 <span class="text-xs font-semibold text-slate-700">Ship-to addresses</span>
+                                                <button type="button" wire:click="openShipToModal" class="so-icon-btn" title="Add ship-to" aria-label="Add ship-to" @disabled($viewMode)>
+                                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                                                </button>
                                                 <button type="button" wire:click="$set('showShipBrowse', false)" class="so-icon-btn" title="Close" aria-label="Close">×</button>
                                             </div>
                                             <table class="so-lookup-table">
@@ -2173,7 +2321,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                             <td class="text-sky-700 underline text-xs">Select</td>
                                                         </tr>
                                                     @empty
-                                                        <tr><td colspan="5" class="text-slate-500 px-2 py-2">No ship-to addresses for this customer.</td></tr>
+                                                        <tr>
+                                                            <td colspan="5" class="text-slate-500 px-2 py-2">
+                                                                No ship-to addresses.
+                                                                @if (! $viewMode)
+                                                                    <button type="button" wire:click="openShipToModal" class="text-sky-700 underline ml-1">Add ship-to</button>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
                                                     @endforelse
                                                 </tbody>
                                             </table>
@@ -2670,6 +2825,79 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             @endif
         </div>
     </div>
+
+    @if ($showShipToModal)
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="closeShipToModal" role="dialog" aria-modal="true" aria-labelledby="ship-to-modal-title">
+            <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.escape.window="closeShipToModal">
+                <div class="desk-modal-head">
+                    <span id="ship-to-modal-title">
+                        New Ship-To Address
+                        @if ($selectedCustomer)
+                            — {{ $selectedCustomer->company_name ?: $selectedCustomer->customer_id }}
+                        @endif
+                    </span>
+                    <button type="button" wire:click="closeShipToModal" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body">
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl so-field-req" for="modal_ship_name">Name</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_name" wire:model="newShipName" class="so-input @error('newShipName') is-invalid @enderror" autofocus />
+                            @error('newShipName') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                        </div>
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl so-field-req" for="modal_ship_address">Address</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_address" wire:model="newShipAddress" class="so-input @error('newShipAddress') is-invalid @enderror" />
+                            @error('newShipAddress') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                        </div>
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl" for="modal_ship_city">City</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_city" wire:model="newShipCity" class="so-input" />
+                        </div>
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;gap:.5rem;">
+                        <label class="so-form-lbl" for="modal_ship_state">State</label>
+                        <input id="modal_ship_state" wire:model="newShipState" class="so-input so-w-state" style="width:4.5rem;" />
+                        <label class="so-form-lbl so-form-lbl-sm" for="modal_ship_zip">ZIP</label>
+                        <input id="modal_ship_zip" wire:model="newShipZip" class="so-input so-w-zip" style="width:6rem;" />
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl" for="modal_ship_phone">Phone</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_phone" wire:model="newShipPhone" class="so-input" />
+                        </div>
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl" for="modal_ship_fax">Fax</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_fax" wire:model="newShipFax" class="so-input" />
+                        </div>
+                    </div>
+                    <div class="so-form-row" style="margin-bottom:.5rem;">
+                        <label class="so-form-lbl" for="modal_ship_class">Class</label>
+                        <div class="so-form-ctl" style="flex:1;">
+                            <input id="modal_ship_class" wire:model="newShipClass" class="so-input" />
+                        </div>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;margin:.35rem 0 .85rem;cursor:pointer;">
+                        <input type="checkbox" wire:model="newShipPrimary" />
+                        Primary ship-to for this customer
+                    </label>
+                    <div style="display:flex;justify-content:flex-end;gap:.45rem;">
+                        <button type="button" wire:click="closeShipToModal" class="desk-btn">Cancel</button>
+                        <button type="button" wire:click="saveShipToAddress" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
+                            <span wire:loading.remove wire:target="saveShipToAddress">Save ship-to</span>
+                            <span wire:loading wire:target="saveShipToAddress">Saving…</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     @if ($showBrowse)
         <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeBrowse" role="dialog" aria-modal="true" aria-labelledby="item-browse-title">

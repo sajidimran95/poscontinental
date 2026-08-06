@@ -172,9 +172,25 @@ class Item extends Model
         return (float) $this->quantity_in_stock - (float) $this->allocated_qty;
     }
 
+    /** Days after create that an item carries the automatic "New" tag. */
+    public const NEW_ITEM_DAYS = 30;
+
+    /**
+     * True while the item is still within NEW_ITEM_DAYS of first create.
+     * Tag is automatic from created_at — no separate DB flag; after 30 days it is gone.
+     */
+    public function isNew(): bool
+    {
+        if (! $this->created_at) {
+            return false;
+        }
+
+        return $this->created_at->gte(now()->subDays(self::NEW_ITEM_DAYS));
+    }
+
     public function scopeNewItems(Builder $query): Builder
     {
-        return $query->where('created_at', '>=', now()->subDays(30));
+        return $query->where('created_at', '>=', now()->subDays(self::NEW_ITEM_DAYS));
     }
 
     public function scopeLowStock(Builder $query): Builder

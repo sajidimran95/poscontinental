@@ -2,6 +2,7 @@
 
 use App\Models\Category;
 use App\Models\CigaretteTaxClass;
+use App\Models\CustomerLookupOption;
 use App\Models\Department;
 use App\Models\DiscountSchedule;
 use App\Models\ItemType;
@@ -32,6 +33,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public ?int $parent_id = null;
 
+    /** Regular lookup tables (code+name models). */
     /** @return array<string, class-string> */
     protected function tables(): array
     {
@@ -53,20 +55,41 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         ];
     }
 
+    /**
+     * Customer form lists stored in customer_lookup_options (type column).
+     *
+     * @return array<string, string>
+     */
+    protected function customerLookupTypes(): array
+    {
+        return [
+            'customer_categories' => 'customer_category',
+            'lead_sources' => 'lead_source',
+            'account_types' => 'account_type',
+        ];
+    }
+
+    protected function isCustomerLookup(string $key): bool
+    {
+        return array_key_exists($key, $this->customerLookupTypes());
+    }
+
+    protected function isValidLookup(string $key): bool
+    {
+        return isset($this->tables()[$key]) || $this->isCustomerLookup($key);
+    }
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
-        $tables = $this->tables();
 
-        if (! isset($tables[$this->activeLookup])) {
+        if (! $this->isValidLookup($this->activeLookup)) {
             $this->activeLookup = 'departments';
         }
 
-        $model = $tables[$this->activeLookup];
-
         $labels = [
             'departments' => 'Departments',
-            'categories' => 'Categories',
+            'categories' => 'Categories (Items)',
             'subcategories' => 'Sub Categories',
             'item_types' => 'Item Types',
             'uom_schedules' => 'UOM Schedules',
@@ -79,15 +102,29 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'discount_schedules' => 'Discount Schedules',
             'cigarette_tax_classes' => 'Cigarette Tax Classes',
             'purchase_limit_schedules' => 'Purchase Limit Schedules',
+            'customer_categories' => 'Customer Categories',
+            'lead_sources' => 'Lead Sources',
+            'account_types' => 'Account Types',
         ];
 
-        $rows = $model::query()
-            ->where('company_id', $companyId)
-            ->when($this->activeLookup === 'categories', fn ($q) => $q->with('department'))
-            ->when($this->activeLookup === 'subcategories', fn ($q) => $q->with('category.department'))
-            ->orderBy('code')
-            ->limit(300)
-            ->get();
+        if ($this->isCustomerLookup($this->activeLookup)) {
+            $type = $this->customerLookupTypes()[$this->activeLookup];
+            $rows = CustomerLookupOption::query()
+                ->where('company_id', $companyId)
+                ->where('type', $type)
+                ->orderBy('code')
+                ->limit(300)
+                ->get();
+        } else {
+            $model = $this->tables()[$this->activeLookup];
+            $rows = $model::query()
+                ->where('company_id', $companyId)
+                ->when($this->activeLookup === 'categories', fn ($q) => $q->with('department'))
+                ->when($this->activeLookup === 'subcategories', fn ($q) => $q->with('category.department'))
+                ->orderBy('code')
+                ->limit(300)
+                ->get();
+        }
 
         return [
             'lookupKeys' => $labels,
@@ -97,10 +134,13 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'categories' => Category::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(),
             'helpText' => match ($this->activeLookup) {
                 'departments' => 'Top-level item group (example: TOB — Tobacco). Create this first.',
-                'categories' => 'Belongs to a Department (example: CIG — Cigarettes under Tobacco).',
+                'categories' => 'Item categories (Inventory). Belongs to a Department (example: CIG — Cigarettes). Not customer category.',
                 'subcategories' => 'Belongs to a Category (optional finer group under Cigarettes).',
                 'item_types' => 'Appears in the Item Type dropdown on New Item (example: STD — Standard Item). Code is short; Name is what users see.',
                 'uom_schedules' => 'Unit of Measure schedules for items (example: EA-BX — Each/Box). Set Base U of M (EA, BX, CS…). Then pick this schedule on New Item → Inventory.',
+                'customer_categories' => 'Customer form → Category (Retail, Convenience, Chain…). Not inventory categories.',
+                'lead_sources' => 'Customer form → Lead Source (Walk-in, Sales Call, Referral…).',
+                'account_types' => 'Customer form → Account Type (Cash, Open Account, COD…).',
                 default => 'Shared setup values used across sales and inventory screens.',
             },
         ];
@@ -108,7 +148,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public function selectLookup(string $key): void
     {
-        if (! isset($this->tables()[$key])) {
+        if (! $this->isValidLookup($key)) {
             return;
         }
         $this->activeLookup = $key;
@@ -133,9 +173,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'base_uom.required' => 'Base U of M is required (example: EA, BX, CS).',
         ]);
 
-        $map = $this->tables();
-
-        if (! isset($map[$this->activeLookup])) {
+        if (! $this->isValidLookup($this->activeLookup)) {
             $this->addError('code', 'Unknown lookup table.');
 
             return;
@@ -143,6 +181,37 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
         $companyId = auth()->user()->company_id;
         $code = strtoupper(trim($this->code));
+        $name = trim($this->name);
+
+        if ($this->isCustomerLookup($this->activeLookup)) {
+            $type = $this->customerLookupTypes()[$this->activeLookup];
+            $exists = CustomerLookupOption::query()
+                ->where('company_id', $companyId)
+                ->where('type', $type)
+                ->where('code', $code)
+                ->exists();
+
+            if ($exists) {
+                $this->addError('code', 'This code already exists.');
+
+                return;
+            }
+
+            CustomerLookupOption::query()->create([
+                'company_id' => $companyId,
+                'type' => $type,
+                'code' => $code,
+                'name' => $name,
+                'is_active' => true,
+            ]);
+
+            $this->reset('code', 'name', 'base_uom', 'parent_id');
+            session()->flash('status', 'Saved. It will appear on the Customer form.');
+
+            return;
+        }
+
+        $map = $this->tables();
 
         $exists = $map[$this->activeLookup]::query()
             ->where('company_id', $companyId)
@@ -158,7 +227,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         $payload = [
             'company_id' => $companyId,
             'code' => $code,
-            'name' => trim($this->name),
+            'name' => $name,
             'is_active' => true,
         ];
 
@@ -239,13 +308,13 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
             <div>
                 <label class="desk-toolbar-label" for="code">Code</label>
-                <input id="code" wire:model="code" class="desk-search font-mono" style="width:7rem" placeholder="TOB" />
+                <input id="code" wire:model="code" class="desk-search font-mono" style="width:7rem" placeholder="{{ match($activeLookup) { 'customer_categories' => 'RET', 'lead_sources' => 'WI', 'account_types' => 'CASH', default => 'TOB' } }}" />
                 @error('code') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
             </div>
 
             <div style="flex:1;min-width:12rem">
                 <label class="desk-toolbar-label" for="name">Name</label>
-                <input id="name" wire:model="name" class="desk-search" style="width:100%" placeholder="Tobacco" />
+                <input id="name" wire:model="name" class="desk-search" style="width:100%" placeholder="{{ match($activeLookup) { 'customer_categories' => 'Retail', 'lead_sources' => 'Walk-in', 'account_types' => 'Cash', default => 'Tobacco' } }}" />
                 @error('name') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
             </div>
 
@@ -262,7 +331,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 </div>
             @endif
 
-            <button type="submit" class="desk-btn desk-btn-primary">Add {{ $listTitle === 'Sub Categories' ? 'Sub Category' : rtrim($listTitle, 's') }}</button>
+            <button type="submit" class="desk-btn desk-btn-primary">Add {{ $listTitle === 'Sub Categories' ? 'Sub Category' : (str_ends_with($listTitle, 's') ? rtrim($listTitle, 's') : $listTitle) }}</button>
         </form>
 
         <div class="desk-grid">

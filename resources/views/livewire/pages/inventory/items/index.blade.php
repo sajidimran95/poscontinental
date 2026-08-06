@@ -32,6 +32,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
+        $itemNewDays = Item::NEW_ITEM_DAYS;
 
         $query = Item::query()
             ->with('department')
@@ -64,11 +65,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderByDesc('id');
+            ->when($this->favorite === 'new', fn ($q) => $q->orderByDesc('created_at')->orderByDesc('id'))
+            ->when($this->favorite !== 'new', fn ($q) => $q->orderByDesc('id'));
 
         $favorites = [
             'all' => 'All Items',
-            'new' => 'New Items',
+            'new' => 'New Items ('.$itemNewDays.' days)',
             'active' => 'Active Items',
             'inactive' => 'Inactive Items',
             'low_stock' => 'Low Stock',
@@ -76,7 +78,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $nodes = [
             ['type' => 'item', 'key' => 'all', 'label' => 'All Items', 'level' => 0],
-            ['type' => 'item', 'key' => 'new', 'label' => 'New Items', 'level' => 0],
+            ['type' => 'item', 'key' => 'new', 'label' => 'New Items ('.$itemNewDays.' days)', 'level' => 0],
             ['type' => 'item', 'key' => 'active', 'label' => 'Active Items', 'level' => 0],
             ['type' => 'item', 'key' => 'inactive', 'label' => 'Inactive Items', 'level' => 0],
             ['type' => 'item', 'key' => 'low_stock', 'label' => 'Low Stock', 'level' => 0],
@@ -129,7 +131,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         } elseif ($this->statusFilter === 'inactive') {
             $listTitle = 'Items List (Inactive)';
         } elseif ($this->favorite === 'new') {
-            $listTitle = 'New Items';
+            $listTitle = 'New Items (last '.Item::NEW_ITEM_DAYS.' days)';
         } elseif ($this->favorite === 'active') {
             $listTitle = 'Active Items';
         } elseif ($this->favorite === 'inactive') {
@@ -238,7 +240,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     protected function listTitleForPrint(): string
     {
         if ($this->favorite === 'new') {
-            return 'New Items';
+            return 'New Items (last '.Item::NEW_ITEM_DAYS.' days)';
         }
         if ($this->favorite === 'active' || $this->statusFilter === 'active') {
             return 'Active Items';
@@ -388,6 +390,15 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         </select>
                         <button
                             type="button"
+                            wire:click="$set('favorite', '{{ $favorite === 'new' ? 'all' : 'new' }}')"
+                            @class(['desk-btn desk-btn-sm', 'is-on' => $favorite === 'new'])
+                            title="Items created in the last {{ \App\Models\Item::NEW_ITEM_DAYS }} days"
+                            aria-pressed="{{ $favorite === 'new' ? 'true' : 'false' }}"
+                        >
+                            New ({{ \App\Models\Item::NEW_ITEM_DAYS }}d)
+                        </button>
+                        <button
+                            type="button"
                             wire:click="clearSearch"
                             class="so-icon-btn"
                             title="Clear search"
@@ -411,6 +422,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
                                 <th>Item Code</th>
+                                <th class="text-center" style="width:3.5rem">New</th>
                                 <th>Description</th>
                                 <th>Department</th>
                                 <th>UOM</th>
@@ -441,6 +453,13 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                     </td>
                                     <td class="desk-num">
                                         <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
+                                    </td>
+                                    <td class="text-center">
+                                        @if ($item->isNew())
+                                            <span class="desk-pill desk-pill-new" title="Created within last {{ \App\Models\Item::NEW_ITEM_DAYS }} days">New</span>
+                                        @else
+                                            <span class="text-slate-300">—</span>
+                                        @endif
                                     </td>
                                     <td title="{{ $item->description }}">{{ \Illuminate\Support\Str::limit($item->description, 48) }}</td>
                                     <td>{{ $item->department?->name ?: '—' }}</td>
@@ -478,7 +497,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="11">No items found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="12">No items found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>

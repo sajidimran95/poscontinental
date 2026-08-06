@@ -21,7 +21,7 @@ class ItemResource extends JsonResource
             $this->unit_of_measure
         );
 
-        $isNew = $this->created_at && $this->created_at->gte(now()->subDays(30));
+        $isNew = $this->resource->isNew();
 
         return [
             'id' => $this->id,

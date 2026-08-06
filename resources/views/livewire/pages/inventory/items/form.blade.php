@@ -971,6 +971,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'primary_upc' => $this->primary_upc,
         ];
 
+        $wasCreate = ! $this->item?->exists;
+
         $item = DB::transaction(function () use ($data, $amount) {
             if ($this->item) {
                 $this->item->update($data);
@@ -1068,7 +1070,11 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             return $item;
         });
 
-        session()->flash('status', 'Item saved.'.($imagePath ? ' Image stored.' : ''));
+        session()->flash(
+            'status',
+            'Item saved.'.($imagePath ? ' Image stored.' : '')
+            .($wasCreate ? ' Marked as New for '.Item::NEW_ITEM_DAYS.' days (auto-clears after that).' : '')
+        );
 
         $this->redirect(route('inventory.items.index'), navigate: true);
     }

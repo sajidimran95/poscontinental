@@ -857,8 +857,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 ->orWhere('primary_upc', 'like', $term);
                         });
                     })
-                    // In-stock first; out-of-stock (available <= 0) last
+                    // In-stock first; out-of-stock last; newest "New" items higher within same stock group
                     ->orderByRaw('(quantity_in_stock - COALESCE(allocated_qty, 0)) > 0 DESC')
+                    ->when($this->browseNewOnly, fn ($q) => $q->orderByDesc('created_at'))
                     ->orderBy('item_code')
                     ->limit(200)
                     ->get(['id', 'item_code', 'description', 'unit_of_measure', 'list_price', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'created_at'])
@@ -2918,7 +2919,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     />
                     <label class="so-item-browse-check">
                         <input type="checkbox" wire:model.live="browseNewOnly" />
-                        New items only (30 days)
+                        New only ({{ \App\Models\Item::NEW_ITEM_DAYS }} days)
                     </label>
                     <span class="so-item-browse-count">{{ $browseItems->count() }} shown</span>
                 </div>
@@ -2944,18 +2945,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </thead>
                         <tbody>
                             @forelse ($browseItems as $bi)
-                                @php $avail = (float) $bi->available_quantity; @endphp
+                                @php
+                                    $avail = (float) $bi->available_quantity;
+                                    $isNew = $bi->isNew();
+                                @endphp
                                 <tr
                                     class="{{ $avail > 0 ? 'is-pickable' : 'is-disabled' }}"
                                     @if ($avail > 0) wire:click="pickBrowseItem({{ $bi->id }})" @endif
                                     title="{{ $avail > 0 ? 'Click to add' : 'No stock' }}"
                                 >
-                                    <td class="font-mono">{{ $bi->item_code }}</td>
+                                    <td class="font-mono">
+                                        {{ $bi->item_code }}
+                                        @if ($isNew)
+                                            <span class="desk-pill desk-pill-new" style="margin-left:0.25rem;font-size:10px;padding:0.1rem 0.35rem;vertical-align:middle">New</span>
+                                        @endif
+                                    </td>
                                     <td class="col-desc-cell">{{ $bi->description }}</td>
                                     <td>{{ $bi->unit_of_measure ?: '—' }}</td>
                                     <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
                                     <td class="is-num">${{ number_format((float) $bi->list_price, 2) }}</td>
-                                    <td class="is-center">{{ $bi->created_at && $bi->created_at->gte(now()->subDays(30)) ? 'Yes' : '' }}</td>
+                                    <td class="is-center">
+                                        @if ($isNew)
+                                            <span class="desk-pill desk-pill-new">New</span>
+                                        @endif
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>

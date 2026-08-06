@@ -36,6 +36,7 @@
                                 ['My Profile', 'profile'],
                                 ['Company Settings', 'admin.company-settings'],
                                 ['Overselling Settings', 'admin.overselling-settings'],
+                                ['POS AI', 'admin.japsai'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
@@ -69,7 +70,14 @@
                                 ['New Supplier', 'purchasing.suppliers.create'],
                             ],
                             'Reports' => [
-                                ['Sales Report', 'reports.sales'],
+                                ['Sales Report By Customer', 'reports.sales-by-customer'],
+                                ['Sales Report By Item', 'reports.sales-by-item'],
+                                ['Sales Report By Categories', 'reports.sales-by-categories'],
+                                ['Sales Report By Totals', 'reports.sales-by-totals'],
+                                ['Sales Report By Stick Count', 'reports.sales-by-stick-count'],
+                                ['Sales Report By Manufacturer', 'reports.sales-by-manufacturer'],
+                                ['Purchases Report by Stick Count', 'reports.purchases-by-stick-count'],
+                                ['Purchases Report by Item', 'reports.purchases-by-item'],
                                 ['Price List', 'reports.price-list'],
                                 ['MSA Report', 'reports.msa'],
                             ],
@@ -142,7 +150,15 @@
                     'purchasing.receivings.edit' => 'Receiving',
                     'purchasing.rtv.index' => 'RTV',
                     'lookups.index' => 'Lookups',
-                    'reports.sales' => 'Sales Report',
+                    'reports.sales' => 'Sales Report By Customer',
+                    'reports.sales-by-customer' => 'Sales Report By Customer',
+                    'reports.sales-by-item' => 'Sales Report By Item',
+                    'reports.sales-by-categories' => 'Sales Report By Categories',
+                    'reports.sales-by-totals' => 'Sales Report By Totals',
+                    'reports.sales-by-stick-count' => 'Sales Report By Stick Count',
+                    'reports.sales-by-manufacturer' => 'Sales Report By Manufacturer',
+                    'reports.purchases-by-stick-count' => 'Purchases Report by Stick Count',
+                    'reports.purchases-by-item' => 'Purchases Report by Item',
                     'reports.price-list' => 'Price List',
                     'reports.msa' => 'MSA Report',
                     'inventory.bulk-pricing' => 'Bulk Pricing',
@@ -152,6 +168,7 @@
                     'profile' => 'My Profile',
                     'admin.company-settings' => 'Company Settings',
                     'admin.overselling-settings' => 'Overselling Settings',
+                    'admin.japsai' => 'POS AI',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {
@@ -214,6 +231,17 @@
                 <span id="status-clock" class="ms-auto text-amber-200" title="Your local time" aria-live="polite">{{ now()->format('g:i A, n/j/Y') }}</span>
             </footer>
         </div>
+        @auth
+            @php
+                $posAiCompany = auth()->user()?->company;
+                $showPosAiWidget = (bool) ($posAiCompany?->japs_ai_widget_enabled ?? false)
+                    && (auth()->user()?->canAccessFeature('admin.japsai', 'view') ?? false)
+                    && request()->routeIs('admin.japsai') === false;
+            @endphp
+            @if ($showPosAiWidget)
+                <livewire:pos-ai-widget />
+            @endif
+        @endauth
         @livewireScripts
         <script>
             (function () {

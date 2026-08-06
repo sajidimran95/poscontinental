@@ -31,6 +31,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
     // Admin (company POS)
     Volt::route('admin/company-settings', 'pages.tobacco.company-settings')->name('admin.company-settings');
     Volt::route('admin/overselling-settings', 'pages.admin.overselling-settings')->name('admin.overselling-settings');
+    Volt::route('admin/japsai', 'pages.admin.japsai')->name('admin.japsai');
     Route::redirect('tobacco/filing-settings', '/admin/company-settings');
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');
     Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');
@@ -111,7 +112,18 @@ Route::middleware(['auth', 'feature'])->group(function () {
     // Inquiries & Reports
     Volt::route('inquiries/stock-status', 'pages.inquiries.stock-status')->name('inquiries.stock-status');
     Volt::route('inquiries/item-velocity', 'pages.inquiries.item-velocity')->name('inquiries.item-velocity');
-    Volt::route('reports/sales', 'pages.reports.sales')->name('reports.sales');
+
+    // Reports catalog (Chief-style Report Criteria + print layout)
+    Volt::route('reports/sales-by-customer', 'pages.reports.sales-by-customer')->name('reports.sales-by-customer');
+    Volt::route('reports/sales-by-item', 'pages.reports.sales-by-item')->name('reports.sales-by-item');
+    Volt::route('reports/sales-by-categories', 'pages.reports.sales-by-categories')->name('reports.sales-by-categories');
+    Volt::route('reports/sales-by-totals', 'pages.reports.sales-by-totals')->name('reports.sales-by-totals');
+    Volt::route('reports/sales-by-stick-count', 'pages.reports.sales-by-stick-count')->name('reports.sales-by-stick-count');
+    Volt::route('reports/sales-by-manufacturer', 'pages.reports.sales-by-manufacturer')->name('reports.sales-by-manufacturer');
+    Volt::route('reports/purchases-by-stick-count', 'pages.reports.purchases-by-stick-count')->name('reports.purchases-by-stick-count');
+    Volt::route('reports/purchases-by-item', 'pages.reports.purchases-by-item')->name('reports.purchases-by-item');
+    Route::redirect('reports/sales', '/reports/sales-by-customer')->name('reports.sales');
+
     Volt::route('reports/price-list', 'pages.reports.price-list')->name('reports.price-list');
     Volt::route('reports/msa', 'pages.tobacco.filing')->name('reports.msa');
     Route::get('reports/price-list/print', [DocumentPdfController::class, 'priceList'])

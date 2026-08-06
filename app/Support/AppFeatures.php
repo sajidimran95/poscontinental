@@ -21,7 +21,12 @@ class AppFeatures
      */
     public const LEGACY_ALIASES = [
         'inquiries' => ['inquiries.stock_status', 'inquiries.item_velocity'],
-        'reports' => ['reports.sales', 'reports.price_list', 'reports.msa'],
+        'reports' => [
+            'reports.sales',
+            'reports.purchases',
+            'reports.price_list',
+            'reports.msa',
+        ],
         'admin.email' => ['admin.email_setup', 'admin.email_logs'],
     ];
 
@@ -37,6 +42,11 @@ class AppFeatures
                 'label' => 'Overselling Settings',
                 'group' => 'File',
                 'routes' => ['admin.overselling-settings'],
+            ],
+            'admin.japsai' => [
+                'label' => 'POS AI',
+                'group' => 'File',
+                'routes' => ['admin.japsai'],
             ],
             'admin.users' => [
                 'label' => 'Users & Roles',
@@ -133,9 +143,25 @@ class AppFeatures
                 'routes' => ['purchasing.suppliers.index', 'purchasing.suppliers.create', 'purchasing.suppliers.edit'],
             ],
             'reports.sales' => [
-                'label' => 'Sales Report',
+                'label' => 'Sales Reports',
                 'group' => 'Reports',
-                'routes' => ['reports.sales'],
+                'routes' => [
+                    'reports.sales',
+                    'reports.sales-by-customer',
+                    'reports.sales-by-item',
+                    'reports.sales-by-categories',
+                    'reports.sales-by-totals',
+                    'reports.sales-by-stick-count',
+                    'reports.sales-by-manufacturer',
+                ],
+            ],
+            'reports.purchases' => [
+                'label' => 'Purchase Reports',
+                'group' => 'Reports',
+                'routes' => [
+                    'reports.purchases-by-stick-count',
+                    'reports.purchases-by-item',
+                ],
             ],
             'reports.price_list' => [
                 'label' => 'Price List',
@@ -350,6 +376,7 @@ class AppFeatures
             'File' => [
                 ['label' => 'Company Settings', 'feature' => 'admin.company'],
                 ['label' => 'Overselling Settings', 'feature' => 'admin.overselling'],
+                ['label' => 'POS AI', 'feature' => 'admin.japsai'],
                 ['label' => 'Users & Roles', 'feature' => 'admin.users'],
                 ['label' => 'Email Setup', 'feature' => 'admin.email_setup'],
                 ['label' => 'Email Send Log', 'feature' => 'admin.email_logs'],
@@ -383,7 +410,14 @@ class AppFeatures
                 ['label' => 'New Supplier', 'feature' => 'purchasing.suppliers'],
             ],
             'Reports' => [
-                ['label' => 'Sales Report', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Customer', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Item', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Categories', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Totals', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Stick Count', 'feature' => 'reports.sales'],
+                ['label' => 'Sales Report By Manufacturer', 'feature' => 'reports.sales'],
+                ['label' => 'Purchases Report by Stick Count', 'feature' => 'reports.purchases'],
+                ['label' => 'Purchases Report by Item', 'feature' => 'reports.purchases'],
                 ['label' => 'Price List', 'feature' => 'reports.price_list'],
                 ['label' => 'MSA Report', 'feature' => 'reports.msa'],
             ],
@@ -415,6 +449,7 @@ class AppFeatures
         return [
             'admin.company',
             'admin.overselling',
+            'admin.japsai',
             'admin.users',
             'admin.email_setup',
             'admin.email_logs',

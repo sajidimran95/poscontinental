@@ -14,6 +14,7 @@ class Company extends Model
         'mail_mailer', 'mail_host', 'mail_port', 'mail_username', 'mail_password',
         'mail_encryption', 'mail_from_address', 'mail_from_name',
         'allow_negative_stock',
+        'japs_ai_enabled', 'japs_ai_api_key', 'japs_ai_model', 'japs_ai_widget_enabled',
     ];
 
     protected function casts(): array
@@ -22,6 +23,9 @@ class Company extends Model
             'is_active' => 'boolean',
             'allow_negative_stock' => 'boolean',
             'mail_password' => 'encrypted',
+            'japs_ai_enabled' => 'boolean',
+            'japs_ai_api_key' => 'encrypted',
+            'japs_ai_widget_enabled' => 'boolean',
         ];
     }
 

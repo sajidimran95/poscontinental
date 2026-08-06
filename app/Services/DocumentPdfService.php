@@ -196,6 +196,29 @@ class DocumentPdfService
         ]);
     }
 
+    public function salesReportByCustomerPdf(array $payload, ?User $user = null)
+    {
+        return Pdf::loadView('pdf.sales-report-by-customer', [
+            ...$payload,
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter', 'landscape');
+    }
+
+    /**
+     * Generic multi-section POS report PDF (tables + group headers).
+     *
+     * @param  array{title: string, period?: string, sections: list<array<string, mixed>>}  $payload
+     */
+    public function posReportPdf(array $payload, ?User $user = null, string $orientation = 'landscape')
+    {
+        return Pdf::loadView('pdf.pos-report', [
+            'title' => $payload['title'] ?? 'Report',
+            'period' => $payload['period'] ?? '',
+            'sections' => $payload['sections'] ?? [],
+            'company' => $user?->company ?? auth()->user()?->company,
+        ])->setPaper('letter', $orientation);
+    }
+
     public function downloadInvoice(Invoice $invoice): Response
     {
         return $this->invoicePdf($invoice)->download('invoice-'.$invoice->invoice_number.'.pdf');

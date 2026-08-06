@@ -310,7 +310,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->sales_rep_id = auth()->id();
             $this->ship_from_site_id = auth()->user()->site_id;
             // Default customer: Walk-in (cash / counter)
-            $walkIn = Customer::ensureWalkIn($companyId);
+            $walkIn = $this->resolveWalkInCustomer($companyId);
             $this->customer_id = $walkIn->id;
             $this->updatedCustomerId($walkIn->id);
         }
@@ -318,6 +318,42 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->boxes === []) {
             $this->boxes[] = ['box_number' => '', 'tracking_number' => ''];
         }
+    }
+
+    /**
+     * Default cash / counter customer for new orders (one per company).
+     */
+    protected function resolveWalkInCustomer(int $companyId): Customer
+    {
+        if (method_exists(Customer::class, 'ensureWalkIn')) {
+            return Customer::ensureWalkIn($companyId);
+        }
+
+        // Fallback if production Customer model is outdated and missing ensureWalkIn().
+        return Customer::query()->firstOrCreate(
+            [
+                'company_id' => $companyId,
+                'customer_id' => defined(Customer::class.'::WALK_IN_CODE')
+                    ? Customer::WALK_IN_CODE
+                    : 'WALKIN',
+            ],
+            [
+                'company_name' => defined(Customer::class.'::WALK_IN_NAME')
+                    ? Customer::WALK_IN_NAME
+                    : 'Walk-in Customer',
+                'contact' => 'Walk-in Customer',
+                'lead_source' => 'Walk-in',
+                'customer_category' => 'Walk-in',
+                'account_type' => 'Cash',
+                'is_inactive' => false,
+                'is_favorite' => true,
+                'credit_limit' => 0,
+                'balance' => 0,
+                'customer_since' => now()->toDateString(),
+                'messages_alerts' => 'Default walk-in / cash counter customer.',
+                'comments' => 'System default — use for walk-in sales without a named account.',
+            ]
+        );
     }
 
     public function regenerateOrderNumber(): void

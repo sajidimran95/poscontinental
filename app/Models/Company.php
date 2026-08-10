@@ -10,7 +10,12 @@ class Company extends Model
     protected $fillable = [
         'code', 'name', 'address', 'city', 'state', 'zip_code',
         'phone', 'fax', 'email', 'contact_name',
-        'fein_no', 'state_license_number', 'transmitter_account_number', 'is_active',
+        'fein_no',
+        'secondary_tob_number',
+        'secondary_cig_number',
+        'state_license_number',
+        'transmitter_account_number',
+        'is_active',
         'mail_mailer', 'mail_host', 'mail_port', 'mail_username', 'mail_password',
         'mail_encryption', 'mail_from_address', 'mail_from_name',
         'allow_negative_stock',
@@ -32,6 +37,25 @@ class Company extends Model
     public function allowsNegativeStock(): bool
     {
         return (bool) ($this->allow_negative_stock ?? true);
+    }
+
+    /**
+     * MSA StateLicenseNumber: OTP uses secondary tob #; cigarettes use secondary cig #.
+     * Falls back to legacy state_license_number when the product field is empty.
+     */
+    public function msaLicenseNumber(?string $product = null): string
+    {
+        $product = $product === 'otp' ? 'otp' : 'cigarettes';
+        $raw = $product === 'otp'
+            ? ($this->secondary_tob_number ?: $this->state_license_number)
+            : ($this->secondary_cig_number ?: $this->state_license_number);
+
+        return preg_replace('/\D+/', '', (string) $raw) ?: '';
+    }
+
+    public function msaLicenseLabel(string $product): string
+    {
+        return $product === 'otp' ? 'Secondary Tob Number' : 'Secondary Cig Number';
     }
 
     public function sites(): HasMany

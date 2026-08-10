@@ -135,6 +135,11 @@ class Customer extends Model
         return $this->hasMany(CustomerShippingAddress::class)->orderBy('sort_order');
     }
 
+    public function memorizedItemPrices(): HasMany
+    {
+        return $this->hasMany(CustomerItemPrice::class);
+    }
+
     public function salesOrders(): HasMany
     {
         return $this->hasMany(SalesOrder::class);

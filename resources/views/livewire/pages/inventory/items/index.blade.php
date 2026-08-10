@@ -6,6 +6,7 @@ use App\Models\Item;
 use App\Models\PurchaseOrderLine;
 use App\Models\SalesOrderLine;
 use App\Models\Subcategory;
+use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -28,6 +29,36 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public ?int $selectedId = null;
 
     public bool $compactView = false;
+
+    /** Chief-style query builder (LESTHANO popup) */
+    public bool $showItemQuery = false;
+
+    public string $queryField = 'quantity_in_stock';
+
+    public string $queryOperator = 'lt';
+
+    public string $queryValue = '0';
+
+    /** Next join when adding another criterion */
+    public string $queryJoin = 'and';
+
+    /** value | field */
+    public string $queryValueMode = 'value';
+
+    public string $queryCompareField = 'reorder_point';
+
+    /** @var array<int, array{field:string,operator:string,value:string,value_mode:string,compare_field:string,join:string,label:string}> */
+    public array $queryCriteria = [];
+
+    public ?int $querySelectedIndex = null;
+
+    public string $querySaveName = '';
+
+    public string $queryLoadedName = '';
+
+    public string $queryStatus = '';
+
+    public string $querySavedPick = '';
 
     public function with(): array
     {
@@ -65,6 +96,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
             ->when($this->favorite === 'new', fn ($q) => $q->orderByDesc('created_at')->orderByDesc('id'))
             ->when($this->favorite !== 'new', fn ($q) => $q->orderByDesc('id'));
 
@@ -126,7 +158,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         }
 
         $listTitle = 'Items List';
-        if ($this->statusFilter === 'active') {
+        if ($this->queryCriteria !== []) {
+            $listTitle = $this->queryLoadedName !== ''
+                ? 'Query: '.$this->queryLoadedName
+                : 'Query Results ('.count($this->queryCriteria).' criteria)';
+        } elseif ($this->statusFilter === 'active') {
             $listTitle = 'Items List (Active)';
         } elseif ($this->statusFilter === 'inactive') {
             $listTitle = 'Items List (Inactive)';
@@ -160,11 +196,36 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             }
         }
 
+        $categories = Category::query()
+            ->where('company_id', $companyId)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
+
+        $departmentsFlat = Department::query()
+            ->where('company_id', $companyId)
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
+
+        $subcategories = Subcategory::query()
+            ->where('company_id', $companyId)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'category_id']);
+
         return [
             'items' => $query->paginate(50),
             'favorites' => $favorites,
             'nodes' => $nodes,
             'listTitle' => $listTitle,
+            'queryFields' => $this->queryFieldOptions(),
+            'queryOperators' => $this->queryOperatorOptions(),
+            'queryCategories' => $categories,
+            'queryDepartments' => $departmentsFlat,
+            'querySubcategories' => $subcategories,
+            'savedItemQueries' => $this->loadSavedItemQueries(),
         ];
     }
 
@@ -195,6 +256,26 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         }
     }
 
+    public function updatedQueryField(): void
+    {
+        if (in_array($this->queryField, ['category_id', 'department_id', 'subcategory_id'], true)) {
+            $this->queryOperator = 'eq';
+            $this->queryValue = '';
+            $this->queryValueMode = 'value';
+        } elseif (in_array($this->queryField, ['can_sell', 'is_inactive'], true)) {
+            $this->queryOperator = 'eq';
+            $this->queryValue = '1';
+            $this->queryValueMode = 'value';
+        } elseif ($this->queryField === 'quantity_in_stock' || $this->queryField === 'available_qty') {
+            if ($this->queryValue === '') {
+                $this->queryValue = '0';
+            }
+            if ($this->queryOperator === 'contains' || $this->queryOperator === 'starts') {
+                $this->queryOperator = 'lt';
+            }
+        }
+    }
+
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
@@ -212,7 +293,182 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->statusFilter = '';
         $this->favorite = 'all';
         $this->selectedId = null;
+        $this->queryCriteria = [];
+        $this->querySelectedIndex = null;
+        $this->queryLoadedName = '';
+        $this->queryStatus = '';
         $this->resetPage();
+    }
+
+    public function openItemQuery(): void
+    {
+        $this->showItemQuery = true;
+        $this->queryStatus = '';
+        if ($this->queryCriteria === []) {
+            $this->queryField = 'quantity_in_stock';
+            $this->queryOperator = 'lt';
+            $this->queryValue = '0';
+            $this->queryValueMode = 'value';
+            $this->queryJoin = 'and';
+        }
+    }
+
+    public function closeItemQuery(): void
+    {
+        $this->showItemQuery = false;
+        $this->queryStatus = '';
+    }
+
+    public function setQueryValueMode(string $mode): void
+    {
+        $this->queryValueMode = $mode === 'field' ? 'field' : 'value';
+    }
+
+    public function addQueryCriterion(): void
+    {
+        $criterion = $this->buildCriterionFromDraft();
+        if ($criterion === null) {
+            return;
+        }
+
+        if ($this->querySelectedIndex !== null && isset($this->queryCriteria[$this->querySelectedIndex])) {
+            $this->queryCriteria[$this->querySelectedIndex] = $criterion;
+            $this->querySelectedIndex = null;
+            $this->queryStatus = 'Criterion updated.';
+        } else {
+            $this->queryCriteria[] = $criterion;
+            $this->queryStatus = 'Criterion added.';
+        }
+
+        $this->queryCriteria = array_values($this->queryCriteria);
+    }
+
+    public function selectQueryCriterion(int $index): void
+    {
+        if (! isset($this->queryCriteria[$index])) {
+            return;
+        }
+        $row = $this->queryCriteria[$index];
+        $this->querySelectedIndex = $index;
+        $this->queryField = $row['field'];
+        $this->queryOperator = $row['operator'];
+        $this->queryValue = (string) ($row['value'] ?? '');
+        $this->queryValueMode = $row['value_mode'] ?? 'value';
+        $this->queryCompareField = $row['compare_field'] ?? 'reorder_point';
+        $this->queryJoin = $row['join'] ?? 'and';
+    }
+
+    public function removeQueryCriterion(): void
+    {
+        if ($this->querySelectedIndex === null || ! isset($this->queryCriteria[$this->querySelectedIndex])) {
+            $this->queryStatus = 'Select a criterion to remove.';
+
+            return;
+        }
+        unset($this->queryCriteria[$this->querySelectedIndex]);
+        $this->queryCriteria = array_values($this->queryCriteria);
+        $this->querySelectedIndex = null;
+        $this->queryStatus = 'Criterion removed.';
+    }
+
+    public function clearQueryCriteria(): void
+    {
+        $this->queryCriteria = [];
+        $this->querySelectedIndex = null;
+        $this->queryLoadedName = '';
+        $this->queryStatus = 'Criteria cleared.';
+        $this->resetPage();
+    }
+
+    public function runItemQuery(): void
+    {
+        // If draft has a value/operator ready and no criteria yet, auto-add.
+        if ($this->queryCriteria === []) {
+            $criterion = $this->buildCriterionFromDraft(false);
+            if ($criterion !== null) {
+                $this->queryCriteria[] = $criterion;
+            }
+        }
+
+        if ($this->queryCriteria === []) {
+            $this->queryStatus = 'Add at least one search criterion.';
+
+            return;
+        }
+
+        $this->favorite = 'all';
+        $this->statusFilter = '';
+        $this->selectedId = null;
+        $this->showItemQuery = false;
+        $this->queryStatus = '';
+        $this->resetPage();
+    }
+
+    public function saveItemQuery(): void
+    {
+        $name = trim($this->querySaveName);
+        if ($name === '') {
+            $this->queryStatus = 'Enter a name to save this search.';
+
+            return;
+        }
+        if ($this->queryCriteria === []) {
+            $this->queryStatus = 'Add criteria before saving.';
+
+            return;
+        }
+
+        $saved = $this->loadSavedItemQueries();
+        $saved[$name] = $this->queryCriteria;
+        $this->storeSavedItemQueries($saved);
+        $this->queryLoadedName = $name;
+        $this->queryStatus = 'Search "'.$name.'" saved.';
+        $this->querySaveName = '';
+    }
+
+    public function loadItemQuery(string $name): void
+    {
+        $saved = $this->loadSavedItemQueries();
+        if (! isset($saved[$name]) || ! is_array($saved[$name])) {
+            $this->queryStatus = 'Saved search not found.';
+
+            return;
+        }
+        $this->queryCriteria = array_values($saved[$name]);
+        $this->queryLoadedName = $name;
+        $this->querySelectedIndex = null;
+        $this->queryStatus = 'Loaded "'.$name.'". Click Search to run.';
+    }
+
+    public function updatedQuerySavedPick(string $name): void
+    {
+        if ($name === '') {
+            return;
+        }
+        $this->loadItemQuery($name);
+        $this->querySavedPick = '';
+    }
+
+    public function deleteSavedItemQuery(): void
+    {
+        $name = trim($this->queryLoadedName !== '' ? $this->queryLoadedName : $this->querySaveName);
+        if ($name === '') {
+            $this->queryStatus = 'Select or enter a saved search name to delete.';
+
+            return;
+        }
+        $saved = $this->loadSavedItemQueries();
+        if (! isset($saved[$name])) {
+            $this->queryStatus = 'Saved search not found.';
+
+            return;
+        }
+        unset($saved[$name]);
+        $this->storeSavedItemQueries($saved);
+        if ($this->queryLoadedName === $name) {
+            $this->queryLoadedName = '';
+        }
+        $this->queryStatus = 'Deleted saved search "'.$name.'".';
     }
 
     public function toggleCompactView(): void
@@ -239,6 +495,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     protected function listTitleForPrint(): string
     {
+        if ($this->queryCriteria !== []) {
+            return $this->queryLoadedName !== '' ? $this->queryLoadedName : 'Query Results';
+        }
         if ($this->favorite === 'new') {
             return 'New Items (last '.Item::NEW_ITEM_DAYS.' days)';
         }
@@ -344,6 +603,347 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $item->update(['can_sell' => ! $item->can_sell]);
         $this->selectedId = $id;
     }
+
+    /**
+     * @return array{field:string,operator:string,value:string,value_mode:string,compare_field:string,join:string,label:string}|null
+     */
+    protected function buildCriterionFromDraft(bool $reportErrors = true): ?array
+    {
+        $field = $this->queryField;
+        $fields = $this->queryFieldOptions();
+        if (! isset($fields[$field])) {
+            if ($reportErrors) {
+                $this->queryStatus = 'Choose a valid field.';
+            }
+
+            return null;
+        }
+
+        $operator = $this->queryOperator;
+        $mode = $this->queryValueMode === 'field' ? 'field' : 'value';
+        $compareField = $this->queryCompareField;
+        $value = trim((string) $this->queryValue);
+        $join = strtolower($this->queryJoin) === 'or' ? 'or' : 'and';
+
+        if ($mode === 'field') {
+            if (! isset($fields[$compareField]) || $compareField === $field) {
+                if ($reportErrors) {
+                    $this->queryStatus = 'Pick a different field to compare.';
+                }
+
+                return null;
+            }
+            if (in_array($operator, ['contains', 'starts', 'empty', 'not_empty'], true)) {
+                if ($reportErrors) {
+                    $this->queryStatus = 'That operator cannot compare two fields.';
+                }
+
+                return null;
+            }
+        } elseif (! in_array($operator, ['empty', 'not_empty'], true) && $value === '') {
+            if ($reportErrors) {
+                $this->queryStatus = 'Enter a value for this criterion.';
+            }
+
+            return null;
+        }
+
+        $label = $this->formatCriterionLabel($field, $operator, $value, $mode, $compareField);
+
+        return [
+            'field' => $field,
+            'operator' => $operator,
+            'value' => $value,
+            'value_mode' => $mode,
+            'compare_field' => $compareField,
+            'join' => $join,
+            'label' => $label,
+        ];
+    }
+
+    protected function formatCriterionLabel(string $field, string $operator, string $value, string $mode, string $compareField): string
+    {
+        $fields = $this->queryFieldOptions();
+        $ops = $this->queryOperatorOptions();
+        $fieldLabel = $fields[$field] ?? $field;
+        $opLabel = $ops[$operator] ?? $operator;
+
+        if ($mode === 'field') {
+            $right = $fields[$compareField] ?? $compareField;
+        } elseif (in_array($operator, ['empty', 'not_empty'], true)) {
+            $right = '';
+        } elseif ($field === 'category_id') {
+            $cat = Category::query()->find((int) $value);
+            $right = $cat ? trim(($cat->code ? $cat->code.' — ' : '').$cat->name) : $value;
+        } elseif ($field === 'department_id') {
+            $dept = Department::query()->find((int) $value);
+            $right = $dept ? ($dept->name ?: $value) : $value;
+        } elseif ($field === 'subcategory_id') {
+            $sub = Subcategory::query()->find((int) $value);
+            $right = $sub ? trim(($sub->code ? $sub->code.' — ' : '').$sub->name) : $value;
+        } elseif (in_array($field, ['can_sell', 'is_inactive'], true)) {
+            $right = in_array(strtolower($value), ['1', 'yes', 'true', 'y'], true) ? 'Yes' : 'No';
+        } else {
+            $right = $value;
+        }
+
+        return '( '.$fieldLabel.' | '.$opLabel.($right !== '' ? ' | '.$right : '').' )';
+    }
+
+    /** @return array<string, string> */
+    protected function queryFieldOptions(): array
+    {
+        return [
+            'quantity_in_stock' => 'Quantity In Stock',
+            'available_qty' => 'Available Qty',
+            'on_order_qty' => 'On Order Qty',
+            'allocated_qty' => 'Allocated Qty',
+            'reorder_point' => 'Reorder Point',
+            'restock_level' => 'Restock Level',
+            'list_price' => 'List Price',
+            'standard_cost' => 'Standard Cost',
+            'current_cost' => 'Current Cost',
+            'item_code' => 'Item Code',
+            'description' => 'Description',
+            'manufacturer' => 'Manufacturer',
+            'primary_upc' => 'Primary UPC',
+            'unit_of_measure' => 'Unit of Measure',
+            'department_id' => 'Department',
+            'category_id' => 'Category',
+            'subcategory_id' => 'Subcategory',
+            'can_sell' => 'Can Sell',
+            'is_inactive' => 'Inactive',
+        ];
+    }
+
+    /** @return array<string, string> */
+    protected function queryOperatorOptions(): array
+    {
+        return [
+            'eq' => 'Equals',
+            'ne' => 'Not equal',
+            'lt' => 'Less than',
+            'lte' => 'Less than or equal',
+            'gt' => 'Greater than',
+            'gte' => 'Greater than or equal',
+            'contains' => 'Contains',
+            'starts' => 'Starts with',
+            'empty' => 'Is empty',
+            'not_empty' => 'Is not empty',
+        ];
+    }
+
+    protected function applyQueryCriteria($query)
+    {
+        $rows = $this->queryCriteria;
+        if ($rows === []) {
+            return $query;
+        }
+
+        $query->where(function ($outer) use ($rows) {
+            foreach ($rows as $i => $row) {
+                $join = strtolower((string) ($row['join'] ?? 'and')) === 'or' ? 'or' : 'and';
+                $callback = function ($q) use ($row) {
+                    $this->applySingleCriterion($q, $row);
+                };
+
+                if ($i === 0) {
+                    $outer->where($callback);
+                } elseif ($join === 'or') {
+                    $outer->orWhere($callback);
+                } else {
+                    $outer->where($callback);
+                }
+            }
+        });
+
+        return $query;
+    }
+
+    protected function applySingleCriterion($q, array $row): void
+    {
+        $field = (string) ($row['field'] ?? '');
+        $operator = (string) ($row['operator'] ?? 'eq');
+        $mode = (string) ($row['value_mode'] ?? 'value');
+        $value = (string) ($row['value'] ?? '');
+        $compareField = (string) ($row['compare_field'] ?? '');
+
+        $column = $this->resolveQueryColumn($field);
+        if ($column === null && $field !== 'available_qty') {
+            return;
+        }
+
+        if ($mode === 'field') {
+            $rightCol = $this->resolveQueryColumn($compareField);
+            if ($rightCol === null) {
+                return;
+            }
+            if ($field === 'available_qty') {
+                $left = '(quantity_in_stock - allocated_qty)';
+            } else {
+                $left = $column;
+            }
+            if ($compareField === 'available_qty') {
+                $right = '(quantity_in_stock - allocated_qty)';
+            } else {
+                $right = $rightCol;
+            }
+            $sqlOp = match ($operator) {
+                'ne' => '<>',
+                'lt' => '<',
+                'lte' => '<=',
+                'gt' => '>',
+                'gte' => '>=',
+                default => '=',
+            };
+            $q->whereRaw("{$left} {$sqlOp} {$right}");
+
+            return;
+        }
+
+        if ($operator === 'empty') {
+            if ($field === 'available_qty') {
+                $q->whereRaw('(quantity_in_stock - allocated_qty) = 0');
+            } elseif (in_array($field, ['category_id', 'department_id', 'subcategory_id'], true)) {
+                $q->where(function ($inner) use ($column) {
+                    $inner->whereNull($column)->orWhere($column, 0);
+                });
+            } else {
+                $q->where(function ($inner) use ($column) {
+                    $inner->whereNull($column)->orWhere($column, '');
+                });
+            }
+
+            return;
+        }
+
+        if ($operator === 'not_empty') {
+            if ($field === 'available_qty') {
+                $q->whereRaw('(quantity_in_stock - allocated_qty) <> 0');
+            } elseif (in_array($field, ['category_id', 'department_id', 'subcategory_id'], true)) {
+                $q->whereNotNull($column)->where($column, '>', 0);
+            } else {
+                $q->whereNotNull($column)->where($column, '<>', '');
+            }
+
+            return;
+        }
+
+        if ($field === 'available_qty') {
+            $num = (float) $value;
+            $sqlOp = match ($operator) {
+                'ne' => '<>',
+                'lt' => '<',
+                'lte' => '<=',
+                'gt' => '>',
+                'gte' => '>=',
+                default => '=',
+            };
+            $q->whereRaw("(quantity_in_stock - allocated_qty) {$sqlOp} ?", [$num]);
+
+            return;
+        }
+
+        if (in_array($field, ['can_sell', 'is_inactive'], true)) {
+            $bool = in_array(strtolower($value), ['1', 'yes', 'true', 'y'], true);
+            if ($operator === 'ne') {
+                $q->where($column, '!=', $bool);
+            } else {
+                $q->where($column, $bool);
+            }
+
+            return;
+        }
+
+        if (in_array($field, ['category_id', 'department_id', 'subcategory_id'], true)) {
+            $id = (int) $value;
+            if ($operator === 'ne') {
+                $q->where(function ($inner) use ($column, $id) {
+                    $inner->where($column, '!=', $id)->orWhereNull($column);
+                });
+            } else {
+                $q->where($column, $id);
+            }
+
+            return;
+        }
+
+        $numericFields = [
+            'quantity_in_stock', 'on_order_qty', 'allocated_qty', 'reorder_point', 'restock_level',
+            'list_price', 'standard_cost', 'current_cost',
+        ];
+        if (in_array($field, $numericFields, true)) {
+            $num = (float) $value;
+            match ($operator) {
+                'ne' => $q->where($column, '!=', $num),
+                'lt' => $q->where($column, '<', $num),
+                'lte' => $q->where($column, '<=', $num),
+                'gt' => $q->where($column, '>', $num),
+                'gte' => $q->where($column, '>=', $num),
+                default => $q->where($column, $num),
+            };
+
+            return;
+        }
+
+        // Text fields
+        match ($operator) {
+            'ne' => $q->where($column, '!=', $value),
+            'contains' => $q->where($column, 'like', '%'.$value.'%'),
+            'starts' => $q->where($column, 'like', $value.'%'),
+            'lt' => $q->where($column, '<', $value),
+            'lte' => $q->where($column, '<=', $value),
+            'gt' => $q->where($column, '>', $value),
+            'gte' => $q->where($column, '>=', $value),
+            default => $q->where($column, $value),
+        };
+    }
+
+    protected function resolveQueryColumn(string $field): ?string
+    {
+        return match ($field) {
+            'quantity_in_stock' => 'quantity_in_stock',
+            'on_order_qty' => 'on_order_qty',
+            'allocated_qty' => 'allocated_qty',
+            'reorder_point' => 'reorder_point',
+            'restock_level' => 'restock_level',
+            'list_price' => 'list_price',
+            'standard_cost' => 'standard_cost',
+            'current_cost' => 'current_cost',
+            'item_code' => 'item_code',
+            'description' => 'description',
+            'manufacturer' => 'manufacturer',
+            'primary_upc' => 'primary_upc',
+            'unit_of_measure' => 'unit_of_measure',
+            'department_id' => 'department_id',
+            'category_id' => 'category_id',
+            'subcategory_id' => 'subcategory_id',
+            'can_sell' => 'can_sell',
+            'is_inactive' => 'is_inactive',
+            'available_qty' => null,
+            default => null,
+        };
+    }
+
+    /** @return array<string, array<int, array<string, mixed>>> */
+    protected function loadSavedItemQueries(): array
+    {
+        $key = $this->savedItemQueriesSessionKey();
+        $data = Session::get($key, []);
+
+        return is_array($data) ? $data : [];
+    }
+
+    /** @param  array<string, array<int, array<string, mixed>>>  $data */
+    protected function storeSavedItemQueries(array $data): void
+    {
+        Session::put($this->savedItemQueriesSessionKey(), $data);
+    }
+
+    protected function savedItemQueriesSessionKey(): string
+    {
+        return 'items_query_saved_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
+    }
 }; ?>
 
 <div class="desk-page">
@@ -370,6 +970,17 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
+                        <button type="button" wire:click="openItemQuery" class="desk-btn desk-btn-primary" title="Advanced query (qty &lt; 0, category, …)">
+                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                                <circle cx="7" cy="7" r="4.5"/>
+                                <path d="M10.5 10.5L14 14"/>
+                                <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
+                            </svg>
+                            Query…
+                        </button>
+                        @if (count($queryCriteria) > 0)
+                            <button type="button" wire:click="clearQueryCriteria" class="desk-btn desk-btn-sm" title="Clear query criteria">Clear Query</button>
+                        @endif
                         <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
                             <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
                                 <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
@@ -520,6 +1131,13 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
+                <button type="button" wire:click="openItemQuery" class="desk-rail-btn" title="Query items (stock &lt; 0, category, …)" aria-label="Query items">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.5"/>
+                        <path d="M10.5 10.5L14 14"/>
+                        <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
                         <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
@@ -572,6 +1190,256 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             </aside>
         </div>
     </div>
+
+@if ($showItemQuery)
+    <style>
+        .iq-backdrop { z-index: 90 !important; }
+        .iq-modal {
+            max-width: 36rem;
+            width: min(36rem, 96vw);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .iq-body { padding: .75rem .85rem; background: #fff; }
+        .iq-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: .45rem;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+        }
+        .iq-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .4rem .5rem;
+            align-items: center;
+            margin-bottom: .4rem;
+        }
+        .iq-select, .iq-input {
+            height: 2rem !important;
+            font-size: 13px !important;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 0 .45rem;
+            background: #fff;
+            color: #0f172a;
+        }
+        .iq-select-field { min-width: 11rem; flex: 1 1 10rem; }
+        .iq-select-op { min-width: 9rem; flex: 0 1 9rem; }
+        .iq-input-val { min-width: 7rem; flex: 1 1 7rem; }
+        .iq-select-join { width: 5.25rem; }
+        .iq-link {
+            background: none;
+            border: 0;
+            color: #1d4ed8;
+            font-size: 12px;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0;
+        }
+        .iq-link:hover { color: #1e40af; }
+        .iq-list-wrap {
+            display: flex;
+            gap: .45rem;
+            align-items: stretch;
+            margin-top: .65rem;
+        }
+        .iq-list {
+            flex: 1 1 auto;
+            min-height: 9rem;
+            max-height: 14rem;
+            overflow: auto;
+            border: 1px solid #94a3b8;
+            background: #fff;
+            font-size: 12px;
+            font-family: Tahoma, "Segoe UI", sans-serif;
+        }
+        .iq-list-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border: 0;
+            border-bottom: 1px solid #e2e8f0;
+            background: transparent;
+            padding: .35rem .5rem;
+            cursor: pointer;
+            color: #0f172a;
+        }
+        .iq-list-item:hover { background: #f1f5f9; }
+        .iq-list-item.is-selected {
+            background: #316ac5;
+            color: #fff;
+        }
+        .iq-list-empty {
+            padding: .75rem .5rem;
+            color: #94a3b8;
+            font-style: italic;
+            font-size: 12px;
+        }
+        .iq-side-tools {
+            display: flex;
+            flex-direction: column;
+            gap: .3rem;
+            flex-shrink: 0;
+        }
+        .iq-tool {
+            width: 1.85rem;
+            height: 1.85rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #94a3b8;
+            border-radius: 3px;
+            background: linear-gradient(180deg, #fff, #e8eef7);
+            color: #1e293b;
+            cursor: pointer;
+            padding: 0;
+        }
+        .iq-tool:hover { background: #dbeafe; }
+        .iq-foot {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: .5rem .75rem;
+            padding: .65rem .85rem;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .iq-foot-links { display: flex; flex-direction: column; gap: .25rem; flex: 1 1 auto; }
+        .iq-foot-actions { margin-left: auto; display: flex; gap: .5rem; }
+        .iq-status { font-size: 12px; color: #b45309; margin-top: .35rem; min-height: 1rem; }
+        .iq-save-row { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+        .iq-save-row .iq-input { width: 10rem; }
+        .iq-saved-select { min-width: 10rem; height: 2rem !important; font-size: 12px !important; }
+    </style>
+    <div class="desk-modal-backdrop iq-backdrop" wire:click.self="closeItemQuery" role="dialog" aria-modal="true" aria-labelledby="item-query-title">
+        <div class="desk-modal iq-modal" wire:keydown.escape.window="closeItemQuery">
+            <div class="desk-modal-head">
+                <span id="item-query-title">Item Query</span>
+                <button type="button" wire:click="closeItemQuery" class="desk-modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="iq-body">
+                <div class="iq-section-title">Select criteria</div>
+                <div class="iq-row">
+                    <select wire:model.live="queryField" class="iq-select iq-select-field" aria-label="Field">
+                        @foreach ($queryFields as $key => $label)
+                            <option value="{{ $key }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <select wire:model.live="queryOperator" class="iq-select iq-select-op" aria-label="Operator">
+                        @foreach ($queryOperators as $key => $label)
+                            <option value="{{ $key }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @if ($queryValueMode === 'field')
+                        <select wire:model="queryCompareField" class="iq-select iq-input-val" aria-label="Compare field">
+                            @foreach ($queryFields as $key => $label)
+                                @if ($key !== $queryField && ! in_array($key, ['can_sell', 'is_inactive', 'category_id', 'department_id', 'subcategory_id'], true))
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    @elseif (in_array($queryOperator, ['empty', 'not_empty'], true))
+                        <span class="text-slate-400 text-xs" style="min-width:7rem">—</span>
+                    @elseif ($queryField === 'category_id')
+                        <select wire:model="queryValue" class="iq-select iq-input-val" aria-label="Category value">
+                            <option value="">— Select category —</option>
+                            @foreach ($queryCategories as $cat)
+                                <option value="{{ $cat->id }}">{{ strtoupper(trim(($cat->code ? $cat->code.' — ' : '').$cat->name)) }}</option>
+                            @endforeach
+                        </select>
+                    @elseif ($queryField === 'department_id')
+                        <select wire:model="queryValue" class="iq-select iq-input-val" aria-label="Department value">
+                            <option value="">— Select department —</option>
+                            @foreach ($queryDepartments as $dept)
+                                <option value="{{ $dept->id }}">{{ $dept->name }}</option>
+                            @endforeach
+                        </select>
+                    @elseif ($queryField === 'subcategory_id')
+                        <select wire:model="queryValue" class="iq-select iq-input-val" aria-label="Subcategory value">
+                            <option value="">— Select subcategory —</option>
+                            @foreach ($querySubcategories as $sub)
+                                <option value="{{ $sub->id }}">{{ strtoupper(trim(($sub->code ? $sub->code.' — ' : '').$sub->name)) }}</option>
+                            @endforeach
+                        </select>
+                    @elseif (in_array($queryField, ['can_sell', 'is_inactive'], true))
+                        <select wire:model="queryValue" class="iq-select iq-input-val" aria-label="Yes/No value">
+                            <option value="1">Yes</option>
+                            <option value="0">No</option>
+                        </select>
+                    @else
+                        <input type="text" wire:model="queryValue" class="iq-input iq-input-val" aria-label="Value" placeholder="0.00" />
+                    @endif
+                </div>
+                <div class="iq-row">
+                    <select wire:model="queryJoin" class="iq-select iq-select-join" aria-label="And/Or" title="Join for next criterion">
+                        <option value="and">And</option>
+                        <option value="or">Or</option>
+                    </select>
+                    @if ($queryValueMode === 'value')
+                        <button type="button" class="iq-link" wire:click="setQueryValueMode('field')">Compare to a field</button>
+                    @else
+                        <button type="button" class="iq-link" wire:click="setQueryValueMode('value')">Compare to a value</button>
+                    @endif
+                </div>
+
+                <div class="iq-list-wrap">
+                    <div class="iq-list" role="listbox" aria-label="Search criteria">
+                        @forelse ($queryCriteria as $i => $crit)
+                            <button
+                                type="button"
+                                role="option"
+                                wire:key="iq-crit-{{ $i }}"
+                                class="iq-list-item{{ $querySelectedIndex === $i ? ' is-selected' : '' }}"
+                                wire:click="selectQueryCriterion({{ $i }})"
+                                aria-selected="{{ $querySelectedIndex === $i ? 'true' : 'false' }}"
+                            >{{ $crit['label'] ?? '' }}</button>
+                        @empty
+                            <div class="iq-list-empty">No criteria yet. Choose field / operator / value, then click + to add.</div>
+                        @endforelse
+                    </div>
+                    <div class="iq-side-tools" aria-label="Criteria tools">
+                        <button type="button" class="iq-tool" title="Add criterion" aria-label="Add criterion" wire:click="addQueryCriterion">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+                        </button>
+                        <button type="button" class="iq-tool" title="Update selected criterion" aria-label="Update selected" wire:click="addQueryCriterion">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/></svg>
+                        </button>
+                        <button type="button" class="iq-tool" title="Remove selected criterion" aria-label="Remove selected" wire:click="removeQueryCriterion">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 8h10"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="iq-status" role="status">{{ $queryStatus }}</div>
+            </div>
+            <div class="iq-foot">
+                <div class="iq-foot-links">
+                    <div class="iq-save-row">
+                        <input type="text" wire:model="querySaveName" class="iq-input" placeholder="Search name…" aria-label="Saved search name" />
+                        <button type="button" class="iq-link" wire:click="saveItemQuery">Save this search</button>
+                        <button type="button" class="iq-link" wire:click="deleteSavedItemQuery">Delete this search</button>
+                    </div>
+                    @if (count($savedItemQueries) > 0)
+                        <div class="iq-save-row">
+                            <select class="iq-select iq-saved-select" wire:model.live="querySavedPick" aria-label="Load saved search">
+                                <option value="">Load saved search…</option>
+                                @foreach (array_keys($savedItemQueries) as $savedName)
+                                    <option value="{{ $savedName }}" @selected($queryLoadedName === $savedName)>{{ $savedName }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+                </div>
+                <div class="iq-foot-actions">
+                    <button type="button" class="desk-btn desk-btn-primary" wire:click="runItemQuery">Search</button>
+                    <button type="button" class="desk-btn" wire:click="closeItemQuery">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
 </div>
 
 @script

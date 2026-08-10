@@ -48,7 +48,7 @@ class TobaccoXmlService
         }
 
         $fein = preg_replace('/\D+/', '', (string) $company->fein_no);
-        $license = preg_replace('/\D+/', '', (string) $company->state_license_number);
+        $license = $company->msaLicenseNumber($product);
         $transmitter = preg_replace('/\D+/', '', (string) ($company->transmitter_account_number ?: $fein));
         $timestamp = now()->utc()->format('Y-m-d\TH:i:s\Z');
         $transmissionId = $fein.now()->format('YmdHis');
@@ -117,15 +117,17 @@ class TobaccoXmlService
         ?TobaccoStampInventory $stamps = null,
     ): array {
         $issues = [];
+        $product = $product === 'otp' ? 'otp' : 'cigarettes';
         $fein = preg_replace('/\D+/', '', (string) ($company?->fein_no ?? ''));
-        $license = preg_replace('/\D+/', '', (string) ($company?->state_license_number ?? ''));
+        $license = $company?->msaLicenseNumber($product) ?? '';
+        $licenseLabel = $company?->msaLicenseLabel($product) ?? ($product === 'otp' ? 'Secondary Tob Number' : 'Secondary Cig Number');
         $transmitter = preg_replace('/\D+/', '', (string) ($company?->transmitter_account_number ?? ''));
 
         if (strlen($fein) < 9) {
             $issues[] = 'Company FEIN is required (File → Company Settings).';
         }
         if ($license === '') {
-            $issues[] = 'Company State License Number is required (File → Company Settings).';
+            $issues[] = $licenseLabel.' is required (File → Company Settings) for this MSA report.';
         }
         if ($transmitter === '' && strlen($fein) < 9) {
             $issues[] = 'Transmitter (State Employer Account Number) is required.';
@@ -202,7 +204,9 @@ class TobaccoXmlService
         $lines[] = str_repeat('=', 72);
         $lines[] = 'Company: '.($company?->name ?? '');
         $lines[] = 'FEIN: '.($company?->fein_no ?? '');
-        $lines[] = 'State License: '.($company?->state_license_number ?? '');
+        // OTP (tobacco) return → Secondary Tob Number; cigarette return → Secondary Cig Number.
+        $lines[] = ($company?->msaLicenseLabel($product) ?? ($product === 'otp' ? 'Secondary Tob Number' : 'Secondary Cig Number'))
+            .': '.($company?->msaLicenseNumber($product) ?? '');
         $lines[] = 'Return: '.$returnName;
         $lines[] = 'Filer Type: '.$filerType;
         $lines[] = 'Product: '.$product;

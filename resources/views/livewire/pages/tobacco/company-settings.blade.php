@@ -29,7 +29,9 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
     public string $fein_no = '';
 
-    public string $state_license_number = '';
+    public string $secondary_tob_number = '';
+
+    public string $secondary_cig_number = '';
 
     public string $transmitter_account_number = '';
 
@@ -56,7 +58,14 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         $this->email = (string) ($company?->email ?? '');
         $this->contact_name = (string) ($company?->contact_name ?? '');
         $this->fein_no = (string) ($company?->fein_no ?? '');
-        $this->state_license_number = (string) ($company?->state_license_number ?? '');
+        $this->secondary_tob_number = (string) (
+            $company?->secondary_tob_number
+            ?: ($company?->state_license_number ?? '')
+        );
+        $this->secondary_cig_number = (string) (
+            $company?->secondary_cig_number
+            ?: ($company?->state_license_number ?? '')
+        );
         $this->transmitter_account_number = (string) ($company?->transmitter_account_number ?? '');
         $this->is_active = (bool) ($company?->is_active ?? true);
     }
@@ -76,14 +85,17 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'email' => ['nullable', 'email', 'max:255'],
             'contact_name' => ['nullable', 'string', 'max:120'],
             'fein_no' => ['required', 'string', 'max:32', 'regex:/^[0-9\-]+$/'],
-            'state_license_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
+            'secondary_tob_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
+            'secondary_cig_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
             'transmitter_account_number' => ['nullable', 'string', 'max:20', 'regex:/^[0-9]*$/'],
             'is_active' => ['boolean'],
         ], [
             'fein_no.required' => 'Company FEIN is required for MSA tobacco filing.',
             'fein_no.regex' => 'FEIN must be digits (dashes allowed).',
-            'state_license_number.required' => 'State License Number is required.',
-            'state_license_number.regex' => 'State License Number must be numeric.',
+            'secondary_tob_number.required' => 'Secondary Tob Number is required (OTP / tobacco MSA reports).',
+            'secondary_tob_number.regex' => 'Secondary Tob Number must be numeric.',
+            'secondary_cig_number.required' => 'Secondary Cig Number is required (cigarette MSA reports).',
+            'secondary_cig_number.regex' => 'Secondary Cig Number must be numeric.',
             'transmitter_account_number.regex' => 'Transmitter must be numeric (State Employer Account Number).',
         ]);
 
@@ -111,7 +123,12 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'email' => $this->email !== '' ? $this->email : null,
             'contact_name' => $this->contact_name !== '' ? $this->contact_name : null,
             'fein_no' => $this->fein_no,
-            'state_license_number' => $this->state_license_number,
+            'secondary_tob_number' => $this->secondary_tob_number,
+            'secondary_cig_number' => $this->secondary_cig_number,
+            // Keep legacy column in sync for older tools; UI no longer uses State License.
+            'state_license_number' => $this->secondary_cig_number !== ''
+                ? $this->secondary_cig_number
+                : $this->secondary_tob_number,
             'transmitter_account_number' => $this->transmitter_account_number !== ''
                 ? $this->transmitter_account_number
                 : null,
@@ -214,10 +231,18 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
                 <span>Company FEIN <em>*</em></span>
                 <input type="text" wire:model="fein_no" class="desk-input" placeholder="38-1234567" />
             </label>
-            <label class="stamp-inv-field">
-                <span>State License Number <em>*</em></span>
-                <input type="text" wire:model="state_license_number" class="desk-input" placeholder="Numeric Michigan tobacco license #" />
-            </label>
+            <div class="msa-field-grid">
+                <label class="stamp-inv-field">
+                    <span>Secondary Tob Number <em>*</em></span>
+                    <input type="text" wire:model="secondary_tob_number" class="desk-input" placeholder="OTP / tobacco MSA license #" />
+                    <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">Used on tobacco (OTP) MSA reports</small>
+                </label>
+                <label class="stamp-inv-field">
+                    <span>Secondary Cig Number <em>*</em></span>
+                    <input type="text" wire:model="secondary_cig_number" class="desk-input" placeholder="Cigarette MSA license #" />
+                    <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">Used on cigarette MSA reports</small>
+                </label>
+            </div>
             <label class="stamp-inv-field">
                 <span>Transmitter <small>(State Employer Account #)</small></span>
                 <input type="text" wire:model="transmitter_account_number" class="desk-input" placeholder="Optional — defaults to FEIN digits" />

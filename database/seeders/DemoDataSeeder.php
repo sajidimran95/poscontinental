@@ -54,7 +54,10 @@ class DemoDataSeeder extends Seeder
             'email' => $company->email ?: 'office@continentalwholesale.test',
             'contact_name' => $company->contact_name ?: 'Office Desk',
             'fein_no' => $company->fein_no ?: '38-1234567',
-            'state_license_number' => $company->state_license_number ?: '10001234',
+            'secondary_tob_number' => $company->secondary_tob_number ?: ($company->state_license_number ?: '10001234'),
+            'secondary_cig_number' => $company->secondary_cig_number ?: ($company->state_license_number ?: '10001234'),
+            'state_license_number' => $company->state_license_number
+                ?: ($company->secondary_cig_number ?: '10001234'),
             'transmitter_account_number' => $company->transmitter_account_number ?: '381234567',
         ])->save();
 

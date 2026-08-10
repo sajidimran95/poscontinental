@@ -447,6 +447,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
         <p class="msa-footnote">
             <strong>Company FEIN</strong> (File → Company Settings) = filer identity in the XML header.
+            <strong>Secondary Tob Number</strong> = StateLicenseNumber on OTP / tobacco MSA returns.
+            <strong>Secondary Cig Number</strong> = StateLicenseNumber on cigarette MSA returns.
             <strong>Supplier FEIN</strong> = purchase schedule parties.
             <strong>Customer FEIN</strong> = sales/return schedule parties.
             Items need tobacco type / brand code. Period data comes from receipts, invoices, and credit memos.

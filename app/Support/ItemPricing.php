@@ -2,18 +2,27 @@
 
 namespace App\Support;
 
+use App\Models\CustomerItemPrice;
 use App\Models\Item;
 use App\Models\ItemPrice;
 
 class ItemPricing
 {
     /**
-     * Resolve sell price for an item, preferring customer price level then UOM then list.
+     * Resolve sell price: memorized customer price → price level → UOM/list.
      */
-    public static function resolve(Item $item, ?int $priceLevelId = null, ?string $uom = null): float
+    public static function resolve(Item $item, ?int $priceLevelId = null, ?string $uom = null, ?int $customerId = null): float
     {
-        $prices = $item->relationLoaded('prices') ? $item->prices : $item->prices()->get();
         $uom = $uom ?? ($item->unit_of_measure ?: null);
+
+        if ($customerId) {
+            $memorized = CustomerItemPrice::findPrice($customerId, (int) $item->id, $uom);
+            if ($memorized !== null) {
+                return $memorized;
+            }
+        }
+
+        $prices = $item->relationLoaded('prices') ? $item->prices : $item->prices()->get();
 
         if ($priceLevelId) {
             $levelRows = $prices->where('price_level_id', $priceLevelId);

@@ -9,6 +9,7 @@
 @php
     $order = $invoice->salesOrder;
     $isPaid = $invoice->status === 'PAID';
+    $companyName = $company?->name ?? 'Continental Wholesale Inc';
 @endphp
 
 <div class="brand-bar">

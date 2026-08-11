@@ -6,6 +6,9 @@
     @include('pdf._styles')
 </head>
 <body>
+@php
+    $companyName = $company?->name ?? 'Continental Wholesale Inc';
+@endphp
 
 <div class="brand-bar">
     <table>

@@ -39,14 +39,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)
-                    ->orWhere('primary_upc', $code)
-                    ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', $code));
-            })
-            ->first();
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'any');
 
         $this->itemId = $item?->id;
 
@@ -55,6 +48,17 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
         } else {
             $this->lookupError = 'No item found for “'.$code.'”.';
         }
+    }
+
+    public function focusItemScan(): void
+    {
+        if (trim($this->itemCode) !== '') {
+            $this->lookupItem();
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { document.getElementById("ss-code")?.focus(); });');
     }
 
     public function clearLookup(): void
@@ -136,22 +140,29 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
         <div class="desk-toolbar rpt-toolbar">
             <div class="rpt-field rpt-field-search">
                 <label class="desk-toolbar-label" for="ss-code">Item Code / UPC</label>
-                <div class="inq-lookup-row">
+                <div class="so-scan-bar" style="max-width:28rem;min-width:16rem;height:2.15rem">
+                    <button type="button" wire:click="focusItemScan" class="so-scan-btn" title="Scan barcode">
+                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                        </svg>
+                        <span>Scan</span>
+                    </button>
                     <input
                         id="ss-code"
                         type="search"
                         wire:model="itemCode"
                         wire:keydown.enter.prevent="lookupItem"
-                        class="desk-search font-mono"
+                        class="so-input font-mono"
                         placeholder="Scan or type item code / UPC…"
                         autofocus
+                        autocomplete="off"
                     />
                     <button
                         type="button"
                         wire:click="openItemBrowse"
                         class="so-icon-btn"
-                        title="Show existing codes / UPCs"
-                        aria-label="Show existing item codes and UPCs"
+                        title="Browse items"
+                        aria-label="Browse items"
                     >
                         <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
                             <circle cx="3" cy="6" r="1.15"/>

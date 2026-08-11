@@ -36,6 +36,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public ?int $processed_by = null;
 
+    public string $lookupMessage = '';
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
     public array $lines = [];
 
@@ -141,30 +143,99 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
     }
 
-    public function lookupItem(int $index): void
+    /**
+     * Scan / Enter: resolve by item code, Primary UPC, aliases, etc.
+     */
+    public function lookupItem(int $index, ?string $code = null): void
     {
-        $code = trim($this->lines[$index]['item_code'] ?? '');
-        if ($code === '') {
+        if ($this->status === 'Processed') {
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)->orWhere('primary_upc', $code);
-            })
-            ->first();
+        if ($code !== null) {
+            $lines = $this->lines;
+            $lines[$index]['item_code'] = trim($code);
+            $this->lines = $lines;
+        }
 
+        $resolved = trim((string) ($this->lines[$index]['item_code'] ?? ''));
+        if ($resolved === '') {
+            $this->focusLineCode($index);
+
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
         if (! $item) {
+            $this->lookupMessage = 'Item / barcode "'.$resolved.'" was not found.';
+            $this->focusLineCode($index, true);
+
             return;
         }
 
-        $this->lines[$index]['item_id'] = $item->id;
-        $this->lines[$index]['item_code'] = $item->item_code;
-        $this->lines[$index]['description'] = $item->description ?? '';
-        $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $this->lines[$index]['in_stock'] = (string) $item->quantity_in_stock;
-        $this->lines[$index]['allocated'] = (string) $item->allocated_qty;
+        $this->lookupMessage = '';
+
+        // Same item already on another line → keep that row; clear this empty attempt if different index.
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id && (int) $i !== (int) $index) {
+                $this->lines[$index] = $this->emptyLine();
+                $this->lookupMessage = $item->item_code.' is already on this count (line '.((int) $i + 1).').';
+                $this->focusLineCode((int) $i);
+                $this->js('requestAnimationFrame(() => { document.getElementById("sc-line-counted-'.$i.'")?.focus(); });');
+
+                return;
+            }
+        }
+
+        $this->fillLineFromItem($index, $item);
+        $this->js('requestAnimationFrame(() => { document.getElementById("sc-line-counted-'.$index.'")?.focus(); });');
+    }
+
+    public function focusLineScan(int $index): void
+    {
+        if ($this->status === 'Processed' || ! isset($this->lines[$index])) {
+            return;
+        }
+
+        if (trim((string) ($this->lines[$index]['item_code'] ?? '')) !== '') {
+            $this->lookupItem($index);
+
+            return;
+        }
+
+        $this->focusLineCode($index);
+    }
+
+    public function clearLineItemCode(int $index): void
+    {
+        if ($this->status === 'Processed' || ! isset($this->lines[$index])) {
+            return;
+        }
+
+        $this->lines[$index] = $this->emptyLine();
+        if (str_contains(strtolower($this->lookupMessage), 'was not found')
+            || str_contains(strtolower($this->lookupMessage), 'already on this count')) {
+            $this->lookupMessage = '';
+        }
+        $this->focusLineCode($index);
+    }
+
+    protected function fillLineFromItem(int $index, Item $item): void
+    {
+        $lines = $this->lines;
+        $lines[$index]['item_id'] = $item->id;
+        $lines[$index]['item_code'] = $item->item_code;
+        $lines[$index]['description'] = $item->description ?? '';
+        $lines[$index]['uom'] = $item->unit_of_measure ?? '';
+        $lines[$index]['in_stock'] = (string) $item->quantity_in_stock;
+        $lines[$index]['allocated'] = (string) $item->allocated_qty;
+        $this->lines = $lines;
+    }
+
+    protected function focusLineCode(int $index, bool $select = false): void
+    {
+        $selectJs = $select ? ' el.select();' : '';
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("sc-line-code-'.$index.'"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
     public function updatedLines($value, $key): void
@@ -386,7 +457,9 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                             <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Item</button>
                         @endunless
                     </div>
-                    <p class="item-hint" style="border-bottom:1px solid #e2e8f0">Enter item code or UPC, then press Enter — barcode scan supported.</p>
+                    @if ($lookupMessage)
+                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
+                    @endif
                     <div class="desk-grid item-lines-wrap">
                         <table class="desk-table item-lines-table sc-lines-table">
                             <colgroup>
@@ -421,16 +494,40 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                             : null;
                                     @endphp
                                     <tr>
-                                        <td>
-                                            <div class="so-lookup-row">
+                                        <td class="po-line-code-cell">
+                                            <div class="so-scan-bar po-line-scan-bar" role="search">
+                                                @unless ($isProcessed)
+                                                    <button
+                                                        type="button"
+                                                        wire:click="focusLineScan({{ $i }})"
+                                                        class="so-scan-btn"
+                                                        title="Scan barcode into this line"
+                                                    >
+                                                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                                        </svg>
+                                                        <span>Scan</span>
+                                                    </button>
+                                                @endunless
                                                 <input
-                                                    wire:model.blur="lines.{{ $i }}.item_code"
-                                                    wire:keydown.enter.prevent="lookupItem({{ $i }})"
+                                                    id="sc-line-code-{{ $i }}"
+                                                    wire:model="lines.{{ $i }}.item_code"
+                                                    wire:keydown.enter.prevent="lookupItem({{ $i }}, $event.target.value)"
                                                     class="so-input font-mono item-cell-ctl"
-                                                    placeholder="Code + Enter"
+                                                    placeholder="Scan or type code…"
+                                                    autocomplete="off"
                                                     @disabled($isProcessed)
                                                 />
-                                                <button type="button" wire:click="lookupItem({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isProcessed) title="Lookup item">…</button>
+                                                @unless ($isProcessed)
+                                                    @if (filled($line['item_code'] ?? null))
+                                                        <button type="button" wire:click="clearLineItemCode({{ $i }})" class="so-icon-btn" title="Clear" aria-label="Clear">
+                                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                                        </button>
+                                                    @endif
+                                                    <button type="button" wire:click.prevent="lookupItem({{ $i }})" class="so-icon-btn so-entry-add-btn" title="Add item" aria-label="Add item">
+                                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                                    </button>
+                                                @endunless
                                             </div>
                                         </td>
                                         <td class="item-cell-desc" title="{{ $line['description'] }}">{{ $line['description'] ?: '—' }}</td>
@@ -439,6 +536,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                         <td class="desk-money">{{ number_format((float) $line['allocated'], 2) }}</td>
                                         <td class="text-center">
                                             <input
+                                                id="sc-line-counted-{{ $i }}"
                                                 wire:model.live="lines.{{ $i }}.counted"
                                                 class="so-input text-right item-cell-qty"
                                                 @disabled($isProcessed)

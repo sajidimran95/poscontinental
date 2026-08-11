@@ -144,6 +144,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $primary_upc = '';
 
+    public string $upcScan = '';
+
+    public string $upcScanMessage = '';
+
     public ?string $image_path = null;
 
     public ?string $thumbnail_path = null;
@@ -260,6 +264,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         if ($this->upcs === []) {
             $this->upcs[] = ['upc' => $this->primary_upc, 'is_primary' => true];
+        }
+
+        // Prefill UPC from barcode scan (?upc=) when creating a new item
+        if (! $item?->exists) {
+            $scanUpc = trim((string) request()->query('upc', ''));
+            if ($scanUpc !== '') {
+                $this->primary_upc = $scanUpc;
+                $this->upcs = [['upc' => $scanUpc, 'is_primary' => true]];
+            }
         }
 
         if ($this->prices === []) {
@@ -521,6 +534,132 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             $this->upcs[$i]['is_primary'] = $i === $index;
         }
         $this->primary_upc = $this->upcs[$index]['upc'] ?? '';
+    }
+
+    /**
+     * Focus barcode field for scanner; if value present, apply UPC.
+     */
+    public function focusUpcScan(): void
+    {
+        if (trim($this->upcScan) !== '') {
+            $this->applyUpcScan();
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-scan")?.focus(); });');
+    }
+
+    /**
+     * Scan / Enter: add barcode into Aliases / Primary UPC (first empty row, else new row).
+     */
+    public function applyUpcScan(?string $code = null): void
+    {
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code ?? $this->upcScan) ?? '');
+        $this->upcScanMessage = '';
+
+        if ($code === '') {
+            $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-scan")?.focus(); });');
+
+            return;
+        }
+
+        $this->assignScannedUpc($code);
+        $this->upcScan = '';
+        $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-scan")?.focus(); });');
+    }
+
+    /**
+     * Scan / Enter into a specific UPC row.
+     */
+    public function applyUpcScanToRow(int $index, ?string $code = null): void
+    {
+        if (! isset($this->upcs[$index])) {
+            return;
+        }
+
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code ?? ($this->upcs[$index]['upc'] ?? '')) ?? '');
+        $this->upcScanMessage = '';
+
+        if ($code === '') {
+            $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-row-'.$index.'")?.focus(); });');
+
+            return;
+        }
+
+        $upcs = $this->upcs;
+        $upcs[$index]['upc'] = $code;
+        $this->upcs = $upcs;
+
+        if ($upcs[$index]['is_primary'] ?? false) {
+            $this->primary_upc = $code;
+        }
+
+        $this->warnIfUpcExistsElsewhere($code);
+        $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-scan")?.focus(); });');
+    }
+
+    public function focusUpcRowScan(int $index): void
+    {
+        if (! isset($this->upcs[$index])) {
+            return;
+        }
+
+        if (trim((string) ($this->upcs[$index]['upc'] ?? '')) !== '') {
+            $this->applyUpcScanToRow($index);
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { document.getElementById("item-upc-row-'.$index.'")?.focus(); });');
+    }
+
+    protected function assignScannedUpc(string $code): void
+    {
+        $this->warnIfUpcExistsElsewhere($code);
+
+        $upcs = $this->upcs;
+        foreach ($upcs as $i => $row) {
+            if (trim((string) ($row['upc'] ?? '')) === '') {
+                $upcs[$i]['upc'] = $code;
+                if ($upcs[$i]['is_primary'] ?? false) {
+                    $this->primary_upc = $code;
+                }
+                $this->upcs = $upcs;
+
+                return;
+            }
+            // Already on this item — ignore
+            if (mb_strtolower(trim((string) $row['upc'])) === mb_strtolower($code)) {
+                $this->upcScanMessage = 'Barcode already listed on this item.';
+
+                return;
+            }
+        }
+
+        $upcs[] = [
+            'upc' => $code,
+            'is_primary' => $upcs === [],
+        ];
+        if (count($upcs) === 1) {
+            $this->primary_upc = $code;
+            $upcs[0]['is_primary'] = true;
+        }
+        $this->upcs = $upcs;
+    }
+
+    protected function warnIfUpcExistsElsewhere(string $code): void
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $existing = Item::findByScanCode($companyId, $code, 'any');
+        if (! $existing) {
+            return;
+        }
+        if ($this->item?->exists && (int) $existing->id === (int) $this->item->id) {
+            return;
+        }
+
+        $this->upcScanMessage = 'Barcode already used by item '.$existing->item_code.'.';
     }
 
     public function addPrice(): void
@@ -1199,6 +1338,44 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         <h3 class="entity-section-title">Aliases / Primary UPC</h3>
                         <button type="button" wire:click="addUpc" class="desk-btn desk-btn-sm">Add UPC</button>
                     </div>
+                    <div class="so-entry item-upc-entry">
+                        <span class="so-entry-label">Barcode</span>
+                        <div class="so-scan-bar" role="search">
+                            <button
+                                type="button"
+                                wire:click="focusUpcScan"
+                                class="so-scan-btn"
+                                title="Scan barcode into Primary UPC / aliases"
+                            >
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                id="item-upc-scan"
+                                type="text"
+                                wire:model.live="upcScan"
+                                wire:keydown.enter.prevent="applyUpcScan($event.target.value)"
+                                class="so-input so-entry-input"
+                                placeholder="Scan barcode or type UPC / alias…"
+                                autocomplete="off"
+                                inputmode="text"
+                            />
+                            <button
+                                type="button"
+                                wire:click.prevent="applyUpcScan"
+                                class="so-icon-btn so-entry-add-btn"
+                                title="Add barcode"
+                                aria-label="Add barcode"
+                            >
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    @if ($upcScanMessage !== '')
+                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $upcScanMessage }}</div>
+                    @endif
                     <div class="desk-grid item-lines-wrap">
                         <table class="desk-table item-lines-table item-upc-table">
                             <colgroup>
@@ -1219,7 +1396,30 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <td class="text-center">
                                             <input type="radio" name="primary_upc_radio" wire:click="setPrimaryUpc({{ $i }})" @checked($row['is_primary'] ?? false) aria-label="Primary UPC {{ $i + 1 }}" />
                                         </td>
-                                        <td><input wire:model="upcs.{{ $i }}.upc" class="so-input font-mono item-cell-ctl" /></td>
+                                        <td class="item-upc-row-cell">
+                                            <div class="so-scan-bar item-upc-row-scan" role="search">
+                                                <button
+                                                    type="button"
+                                                    wire:click="focusUpcRowScan({{ $i }})"
+                                                    class="so-scan-btn"
+                                                    title="Scan into this UPC row"
+                                                >
+                                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                                    </svg>
+                                                    <span>Scan</span>
+                                                </button>
+                                                <input
+                                                    id="item-upc-row-{{ $i }}"
+                                                    type="text"
+                                                    wire:model="upcs.{{ $i }}.upc"
+                                                    wire:keydown.enter.prevent="applyUpcScanToRow({{ $i }}, $event.target.value)"
+                                                    class="so-input font-mono item-cell-ctl"
+                                                    placeholder="Scan or type UPC…"
+                                                    autocomplete="off"
+                                                />
+                                            </div>
+                                        </td>
                                         <td class="text-center"><button type="button" wire:click="removeUpc({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>
                                 @endforeach

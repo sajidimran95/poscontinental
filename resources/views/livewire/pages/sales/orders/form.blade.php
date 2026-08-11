@@ -1405,13 +1405,73 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
             ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
             ->when(filled($this->browseSearch), function ($q) {
-                $term = '%'.trim($this->browseSearch).'%';
-                $q->where(function ($inner) use ($term) {
+                $raw = trim($this->browseSearch);
+                $term = '%'.$raw.'%';
+                $q->where(function ($inner) use ($term, $raw) {
                     $inner->where('item_code', 'like', $term)
                         ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term);
+                        ->orWhere('primary_upc', 'like', $term)
+                        ->orWhereExists(function ($sub) use ($term, $raw) {
+                            $sub->select(DB::raw(1))
+                                ->from('item_upcs')
+                                ->whereColumn('item_upcs.item_id', 'items.id')
+                                ->where(function ($u) use ($term, $raw) {
+                                    $u->where('item_upcs.upc', $raw)
+                                        ->orWhere('item_upcs.upc', 'like', $term);
+                                });
+                        });
                 });
             });
+    }
+
+    /**
+     * Browse search / scanner: exact barcode/code match adds the item; otherwise filters the list.
+     */
+    public function scanBrowseAndPick(?string $code = null): void
+    {
+        abort_if($this->viewMode, 403);
+
+        if ($code !== null) {
+            $this->browseSearch = trim($code);
+        }
+
+        $resolved = trim($this->browseSearch);
+        if ($resolved === '') {
+            $this->focusBrowseSearch();
+
+            return;
+        }
+
+        $item = $this->findItem($resolved);
+        if ($item) {
+            $this->browseSearch = '';
+            $this->pickBrowseItem((int) $item->id);
+            $this->focusItemEntry();
+
+            return;
+        }
+
+        $this->resetBrowseAndLoadFirstPage();
+        $this->focusBrowseSearch(true);
+    }
+
+    public function focusBrowseScan(): void
+    {
+        abort_if($this->viewMode, 403);
+
+        if (trim($this->browseSearch) !== '') {
+            $this->scanBrowseAndPick();
+
+            return;
+        }
+
+        $this->focusBrowseSearch();
+    }
+
+    protected function focusBrowseSearch(bool $select = false): void
+    {
+        $selectJs = $select ? ' el.select();' : '';
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-browse-search"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
     public function toggleCustomerFavoriteIcon(): void
@@ -2277,13 +2337,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $code = trim($code ?? $this->itemEntry);
         if ($code === '') {
-            $this->lineWarning = 'Enter an item code, then click the check mark (or press Enter).';
+            $this->focusItemEntry();
 
             return;
         }
         $item = $this->findItem($code);
         if (! $item) {
-            $this->lineWarning = 'Item "'.$code.'" was not found.';
+            $this->lineWarning = 'Item / barcode "'.$code.'" was not found.';
+            $this->focusItemEntry(true);
 
             return;
         }
@@ -2291,6 +2352,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showBrowse = false;
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
+        $this->focusItemEntry();
+    }
+
+    /**
+     * Focus entry for scanner; if value present, add the scanned line.
+     */
+    public function focusScanAndAdd(): void
+    {
+        abort_if($this->viewMode, 403);
+
+        if (trim($this->itemEntry) !== '') {
+            $this->addItemFromEntry();
+
+            return;
+        }
+
+        $this->focusItemEntry();
     }
 
     public function clearItemEntry(): void
@@ -2299,6 +2377,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (str_contains(strtolower($this->lineWarning), 'was not found')) {
             $this->lineWarning = '';
         }
+        $this->focusItemEntry();
+    }
+
+    protected function focusItemEntry(bool $select = false): void
+    {
+        $selectJs = $select ? ' el.select();' : '';
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-item-entry"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -2469,19 +2554,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         return null;
     }
 
+    /**
+     * Resolve sellable item by item code, Primary UPC / aliases, price alias, supplier code.
+     */
     protected function findItem(string $code): ?Item
     {
-        return Item::query()
-            ->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
-            ->where('company_id', auth()->user()->company_id)
-            ->where('is_inactive', false)
-            ->where('can_sell', true)
-            ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)
-                    ->orWhere('primary_upc', $code)
-                    ->orWhereHas('prices', fn ($p) => $p->where('alias_code', $code));
-            })
-            ->first();
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'sell');
+        if ($item) {
+            $item->load(['prices', 'taxSchedule', 'substitutes.substituteItem']);
+        }
+
+        return $item;
     }
 
     protected function resolveItemPrice(Item $item, ?string $uom = null): string
@@ -3417,16 +3500,29 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         @endunless
                     </div>
                     <div class="so-entry">
-                        <span class="so-entry-label">Enter item code (F2)</span>
-                        <div class="so-lookup-row so-entry-lookup">
+                        <span class="so-entry-label">Item code / barcode (F2)</span>
+                        <div class="so-scan-bar" role="search">
+                            <button
+                                type="button"
+                                wire:click="focusScanAndAdd"
+                                class="so-scan-btn"
+                                title="Scan barcode — focus field or add on Enter"
+                                @disabled($viewMode)
+                            >
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
                             <input
                                 wire:model.live="itemEntry"
-                                wire:keydown.enter.prevent="addItemFromEntry"
+                                wire:keydown.enter.prevent="addItemFromEntry($event.target.value)"
                                 wire:keydown.f2.prevent="toggleBrowse"
                                 class="so-input so-entry-input"
                                 id="so-item-entry"
-                                placeholder="Type item code…"
+                                placeholder="Scan barcode or type item code…"
                                 autocomplete="off"
+                                inputmode="text"
                                 @disabled($viewMode)
                             />
                             @unless ($viewMode)
@@ -3446,7 +3542,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     title="Add item"
                                     aria-label="Add item"
                                     wire:loading.attr="disabled"
-                                    wire:target="addItemFromEntry"
+                                    wire:target="addItemFromEntry,focusScanAndAdd"
                                 >
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                                 </button>
@@ -4499,18 +4595,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                 </div>
                 <div class="so-item-browse-foot so-item-browse-foot-chief">
-                    <div class="so-item-browse-foot-search">
-                        <svg class="so-browse-search-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                            <circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>
-                        </svg>
-                        <input
-                            type="search"
-                            wire:model.live.debounce.300ms="browseSearch"
-                            class="so-input so-item-browse-search-bottom"
-                            placeholder="Search code, description, UPC…"
-                            aria-label="Search items"
-                            id="so-browse-search"
-                        />
+                    <div class="so-item-browse-foot-search so-browse-scan-row">
+                        <span class="so-browse-foot-label">Search</span>
+                        <div class="so-scan-bar so-browse-scan-bar">
+                            <button
+                                type="button"
+                                wire:click="focusBrowseScan"
+                                class="so-scan-btn"
+                                title="Scan barcode — focus search or add on Enter"
+                            >
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                type="search"
+                                wire:model.live.debounce.300ms="browseSearch"
+                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
+                                class="so-input so-item-browse-search-bottom"
+                                placeholder="Scan barcode or search code / description / UPC…"
+                                aria-label="Scan or search items"
+                                id="so-browse-search"
+                                autocomplete="off"
+                            />
+                        </div>
                     </div>
                     <div class="so-item-browse-foot-actions">
                         <button type="button" wire:click="closeBrowse" class="desk-btn">Close</button>
@@ -4826,11 +4935,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         window.open(url, '_blank');
     });
 
-    // Focus search when item browse popup opens.
+    // Focus search when item browse popup opens (ready for barcode gun).
     $wire.$watch('showBrowse', (open) => {
         if (!open) return;
         requestAnimationFrame(() => {
-            document.getElementById('so-browse-search')?.focus();
+            const el = document.getElementById('so-browse-search');
+            if (el) {
+                el.focus();
+                el.select?.();
+            }
         });
     });
 </script>

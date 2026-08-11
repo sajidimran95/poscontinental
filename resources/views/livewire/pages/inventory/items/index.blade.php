@@ -23,12 +23,18 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     #[Url]
     public string $favorite = 'all';
 
+    /** Category filter (id as string, '' = all) */
+    #[Url(as: 'category')]
+    public string $categoryFilter = '';
+
     /** '' | active | inactive */
     public string $statusFilter = '';
 
     public ?int $selectedId = null;
 
     public bool $compactView = false;
+
+    public string $scanStatus = '';
 
     /** Chief-style query builder (LESTHANO popup) */
     public bool $showItemQuery = false;
@@ -77,6 +83,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         ->orWhere('manufacturer', 'like', $term)
                         ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
                 });
+            })
+            ->when($this->categoryFilter !== '', function ($q) {
+                $q->where('category_id', (int) $this->categoryFilter);
             })
             ->when($this->favorite === 'new', fn ($q) => $q->newItems())
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
@@ -194,6 +203,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 ]);
                 $listTitle = implode(' › ', $parts) ?: 'Items List';
             }
+        } elseif ($this->categoryFilter !== '') {
+            $catId = (int) $this->categoryFilter;
+            $cat = Category::query()->with('department')->find($catId);
+            $listTitle = $cat
+                ? trim(($cat->department?->name ? $cat->department->name.' › ' : '').$cat->name)
+                : 'Items List';
         }
 
         $categories = Category::query()
@@ -220,6 +235,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'favorites' => $favorites,
             'nodes' => $nodes,
             'listTitle' => $listTitle,
+            'categoryOptions' => $categories,
             'queryFields' => $this->queryFieldOptions(),
             'queryOperators' => $this->queryOperatorOptions(),
             'queryCategories' => $categories,
@@ -232,6 +248,82 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function updatingSearch(): void
     {
         $this->resetPage();
+    }
+
+    public function updatedCategoryFilter(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->scanStatus = '';
+        $this->resetPage();
+    }
+
+    public function newSearch(): void
+    {
+        $this->search = '';
+        $this->scanStatus = '';
+        $this->categoryFilter = '';
+        $this->statusFilter = '';
+        $this->favorite = 'all';
+        $this->selectedId = null;
+        $this->queryCriteria = [];
+        $this->querySelectedIndex = null;
+        $this->queryLoadedName = '';
+        $this->queryStatus = '';
+        $this->resetPage();
+    }
+
+    /**
+     * Single search box: Enter / barcode scan = exact code/UPC match → open item, or new item if missing.
+     */
+    public function scanFindItem(): mixed
+    {
+        $code = trim($this->search);
+        $this->scanStatus = '';
+
+        if ($code === '') {
+            $this->scanStatus = 'Type or scan a barcode / item code, then press Enter.';
+
+            return null;
+        }
+
+        $companyId = (int) auth()->user()->company_id;
+        $item = Item::findByScanCode($companyId, $code, 'any');
+
+        if ($item) {
+            $this->selectedId = (int) $item->id;
+            $this->scanStatus = 'Found: '.$item->item_code;
+
+            return $this->redirect(route('inventory.items.show', $item), navigate: true);
+        }
+
+        $this->scanStatus = 'No item for “'.$code.'”. Opening new item…';
+
+        return $this->redirect(
+            route('inventory.items.create', ['upc' => $code]),
+            navigate: true
+        );
+    }
+
+    /**
+     * Focus SKU field for scanner; if value present, run find/add.
+     */
+    public function focusScanAndFind(): mixed
+    {
+        $this->js('const el = document.getElementById("items-search"); if (el) { el.focus(); el.select(); }');
+
+        if (trim($this->search) !== '') {
+            return $this->scanFindItem();
+        }
+
+        $this->scanStatus = 'Scan barcode or type SKU, then press Enter to open or add.';
+
+        return null;
     }
 
     public function updatedFavorite(): void
@@ -279,25 +371,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
-    }
-
-    public function clearSearch(): void
-    {
-        $this->search = '';
-        $this->resetPage();
-    }
-
-    public function newSearch(): void
-    {
-        $this->search = '';
-        $this->statusFilter = '';
-        $this->favorite = 'all';
-        $this->selectedId = null;
-        $this->queryCriteria = [];
-        $this->querySelectedIndex = null;
-        $this->queryLoadedName = '';
-        $this->queryStatus = '';
-        $this->resetPage();
     }
 
     public function openItemQuery(): void
@@ -958,35 +1031,74 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
-                    <label class="desk-toolbar-label" for="items-search">Search Items:</label>
-                    <input
-                        id="items-search"
-                        type="search"
-                        wire:model.live.debounce.300ms="search"
-                        placeholder="Code, description, UPC, manufacturer…"
-                        class="desk-search orders-search-input"
-                        aria-label="Search Items"
-                    />
+                <div class="desk-toolbar items-toolbar">
+                    <div class="items-toolbar-left">
+                        <div class="items-sku-bar" role="search">
+                            <button
+                                type="button"
+                                class="items-sku-scan"
+                                wire:click="focusScanAndFind"
+                                title="Scan barcode — focus field or open/add on Enter"
+                            >
+                                <svg class="items-sku-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <span class="items-sku-search-label" aria-hidden="true">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <circle cx="7" cy="7" r="4.2"/>
+                                    <path d="M10.2 10.2L14 14"/>
+                                </svg>
+                                Search
+                            </span>
+                            <input
+                                id="items-search"
+                                type="text"
+                                wire:model.live.debounce.300ms="search"
+                                wire:keydown.enter.prevent="scanFindItem"
+                                placeholder="Enter SKU"
+                                class="items-sku-input"
+                                aria-label="Enter SKU or scan barcode"
+                                autocomplete="off"
+                            />
+                            @if ($search !== '')
+                                <button type="button" wire:click="clearSearch" class="items-sku-clear" title="Clear" aria-label="Clear">×</button>
+                            @endif
+                        </div>
+                        <button
+                            type="button"
+                            wire:click="openItemQuery"
+                            class="desk-btn items-query-btn"
+                            title="Advanced search / query"
+                        >
+                            Query
+                        </button>
+                    </div>
+
+                    <div class="items-toolbar-mid">
+                        <label class="desk-toolbar-label" for="items-category-filter">Category</label>
+                        <select
+                            id="items-category-filter"
+                            wire:model.live="categoryFilter"
+                            class="desk-select items-category-select"
+                            aria-label="Filter by category"
+                        >
+                            <option value="">All categories</option>
+                            @foreach ($categoryOptions as $cat)
+                                <option value="{{ $cat->id }}">
+                                    {{ $cat->code ? $cat->code.' — ' : '' }}{{ $cat->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
 
                     <div class="orders-toolbar-right">
-                        <button type="button" wire:click="openItemQuery" class="desk-btn desk-btn-primary" title="Advanced query (qty &lt; 0, category, …)">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                                <circle cx="7" cy="7" r="4.5"/>
-                                <path d="M10.5 10.5L14 14"/>
-                                <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
-                            </svg>
-                            Query…
-                        </button>
                         @if (count($queryCriteria) > 0)
                             <button type="button" wire:click="clearQueryCriteria" class="desk-btn desk-btn-sm" title="Clear query criteria">Clear Query</button>
                         @endif
                         <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
-                            <svg class="orders-toolbar-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                                <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                                <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
-                            </svg>
-                            New Search
+                            Clear all
                         </button>
                         <select
                             id="items-status-filter"
@@ -995,7 +1107,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             aria-label="Active filter"
                             title="Active / Inactive"
                         >
-                            <option value="">All</option>
+                            <option value="">All status</option>
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
                         </select>
@@ -1008,19 +1120,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         >
                             New ({{ \App\Models\Item::NEW_ITEM_DAYS }}d)
                         </button>
-                        <button
-                            type="button"
-                            wire:click="clearSearch"
-                            class="so-icon-btn"
-                            title="Clear search"
-                            aria-label="Clear search"
-                        >
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                                <path d="M4 4l8 8M12 4l-8 8"/>
-                            </svg>
-                        </button>
+                        <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary" title="Add new item">+ Item</a>
                     </div>
                 </div>
+                @if ($scanStatus !== '')
+                    <div class="items-scan-status" role="status">{{ $scanStatus }}</div>
+                @endif
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>

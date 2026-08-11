@@ -199,4 +199,55 @@ class Item extends Model
             ->where('reorder_point', '>', 0)
             ->where('is_inactive', false);
     }
+
+    /**
+     * Match scanned barcode / typed code to an item.
+     *
+     * Matches (case-insensitive, trimmed):
+     * - item_code
+     * - primary_upc (Aliases / Primary UPC)
+     * - item_upcs.upc (all UPC / Alias rows)
+     * - item_prices.alias_code (Pricing alias)
+     * - item_suppliers.supplier_item_code
+     *
+     * @param  'any'|'sell'|'order'  $mode
+     */
+    public static function findByScanCode(int $companyId, string $code, string $mode = 'any'): ?self
+    {
+        $code = trim($code);
+        // Common scanner junk / control chars
+        $code = preg_replace('/[\x00-\x1F\x7F]/', '', $code) ?? $code;
+        $code = trim($code);
+        if ($code === '') {
+            return null;
+        }
+
+        $lower = mb_strtolower($code);
+
+        $query = static::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false);
+
+        if ($mode === 'sell') {
+            $query->where('can_sell', true);
+        } elseif ($mode === 'order') {
+            $query->where('can_order', true);
+        }
+
+        return $query
+            ->where(function ($q) use ($lower) {
+                $q->whereRaw('LOWER(item_code) = ?', [$lower])
+                    ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])
+                    ->orWhereHas('upcs', function ($upc) use ($lower) {
+                        $upc->whereRaw('LOWER(upc) = ?', [$lower]);
+                    })
+                    ->orWhereHas('prices', function ($p) use ($lower) {
+                        $p->whereRaw('LOWER(COALESCE(alias_code, ?)) = ?', ['', $lower]);
+                    })
+                    ->orWhereHas('itemSuppliers', function ($s) use ($lower) {
+                        $s->whereRaw('LOWER(COALESCE(supplier_item_code, ?)) = ?', ['', $lower]);
+                    });
+            })
+            ->first();
+    }
 }

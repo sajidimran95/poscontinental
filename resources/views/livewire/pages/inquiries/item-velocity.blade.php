@@ -68,34 +68,41 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         $this->applyPreset();
     }
 
-    public function lookupItem(): void
+    public function lookupItem(?string $code = null): void
     {
         $this->lookupError = '';
-        $code = trim($this->itemCode);
+        if ($code !== null) {
+            $this->itemCode = trim($code);
+        }
+        $resolved = trim($this->itemCode);
 
-        if ($code === '') {
+        if ($resolved === '') {
             $this->itemId = null;
-            $this->lookupError = 'Enter an item code or UPC.';
+            $this->js('requestAnimationFrame(() => { document.getElementById("iv-code")?.focus(); });');
 
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where(function ($q) use ($code) {
-                $q->where('item_code', $code)
-                    ->orWhere('primary_upc', $code)
-                    ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', $code));
-            })
-            ->first();
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
 
         $this->itemId = $item?->id;
 
         if ($item) {
             $this->itemCode = $item->item_code;
         } else {
-            $this->lookupError = 'No item found for “'.$code.'”.';
+            $this->lookupError = 'No item found for “'.$resolved.'”.';
         }
+    }
+
+    public function focusItemScan(): void
+    {
+        if (trim($this->itemCode) !== '') {
+            $this->lookupItem();
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { document.getElementById("iv-code")?.focus(); });');
     }
 
     public function clearLookup(): void
@@ -116,6 +123,43 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
     {
         $this->showItemBrowse = false;
         $this->itemBrowseSearch = '';
+    }
+
+    /**
+     * Browse search Enter / scanner: exact barcode match selects the item.
+     */
+    public function scanBrowseAndPick(?string $code = null): void
+    {
+        if ($code !== null) {
+            $this->itemBrowseSearch = trim($code);
+        }
+
+        $resolved = trim($this->itemBrowseSearch);
+        if ($resolved === '') {
+            $this->js('requestAnimationFrame(() => { document.getElementById("iv-item-browse")?.focus(); });');
+
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+        if ($item) {
+            $this->pickBrowseItem((int) $item->id);
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-item-browse"); if (el) { el.focus(); el.select(); } });');
+    }
+
+    public function focusBrowseScan(): void
+    {
+        if (trim($this->itemBrowseSearch) !== '') {
+            $this->scanBrowseAndPick();
+
+            return;
+        }
+
+        $this->js('requestAnimationFrame(() => { document.getElementById("iv-item-browse")?.focus(); });');
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -230,24 +274,31 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         <x-action-bar title="Item Velocity" />
 
         <div class="desk-toolbar rpt-toolbar">
-            <div class="rpt-field">
+            <div class="rpt-field rpt-field-search">
                 <label class="desk-toolbar-label" for="iv-code">Item Code / UPC</label>
-                <div class="inq-lookup-row">
+                <div class="so-scan-bar" style="max-width:28rem;min-width:16rem;height:2.15rem">
+                    <button type="button" wire:click="focusItemScan" class="so-scan-btn" title="Scan barcode">
+                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                        </svg>
+                        <span>Scan</span>
+                    </button>
                     <input
                         id="iv-code"
                         type="search"
                         wire:model="itemCode"
-                        wire:keydown.enter.prevent="lookupItem"
-                        class="desk-search font-mono"
-                        placeholder="Item code / UPC…"
+                        wire:keydown.enter.prevent="lookupItem($event.target.value)"
+                        class="so-input font-mono"
+                        placeholder="Scan or type item code / UPC…"
                         autofocus
+                        autocomplete="off"
                     />
                     <button
                         type="button"
                         wire:click="openItemBrowse"
                         class="so-icon-btn"
-                        title="Show existing codes / UPCs"
-                        aria-label="Show existing item codes and UPCs"
+                        title="Browse items"
+                        aria-label="Browse items"
                     >
                         <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
                             <circle cx="3" cy="6" r="1.15"/>
@@ -414,16 +465,25 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                     <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="desk-modal-body">
-                    <div class="desk-toolbar" style="padding:0 0 0.75rem;border:0;background:transparent">
-                        <label class="desk-toolbar-label" for="iv-item-browse">Search</label>
-                        <input
-                            id="iv-item-browse"
-                            type="search"
-                            wire:model.live.debounce.250ms="itemBrowseSearch"
-                            class="desk-search"
-                            placeholder="Filter by item code, description, UPC…"
-                            autofocus
-                        />
+                    <div class="so-entry" style="margin-bottom:0.75rem;border:0;border-radius:6px">
+                        <span class="so-entry-label">Search</span>
+                        <div class="so-scan-bar so-browse-scan-bar" role="search">
+                            <button type="button" wire:click="focusBrowseScan" class="so-scan-btn" title="Scan barcode">
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                id="iv-item-browse"
+                                type="search"
+                                wire:model.live.debounce.250ms="itemBrowseSearch"
+                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
+                                class="so-input so-entry-input"
+                                placeholder="Scan barcode or filter code / UPC…"
+                                autocomplete="off"
+                            />
+                        </div>
                     </div>
                     <div class="desk-grid" style="max-height:22rem;border:1px solid #e2e8f0;border-radius:8px">
                         <table class="desk-table">

@@ -491,7 +491,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->lookupMessage = 'Added item '.$line->item_code.' from receiving.';
     }
 
-    public function lookupItem(int $index): void
+    public function lookupItem(int $index, ?string $code = null): void
     {
         if (! $this->inventory_receiving_id) {
             $this->lookupMessage = 'Select a receiving (Reference) first.';
@@ -499,44 +499,60 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             return;
         }
 
-        $code = trim((string) ($this->lines[$index]['item_code'] ?? ''));
-        if ($code === '') {
-            $this->openItemBrowse($index);
+        if ($code !== null) {
+            $lines = $this->lines;
+            $lines[$index]['item_code'] = trim($code);
+            $this->lines = $lines;
+        }
+
+        $resolved = trim((string) ($this->lines[$index]['item_code'] ?? ''));
+        if ($resolved === '') {
+            $this->js('requestAnimationFrame(() => { document.getElementById("rtv-line-code-'.$index.'")?.focus(); });');
 
             return;
         }
 
-        $lower = mb_strtolower($code);
+        $lower = mb_strtolower($resolved);
         $line = InventoryReceivingLine::query()
             ->where('inventory_receiving_id', $this->inventory_receiving_id)
             ->where('qty_received', '>', 0)
-            ->where(function ($q) use ($lower, $code) {
+            ->where(function ($q) use ($lower) {
                 $q->whereRaw('LOWER(item_code) = ?', [$lower])
-                    ->orWhereHas('item', function ($item) use ($lower, $code) {
-                        $item->whereRaw('LOWER(primary_upc) = ?', [$lower])
+                    ->orWhereHas('item', function ($item) use ($lower) {
+                        $item->whereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])
+                            ->orWhereHas('upcs', fn ($u) => $u->whereRaw('LOWER(upc) = ?', [$lower]))
                             ->orWhereHas('itemSuppliers', fn ($s) => $s->whereRaw(
-                                'LOWER(supplier_item_code) = ?',
-                                [$lower]
+                                'LOWER(COALESCE(supplier_item_code, ?)) = ?',
+                                ['', $lower]
                             ));
                     });
             })
             ->first();
 
         if (! $line) {
-            $this->lookupMessage = 'Item “'.$code.'” is not on the selected receiving. Browse receipt lines.';
-            $this->openItemBrowse($index);
-            $this->itemBrowseSearch = $code;
+            $this->lookupMessage = 'Item / barcode “'.$resolved.'” is not on the selected receiving.';
+            $this->js('requestAnimationFrame(() => { const el = document.getElementById("rtv-line-code-'.$index.'"); if (el) { el.focus(); el.select(); } });');
 
             return;
         }
 
+        $this->lookupMessage = '';
         $this->fillLineFromReceivingLine($index, $line);
-        $this->lookupMessage = 'Added item '.$line->item_code.' from receiving.';
 
         $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
         if (! $hasEmpty) {
             $this->addLine();
         }
+    }
+
+    public function focusLineScan(int $index): void
+    {
+        if (trim((string) ($this->lines[$index]['item_code'] ?? '')) !== '') {
+            $this->lookupItem($index);
+
+            return;
+        }
+        $this->js('requestAnimationFrame(() => { document.getElementById("rtv-line-code-'.$index.'")?.focus(); });');
     }
 
     protected function findReceivingLine(int $receivingLineId): ?InventoryReceivingLine
@@ -842,16 +858,31 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 <tbody>
                                     @foreach ($lines as $i => $line)
                                         <tr>
-                                            <td>
-                                                <div class="so-lookup-row">
+                                            <td class="po-line-code-cell">
+                                                <div class="so-scan-bar po-line-scan-bar" role="search">
+                                                    @unless ($isReadonly)
+                                                        <button type="button" wire:click="focusLineScan({{ $i }})" class="so-scan-btn" title="Scan barcode">
+                                                            <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                                                <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                                            </svg>
+                                                            <span>Scan</span>
+                                                        </button>
+                                                    @endunless
                                                     <input
+                                                        id="rtv-line-code-{{ $i }}"
                                                         wire:model="lines.{{ $i }}.item_code"
-                                                        wire:keydown.enter.prevent="lookupItem({{ $i }})"
+                                                        wire:keydown.enter.prevent="lookupItem({{ $i }}, $event.target.value)"
                                                         class="so-input font-mono item-cell-ctl"
-                                                        placeholder="Code + Enter"
+                                                        placeholder="Scan or type code…"
+                                                        autocomplete="off"
                                                         @disabled($isReadonly)
                                                     />
-                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="desk-btn desk-btn-sm" @disabled($isReadonly) title="Browse receiving items">…</button>
+                                                    @unless ($isReadonly)
+                                                        <button type="button" wire:click.prevent="lookupItem({{ $i }})" class="so-icon-btn so-entry-add-btn" title="Add" aria-label="Add">
+                                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                                        </button>
+                                                        <button type="button" wire:click="openItemBrowse({{ $i }})" class="so-icon-btn" title="Browse receiving items" aria-label="Browse">…</button>
+                                                    @endunless
                                                 </div>
                                             </td>
                                             <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($isReadonly) /></td>

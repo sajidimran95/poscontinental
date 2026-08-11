@@ -4,6 +4,7 @@ use App\Models\CreditMemo;
 use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\TobaccoStampInventory;
+use App\Services\TobaccoProductSalesFileService;
 use App\Services\TobaccoXmlService;
 use App\Services\TobaccoXmlValidator;
 use Livewire\Attributes\Layout;
@@ -13,7 +14,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 {
-    /** Brief 4-return selector: cig_sw | otp_sw | cig_ua | otp_ua */
+    /** cig_sw | otp_sw | cig_ua | otp_ua | msa_report */
     public string $return_type = 'cig_sw';
 
     public string $process_type = 'T';
@@ -37,6 +38,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function mount(): void
     {
+        // Full month for MSA / sales file (invoice dates), not forced to "today".
         $this->period_start = now()->startOfMonth()->toDateString();
         $this->period_end = now()->endOfMonth()->toDateString();
         $this->refreshPreviewCounts();
@@ -61,10 +63,13 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function with(): array
     {
+        $isFileReport = $this->isMsaFileReport();
         [$filer, $product] = $this->resolveReturn();
         $xmlService = app(TobaccoXmlService::class);
-        $codes = $xmlService->scheduleCodes($filer, $product);
-        $needsStamps = $filer === 'unclassified_acquirer' && $product === 'cigarettes';
+        $codes = $isFileReport
+            ? ['purchases' => '—', 'sales' => 'Sales', 'returns' => '—']
+            : $xmlService->scheduleCodes($filer, $product);
+        $needsStamps = ! $isFileReport && $filer === 'unclassified_acquirer' && $product === 'cigarettes';
         $stamps = null;
 
         if ($needsStamps && $this->period_start && $this->period_end) {
@@ -100,20 +105,77 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 'desc' => 'Same coverage for OTP and premium cigar products',
                 'schedules' => 'T101A · T108C · T101C',
             ],
+            'msa_report' => [
+                'title' => 'MSA Report',
+                'desc' => 'Product sales for the selected period, with company and customer location and state',
+                'schedules' => 'Product sales file',
+            ],
         ];
 
         return [
             'scheduleCodes' => $codes,
             'returnOptions' => $returnOptions,
             'needsStamps' => $needsStamps,
+            'isFileReport' => $isFileReport,
             'selectedReturn' => $returnOptions[$this->return_type] ?? null,
-            'readinessIssues' => $xmlService->readinessIssues(auth()->user()->company, $filer, $product, $stamps),
+            'readinessIssues' => $isFileReport
+                ? []
+                : $xmlService->readinessIssues(auth()->user()->company, $filer, $product, $stamps),
         ];
+    }
+
+    private function isMsaFileReport(): bool
+    {
+        return $this->return_type === 'msa_report';
     }
 
     private function refreshPreviewCounts(): void
     {
         if ($this->period_start === '' || $this->period_end === '') {
+            return;
+        }
+
+        if ($this->isMsaFileReport()) {
+            try {
+                $companyId = (int) auth()->user()->company_id;
+                $invoices = Invoice::query()
+                    ->with(['salesOrder.lines.item'])
+                    ->where('company_id', $companyId)
+                    ->whereBetween('invoice_date', [$this->period_start, $this->period_end])
+                    ->get();
+                $sales = 0;
+                $tobSales = 0;
+                foreach ($invoices as $invoice) {
+                    foreach ($invoice->salesOrder?->lines ?? [] as $line) {
+                        $item = $line->item;
+                        if (! $item) {
+                            continue;
+                        }
+                        $qty = (float) (($line->qty_shipped ?? 0) > 0 ? $line->qty_shipped : $line->qty_ordered);
+                        if ($qty == 0.0) {
+                            continue;
+                        }
+                        $sales++;
+                        $type = trim((string) ($item->tobacco_product_type ?? ''));
+                        $isTob = $type !== ''
+                            || filled($item->tobacco_brand_code)
+                            || (int) ($item->tobacco_stick_count ?? 0) > 0
+                            || (float) ($item->tobacco_total_oz ?? 0) > 0;
+                        if ($isTob) {
+                            $tobSales++;
+                        }
+                    }
+                }
+                // Prefer tobacco lines when any exist; otherwise count all invoiced sale lines.
+                $this->purchase_rows = 0;
+                $this->sale_rows = $tobSales > 0 ? $tobSales : $sales;
+                $this->return_rows = 0;
+            } catch (\Throwable) {
+                $this->purchase_rows = 0;
+                $this->sale_rows = 0;
+                $this->return_rows = 0;
+            }
+
             return;
         }
 
@@ -135,6 +197,13 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function validateXml(TobaccoXmlService $xmlService, TobaccoXmlValidator $validator): void
     {
+        if ($this->isMsaFileReport()) {
+            $this->validation_status = 'valid';
+            $this->validation_errors = [];
+
+            return;
+        }
+
         try {
             $payload = $this->buildPayload($xmlService);
         } catch (\Throwable $e) {
@@ -151,6 +220,10 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function downloadXml(TobaccoXmlService $xmlService, TobaccoXmlValidator $validator): ?StreamedResponse
     {
+        if ($this->isMsaFileReport()) {
+            return $this->downloadAllSalesFile(app(TobaccoProductSalesFileService::class));
+        }
+
         try {
             $payload = $this->buildPayload($xmlService);
         } catch (\Throwable $e) {
@@ -178,12 +251,40 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function downloadTxt(TobaccoXmlService $xmlService): StreamedResponse
     {
+        if ($this->isMsaFileReport()) {
+            return $this->downloadAllSalesFile(app(TobaccoProductSalesFileService::class));
+        }
+
         $text = $this->buildTextPayload($xmlService);
         [$filer, $product] = $this->resolveReturn();
         $filename = 'msa-'.$filer.'-'.$product.'-'.$this->period_start.'.txt';
 
         return response()->streamDownload(function () use ($text) {
             echo $text;
+        }, $filename, ['Content-Type' => 'text/plain; charset=UTF-8']);
+    }
+
+    /** Fixed-width TOB sales file — same design/data layout as JAPS_POS_TOB_*.txt */
+    public function downloadAllSalesFile(TobaccoProductSalesFileService $fileService): StreamedResponse
+    {
+        $this->return_type = 'msa_report';
+
+        $company = auth()->user()->company()->first() ?? auth()->user()->company;
+        $companyId = (int) auth()->user()->company_id;
+
+        $invoices = Invoice::query()
+            ->with(['customer', 'salesOrder.lines.item'])
+            ->where('company_id', $companyId)
+            ->whereBetween('invoice_date', [$this->period_start, $this->period_end])
+            ->orderBy('invoice_date')
+            ->orderBy('id')
+            ->get();
+
+        $payload = $fileService->build($company, $this->period_start, $this->period_end, $invoices);
+        $filename = $fileService->filename($company, $this->period_end);
+
+        return response()->streamDownload(function () use ($payload) {
+            echo $payload;
         }, $filename, ['Content-Type' => 'text/plain; charset=UTF-8']);
     }
 
@@ -316,9 +417,13 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 <p class="msa-report-sub">Michigan Treasury e-Services returns · Secondary Wholesaler &amp; Unclassified Acquirer (Cigarettes + OTP)</p>
             </div>
             <div class="msa-report-actions">
-                <button type="button" wire:click="validateXml" class="desk-btn">Validate XML</button>
-                <button type="button" wire:click="downloadTxt" class="desk-btn desk-btn-primary">Download TXT</button>
-                <button type="button" wire:click="downloadXml" class="desk-btn">Download XML</button>
+                @if ($isFileReport)
+                    <button type="button" wire:click="downloadAllSalesFile" class="desk-btn desk-btn-primary">Download MSA Report</button>
+                @else
+                    <button type="button" wire:click="validateXml" class="desk-btn">Validate XML</button>
+                    <button type="button" wire:click="downloadTxt" class="desk-btn desk-btn-primary">Download TXT</button>
+                    <button type="button" wire:click="downloadXml" class="desk-btn">Download XML</button>
+                @endif
                 @if ($needsStamps)
                     <a href="{{ route('inventory.stamp-inventory') }}" wire:navigate class="desk-btn">Stamp Inventory</a>
                 @endif
@@ -390,17 +495,22 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                         </select>
                     </label>
                 </div>
+                <p class="msa-period-hint">
+                    Period uses invoice dates for the selected month or range.
+                </p>
 
                 @if ($selectedReturn)
                     <div class="msa-selected-box">
                         <div class="msa-selected-label">Selected</div>
                         <div class="msa-selected-title">{{ $selectedReturn['title'] }}</div>
                         <div class="msa-selected-desc">{{ $selectedReturn['desc'] }}</div>
-                        <div class="msa-selected-meta">
-                            Schedules: <strong>{{ $scheduleCodes['purchases'] }}</strong> purchases ·
-                            <strong>{{ $scheduleCodes['sales'] }}</strong> sales ·
-                            <strong>{{ $scheduleCodes['returns'] }}</strong> returns
-                        </div>
+                        @if (! $isFileReport)
+                            <div class="msa-selected-meta">
+                                Schedules: <strong>{{ $scheduleCodes['purchases'] }}</strong> purchases ·
+                                <strong>{{ $scheduleCodes['sales'] }}</strong> sales ·
+                                <strong>{{ $scheduleCodes['returns'] }}</strong> returns
+                            </div>
+                        @endif
                     </div>
                 @endif
 
@@ -452,6 +562,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             <strong>Supplier FEIN</strong> = purchase schedule parties.
             <strong>Customer FEIN</strong> = sales/return schedule parties.
             Items need tobacco type / brand code. Period data comes from receipts, invoices, and credit memos.
+            <strong>MSA Report</strong> uses company and party <strong>state</strong> (and address/city/zip) from Company Settings and customer records.
         </p>
     </div>
 </div>

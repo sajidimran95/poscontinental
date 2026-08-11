@@ -39,13 +39,40 @@ class BusinessInsightsService
         $sales = $this->salesSummary();
         $inventory = $this->inventorySummary();
         $invoices = $this->invoiceSummary();
+        $purchases = $this->purchasesSummary(30);
+        $pipeline = $this->pipeline();
+        $openPos = $this->openPurchaseOrders();
+        $payments = $this->paymentsToday();
+        $credits = $this->creditMemosSummary(30);
+        $customers = $this->customersSummary();
 
         return [
             'as_of' => $this->asOf(),
+            'company_id' => $this->companyId,
             'sales' => $sales,
             'inventory' => $inventory,
             'invoices' => $invoices,
+            'purchases_receiving_30d' => $purchases,
+            'sales_pipeline' => [
+                'open_orders' => $pipeline['open_orders'],
+                'open_value' => $pipeline['open_value'],
+            ],
+            'purchase_orders_open' => [
+                'count' => $openPos['count'],
+                'value' => $openPos['value'],
+            ],
+            'payments_today' => [
+                'count' => $payments['count'],
+                'total' => $payments['total'],
+                'by_method' => $payments['by_method'],
+            ],
+            'credit_memos_30d' => [
+                'count' => $credits['count'],
+                'total' => $credits['total'],
+            ],
+            'customers' => $customers,
             'actions' => $this->suggestedActions($sales, $inventory, $invoices),
+            'product_map' => ProjectKnowledge::systemMapArray(),
         ];
     }
 

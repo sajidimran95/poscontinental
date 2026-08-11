@@ -55,8 +55,11 @@
                         <span class="posai-w-avatar user">U</span>
                     @endif
                     <div class="posai-w-bubble-wrap">
-                        @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error'], true))
-                            <div class="posai-w-tool">✓ lookup {{ str_replace('_', ' ', $m['tool']) }}</div>
+                        @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error', 'scope', 'openai'], true))
+                            <div class="posai-w-tool">✓ live data · {{ str_replace('_', ' ', $m['tool']) }}</div>
+                        @endif
+                        @if (($m['tool'] ?? null) === 'openai' && $m['role'] === 'assistant')
+                            <div class="posai-w-tool">OpenAI · this company only</div>
                         @endif
                         <div class="posai-w-bubble">{!! $this->formatReply($m['text']) !!}</div>
                     </div>
@@ -69,27 +72,27 @@
         </div>
 
         <div class="posai-w-footer">
-            <div class="posai-w-suggest">
-                <div class="posai-w-suggest-label">Suggested questions</div>
-                <div class="posai-w-pills">
-                    @foreach (\App\Services\JapsAi\JapsAiChatService::QUICK_PROMPTS as $q)
-                        <button
-                            type="button"
-                            class="posai-w-pill {{ $activeQuick === $q['intent'] ? 'is-active' : '' }}"
-                            wire:click="runQuick('{{ $q['intent'] }}')"
-                            wire:loading.attr="disabled"
-                        >{{ $q['label'] }}</button>
-                    @endforeach
+                <div class="posai-w-suggest">
+                    <div class="posai-w-suggest-label">Suggested questions · free live data (no OpenAI)</div>
+                    <div class="posai-w-pills">
+                        @foreach (\App\Services\JapsAi\JapsAiChatService::QUICK_PROMPTS as $q)
+                            <button
+                                type="button"
+                                class="posai-w-pill {{ $activeQuick === $q['intent'] ? 'is-active' : '' }}"
+                                wire:click="runQuick('{{ $q['intent'] }}')"
+                                wire:loading.attr="disabled"
+                            >{{ $q['label'] }}</button>
+                        @endforeach
+                    </div>
                 </div>
-            </div>
-            <form wire:submit.prevent="send" class="posai-w-composer" autocomplete="off">
-                <input
-                    type="text"
-                    wire:model="message"
-                    class="posai-w-input"
-                    placeholder="Ask POS AI…"
-                    maxlength="2000"
-                />
+                <form wire:submit.prevent="send" class="posai-w-composer" autocomplete="off">
+                    <input
+                        type="text"
+                        wire:model="message"
+                        class="posai-w-input"
+                        placeholder="POS only… or use free Suggested questions"
+                        maxlength="2000"
+                    />
                 <button type="submit" class="posai-w-send" wire:loading.attr="disabled" title="Send">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                         <path d="M3.4 20.6l17.5-7.6c.8-.3.8-1.5 0-1.8L3.4 3.4c-.7-.3-1.4.3-1.2 1l1.7 6.3c.1.4.4.7.8.8l8.2.9-8.2.9c-.4.1-.7.4-.8.8L2.2 19.6c-.2.7.5 1.3 1.2 1z"/>

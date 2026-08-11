@@ -43,7 +43,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->refreshOverview();
         $this->messages = [[
             'role' => 'assistant',
-            'text' => "Hi! I'm POS AI. Ask me about today's sales, inventory, invoices, or pipeline — I summarise live company data and suggest next actions.",
+            'text' => "Hi! I'm POS AI for this company only. "
+                ."**Suggested questions are free** (live POS data, no OpenAI credits). "
+                ."I only discuss wholesale POS topics — not general questions. "
+                ."Typed free-form text needs an OpenAI key with available credits.",
             'tool' => null,
         ]];
     }
@@ -252,8 +255,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     </div>
                 </form>
                 <p class="posai-hint">
-                    Quick answers use live POS data (no OpenAI required). Free-form chat needs enable + API key.
-                    When the widget is on, an AI button appears bottom-right on every page for users with POS AI access.
+                    <strong>Project-based AI:</strong> answers only this wholesale POS (menus, workflows, live company data).  
+                    <strong>POS system map</strong> and other Suggested questions are free (DB).  
+                    Typed free-form uses OpenAI + full project guide when Enable is on and the key has credit.  
+                    Off-topic chat is refused. Widget: bottom-right for users with POS AI access.
                 </p>
             </div>
         @elseif ($panel === 'insights')

@@ -21,7 +21,9 @@ class PosAiWidget extends Component
     {
         $this->messages = [[
             'role' => 'assistant',
-            'text' => "Hi! I'm POS AI. Ask about sales, stock, invoices, purchases, or pipeline — I answer from live company data.",
+            'text' => "Hi! I'm POS AI for **this company only**. "
+                ."Tap a **Suggested question** for free live data (no OpenAI credits). "
+                ."I only answer wholesale POS topics — sales, stock, invoices, purchases, payments.",
             'tool' => null,
         ]];
     }

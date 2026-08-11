@@ -386,6 +386,63 @@ class InventoryService
     }
 
     /**
+     * Manual stock adjustment (set new on-hand or apply a delta). Writes inventory journal.
+     *
+     * @param  'set'|'change'  $mode
+     */
+    public function applyManualAdjustment(
+        Item $item,
+        string $mode,
+        float $value,
+        string $notes = '',
+        ?int $siteId = null,
+    ): void {
+        DB::transaction(function () use ($item, $mode, $value, $notes, $siteId) {
+            $item = Item::query()->lockForUpdate()->find($item->id);
+            if (! $item) {
+                return;
+            }
+
+            $oldQty = (float) $item->quantity_in_stock;
+            if ($mode === 'set') {
+                $newQty = $value;
+            } else {
+                $newQty = $oldQty + $value;
+            }
+
+            $delta = $newQty - $oldQty;
+            if (abs($delta) < 0.0000001) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'adjustQty' => 'No stock change — new quantity matches on-hand.',
+                ]);
+            }
+
+            $item->update(['quantity_in_stock' => $newQty]);
+
+            $ref = 'ADJ-'.now()->format('YmdHis');
+            $noteText = trim($notes) !== ''
+                ? trim($notes)
+                : ($mode === 'set'
+                    ? 'Manual set qty (was '.number_format($oldQty, 2).')'
+                    : 'Manual stock adjustment');
+
+            InventoryJournalEntry::query()->create([
+                'company_id' => $item->company_id,
+                'item_id' => $item->id,
+                'site_id' => $siteId,
+                'source_type' => 'stock_adjustment',
+                'source_id' => null,
+                'reference' => $ref,
+                'qty_change' => $delta,
+                'qty_after' => $newQty,
+                'unit_cost' => $item->current_cost,
+                'user_id' => auth()->id(),
+                'notes' => $noteText,
+            ]);
+        });
+    }
+
+    /**
      * Recalculate allocated_qty from open (non-invoiced) sales order lines.
      *
      * @param  list<int>|int  $itemIds

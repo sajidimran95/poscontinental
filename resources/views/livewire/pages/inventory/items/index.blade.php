@@ -2,11 +2,15 @@
 
 use App\Models\Category;
 use App\Models\Department;
+use App\Models\InventoryJournalEntry;
 use App\Models\Item;
 use App\Models\PurchaseOrderLine;
 use App\Models\SalesOrderLine;
+use App\Models\Site;
 use App\Models\Subcategory;
+use App\Services\InventoryService;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -65,6 +69,27 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public string $queryStatus = '';
 
     public string $querySavedPick = '';
+
+    /** Stock adjust + journal track modal */
+    public bool $showStockAdjust = false;
+
+    /** 'adjust' | 'track' — which rail action opened the modal */
+    public string $stockModalMode = 'adjust';
+
+    public ?int $adjustItemId = null;
+
+    /** set = new total qty | change = add/subtract */
+    public string $adjustMode = 'change';
+
+    public string $adjustQty = '';
+
+    public string $adjustNotes = '';
+
+    public string $adjustSiteId = '';
+
+    public string $adjustMessage = '';
+
+    public string $adjustError = '';
 
     public function with(): array
     {
@@ -230,6 +255,36 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             ->orderBy('name')
             ->get(['id', 'code', 'name', 'category_id']);
 
+        $adjustItem = null;
+        $adjustJournal = collect();
+        $trackAllItems = $this->showStockAdjust
+            && $this->stockModalMode === 'track'
+            && ! $this->adjustItemId;
+
+        if ($this->showStockAdjust) {
+            if ($this->adjustItemId) {
+                $adjustItem = Item::query()
+                    ->where('company_id', $companyId)
+                    ->find($this->adjustItemId);
+            }
+
+            if ($this->stockModalMode === 'track' || $adjustItem) {
+                $journalQuery = InventoryJournalEntry::query()
+                    ->where('company_id', $companyId)
+                    ->with(['site', 'item:id,item_code,description'])
+                    ->orderByDesc('id');
+
+                if ($adjustItem) {
+                    $journalQuery->where('item_id', $adjustItem->id)->limit(50);
+                } else {
+                    // All-items track log
+                    $journalQuery->limit(150);
+                }
+
+                $adjustJournal = $journalQuery->get();
+            }
+        }
+
         return [
             'items' => $query->paginate(50),
             'favorites' => $favorites,
@@ -242,6 +297,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'queryDepartments' => $departmentsFlat,
             'querySubcategories' => $subcategories,
             'savedItemQueries' => $this->loadSavedItemQueries(),
+            'adjustItem' => $adjustItem,
+            'adjustJournal' => $adjustJournal,
+            'trackAllItems' => $trackAllItems,
+            'adjustSites' => ($this->showStockAdjust && $this->stockModalMode === 'adjust')
+                ? Site::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(['id', 'code', 'name'])
+                : collect(),
         ];
     }
 
@@ -617,6 +678,166 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         }
 
         return $this->redirect(route('inventory.items.edit', $item), navigate: true);
+    }
+
+    public function openStockAdjust(?int $itemId = null): void
+    {
+        $this->openStockModal('adjust', $itemId);
+    }
+
+    public function openStockTrack(?int $itemId = null): void
+    {
+        // Explicit item id (e.g. from all-track table link)
+        if ($itemId !== null && $itemId > 0) {
+            $this->openStockModal('track', $itemId);
+
+            return;
+        }
+
+        // Rail: selected row → one item; otherwise → all items
+        if ($this->selectedId) {
+            $this->openStockModal('track', (int) $this->selectedId);
+
+            return;
+        }
+
+        $this->openAllStockTrack();
+    }
+
+    /** Company-wide inventory journal (no single item filter). */
+    public function openAllStockTrack(): void
+    {
+        $this->adjustItemId = null;
+        $this->stockModalMode = 'track';
+        $this->adjustMode = 'change';
+        $this->adjustQty = '';
+        $this->adjustNotes = '';
+        $this->adjustSiteId = '';
+        $this->adjustMessage = '';
+        $this->adjustError = '';
+        $this->showStockAdjust = true;
+    }
+
+    protected function openStockModal(string $mode, ?int $itemId = null): void
+    {
+        if ($mode === 'adjust' && ! auth()->user()?->canAccessFeature('inventory.items', 'edit')) {
+            session()->flash('status', 'Your role cannot adjust stock.');
+
+            return;
+        }
+
+        $id = $itemId ?: $this->selectedId;
+        if (! $id) {
+            session()->flash('status', 'Select an item first.');
+
+            return;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if (! $item) {
+            session()->flash('status', 'Item not found.');
+
+            return;
+        }
+
+        $this->selectedId = (int) $item->id;
+        $this->adjustItemId = (int) $item->id;
+        $this->stockModalMode = $mode === 'track' ? 'track' : 'adjust';
+        $this->adjustMode = 'change';
+        $this->adjustQty = '';
+        $this->adjustNotes = '';
+        $this->adjustSiteId = '';
+        $this->adjustMessage = '';
+        $this->adjustError = '';
+        $this->showStockAdjust = true;
+    }
+
+    public function closeStockAdjust(): void
+    {
+        $this->showStockAdjust = false;
+        $this->adjustItemId = null;
+        $this->stockModalMode = 'adjust';
+        $this->adjustQty = '';
+        $this->adjustNotes = '';
+        $this->adjustSiteId = '';
+        $this->adjustMessage = '';
+        $this->adjustError = '';
+    }
+
+    public function saveStockAdjust(): void
+    {
+        if (! auth()->user()?->canAccessFeature('inventory.items', 'edit')) {
+            $this->adjustError = 'Your role cannot adjust stock.';
+
+            return;
+        }
+
+        if (! $this->adjustItemId) {
+            $this->adjustError = 'No item selected.';
+
+            return;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->adjustItemId);
+
+        if (! $item) {
+            $this->adjustError = 'Item not found.';
+
+            return;
+        }
+
+        $this->adjustError = '';
+        $this->adjustMessage = '';
+
+        $qty = is_numeric($this->adjustQty) ? (float) $this->adjustQty : null;
+        if ($qty === null) {
+            $this->adjustError = 'Enter a valid quantity.';
+
+            return;
+        }
+
+        if ($this->adjustMode === 'set' && $qty < 0) {
+            $this->adjustError = 'New on-hand quantity cannot be negative.';
+
+            return;
+        }
+
+        $siteId = $this->adjustSiteId !== '' ? (int) $this->adjustSiteId : null;
+        if ($siteId) {
+            $ok = Site::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->whereKey($siteId)
+                ->exists();
+            if (! $ok) {
+                $this->adjustError = 'Invalid site.';
+
+                return;
+            }
+        }
+
+        try {
+            app(InventoryService::class)->applyManualAdjustment(
+                $item,
+                $this->adjustMode === 'set' ? 'set' : 'change',
+                $qty,
+                $this->adjustNotes,
+                $siteId,
+            );
+        } catch (ValidationException $e) {
+            $this->adjustError = collect($e->errors())->flatten()->first() ?: 'Adjustment failed.';
+
+            return;
+        }
+
+        $item->refresh();
+        $this->adjustQty = '';
+        $this->adjustNotes = '';
+        $this->adjustMessage = 'Stock updated to '.number_format((float) $item->quantity_in_stock, 2).'. Saved in inventory journal.';
     }
 
     public function openItem(int $id): mixed
@@ -1273,6 +1494,33 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </button>
                 <button
                     type="button"
+                    wire:click="openStockAdjust"
+                    class="desk-rail-btn"
+                    title="Stock adjust selected item"
+                    aria-label="Stock adjust"
+                    @disabled(! $selectedId)
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M2.5 12.5h11"/>
+                        <path d="M4 12.5V6.5l2.2-2 1.8 3.5 2-1.8 2 3.8"/>
+                        <path d="M11.2 4.2l.8-.8.8.8M12 3.4V6"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    wire:click="openStockTrack"
+                    class="desk-rail-btn"
+                    title="{{ $selectedId ? 'Track stock for selected item' : 'Track stock for all items' }}"
+                    aria-label="Stock track"
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M3 2.5h7.5L13 5v8.5H3z"/>
+                        <path d="M10.5 2.5V5H13"/>
+                        <path d="M5 7.5h6M5 10h6M5 12.5h4"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
                     wire:click="deleteSelected"
                     wire:confirm="Delete the selected item? This cannot be undone."
                     class="desk-rail-btn desk-rail-btn-danger"
@@ -1551,6 +1799,258 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 <div class="iq-foot-actions">
                     <button type="button" class="desk-btn desk-btn-primary" wire:click="runItemQuery">Search</button>
                     <button type="button" class="desk-btn" wire:click="closeItemQuery">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
+
+@if ($showStockAdjust && ($adjustItem || $stockModalMode === 'track'))
+    <style>
+        .isa-modal { max-width: 52rem; width: min(52rem, 96vw); }
+        .isa-modal.is-wide { max-width: 62rem; width: min(62rem, 96vw); }
+        .isa-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+            gap: .85rem;
+        }
+        .isa-grid.is-track-only { grid-template-columns: 1fr; }
+        @media (max-width: 720px) {
+            .isa-grid { grid-template-columns: 1fr; }
+        }
+        .isa-panel {
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: .7rem .75rem;
+            background: #fff;
+        }
+        .isa-panel h4 {
+            margin: 0 0 .55rem;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+            color: #334155;
+        }
+        .isa-meta {
+            font-size: 13px;
+            color: #0f172a;
+            margin-bottom: .55rem;
+            line-height: 1.35;
+        }
+        .isa-meta strong { font-weight: 700; }
+        .isa-field { display: flex; flex-direction: column; gap: .2rem; margin-bottom: .5rem; }
+        .isa-field > span { font-size: 11px; font-weight: 600; color: #475569; }
+        .isa-field select, .isa-field input, .isa-field textarea {
+            height: 2rem;
+            font-size: 13px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 0 .45rem;
+            background: #fff;
+            color: #0f172a;
+        }
+        .isa-field textarea { height: auto; min-height: 3.25rem; padding: .4rem .45rem; resize: vertical; }
+        .isa-stock {
+            font-size: 1.35rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #0f172a;
+        }
+        .isa-msg { font-size: 12px; color: #15803d; margin: .35rem 0 0; min-height: 1rem; }
+        .isa-err { font-size: 12px; color: #b91c1c; margin: .35rem 0 0; min-height: 1rem; }
+        .isa-table-wrap { max-height: 18rem; overflow: auto; border: 1px solid #e2e8f0; }
+        .isa-table-wrap .desk-table { margin: 0; font-size: 12px; }
+        .isa-table-wrap th { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
+        .isa-qty-pos { color: #15803d; font-weight: 600; }
+        .isa-qty-neg { color: #b91c1c; font-weight: 600; }
+        .isa-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
+        .isa-item-link {
+            background: none;
+            border: 0;
+            padding: 0;
+            color: #1d4ed8;
+            font: inherit;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+        .isa-item-link:hover { color: #1e40af; }
+    </style>
+    <div class="desk-modal-backdrop" wire:click.self="closeStockAdjust" role="dialog" aria-modal="true" aria-labelledby="isa-title">
+        <div class="desk-modal isa-modal{{ $trackAllItems ? ' is-wide' : '' }}" wire:keydown.escape.window="closeStockAdjust">
+            <div class="desk-modal-head">
+                <span id="isa-title">
+                    @if ($stockModalMode === 'track' && $trackAllItems)
+                        Stock Track — All items
+                    @elseif ($stockModalMode === 'track' && $adjustItem)
+                        Stock Track — {{ $adjustItem->item_code }}
+                    @elseif ($adjustItem)
+                        Stock Adjust — {{ $adjustItem->item_code }}
+                    @else
+                        Stock Track
+                    @endif
+                </span>
+                <button type="button" wire:click="closeStockAdjust" class="desk-modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="desk-modal-body">
+                <div class="isa-grid{{ $stockModalMode === 'track' ? ' is-track-only' : '' }}">
+                    @if ($stockModalMode === 'adjust' && $adjustItem)
+                    <div class="isa-panel">
+                        <h4>Adjust stock</h4>
+                        <div class="isa-meta">
+                            <div><strong>{{ $adjustItem->item_code }}</strong></div>
+                            <div>{{ $adjustItem->description }}</div>
+                            <div style="margin-top:.35rem">On hand: <span class="isa-stock">{{ number_format((float) $adjustItem->quantity_in_stock, 2) }}</span>
+                                <span style="font-size:12px;color:#64748b">{{ $adjustItem->unit_of_measure ?: '' }}</span>
+                            </div>
+                            <div style="font-size:12px;color:#64748b;margin-top:.15rem">
+                                Allocated {{ number_format((float) $adjustItem->allocated_qty, 2) }}
+                                · Available {{ number_format((float) $adjustItem->quantity_in_stock - (float) $adjustItem->allocated_qty, 2) }}
+                            </div>
+                        </div>
+                        <label class="isa-field">
+                            <span>Mode</span>
+                            <select wire:model.live="adjustMode">
+                                <option value="change">Add / subtract qty</option>
+                                <option value="set">Set new on-hand total</option>
+                            </select>
+                        </label>
+                        <label class="isa-field">
+                            <span>{{ $adjustMode === 'set' ? 'New on-hand qty' : 'Qty change (+ in / − out)' }}</span>
+                            <input type="number" step="any" wire:model="adjustQty" class="desk-input" inputmode="decimal" placeholder="{{ $adjustMode === 'set' ? 'e.g. 100' : 'e.g. 5 or -3' }}" />
+                        </label>
+                        @if ($adjustSites->isNotEmpty())
+                            <label class="isa-field">
+                                <span>Site (optional)</span>
+                                <select wire:model="adjustSiteId">
+                                    <option value="">—</option>
+                                    @foreach ($adjustSites as $site)
+                                        <option value="{{ $site->id }}">{{ $site->code }}{{ $site->name ? ' — '.$site->name : '' }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                        @endif
+                        <label class="isa-field">
+                            <span>Notes / reason</span>
+                            <textarea wire:model="adjustNotes" rows="2" placeholder="Damage, count fix, found stock…"></textarea>
+                        </label>
+                        <div class="isa-actions">
+                            <button type="button" class="desk-btn desk-btn-primary" wire:click="saveStockAdjust" wire:loading.attr="disabled">
+                                <span wire:loading.remove wire:target="saveStockAdjust">Post adjustment</span>
+                                <span wire:loading wire:target="saveStockAdjust">Posting…</span>
+                            </button>
+                            <button type="button" class="desk-btn" wire:click="closeStockAdjust">Close</button>
+                        </div>
+                        @if ($adjustError !== '')
+                            <p class="isa-err" role="alert">{{ $adjustError }}</p>
+                        @endif
+                        @if ($adjustMessage !== '')
+                            <p class="isa-msg" role="status">{{ $adjustMessage }}</p>
+                        @endif
+                    </div>
+                    @endif
+                    <div class="isa-panel">
+                        <h4>
+                            Inventory track (journal)
+                            @if ($stockModalMode === 'track' && $adjustItem)
+                                <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#64748b;margin-left:.35rem">
+                                    {{ $adjustItem->item_code }} · On hand {{ number_format((float) $adjustItem->quantity_in_stock, 2) }}
+                                </span>
+                            @elseif ($trackAllItems)
+                                <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#64748b;margin-left:.35rem">
+                                    Latest movements (all items)
+                                </span>
+                            @endif
+                        </h4>
+                        @if ($stockModalMode === 'track' && $adjustItem)
+                            <div class="isa-meta" style="margin-bottom:.45rem">
+                                <div>{{ $adjustItem->description }}</div>
+                                <div style="font-size:12px;color:#64748b;margin-top:.15rem">
+                                    Allocated {{ number_format((float) $adjustItem->allocated_qty, 2) }}
+                                    · Available {{ number_format((float) $adjustItem->quantity_in_stock - (float) $adjustItem->allocated_qty, 2) }}
+                                </div>
+                            </div>
+                        @elseif ($trackAllItems)
+                            <div class="isa-meta" style="margin-bottom:.45rem;font-size:12px;color:#64748b">
+                                Select a list row first to track one item only. Click an item code below to open that item’s track.
+                            </div>
+                        @endif
+                        <div class="isa-table-wrap" @if ($stockModalMode === 'track') style="max-height:22rem" @endif>
+                            <table class="desk-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        @if ($trackAllItems)
+                                            <th>Item</th>
+                                        @endif
+                                        <th>Source</th>
+                                        <th>Ref</th>
+                                        <th class="desk-money">Change</th>
+                                        <th class="desk-money">After</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse ($adjustJournal as $entry)
+                                        @php
+                                            $src = (string) $entry->source_type;
+                                            $srcLabel = match (true) {
+                                                $src === 'stock_adjustment' => 'Stock Adjust',
+                                                str_contains($src, 'Invoice') => 'Invoice',
+                                                str_contains($src, 'Receiving') => 'Receiving',
+                                                str_contains($src, 'ReturnToVendor') => 'RTV',
+                                                str_contains($src, 'StockCount') => 'Stock Count',
+                                                str_contains($src, 'CreditMemo') => 'Credit Memo',
+                                                default => class_basename($src) ?: $src,
+                                            };
+                                            $chg = (float) $entry->qty_change;
+                                        @endphp
+                                        <tr wire:key="adj-j-{{ $entry->id }}">
+                                            <td>{{ optional($entry->created_at)?->format('n/j/Y g:ia') }}</td>
+                                            @if ($trackAllItems)
+                                                <td>
+                                                    @if ($entry->item)
+                                                        <button
+                                                            type="button"
+                                                            class="isa-item-link"
+                                                            wire:click="openStockTrack({{ $entry->item_id }})"
+                                                            title="{{ $entry->item->description }}"
+                                                        >{{ $entry->item->item_code }}</button>
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                            @endif
+                                            <td>{{ $srcLabel }}</td>
+                                            <td class="desk-num">{{ $entry->reference ?: '—' }}</td>
+                                            <td @class(['desk-money', 'isa-qty-pos' => $chg > 0, 'isa-qty-neg' => $chg < 0])>
+                                                {{ $chg > 0 ? '+' : '' }}{{ number_format($chg, 2) }}
+                                            </td>
+                                            <td class="desk-money">{{ number_format((float) $entry->qty_after, 2) }}</td>
+                                            <td>{{ $entry->notes ?: '—' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr class="is-empty">
+                                            <td colspan="{{ $trackAllItems ? 7 : 6 }}">
+                                                {{ $trackAllItems ? 'No stock history yet.' : 'No stock history yet for this item.' }}
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                        @if ($stockModalMode === 'track')
+                            <div class="isa-actions">
+                                @if ($adjustItem && auth()->user()?->canAccessFeature('inventory.items', 'edit'))
+                                    <button type="button" class="desk-btn desk-btn-primary" wire:click="openStockAdjust({{ $adjustItem->id }})">Adjust stock…</button>
+                                @endif
+                                @if ($adjustItem)
+                                    <button type="button" class="desk-btn" wire:click="openAllStockTrack">All items track</button>
+                                @endif
+                                <button type="button" class="desk-btn" wire:click="closeStockAdjust">Close</button>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>

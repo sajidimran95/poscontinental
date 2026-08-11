@@ -38,6 +38,12 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public string $lookupMessage = '';
 
+    public bool $showItemBrowse = false;
+
+    public string $itemBrowseSearch = '';
+
+    public ?int $itemBrowseLineIndex = null;
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
     public array $lines = [];
 
@@ -120,6 +126,23 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             'totalItemsCounted' => collect($this->lines)->filter(fn ($l) => filled($l['counted'] ?? null))->count(),
             'totalQtyCounted' => collect($this->lines)->sum(fn ($l) => (float) ($l['counted'] ?: 0)),
             'isProcessed' => $this->status === 'Processed',
+            'browseItems' => $this->showItemBrowse
+                ? Item::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_inactive', false)
+                    ->when($this->itemBrowseSearch !== '', function ($q) {
+                        $term = '%'.$this->itemBrowseSearch.'%';
+                        $q->where(function ($inner) use ($term) {
+                            $inner->where('item_code', 'like', $term)
+                                ->orWhere('description', 'like', $term)
+                                ->orWhere('primary_upc', 'like', $term)
+                                ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
+                        });
+                    })
+                    ->orderBy('item_code')
+                    ->limit(150)
+                    ->get(['id', 'item_code', 'description', 'primary_upc', 'unit_of_measure', 'quantity_in_stock', 'allocated_qty'])
+                : collect(),
         ];
     }
 
@@ -167,8 +190,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
         if (! $item) {
-            $this->lookupMessage = 'Item / barcode "'.$resolved.'" was not found.';
-            $this->focusLineCode($index, true);
+            $this->lookupMessage = '';
+            $this->openItemBrowse($index, $resolved);
 
             return;
         }
@@ -188,7 +211,111 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
 
         $this->fillLineFromItem($index, $item);
+        // Ready next empty line for continuous scan / manual entry.
+        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
+        foreach ($this->lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                $this->focusLineCode((int) $i);
+
+                return;
+            }
+        }
         $this->js('requestAnimationFrame(() => { document.getElementById("sc-line-counted-'.$index.'")?.focus(); });');
+    }
+
+    public function openItemBrowse(?int $lineIndex = null, ?string $search = null): void
+    {
+        if ($this->status === 'Processed') {
+            return;
+        }
+
+        $this->itemBrowseLineIndex = $lineIndex ?? (count($this->lines) > 0 ? count($this->lines) - 1 : 0);
+        if (! isset($this->lines[$this->itemBrowseLineIndex])) {
+            $this->addLine();
+            $this->itemBrowseLineIndex = count($this->lines) - 1;
+        }
+        $this->itemBrowseSearch = $search !== null
+            ? trim($search)
+            : trim((string) ($this->lines[$this->itemBrowseLineIndex]['item_code'] ?? ''));
+        $this->showItemBrowse = true;
+    }
+
+    public function closeItemBrowse(): void
+    {
+        $this->showItemBrowse = false;
+        $this->itemBrowseSearch = '';
+        $this->itemBrowseLineIndex = null;
+    }
+
+    public function scanBrowseAndPick(?string $code = null): void
+    {
+        if ($code !== null) {
+            $this->itemBrowseSearch = trim($code);
+        }
+        $resolved = trim($this->itemBrowseSearch);
+        if ($resolved === '') {
+            $this->js('requestAnimationFrame(() => { document.getElementById("sc-item-browse")?.focus(); });');
+
+            return;
+        }
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+        if ($item) {
+            $this->pickBrowseItem((int) $item->id);
+
+            return;
+        }
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("sc-item-browse"); if (el) { el.focus(); el.select(); } });');
+    }
+
+    public function pickBrowseItem(int $itemId): void
+    {
+        if ($this->status === 'Processed') {
+            return;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->find($itemId);
+
+        if (! $item) {
+            return;
+        }
+
+        $index = $this->itemBrowseLineIndex ?? (count($this->lines) > 0 ? count($this->lines) - 1 : 0);
+        if (! isset($this->lines[$index])) {
+            $this->addLine();
+            $index = count($this->lines) - 1;
+        }
+
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id && (int) $i !== (int) $index) {
+                $this->closeItemBrowse();
+                $this->lookupMessage = $item->item_code.' is already on this count (line '.((int) $i + 1).').';
+                $this->focusLineCode((int) $i);
+
+                return;
+            }
+        }
+
+        $this->fillLineFromItem($index, $item);
+        $this->lookupMessage = '';
+        $this->closeItemBrowse();
+
+        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
+        foreach ($this->lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                $this->focusLineCode((int) $i);
+
+                return;
+            }
+        }
     }
 
     public function focusLineScan(int $index): void
@@ -197,13 +324,18 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             return;
         }
 
-        if (trim((string) ($this->lines[$index]['item_code'] ?? '')) !== '') {
-            $this->lookupItem($index);
-
-            return;
-        }
-
-        $this->focusLineCode($index);
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                const el = document.getElementById('sc-line-code-{$index}');
+                if (!el) return;
+                el.focus();
+                el.select();
+                const v = (el.value || '').trim();
+                if (v !== '') {
+                    \$wire.lookupItem({$index}, v);
+                }
+            });
+        JS);
     }
 
     public function clearLineItemCode(int $index): void
@@ -527,6 +659,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                     <button type="button" wire:click.prevent="lookupItem({{ $i }})" class="so-icon-btn so-entry-add-btn" title="Add item" aria-label="Add item">
                                                         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                                                     </button>
+                                                    <button type="button" wire:click="openItemBrowse({{ $i }})" class="so-icon-btn" title="Item list" aria-label="Browse items">…</button>
                                                 @endunless
                                             </div>
                                         </td>
@@ -591,4 +724,63 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             </div>
         </div>
     </form>
+
+    @if ($showItemBrowse)
+        <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Item list">
+            <div class="desk-modal desk-modal-lg so-item-browse-modal">
+                <div class="desk-modal-head">
+                    <span>Item List</span>
+                    <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="so-item-browse-toolbar">
+                    <div class="so-scan-bar so-browse-scan-bar" role="search">
+                        <button type="button" class="so-scan-btn" title="Scan to pick" wire:click="$js('document.getElementById(\'sc-item-browse\')?.focus()')">
+                            <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                            </svg>
+                            <span>Scan</span>
+                        </button>
+                        <input
+                            id="sc-item-browse"
+                            type="search"
+                            wire:model.live.debounce.250ms="itemBrowseSearch"
+                            wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
+                            class="so-input so-item-browse-search"
+                            placeholder="Scan barcode or filter code / UPC…"
+                            autofocus
+                        />
+                    </div>
+                    <span class="so-item-browse-count">{{ $browseItems->count() }} shown</span>
+                </div>
+                <div class="so-item-browse-scroll">
+                    <table class="so-item-browse-table">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Description</th>
+                                <th>UPC</th>
+                                <th class="is-num">In stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($browseItems as $bi)
+                                <tr class="is-pickable" wire:click="pickBrowseItem({{ $bi->id }})" style="cursor:pointer" title="Click to add">
+                                    <td class="font-mono">{{ $bi->item_code }}</td>
+                                    <td class="col-desc-cell">{{ $bi->description }}</td>
+                                    <td class="font-mono">{{ $bi->primary_upc ?: '—' }}</td>
+                                    <td class="is-num">{{ number_format((float) $bi->quantity_in_stock, 2) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="so-item-browse-empty">No items match.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="so-item-browse-foot">
+                    <span>Exact scan picks immediately · partial filters the list</span>
+                    <button type="button" wire:click="closeItemBrowse" class="desk-btn">Close</button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

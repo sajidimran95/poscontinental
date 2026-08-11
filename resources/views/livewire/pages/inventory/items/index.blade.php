@@ -279,21 +279,26 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     }
 
     /**
-     * Single search box: Enter / barcode scan = exact code/UPC match → open item, or new item if missing.
+     * Enter / barcode: exact code/UPC → open item. Otherwise keep term as list filter (browse).
+     * Pass code from the live input so scanner Enter is not stale.
      */
-    public function scanFindItem(): mixed
+    public function scanFindItem(?string $code = null): mixed
     {
-        $code = trim($this->search);
+        if ($code !== null) {
+            $this->search = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
+        }
+
+        $resolved = trim($this->search);
         $this->scanStatus = '';
 
-        if ($code === '') {
+        if ($resolved === '') {
             $this->scanStatus = 'Type or scan a barcode / item code, then press Enter.';
 
             return null;
         }
 
         $companyId = (int) auth()->user()->company_id;
-        $item = Item::findByScanCode($companyId, $code, 'any');
+        $item = Item::findByScanCode($companyId, $resolved, 'any');
 
         if ($item) {
             $this->selectedId = (int) $item->id;
@@ -302,26 +307,32 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             return $this->redirect(route('inventory.items.show', $item), navigate: true);
         }
 
-        $this->scanStatus = 'No item for “'.$code.'”. Opening new item…';
+        // Partial / unknown: show filtered item list (do not auto-create).
+        $this->resetPage();
+        $this->scanStatus = 'No exact match for “'.$resolved.'”. Showing matching items in the list.';
 
-        return $this->redirect(
-            route('inventory.items.create', ['upc' => $code]),
-            navigate: true
-        );
+        return null;
     }
 
     /**
-     * Focus SKU field for scanner; if value present, run find/add.
+     * Focus SKU field for scanner; if value present, run find (or list filter).
      */
     public function focusScanAndFind(): mixed
     {
-        $this->js('const el = document.getElementById("items-search"); if (el) { el.focus(); el.select(); }');
+        $this->js(<<<'JS'
+            const el = document.getElementById('items-search');
+            if (!el) return;
+            el.focus();
+            el.select();
+            const v = (el.value || '').trim();
+            if (v !== '') {
+                $wire.scanFindItem(v);
+            }
+        JS);
 
-        if (trim($this->search) !== '') {
-            return $this->scanFindItem();
+        if (trim($this->search) === '') {
+            $this->scanStatus = 'Scan barcode or type SKU, then press Enter to open — or keep typing to filter the list.';
         }
-
-        $this->scanStatus = 'Scan barcode or type SKU, then press Enter to open or add.';
 
         return null;
     }
@@ -1056,8 +1067,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 id="items-search"
                                 type="text"
                                 wire:model.live.debounce.300ms="search"
-                                wire:keydown.enter.prevent="scanFindItem"
-                                placeholder="Enter SKU"
+                                wire:keydown.enter.prevent="scanFindItem($event.target.value)"
+                                placeholder="Scan or type code / UPC — Enter opens exact"
                                 class="items-sku-input"
                                 aria-label="Enter SKU or scan barcode"
                                 autocomplete="off"

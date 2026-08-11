@@ -65,6 +65,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public string $lookupMessage = '';
 
+    /** Entry bar armed for Scan / barcode gun. */
+    public bool $scanModeActive = false;
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_received:string,unit_cost:string}> */
     public array $lines = [];
 
@@ -139,8 +142,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
-        $subtotal = collect($this->lines)->sum(fn ($l) => (float) $l['qty_ordered'] * (float) $l['unit_cost']);
+        $subtotal = collect($this->lines)->sum(fn ($l) => (float) ($l['qty_ordered'] ?? 0) * (float) ($l['unit_cost'] ?? 0));
         $total = $subtotal - (float) $this->trade_discount + (float) $this->freight + (float) $this->miscellaneous + (float) $this->tax;
+
+        // Stable signature so the lines table fully re-renders when items change.
+        $linesSig = md5(json_encode(array_map(static fn ($l) => [
+            (int) ($l['item_id'] ?? 0),
+            (string) ($l['item_code'] ?? ''),
+            (string) ($l['qty_ordered'] ?? ''),
+            (string) ($l['unit_cost'] ?? ''),
+        ], $this->lines)));
 
         return [
             'suppliers' => Supplier::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('name')->get(),
@@ -153,8 +164,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 : null,
             'subtotal' => $subtotal,
             'orderTotal' => $total,
-            'totalItemsOrdered' => collect($this->lines)->sum(fn ($l) => (float) $l['qty_ordered']),
-            'totalItemsReceived' => collect($this->lines)->sum(fn ($l) => (float) $l['qty_received']),
+            'totalItemsOrdered' => collect($this->lines)->sum(fn ($l) => (float) ($l['qty_ordered'] ?? 0)),
+            'totalItemsReceived' => collect($this->lines)->sum(fn ($l) => (float) ($l['qty_received'] ?? 0)),
+            'linesSig' => $linesSig,
+            'filledLineCount' => collect($this->lines)->filter(
+                fn ($l) => filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0
+            )->count(),
             'tabs' => [
                 'general' => 'General',
                 'items' => 'Items',
@@ -184,7 +199,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     public function openItemBrowse(?int $lineIndex = null): void
     {
         $this->browseLineIndex = $lineIndex;
-        $this->itemBrowseSearch = $this->itemLookup !== '' ? trim($this->itemLookup) : '';
+        $code = '';
+        if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
+            $code = trim((string) ($this->lines[$lineIndex]['item_code'] ?? ''));
+        }
+        $this->itemBrowseSearch = $code !== '' ? $code : ($this->itemLookup !== '' ? trim($this->itemLookup) : '');
         $this->lookupMessage = '';
         $this->showItemBrowse = true;
         $this->js('requestAnimationFrame(() => { document.getElementById("po-item-browse")?.focus(); });');
@@ -213,7 +232,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $this->applyItemToOrder($item);
         $this->closeItemBrowse();
-        $this->focusNextEmptyLineCode();
+        $this->clearAndFocusEntry();
     }
 
     public function addLine(): void
@@ -239,57 +258,291 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 
     /**
-     * Scan / Enter on bottom entry: add item or bump qty if already on PO.
+     * After entry typing pause / gun scan: full exact match only → add line.
      */
-    public function addItemFromScan(?string $code = null): void
+    public function autoAddEntryIfExactMatch(?string $code = null): void
     {
         abort_if($this->viewMode, 403);
 
-        $code = trim($code ?? $this->itemLookup);
-        if ($code === '') {
-            $this->focusNextEmptyLineCode();
-
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
+        if ($code === '' || mb_strlen($code) < 2) {
             return;
         }
 
         $item = $this->findPurchaseItem($code);
-        if (! $item) {
-            $this->lookupMessage = 'Item / barcode "'.$code.'" was not found.';
-            $this->focusNextEmptyLineCode();
-
+        if (! $item || $this->codeIsPrefixOfLongerOrderableCode($code)) {
             return;
         }
 
         $this->itemLookup = '';
         $this->lookupMessage = '';
+        $this->browseLineIndex = null;
         $this->applyItemToOrder($item);
-        $this->focusNextEmptyLineCode();
+        $this->scanModeActive = true;
+        $this->clearAndFocusEntry();
     }
 
+    /**
+     * ✓ / Enter: add if match, else open item list filtered by code.
+     */
+    public function addItemFromEntry(?string $code = null): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
+        $this->itemLookup = $code;
+
+        if ($code === '') {
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        $item = $this->findPurchaseItem($code);
+        if ($item) {
+            $this->itemLookup = '';
+            $this->lookupMessage = '';
+            $this->browseLineIndex = null;
+            $this->applyItemToOrder($item);
+            $this->scanModeActive = true;
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        $this->lookupMessage = '';
+        $this->itemBrowseSearch = $code;
+        $this->openItemBrowse(null);
+    }
+
+    /**
+     * True when a longer orderable item code/UPC starts with $code (user still typing).
+     */
+    protected function codeIsPrefixOfLongerOrderableCode(string $code): bool
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $lower = mb_strtolower(trim($code));
+        $len = mb_strlen($lower);
+        if ($len < 1) {
+            return false;
+        }
+
+        $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $lower).'%';
+
+        return Item::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where('can_order', true)
+            ->where(function ($q) use ($len, $like) {
+                $q->where(function ($inner) use ($len, $like) {
+                    $inner->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
+                        ->whereRaw('LOWER(item_code) LIKE ?', [$like]);
+                })
+                    ->orWhere(function ($inner) use ($len, $like) {
+                        $inner->whereRaw('CHAR_LENGTH(COALESCE(primary_upc, ?)) > ?', ['', $len])
+                            ->whereRaw('LOWER(COALESCE(primary_upc, ?)) LIKE ?', ['', $like]);
+                    })
+                    ->orWhereHas('upcs', function ($upc) use ($len, $like) {
+                        $upc->whereRaw('CHAR_LENGTH(upc) > ?', [$len])
+                            ->whereRaw('LOWER(upc) LIKE ?', [$like]);
+                    })
+                    ->orWhereHas('prices', function ($p) use ($len, $like) {
+                        $p->whereRaw('CHAR_LENGTH(COALESCE(alias_code, ?)) > ?', ['', $len])
+                            ->whereRaw('LOWER(COALESCE(alias_code, ?)) LIKE ?', ['', $like]);
+                    })
+                    ->orWhereHas('itemSuppliers', function ($s) use ($len, $like) {
+                        $s->whereRaw('CHAR_LENGTH(COALESCE(supplier_item_code, ?)) > ?', ['', $len])
+                            ->whereRaw('LOWER(COALESCE(supplier_item_code, ?)) LIKE ?', ['', $like]);
+                    });
+            })
+            ->exists();
+    }
+
+    /**
+     * Scan button: arm single entry bar (not each line).
+     */
     public function focusScanAndAdd(): void
     {
         abort_if($this->viewMode, 403);
 
-        // Prefer first empty line Item Code for continuous scanning.
-        foreach ($this->lines as $i => $line) {
-            if (! filled($line['item_code'] ?? null)) {
-                $this->focusLineScan((int) $i);
+        $this->scanModeActive = true;
+        $this->lookupMessage = '';
 
-                return;
-            }
-        }
-
-        $this->addLine();
-        $this->focusLineScan(count($this->lines) - 1);
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('po-item-entry');
+                if (!el) return;
+                el.focus();
+                const v = (el.value || '').trim();
+                if (v.length >= 2) {
+                    setTimeout(() => {
+                        const now = (document.getElementById('po-item-entry')?.value || '').trim();
+                        if (now.length >= 2 && now === v) {
+                            $wire.autoAddEntryIfExactMatch(now);
+                        }
+                    }, 750);
+                } else {
+                    el.select();
+                }
+            });
+        JS);
     }
 
     public function clearItemLookup(): void
     {
         $this->itemLookup = '';
+        $this->scanModeActive = false;
         if (str_contains(strtolower($this->lookupMessage), 'was not found')) {
             $this->lookupMessage = '';
         }
-        $this->focusNextEmptyLineCode();
+        $this->clearAndFocusEntry();
+    }
+
+    protected function clearAndFocusEntry(): void
+    {
+        $this->itemLookup = '';
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('po-item-entry');
+                if (!el) return;
+                el.value = '';
+                el.focus();
+            });
+        JS);
+    }
+
+    /**
+     * Bump qty on existing line, else fill empty line / new line.
+     */
+    protected function applyItemToOrder(Item $item): void
+    {
+        $lines = array_values($this->lines);
+
+        foreach ($lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
+                $qty = (float) ($line['qty_ordered'] ?? 0);
+                $lines[$i]['qty_ordered'] = (string) ($qty + 1);
+                // Keep code/desc in sync (fixes display if earlier fill was partial).
+                $lines[$i]['item_code'] = (string) $item->item_code;
+                $lines[$i]['description'] = (string) ($item->description ?? $lines[$i]['description'] ?? '');
+                if (! filled($lines[$i]['uom'] ?? null)) {
+                    $lines[$i]['uom'] = filled($item->unit_of_measure)
+                        ? (string) $item->unit_of_measure
+                        : 'EA';
+                }
+                $this->lines = $lines;
+
+                return;
+            }
+        }
+
+        $target = null;
+        if ($this->browseLineIndex !== null && isset($lines[$this->browseLineIndex])) {
+            $target = (int) $this->browseLineIndex;
+            $this->browseLineIndex = null;
+        } else {
+            foreach ($lines as $i => $line) {
+                if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
+                    $target = (int) $i;
+                    break;
+                }
+            }
+        }
+
+        if ($target === null) {
+            $lines[] = $this->emptyLine();
+            $target = count($lines) - 1;
+        }
+
+        $this->lines = $lines;
+        $this->fillLineFromItem($target, $item);
+
+        $hasEmpty = collect($this->lines)->contains(
+            fn ($l) => ! filled($l['item_code'] ?? null) && empty($l['item_id'])
+        );
+        if (! $hasEmpty) {
+            $this->lines = array_values(array_merge($this->lines, [$this->emptyLine()]));
+        }
+    }
+
+    protected function fillLineFromItem(int $index, Item $item): void
+    {
+        $supplierCost = $item->itemSuppliers()
+            ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
+            ->orderByDesc('is_default')
+            ->first();
+
+        $cost = $supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost;
+        // Always keep numeric cost so line totals display (do not blank for zeros).
+        $costStr = is_numeric($cost) ? (string) (0 + (float) $cost) : '0';
+
+        $lines = array_values($this->lines);
+        if (! isset($lines[$index])) {
+            $lines[$index] = $this->emptyLine();
+        }
+
+        $lines[$index]['item_id'] = (int) $item->id;
+        $lines[$index]['item_code'] = (string) $item->item_code;
+        $lines[$index]['description'] = (string) ($item->description ?? '');
+        // Default to item standard UOM (never leave blank for free typing).
+        $lines[$index]['uom'] = filled($item->unit_of_measure)
+            ? (string) $item->unit_of_measure
+            : 'EA';
+        $lines[$index]['unit_cost'] = $costStr;
+        if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
+            $lines[$index]['qty_ordered'] = '1';
+        }
+        if (! array_key_exists('qty_received', $lines[$index]) || $lines[$index]['qty_received'] === null) {
+            $lines[$index]['qty_received'] = '';
+        }
+
+        $this->lines = array_values($lines);
+    }
+
+    /**
+     * UOMs allowed for a PO line: item standard + pricing UOMs (no free text).
+     *
+     * @return list<string>
+     */
+    public function uomOptionsForLine(int $index): array
+    {
+        if (! isset($this->lines[$index])) {
+            return ['EA'];
+        }
+
+        $current = trim((string) ($this->lines[$index]['uom'] ?? ''));
+        $itemId = (int) ($this->lines[$index]['item_id'] ?? 0);
+        $options = [];
+
+        if ($itemId > 0) {
+            $item = Item::query()->with('prices')->find($itemId);
+            if ($item) {
+                if (filled($item->unit_of_measure)) {
+                    $options[] = (string) $item->unit_of_measure;
+                }
+                foreach ($item->prices as $p) {
+                    if (filled($p->uom)) {
+                        $options[] = (string) $p->uom;
+                    }
+                }
+            }
+        }
+
+        if ($current !== '') {
+            $options[] = $current;
+        }
+
+        $options = array_values(array_unique(array_filter($options, fn ($u) => trim((string) $u) !== '')));
+
+        return $options !== [] ? $options : ['EA'];
+    }
+
+    /**
+     * @deprecated Use addItemFromEntry
+     */
+    public function addItemFromScan(?string $code = null): void
+    {
+        $this->addItemFromEntry($code);
     }
 
     /**
@@ -334,91 +587,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->js('requestAnimationFrame(() => { document.getElementById("po-item-browse")?.focus(); });');
     }
 
-    /**
-     * Bump qty on existing line, else fill empty line / new line.
-     */
-    protected function applyItemToOrder(Item $item): void
-    {
-        foreach ($this->lines as $i => $line) {
-            if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
-                $qty = (float) ($line['qty_ordered'] ?? 0);
-                $this->lines[$i]['qty_ordered'] = (string) ($qty + 1);
-
-                return;
-            }
-        }
-
-        if ($this->browseLineIndex !== null && isset($this->lines[$this->browseLineIndex])) {
-            $this->fillLineFromItem($this->browseLineIndex, $item);
-            $this->browseLineIndex = null;
-        } else {
-            $empty = collect($this->lines)->search(fn ($l) => ! filled($l['item_code'] ?? null));
-            if ($empty === false) {
-                $this->addLine();
-                $empty = count($this->lines) - 1;
-            }
-            $this->fillLineFromItem((int) $empty, $item);
-        }
-
-        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
-        if (! $hasEmpty) {
-            $this->addLine();
-        }
-    }
-
-    public function lookupItem(int $index, ?string $code = null): void
-    {
-        abort_if($this->viewMode, 403);
-
-        if ($code !== null) {
-            $lines = $this->lines;
-            $lines[$index]['item_code'] = trim($code);
-            $this->lines = $lines;
-        }
-
-        $resolved = trim((string) ($this->lines[$index]['item_code'] ?? ''));
-        if ($resolved === '') {
-            $this->focusLineCode($index);
-
-            return;
-        }
-
-        $item = $this->findPurchaseItem($resolved);
-
-        if (! $item) {
-            $this->lookupMessage = 'Item / barcode "'.$resolved.'" was not found.';
-            $this->focusLineCode($index, true);
-
-            return;
-        }
-
-        $this->lookupMessage = '';
-        $this->browseLineIndex = $index;
-        $this->applyItemToOrder($item);
-        $this->browseLineIndex = null;
-        $this->focusNextEmptyLineCode();
-    }
-
-    /**
-     * Focus line Item Code for scanner; if value present, resolve and add.
-     */
-    public function focusLineScan(int $index): void
-    {
-        abort_if($this->viewMode, 403);
-
-        if (! isset($this->lines[$index])) {
-            return;
-        }
-
-        if (trim((string) ($this->lines[$index]['item_code'] ?? '')) !== '') {
-            $this->lookupItem($index);
-
-            return;
-        }
-
-        $this->focusLineCode($index);
-    }
-
     public function clearLineItemCode(int $index): void
     {
         if (! isset($this->lines[$index])) {
@@ -435,7 +603,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if (str_contains(strtolower($this->lookupMessage), 'was not found')) {
             $this->lookupMessage = '';
         }
-        $this->focusLineCode($index);
     }
 
     protected function focusLineCode(int $index, bool $select = false): void
@@ -453,27 +620,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 return;
             }
         }
-    }
-
-    protected function fillLineFromItem(int $index, Item $item): void
-    {
-        $supplierCost = $item->itemSuppliers()
-            ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
-            ->orderByDesc('is_default')
-            ->first();
-
-        $lines = $this->lines;
-        $lines[$index]['item_id'] = $item->id;
-        $lines[$index]['item_code'] = $item->item_code;
-        $lines[$index]['description'] = $item->description ?? '';
-        $lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $lines[$index]['unit_cost'] = $this->blankZeroAmount(
-            $supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost
-        );
-        if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
-            $lines[$index]['qty_ordered'] = '1';
-        }
-        $this->lines = $lines;
     }
 
     public function save(): void
@@ -771,10 +917,93 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                             <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm" @disabled($viewMode)>Add Line</button>
                         </div>
                     </div>
+
+                    @unless ($viewMode)
+                        <div class="so-entry po-order-entry" style="padding:0.65rem 0.75rem 0.5rem;border-bottom:1px solid #e2e8f0">
+                            <span class="so-entry-label">Add item — scan or type code</span>
+                            <div class="so-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive]) style="max-width:28rem;min-width:16rem;height:2.15rem">
+                                <button
+                                    type="button"
+                                    wire:click="focusScanAndAdd"
+                                    class="so-scan-btn"
+                                    title="Scan: click then scan or type full code — auto-adds on match"
+                                >
+                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                    </svg>
+                                    <span>Scan</span>
+                                </button>
+                                <input
+                                    id="po-item-entry"
+                                    type="text"
+                                    class="so-input so-entry-input font-mono"
+                                    placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
+                                    autocomplete="off"
+                                    x-data="{
+                                        timer: null,
+                                        lastKeyAt: 0,
+                                        rapid: false,
+                                        scheduleAuto() {
+                                            clearTimeout(this.timer);
+                                            const scanOn = !!$wire.scanModeActive;
+                                            if (!scanOn && !this.rapid) return;
+                                            const delay = this.rapid ? 100 : 750;
+                                            this.timer = setTimeout(() => {
+                                                const v = ($el.value || '').trim();
+                                                if (v.length < 2) { this.rapid = false; return; }
+                                                $wire.autoAddEntryIfExactMatch(v);
+                                                this.rapid = false;
+                                            }, delay);
+                                        },
+                                        onKey(e) {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                clearTimeout(this.timer);
+                                                $wire.addItemFromEntry(($el.value || '').trim());
+                                                this.rapid = false;
+                                                return;
+                                            }
+                                            if (e.key === 'F2') {
+                                                e.preventDefault();
+                                                clearTimeout(this.timer);
+                                                $wire.openItemBrowse();
+                                                return;
+                                            }
+                                            const now = Date.now();
+                                            if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
+                                            this.lastKeyAt = now;
+                                        }
+                                    }"
+                                    x-on:keydown="onKey($event)"
+                                    x-on:input="scheduleAuto()"
+                                    x-on:paste.prevent="
+                                        const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
+                                        $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
+                                        rapid = true;
+                                        scheduleAuto();
+                                    "
+                                />
+                                <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                </button>
+                                <button
+                                    type="button"
+                                    x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('po-item-entry')?.value || '')"
+                                    class="so-icon-btn so-entry-add-btn"
+                                    title="Add item (✓)"
+                                    aria-label="Add item"
+                                >
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                </button>
+                            </div>
+                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)" style="margin-left:0.5rem">Browse (F2)</button>
+                        </div>
+                    @endunless
+
                     @if ($lookupMessage)
                         <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
                     @endif
-                    <div class="desk-grid item-lines-wrap">
+                    <div class="desk-grid item-lines-wrap" wire:key="po-lines-wrap-{{ $linesSig }}">
                         <table class="desk-table item-lines-table po-lines-table">
                             <colgroup>
                                 <col class="col-code" />
@@ -798,83 +1027,90 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     <th></th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody wire:key="po-lines-body-{{ $linesSig }}">
                                 @foreach ($lines as $i => $line)
-                                    <tr>
-                                        <td class="po-line-code-cell">
-                                            <div class="so-scan-bar po-line-scan-bar" role="search">
-                                                @unless ($viewMode)
-                                                    <button
-                                                        type="button"
-                                                        wire:click="focusLineScan({{ $i }})"
-                                                        class="so-scan-btn"
-                                                        title="Scan barcode into this line"
-                                                    >
-                                                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                                        </svg>
-                                                        <span>Scan</span>
-                                                    </button>
-                                                @endunless
+                                    @php
+                                        $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
+                                    @endphp
+                                    @if ($filled)
+                                        <tr wire:key="po-line-row-{{ $i }}-{{ $line['item_id'] ?? 0 }}-{{ $line['item_code'] ?? '' }}">
+                                            <td class="font-mono desk-num" title="{{ $line['item_code'] ?? '' }}">
+                                                {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
+                                            </td>
+                                            <td>
                                                 <input
-                                                    id="po-line-code-{{ $i }}"
-                                                    wire:model="lines.{{ $i }}.item_code"
-                                                    wire:keydown.tab="lookupItem({{ $i }})"
-                                                    wire:keydown.enter.prevent="lookupItem({{ $i }}, $event.target.value)"
-                                                    class="so-input font-mono item-cell-ctl"
-                                                    placeholder="Scan or type code…"
-                                                    aria-label="Item code line {{ $i + 1 }}"
-                                                    autocomplete="off"
+                                                    wire:model="lines.{{ $i }}.description"
+                                                    class="so-input item-cell-ctl"
                                                     @disabled($viewMode)
                                                 />
-                                                @unless ($viewMode)
-                                                    @if (filled($line['item_code'] ?? null))
-                                                        <button
-                                                            type="button"
-                                                            wire:click="clearLineItemCode({{ $i }})"
-                                                            class="so-icon-btn"
-                                                            title="Clear line item"
-                                                            aria-label="Clear line item"
+                                            </td>
+                                            <td class="text-center">
+                                                @if ($viewMode)
+                                                    <span class="font-mono">{{ $line['uom'] ?: '—' }}</span>
+                                                @else
+                                                    @php $uomOpts = $this->uomOptionsForLine($i); @endphp
+                                                    @if (count($uomOpts) <= 1)
+                                                        {{-- Item standard UOM only — show, no manual typing --}}
+                                                        <span class="font-mono" style="display:inline-block;min-width:2.5rem">
+                                                            {{ $line['uom'] ?: ($uomOpts[0] ?? 'EA') }}
+                                                        </span>
+                                                    @else
+                                                        {{-- Item has multiple UOMs — select among item standards only --}}
+                                                        <select
+                                                            wire:model="lines.{{ $i }}.uom"
+                                                            class="so-input text-center item-cell-ctl"
+                                                            style="max-width:5.5rem;margin:0 auto"
+                                                            aria-label="Unit of measure line {{ $i + 1 }}"
                                                         >
-                                                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
-                                                        </button>
+                                                            @foreach ($uomOpts as $uomOpt)
+                                                                <option value="{{ $uomOpt }}">{{ $uomOpt }}</option>
+                                                            @endforeach
+                                                        </select>
                                                     @endif
-                                                    <button
-                                                        type="button"
-                                                        wire:click.prevent="lookupItem({{ $i }})"
-                                                        class="so-icon-btn so-entry-add-btn"
-                                                        title="Add item"
-                                                        aria-label="Add item"
-                                                    >
-                                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        wire:click="openItemBrowse({{ $i }})"
-                                                        class="so-icon-btn"
-                                                        title="Browse items"
-                                                        aria-label="Browse items"
-                                                    >
-                                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h5"/><circle cx="9.5" cy="9" r="1.5"/></svg>
-                                                    </button>
+                                                @endif
+                                            </td>
+                                            <td class="text-center">
+                                                <input
+                                                    wire:model.live="lines.{{ $i }}.qty_ordered"
+                                                    class="so-input text-right item-cell-qty"
+                                                    placeholder="0"
+                                                    @disabled($viewMode)
+                                                />
+                                            </td>
+                                            <td class="text-center">
+                                                <input
+                                                    wire:model="lines.{{ $i }}.qty_received"
+                                                    class="so-input text-right item-cell-qty so-input-ro"
+                                                    readonly
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td class="text-center">
+                                                <input
+                                                    wire:model.live="lines.{{ $i }}.unit_cost"
+                                                    class="so-input text-right item-cell-qty"
+                                                    placeholder="0"
+                                                    @disabled($viewMode)
+                                                />
+                                            </td>
+                                            <td class="desk-money">
+                                                ${{ number_format((float) ($line['qty_ordered'] ?? 0) * (float) ($line['unit_cost'] ?? 0), 2) }}
+                                            </td>
+                                            <td class="text-center">
+                                                @unless ($viewMode)
+                                                    <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
                                                 @endunless
-                                            </div>
-                                        </td>
-                                        <td><input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($viewMode) /></td>
-                                        <td class="text-center"><input wire:model="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" @disabled($viewMode) /></td>
-                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.qty_ordered" class="so-input text-right item-cell-qty" placeholder="0" @disabled($viewMode) /></td>
-                                        <td class="text-center"><input wire:model="lines.{{ $i }}.qty_received" class="so-input text-right item-cell-qty so-input-ro" readonly placeholder="0" /></td>
-                                        <td class="text-center"><input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" placeholder="0" @disabled($viewMode) /></td>
-                                        <td class="desk-money">${{ number_format((float) $line['qty_ordered'] * (float) $line['unit_cost'], 2) }}</td>
-                                        <td class="text-center">
-                                            @unless ($viewMode)
-                                                <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
-                                            @endunless
-                                        </td>
-                                    </tr>
+                                            </td>
+                                        </tr>
+                                    @endif
                                 @endforeach
                             </tbody>
                         </table>
+                        @if ($filledLineCount === 0)
+                            <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
+                                Scan or type an item code above, or click Browse Items
+                            </div>
+                        @endif
                     </div>
                 </div>
 

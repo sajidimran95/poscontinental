@@ -7,6 +7,7 @@ use App\Models\TobaccoStampInventory;
 use App\Services\TobaccoProductSalesFileService;
 use App\Services\TobaccoXmlService;
 use App\Services\TobaccoXmlValidator;
+use Carbon\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -23,6 +24,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public string $period_end = '';
 
+    /** Guard re-entry when snapping Sun–Sat week. */
+    public bool $syncingWeek = false;
+
     /** @var list<string> */
     public array $validation_errors = [];
 
@@ -38,9 +42,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function mount(): void
     {
-        // Full month for MSA / sales file (invoice dates), not forced to "today".
-        $this->period_start = now()->startOfMonth()->toDateString();
-        $this->period_end = now()->endOfMonth()->toDateString();
+        // Default to last completed week (Sun–Sat).
+        $this->applySundayToSaturdayWeek($this->latestCompletedWeekStart());
         $this->refreshPreviewCounts();
     }
 
@@ -51,14 +54,176 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         $this->refreshPreviewCounts();
     }
 
+    /**
+     * Manual date fields: any past range (no auto week-snap).
+     * Only caps future / incomplete present day.
+     */
     public function updatedPeriodStart(): void
     {
+        if ($this->syncingWeek) {
+            return;
+        }
+        $this->normalizeManualPeriod(preferStart: true);
         $this->refreshPreviewCounts();
     }
 
     public function updatedPeriodEnd(): void
     {
+        if ($this->syncingWeek) {
+            return;
+        }
+        $this->normalizeManualPeriod(preferStart: false);
         $this->refreshPreviewCounts();
+    }
+
+    /**
+     * Keep free date range valid: both dates set, start ≤ end, none after max past day.
+     */
+    private function normalizeManualPeriod(bool $preferStart): void
+    {
+        $this->syncingWeek = true;
+
+        try {
+            $max = $this->maxAllowedDate();
+
+            $start = $this->parseDateOr($this->period_start, $this->latestCompletedWeekStart());
+            $end = $this->parseDateOr($this->period_end, $start->copy());
+
+            if ($start->gt($max)) {
+                $start = $max->copy();
+            }
+            if ($end->gt($max)) {
+                $end = $max->copy();
+            }
+
+            if ($start->gt($end)) {
+                if ($preferStart) {
+                    $end = $start->copy();
+                } else {
+                    $start = $end->copy();
+                }
+            }
+
+            $this->period_start = $start->toDateString();
+            $this->period_end = $end->toDateString();
+        } finally {
+            $this->syncingWeek = false;
+        }
+    }
+
+    private function parseDateOr(?string $value, Carbon $fallback): Carbon
+    {
+        if (is_string($value) && trim($value) !== '') {
+            try {
+                return Carbon::parse($value)->startOfDay();
+            } catch (\Throwable) {
+                // fall through
+            }
+        }
+
+        return $fallback->copy()->startOfDay();
+    }
+
+    /** Latest calendar day allowed in a manual period (yesterday — no today/future). */
+    private function maxAllowedDate(): Carbon
+    {
+        return now()->startOfDay()->subDay();
+    }
+
+    /**
+     * Start of the latest fully completed week (previous Sunday).
+     * Used as default and for week nav buttons.
+     */
+    private function latestCompletedWeekStart(): Carbon
+    {
+        return now()->startOfDay()->startOfWeek(Carbon::SUNDAY)->subWeek();
+    }
+
+    /**
+     * Set period to the calendar week containing $anchor:
+     * Sunday (start) through Saturday (end).
+     * Only completed past weeks — never present or future.
+     */
+    public function applySundayToSaturdayWeek(Carbon|string|null $anchor = null): void
+    {
+        $this->syncingWeek = true;
+
+        try {
+            if ($anchor instanceof Carbon) {
+                $day = $anchor->copy()->startOfDay();
+            } elseif (is_string($anchor) && trim($anchor) !== '') {
+                $day = $this->parseDateOr($anchor, $this->latestCompletedWeekStart());
+            } else {
+                $day = $this->latestCompletedWeekStart();
+            }
+
+            // Week starts Sunday, ends Saturday.
+            $start = $day->copy()->startOfWeek(Carbon::SUNDAY);
+            $end = $start->copy()->addDays(6);
+
+            // Cap at last completed week (not this week / not future).
+            $maxStart = $this->latestCompletedWeekStart();
+            if ($start->gt($maxStart)) {
+                $start = $maxStart->copy();
+                $end = $start->copy()->addDays(6);
+            }
+
+            $this->period_start = $start->toDateString();
+            $this->period_end = $end->toDateString();
+        } finally {
+            $this->syncingWeek = false;
+        }
+    }
+
+    /** Jump to last completed week (latest allowed for week nav). */
+    public function useLastWeek(): void
+    {
+        $this->applySundayToSaturdayWeek($this->latestCompletedWeekStart());
+        $this->refreshPreviewCounts();
+    }
+
+    /** @deprecated Use useLastWeek — kept so old wire:click still works. */
+    public function useCurrentWeek(): void
+    {
+        $this->useLastWeek();
+    }
+
+    /** Previous Sunday–Saturday week (from period start’s week). */
+    public function previousWeek(): void
+    {
+        $start = $this->period_start !== ''
+            ? Carbon::parse($this->period_start)->startOfWeek(Carbon::SUNDAY)->subWeek()
+            : $this->latestCompletedWeekStart()->subWeek();
+        $this->applySundayToSaturdayWeek($start);
+        $this->refreshPreviewCounts();
+    }
+
+    /** Next Sunday–Saturday week (stops at last completed week). */
+    public function nextWeek(): void
+    {
+        if (! $this->canGoNextWeek()) {
+            $this->useLastWeek();
+
+            return;
+        }
+
+        $start = $this->period_start !== ''
+            ? Carbon::parse($this->period_start)->startOfWeek(Carbon::SUNDAY)->addWeek()
+            : $this->latestCompletedWeekStart();
+        $this->applySundayToSaturdayWeek($start);
+        $this->refreshPreviewCounts();
+    }
+
+    /** True when period start’s week is before last completed week. */
+    public function canGoNextWeek(): bool
+    {
+        if ($this->period_start === '') {
+            return false;
+        }
+
+        $selectedStart = Carbon::parse($this->period_start)->startOfDay()->startOfWeek(Carbon::SUNDAY);
+
+        return $selectedStart->lt($this->latestCompletedWeekStart());
     }
 
     public function with(): array
@@ -118,6 +283,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             'needsStamps' => $needsStamps,
             'isFileReport' => $isFileReport,
             'selectedReturn' => $returnOptions[$this->return_type] ?? null,
+            'canGoNextWeek' => $this->canGoNextWeek(),
+            // No today/future on manual date pickers.
+            'maxPeriodDate' => $this->maxAllowedDate()->toDateString(),
             'readinessIssues' => $isFileReport
                 ? []
                 : $xmlService->readinessIssues(auth()->user()->company, $filer, $product, $stamps),
@@ -481,11 +649,11 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 <div class="msa-field-grid">
                     <label class="msa-field">
                         <span>Period from</span>
-                        <input type="date" wire:model.live="period_start" class="desk-input" />
+                        <input type="date" wire:model.live="period_start" class="desk-input" max="{{ $maxPeriodDate }}" />
                     </label>
                     <label class="msa-field">
                         <span>Period to</span>
-                        <input type="date" wire:model.live="period_end" class="desk-input" />
+                        <input type="date" wire:model.live="period_end" class="desk-input" max="{{ $maxPeriodDate }}" />
                     </label>
                     <label class="msa-field">
                         <span>Process type</span>
@@ -495,8 +663,20 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                         </select>
                     </label>
                 </div>
+                <div class="msa-week-nav" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.55rem">
+                    <button type="button" wire:click="previousWeek" class="desk-btn desk-btn-sm">← Prev week</button>
+                    <button type="button" wire:click="useLastWeek" class="desk-btn desk-btn-sm">Last week</button>
+                    <button
+                        type="button"
+                        wire:click="nextWeek"
+                        class="desk-btn desk-btn-sm"
+                        @disabled(! $canGoNextWeek)
+                        title="{{ $canGoNextWeek ? 'Next week' : 'Already on last completed week' }}"
+                    >Next week →</button>
+                </div>
                 <p class="msa-period-hint">
-                    Period uses invoice dates for the selected month or range.
+                    Default is <strong>last completed week</strong> (Sun–Sat). Use the week buttons for full weeks,
+                    or pick <strong>any dates</strong> in Period from / Period to. Today and future are not allowed.
                 </p>
 
                 @if ($selectedReturn)

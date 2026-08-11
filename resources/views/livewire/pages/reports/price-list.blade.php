@@ -98,6 +98,30 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         ];
     }
 
+    /**
+     * Enter: exact barcode → filter to that item code. Else keep partial list filter.
+     */
+    public function scanSearch(?string $code = null): void
+    {
+        if ($code !== null) {
+            $this->search = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
+        }
+
+        $resolved = trim($this->search);
+        if ($resolved === '') {
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+        if ($item) {
+            $this->search = (string) $item->item_code;
+            $this->selectedId = (int) $item->id;
+            if (! in_array((int) $item->id, $this->normalizedSelectedIds(), true)) {
+                $this->selectedIds[] = $item->id;
+            }
+        }
+    }
+
     /** @return array<int, int> */
     public function normalizedSelectedIds(): array
     {
@@ -411,13 +435,28 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                     </div>
                     <div class="rpt-field rpt-field-search">
                         <label class="desk-toolbar-label" for="pl-search">Search</label>
-                        <input
-                            id="pl-search"
-                            type="search"
-                            wire:model.live.debounce.300ms="search"
-                            class="desk-search"
-                            placeholder="Code, description, UPC…"
-                        />
+                        <div class="so-scan-bar" style="min-width:14rem;height:2.05rem">
+                            <button
+                                type="button"
+                                class="so-scan-btn"
+                                title="Focus search / Enter for exact code"
+                                wire:click="$js('const el=document.getElementById(\'pl-search\'); if(el){ el.focus(); el.select(); }')"
+                            >
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                id="pl-search"
+                                type="search"
+                                wire:model.live.debounce.300ms="search"
+                                wire:keydown.enter.prevent="scanSearch($event.target.value)"
+                                class="so-input desk-search"
+                                placeholder="Scan or type code / UPC…"
+                                autocomplete="off"
+                            />
+                        </div>
                     </div>
                     <label class="entity-check rpt-check">
                         <input type="checkbox" wire:model.live="includeInactive" />

@@ -411,18 +411,46 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         ];
     }
 
-    public function lookupLineItem(int $index): void
+    public function lookupLineItem(int $index, ?string $code = null): void
     {
-        $code = trim($this->lines[$index]['item_code'] ?? '');
-        if ($code === '' || ! $this->sales_order_id) {
+        if (! $this->sales_order_id) {
             return;
         }
 
+        if ($code !== null) {
+            $lines = $this->lines;
+            $lines[$index]['item_code'] = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
+            $this->lines = $lines;
+        }
+
+        $resolved = trim((string) ($this->lines[$index]['item_code'] ?? ''));
+        if ($resolved === '') {
+            return;
+        }
+
+        // Prefer exact order-line code; also allow UPC/alias → item_id on this order.
         $orderLine = SalesOrderLine::query()
             ->where('sales_order_id', $this->sales_order_id)
-            ->where('item_code', $code)
+            ->where(function ($q) use ($resolved) {
+                $q->whereRaw('LOWER(item_code) = ?', [mb_strtolower($resolved)]);
+            })
             ->orderBy('line_no')
             ->first();
+
+        if (! $orderLine) {
+            $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+            if ($item) {
+                $orderLine = SalesOrderLine::query()
+                    ->where('sales_order_id', $this->sales_order_id)
+                    ->where(function ($q) use ($item) {
+                        $q->where('item_id', $item->id)
+                            ->orWhereRaw('LOWER(item_code) = ?', [mb_strtolower((string) $item->item_code)]);
+                    })
+                    ->orderBy('line_no')
+                    ->first();
+            }
+        }
+
         if (! $orderLine) {
             $this->lines[$index]['description'] = '';
             $this->lines[$index]['uom'] = '';
@@ -431,12 +459,41 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
+        $this->lines[$index]['item_code'] = (string) ($orderLine->item_code ?? $resolved);
         $this->lines[$index]['description'] = (string) ($orderLine->description ?? '');
         $this->lines[$index]['uom'] = (string) ($orderLine->uom ?? '');
         $price = (string) $orderLine->price;
         $this->lines[$index]['price'] = ($price === '0' || $price === '0.0' || $price === '0.00') ? '' : $price;
         if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
             $this->lines[$index]['qty'] = '';
+        }
+    }
+
+    public function lookupOrBrowseItem(int $index, ?string $code = null): void
+    {
+        if (! $this->sales_order_id) {
+            $this->addError('sales_order_id', 'Select Order / Invoice No. first.');
+
+            return;
+        }
+
+        if ($code !== null) {
+            $lines = $this->lines;
+            $lines[$index]['item_code'] = trim($code);
+            $this->lines = $lines;
+        }
+
+        $resolved = trim((string) ($this->lines[$index]['item_code'] ?? ''));
+        if ($resolved === '') {
+            $this->openItemBrowse($index);
+
+            return;
+        }
+
+        $this->lookupLineItem($index, $resolved);
+        if (trim((string) ($this->lines[$index]['description'] ?? '')) === '') {
+            $this->itemBrowseSearch = $resolved;
+            $this->openItemBrowse($index);
         }
     }
 
@@ -620,27 +677,6 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
         $this->showItemBrowse = false;
         $this->itemBrowseLineIndex = null;
-    }
-
-    public function lookupOrBrowseItem(int $index): void
-    {
-        if (! $this->sales_order_id) {
-            $this->addError('sales_order_id', 'Select Order / Invoice No. first.');
-
-            return;
-        }
-
-        $code = trim((string) ($this->lines[$index]['item_code'] ?? ''));
-        if ($code === '') {
-            $this->openItemBrowse($index);
-
-            return;
-        }
-        $this->lookupLineItem($index);
-        if (trim((string) ($this->lines[$index]['description'] ?? '')) === '') {
-            $this->itemBrowseSearch = $code;
-            $this->openItemBrowse($index);
-        }
     }
 
     public function openEmail(int $id): void
@@ -976,15 +1012,34 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                 @foreach ($lines as $i => $line)
                                     @php $lineUoms = $this->uomOptionsForLine($i, $uomOptions); @endphp
                                     <tr wire:key="cm-line-{{ $i }}">
-                                        <td class="col-code">
-                                            <input
-                                                wire:model.blur="lines.{{ $i }}.item_code"
-                                                wire:keydown.enter.prevent="lookupOrBrowseItem({{ $i }})"
-                                                class="so-input font-mono cm-cell"
-                                                placeholder="Code / Enter"
-                                                aria-label="Item code line {{ $i + 1 }}"
-                                                @disabled(! $sales_order_id)
-                                            />
+                                        <td class="col-code po-line-code-cell">
+                                            <div class="so-scan-bar po-line-scan-bar" role="search">
+                                                <button
+                                                    type="button"
+                                                    class="so-scan-btn"
+                                                    title="Scan barcode"
+                                                    wire:click="$js('document.getElementById(\'cm-line-code-{{ $i }}\')?.focus()')"
+                                                    @disabled(! $sales_order_id)
+                                                >
+                                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                                    </svg>
+                                                    <span>Scan</span>
+                                                </button>
+                                                <input
+                                                    id="cm-line-code-{{ $i }}"
+                                                    wire:model="lines.{{ $i }}.item_code"
+                                                    wire:keydown.enter.prevent="lookupOrBrowseItem({{ $i }}, $event.target.value)"
+                                                    class="so-input font-mono item-cell-ctl"
+                                                    placeholder="Scan or type code…"
+                                                    aria-label="Item code line {{ $i + 1 }}"
+                                                    autocomplete="off"
+                                                    @disabled(! $sales_order_id)
+                                                />
+                                                <button type="button" wire:click.prevent="lookupOrBrowseItem({{ $i }})" class="so-icon-btn so-entry-add-btn" title="Add" @disabled(! $sales_order_id)>
+                                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                                </button>
+                                            </div>
                                         </td>
                                         <td class="col-find">
                                             <button type="button" class="desk-btn desk-btn-sm" wire:click="openItemBrowse({{ $i }})" title="Order item list" @disabled(! $sales_order_id)>List</button>

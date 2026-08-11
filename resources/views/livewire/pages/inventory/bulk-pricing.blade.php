@@ -172,6 +172,29 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             ->orderBy('item_code');
     }
 
+    /**
+     * Enter: exact barcode → filter to that item (item_code). Else keep partial search filter.
+     */
+    public function scanSearch(?string $code = null): void
+    {
+        if ($code !== null) {
+            $this->search = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
+        }
+
+        $resolved = trim($this->search);
+        if ($resolved === '') {
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+        if ($item) {
+            $this->search = (string) $item->item_code;
+            $this->selectedIds = [$item->id];
+            $this->confirming = false;
+            $this->status = '';
+        }
+    }
+
     /** @return list<string> */
     protected function activeTargets(): array
     {
@@ -481,7 +504,28 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                 </div>
                 <div class="rpt-field rpt-field-search">
                     <label class="desk-toolbar-label" for="bp-search">Search</label>
-                    <input id="bp-search" type="search" wire:model.live.debounce.300ms="search" class="desk-search" placeholder="Code, description, UPC…" />
+                    <div class="so-scan-bar" style="min-width:14rem;height:2.05rem">
+                        <button
+                            type="button"
+                            class="so-scan-btn"
+                            title="Focus search / Enter for exact code"
+                            wire:click="$js('const el=document.getElementById(\'bp-search\'); if(el){ el.focus(); el.select(); }')"
+                        >
+                            <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                            </svg>
+                            <span>Scan</span>
+                        </button>
+                        <input
+                            id="bp-search"
+                            type="search"
+                            wire:model.live.debounce.300ms="search"
+                            wire:keydown.enter.prevent="scanSearch($event.target.value)"
+                            class="so-input desk-search"
+                            placeholder="Scan or type code / UPC…"
+                            autocomplete="off"
+                        />
+                    </div>
                 </div>
             </div>
 

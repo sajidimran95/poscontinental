@@ -72,13 +72,13 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
     {
         $this->lookupError = '';
         if ($code !== null) {
-            $this->itemCode = trim($code);
+            $this->itemCode = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
         }
         $resolved = trim($this->itemCode);
 
         if ($resolved === '') {
             $this->itemId = null;
-            $this->js('requestAnimationFrame(() => { document.getElementById("iv-code")?.focus(); });');
+            $this->openItemBrowse();
 
             return;
         }
@@ -89,20 +89,27 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
         if ($item) {
             $this->itemCode = $item->item_code;
+            $this->showItemBrowse = false;
         } else {
-            $this->lookupError = 'No item found for “'.$resolved.'”.';
+            $this->lookupError = '';
+            $this->itemBrowseSearch = $resolved;
+            $this->showItemBrowse = true;
         }
     }
 
     public function focusItemScan(): void
     {
-        if (trim($this->itemCode) !== '') {
-            $this->lookupItem();
-
-            return;
-        }
-
-        $this->js('requestAnimationFrame(() => { document.getElementById("iv-code")?.focus(); });');
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('iv-code');
+                if (!el) return;
+                el.focus();
+                const v = (el.value || '').trim();
+                if (v !== '') {
+                    $wire.lookupItem(v);
+                }
+            });
+        JS);
     }
 
     public function clearLookup(): void

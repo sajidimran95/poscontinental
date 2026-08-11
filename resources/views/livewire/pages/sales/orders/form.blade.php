@@ -46,6 +46,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $itemEntry = '';
 
+    /** True after "Scan" click — next Enter/barcode auto-adds the line. */
+    public bool $scanModeActive = false;
+
     public bool $showBrowse = false;
 
     public bool $browseNewOnly = false;
@@ -1307,6 +1310,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
     }
 
+    /**
+     * Open Browse item list filtered by typed/scanned search text.
+     */
+    public function openBrowseForSearch(?string $term = null): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $term = trim($term ?? $this->itemEntry);
+        $this->browseSearch = $term;
+        $this->showBrowse = true;
+        $this->showCustomerBrowse = false;
+        $this->showShipBrowse = false;
+        if ($this->activeTab === 'expand') {
+            $this->activeTab = 'items';
+        }
+        $this->resetBrowseAndLoadFirstPage();
+    }
+
     public function closeBrowse(): void
     {
         $this->showBrowse = false;
@@ -2331,53 +2352,169 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder));
     }
 
+    /**
+     * Add item from entry bar (✓ tick or Enter).
+     * Exact match → add line. Partial / no match → browse list.
+     */
     public function addItemFromEntry(?string $code = null): void
     {
         abort_if($this->viewMode, 403);
 
-        $code = trim($code ?? $this->itemEntry);
-        if ($code === '') {
-            $this->focusItemEntry();
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemEntry)) ?? '');
+        $this->itemEntry = $code;
 
-            return;
-        }
-        $item = $this->findItem($code);
-        if (! $item) {
-            $this->lineWarning = 'Item / barcode "'.$code.'" was not found.';
+        if ($code === '') {
             $this->focusItemEntry(true);
 
             return;
         }
+
+        $item = $this->findItem($code);
+        if ($item) {
+            $this->itemEntry = '';
+            $this->showBrowse = false;
+            $this->lineWarning = '';
+            $this->queueItemOrPromptSubstitute($item);
+            // Stay ready for continuous gun scans.
+            $this->scanModeActive = true;
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        $this->scanModeActive = false;
+        $this->lineWarning = '';
+        $this->openBrowseForSearch($code);
+    }
+
+    /**
+     * After input timing pause: add only when the full typed code is an exact match
+     * and cannot still be the start of a longer code (e.g. "25" while "2593a" exists).
+     */
+    public function autoAddIfExactMatch(?string $code = null): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemEntry)) ?? '');
+        // Need a complete code — ignore very short noise while typing.
+        if ($code === '' || mb_strlen($code) < 2) {
+            return;
+        }
+
+        // 1) Full exact match only (item_code / UPC / alias) — never LIKE/% partial.
+        $item = $this->findItem($code);
+        if (! $item) {
+            // Still typing (e.g. only "25" of "2593a") — leave field alone, no browse/flash.
+            return;
+        }
+
+        // 2) Longer codes still start with this text → user not finished typing.
+        if ($this->codeIsPrefixOfLongerItemCode($code)) {
+            return;
+        }
+
+        // Full unique match — add line.
         $this->itemEntry = '';
         $this->showBrowse = false;
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
-        $this->focusItemEntry();
+        $this->scanModeActive = true;
+        $this->clearAndFocusEntry();
     }
 
     /**
-     * Focus entry for scanner; if value present, add the scanned line.
+     * True when any sellable item/UPC/alias starts with $code but is strictly longer.
+     * Prevents auto-adding "25" while the user is still typing "2593a".
+     */
+    protected function codeIsPrefixOfLongerItemCode(string $code): bool
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $lower = mb_strtolower(trim($code));
+        $len = mb_strlen($lower);
+        if ($len < 1) {
+            return false;
+        }
+
+        $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $lower).'%';
+
+        return Item::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->where(function ($q) use ($len, $like) {
+                $q->where(function ($inner) use ($len, $like) {
+                    $inner->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
+                        ->whereRaw('LOWER(item_code) LIKE ?', [$like]);
+                })
+                    ->orWhere(function ($inner) use ($len, $like) {
+                        $inner->whereRaw('CHAR_LENGTH(COALESCE(primary_upc, ?)) > ?', ['', $len])
+                            ->whereRaw('LOWER(COALESCE(primary_upc, ?)) LIKE ?', ['', $like]);
+                    })
+                    ->orWhereHas('upcs', function ($upc) use ($len, $like) {
+                        $upc->whereRaw('CHAR_LENGTH(upc) > ?', [$len])
+                            ->whereRaw('LOWER(upc) LIKE ?', [$like]);
+                    })
+                    ->orWhereHas('prices', function ($p) use ($len, $like) {
+                        $p->whereRaw('CHAR_LENGTH(COALESCE(alias_code, ?)) > ?', ['', $len])
+                            ->whereRaw('LOWER(COALESCE(alias_code, ?)) LIKE ?', ['', $like]);
+                    });
+            })
+            ->exists();
+    }
+
+    /**
+     * Scan button: arm field. Wait for full code + pause, then exact match auto-add.
      */
     public function focusScanAndAdd(): void
     {
         abort_if($this->viewMode, 403);
 
-        if (trim($this->itemEntry) !== '') {
-            $this->addItemFromEntry();
+        $this->scanModeActive = true;
+        $this->lineWarning = '';
 
-            return;
-        }
-
-        $this->focusItemEntry();
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('so-item-entry');
+                if (!el) return;
+                el.focus();
+                // Do not add on Scan click alone — finish typing full code first.
+                const v = (el.value || '').trim();
+                if (v.length >= 2) {
+                    setTimeout(() => {
+                        const now = (document.getElementById('so-item-entry')?.value || '').trim();
+                        if (now.length >= 2 && now === v) {
+                            $wire.autoAddIfExactMatch(now);
+                        }
+                    }, 750);
+                } else {
+                    el.select();
+                }
+            });
+        JS);
     }
 
     public function clearItemEntry(): void
     {
         $this->itemEntry = '';
-        if (str_contains(strtolower($this->lineWarning), 'was not found')) {
+        $this->scanModeActive = false;
+        if (str_contains(strtolower($this->lineWarning), 'was not found')
+            || str_contains(strtolower($this->lineWarning), 'not found')) {
             $this->lineWarning = '';
         }
-        $this->focusItemEntry();
+        $this->clearAndFocusEntry();
+    }
+
+    protected function clearAndFocusEntry(): void
+    {
+        $this->itemEntry = '';
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('so-item-entry');
+                if (!el) return;
+                el.value = '';
+                el.focus();
+            });
+        JS);
     }
 
     protected function focusItemEntry(bool $select = false): void
@@ -2398,7 +2535,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = '';
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
+        $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
+        $this->focusItemEntry();
     }
 
     protected function queueItemOrPromptSubstitute(Item $item): void
@@ -3501,12 +3640,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                     <div class="so-entry">
                         <span class="so-entry-label">Item code / barcode (F2)</span>
-                        <div class="so-scan-bar" role="search">
+                        <div
+                            class="so-scan-bar"
+                            role="search"
+                            @class(['is-scan-ready' => $scanModeActive])
+                        >
                             <button
                                 type="button"
                                 wire:click="focusScanAndAdd"
                                 class="so-scan-btn"
-                                title="Scan barcode — focus field or add on Enter"
+                                title="Scan: click, then scan barcode — adds automatically"
                                 @disabled($viewMode)
                             >
                                 <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
@@ -3515,15 +3658,77 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <span>Scan</span>
                             </button>
                             <input
-                                wire:model.live="itemEntry"
-                                wire:keydown.enter.prevent="addItemFromEntry($event.target.value)"
-                                wire:keydown.f2.prevent="toggleBrowse"
+                                wire:ignore.self
+                                type="text"
                                 class="so-input so-entry-input"
                                 id="so-item-entry"
-                                placeholder="Scan barcode or type item code…"
+                                name="so_item_entry"
+                                placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan or type full code then ✓' }}"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)
+                                x-data="{
+                                    timer: null,
+                                    lastKeyAt: 0,
+                                    rapid: false,
+                                    // Wait for FULL code (e.g. 2593a). Resets on every key — never add on '25' mid-type.
+                                    scheduleAuto() {
+                                        clearTimeout(this.timer);
+                                        const scanOn = !!$wire.scanModeActive;
+                                        if (!scanOn && !this.rapid) {
+                                            return;
+                                        }
+                                        // Human typing needs longer pause so 25…2593a finishes first.
+                                        // Barcode gun: short pause after last char.
+                                        const delay = this.rapid ? 100 : 750;
+                                        this.timer = setTimeout(() => {
+                                            const el = document.getElementById('so-item-entry');
+                                            const v = (el?.value || '').trim();
+                                            if (v.length < 2) {
+                                                this.rapid = false;
+                                                return;
+                                            }
+                                            // Only full exact match (and no longer prefix codes) is added server-side
+                                            $wire.autoAddIfExactMatch(v);
+                                            this.rapid = false;
+                                        }, delay);
+                                    },
+                                    onKey(e) {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            clearTimeout(this.timer);
+                                            const v = ($el.value || '').trim();
+                                            // Enter = commit whatever is fully typed now
+                                            $wire.addItemFromEntry(v);
+                                            this.rapid = false;
+                                            return;
+                                        }
+                                        if (e.key === 'F2') {
+                                            e.preventDefault();
+                                            clearTimeout(this.timer);
+                                            $wire.openBrowseForSearch(($el.value || '').trim());
+                                            return;
+                                        }
+                                        const now = Date.now();
+                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) {
+                                            this.rapid = true;
+                                        }
+                                        this.lastKeyAt = now;
+                                    },
+                                    onInput() {
+                                        // Each character restarts the wait — '2','25','259','2593','2593a'
+                                        this.scheduleAuto();
+                                    }
+                                }"
+                                x-on:keydown="onKey($event)"
+                                x-on:input="onInput()"
+                                x-on:paste.prevent="
+                                    const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
+                                    $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
+                                    rapid = true;
+                                    scheduleAuto();
+                                "
                             />
                             @unless ($viewMode)
                                 <button
@@ -3537,9 +3742,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 </button>
                                 <button
                                     type="button"
-                                    wire:click.prevent="addItemFromEntry"
+                                    x-on:click.prevent="
+                                        const el = document.getElementById('so-item-entry');
+                                        const v = (el?.value || '').trim();
+                                        $wire.addItemFromEntry(v);
+                                    "
                                     class="so-icon-btn so-entry-add-btn"
-                                    title="Add item"
+                                    title="Add item (✓) — use after typing item code"
                                     aria-label="Add item"
                                     wire:loading.attr="disabled"
                                     wire:target="addItemFromEntry,focusScanAndAdd"
@@ -3562,7 +3771,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                             </button>
-                            <button type="button" wire:click="toggleBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                            <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
                             </div>
                         @endunless
                     </div>

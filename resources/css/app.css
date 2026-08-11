@@ -1725,6 +1725,17 @@
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
     }
 
+    .so-scan-bar.is-scan-ready {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.22);
+        background: #f0f7ff;
+    }
+
+    .so-scan-bar.is-scan-ready .so-scan-btn {
+        background: #2563eb;
+        color: #fff;
+    }
+
     .so-scan-bar .so-scan-btn {
         height: 100%;
         border-radius: 4px;

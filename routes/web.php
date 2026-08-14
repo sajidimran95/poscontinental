@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DocumentPdfController;
+use App\Http\Controllers\MsaSalesFileController;
 use App\Http\Controllers\ItemMediaController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\PaymentReceiptController;
@@ -126,6 +127,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
 
     Volt::route('reports/price-list', 'pages.reports.price-list')->name('reports.price-list');
     Volt::route('reports/msa', 'pages.tobacco.filing')->name('reports.msa');
+    Route::get('reports/msa/file', MsaSalesFileController::class)->name('reports.msa.file');
     Route::get('reports/price-list/print', [DocumentPdfController::class, 'priceList'])
         ->name('reports.price-list.print');
 });

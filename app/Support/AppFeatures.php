@@ -171,7 +171,7 @@ class AppFeatures
             'reports.msa' => [
                 'label' => 'MSA Report',
                 'group' => 'Reports',
-                'routes' => ['reports.msa'],
+                'routes' => ['reports.msa', 'reports.msa.file'],
             ],
         ];
     }

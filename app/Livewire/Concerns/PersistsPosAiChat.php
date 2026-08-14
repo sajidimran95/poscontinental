@@ -33,7 +33,7 @@ trait PersistsPosAiChat
             'role' => $role,
             'text' => $text,
             'tool' => $tool,
-            'at' => now()->toIso8601String(),
+            'at' => \App\Support\UserTimezone::now()->toIso8601String(),
         ];
     }
 
@@ -68,7 +68,7 @@ trait PersistsPosAiChat
         }
 
         try {
-            return \Carbon\Carbon::parse($at)->timezone((string) (config('app.timezone') ?: 'UTC'));
+            return \Carbon\Carbon::parse($at)->timezone(\App\Support\UserTimezone::name());
         } catch (\Throwable) {
             return null;
         }

@@ -14,6 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->web(append: [
+            \App\Http\Middleware\CaptureUserTimezone::class,
+        ]);
         $middleware->alias([
             'feature' => \App\Http\Middleware\EnsureFeatureAccess::class,
         ]);

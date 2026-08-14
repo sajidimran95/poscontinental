@@ -8,6 +8,7 @@ use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\TobaccoStampInventory;
+use App\Support\TobaccoItem;
 use Illuminate\Support\Collection;
 use RuntimeException;
 use SimpleXMLElement;
@@ -432,20 +433,7 @@ class TobaccoXmlService
 
     protected function itemMatchesProduct(?Item $item, string $product): bool
     {
-        if (! $item) {
-            return false;
-        }
-
-        $type = strtolower(trim((string) ($item->tobacco_product_type ?? '')));
-        if ($type === '') {
-            return filled($item->tobacco_brand_code);
-        }
-
-        if ($product === 'cigarettes') {
-            return in_array($type, ['cigarettes', 'cigarette', 'cig'], true);
-        }
-
-        return in_array($type, ['otp', 'other_tobacco', 'pc1', 'premium_cigar', 'ryo'], true);
+        return TobaccoItem::matchesProduct($item, $product);
     }
 
     /**

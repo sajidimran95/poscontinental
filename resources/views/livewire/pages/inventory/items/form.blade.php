@@ -19,6 +19,7 @@ use App\Models\Supplier;
 use App\Models\TaxSchedule;
 use App\Models\UomSchedule;
 use App\Support\ItemMedia;
+use App\Support\TobaccoItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -512,6 +513,45 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     public function updatedCategoryId(): void
     {
         $this->subcategory_id = null;
+        $this->suggestTobaccoTypeFromClassification();
+    }
+
+    public function updatedSubcategoryId(): void
+    {
+        $this->suggestTobaccoTypeFromClassification();
+    }
+
+    private function suggestTobaccoTypeFromClassification(): void
+    {
+        if ($this->tobacco_product_type !== '') {
+            return;
+        }
+
+        $suggested = TobaccoItem::suggestedFormType($this->classificationItem());
+        if ($suggested) {
+            $this->tobacco_product_type = $suggested;
+            $this->updatedTobaccoProductType();
+        }
+    }
+
+    private function classificationItem(): Item
+    {
+        $item = new Item([
+            'tobacco_product_type' => $this->tobacco_product_type !== '' ? $this->tobacco_product_type : null,
+            'tobacco_brand_code' => $this->tobacco_brand_code !== '' ? $this->tobacco_brand_code : null,
+            'tobacco_stick_count' => filled($this->tobacco_stick_count) ? (int) $this->tobacco_stick_count : 0,
+            'tobacco_total_oz' => filled($this->tobacco_total_oz) ? $this->tobacco_total_oz : 0,
+        ]);
+        $item->setRelation(
+            'category',
+            $this->category_id ? Category::query()->find($this->category_id) : null
+        );
+        $item->setRelation(
+            'subcategory',
+            $this->subcategory_id ? Subcategory::query()->find($this->subcategory_id) : null
+        );
+
+        return $item;
     }
 
     public function addUpc(): void
@@ -1049,6 +1089,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
         $amount = static fn ($v) => ($v === null || $v === '') ? 0 : $v;
+
+        $this->suggestTobaccoTypeFromClassification();
 
         $data = [
             'company_id' => auth()->user()->company_id,
@@ -1926,6 +1968,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 <option value="ryo">RYO</option>
                             </select>
                         </div>
+                        <p class="item-hint" style="grid-column:1/-1;margin:0 0 0.35rem">
+                            Picking a tobacco category (MI Cigarettes, Tobacco, cigars, nic pouch, vape, RYO/tube) sets this automatically. Sold invoices in the MSA period then include this item.
+                        </p>
                         @if ($tobacco_product_type !== '')
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tobacco_brand_code">Brand Code</label><input id="tobacco_brand_code" wire:model="tobacco_brand_code" class="so-input" placeholder="CIG / OTP / PC1 / 034…" /></div>
                             @if ($tobacco_product_type === 'cigarettes')

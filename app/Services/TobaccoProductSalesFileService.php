@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Item;
 use App\Support\StickCount;
+use App\Support\TobaccoItem;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -57,13 +58,14 @@ class TobaccoProductSalesFileService
 
     public const BID_PRICE_TAG_AT = 247;
 
-    public function build(Company $company, string $periodStart, string $periodEnd, Collection $invoices): string
+    public function build(Company $company, string $periodStart, string $periodEnd, Collection $invoices, string $product = 'all'): string
     {
+        $product = $this->normalizeProduct($product);
         $periodYmd = $this->ymd($periodEnd) ?: $this->ymd($periodStart) ?: now()->format('Ymd');
         $fileYmd = now()->format('Ymd');
-        $license = $this->licenseDigits($company);
-        $items = $this->collectTobaccoItems($invoices);
-        $customers = $this->collectCustomerSales($invoices);
+        $license = $this->licenseDigits($company, $product);
+        $items = $this->collectItemsFromInvoices($invoices, $product);
+        $customers = $this->collectCustomerSalesFromInvoices($invoices, $product);
 
         $lines = [];
         $lines[] = $this->hid($company, $license, $periodYmd, $fileYmd);
@@ -120,15 +122,17 @@ class TobaccoProductSalesFileService
         return implode("\r\n", $lines).($lines === [] ? '' : "\r\n");
     }
 
-    public function filename(Company $company, string $periodEnd): string
+    public function filename(Company $company, string $periodEnd, string $product = 'all'): string
     {
+        $product = $this->normalizeProduct($product);
         $name = (string) ($company->name ?: $company->code ?: 'COMPANY');
         $slug = Str::upper(preg_replace('/[^A-Za-z0-9]+/', '_', trim($name)) ?: 'COMPANY');
         $slug = trim($slug, '_');
-        $license = $this->licenseDigits($company);
+        $tag = $product === 'cigarettes' ? 'CIG' : 'TOB';
+        $license = $this->licenseDigits($company, $product);
         $date = $this->ymd($periodEnd) ?: now()->format('Ymd');
 
-        return $slug.'_TOB_'.$license.'_'.$date.'.txt';
+        return $slug.'_'.$tag.'_'.$license.'_'.$date.'.txt';
     }
 
     protected function ymd(string $date): string
@@ -141,13 +145,23 @@ class TobaccoProductSalesFileService
         return '';
     }
 
-    protected function licenseDigits(Company $company): string
+    protected function normalizeProduct(string $product): string
     {
-        $raw = $company->secondary_tob_number
-            ?: $company->secondary_cig_number
-            ?: $company->state_license_number
-            ?: '0';
-        $digits = preg_replace('/\D+/', '', (string) $raw) ?: '0';
+        return match ($product) {
+            'cigarettes' => 'cigarettes',
+            'otp' => 'otp',
+            default => 'all',
+        };
+    }
+
+    protected function licenseDigits(Company $company, string $product = 'all'): string
+    {
+        $raw = match ($product) {
+            'cigarettes' => $company->msaLicenseNumber('cigarettes'),
+            'otp' => $company->msaLicenseNumber('otp'),
+            default => $company->msaLicenseNumber('otp') ?: $company->msaLicenseNumber('cigarettes'),
+        };
+        $digits = preg_replace('/\D+/', '', (string) ($raw ?: '0')) ?: '0';
 
         return $this->numDigits($digits, 8);
     }
@@ -157,13 +171,13 @@ class TobaccoProductSalesFileService
      */
     protected function collectTobaccoItems(Collection $invoices): Collection
     {
-        return $this->collectItemsFromInvoices($invoices, tobaccoOnly: true);
+        return $this->collectItemsFromInvoices($invoices, 'all');
     }
 
     /**
      * @return Collection<int, array{item: Item, qty: float, amount: float}>
      */
-    protected function collectItemsFromInvoices(Collection $invoices, bool $tobaccoOnly): Collection
+    protected function collectItemsFromInvoices(Collection $invoices, string $product): Collection
     {
         $map = [];
 
@@ -173,7 +187,7 @@ class TobaccoProductSalesFileService
                 if (! $item) {
                     continue;
                 }
-                if ($tobaccoOnly && ! $this->isTobaccoItem($item)) {
+                if (! $this->itemMatchesFileProduct($item, $product)) {
                     continue;
                 }
                 $id = (int) $item->id;
@@ -203,13 +217,13 @@ class TobaccoProductSalesFileService
      */
     protected function collectCustomerSales(Collection $invoices): array
     {
-        return $this->collectCustomerSalesFromInvoices($invoices, tobaccoOnly: true);
+        return $this->collectCustomerSalesFromInvoices($invoices, 'all');
     }
 
     /**
      * @return array<int, array{customer: ?Customer, lines: list<array{item: Item, qty: float, amount: float, date: string}>}>
      */
-    protected function collectCustomerSalesFromInvoices(Collection $invoices, bool $tobaccoOnly): array
+    protected function collectCustomerSalesFromInvoices(Collection $invoices, string $product): array
     {
         $out = [];
 
@@ -225,7 +239,7 @@ class TobaccoProductSalesFileService
                 if (! $item) {
                     continue;
                 }
-                if ($tobaccoOnly && ! $this->isTobaccoItem($item)) {
+                if (! $this->itemMatchesFileProduct($item, $product)) {
                     continue;
                 }
                 $qty = $this->lineQty($line);
@@ -267,7 +281,7 @@ class TobaccoProductSalesFileService
             return collect();
         }
         if (! $order->relationLoaded('lines')) {
-            $order->load(['lines.item']);
+            $order->load(['lines.item.category', 'lines.item.subcategory']);
         }
 
         return collect($order->lines ?? []);
@@ -275,18 +289,22 @@ class TobaccoProductSalesFileService
 
     protected function isTobaccoItem(?Item $item): bool
     {
-        if (! $item) {
+        return TobaccoItem::isTobacco($item);
+    }
+
+    protected function itemMatchesFileProduct(?Item $item, string $product): bool
+    {
+        if (! $item || ! TobaccoItem::isTobacco($item)) {
             return false;
         }
 
-        $type = strtolower(trim((string) ($item->tobacco_product_type ?? '')));
-        if ($type !== '') {
+        if ($product === 'all') {
             return true;
         }
 
-        return filled($item->tobacco_brand_code)
-            || (int) ($item->tobacco_stick_count ?? 0) > 0
-            || (float) ($item->tobacco_total_oz ?? 0) > 0;
+        $isCig = TobaccoItem::kind($item) === 'cigarettes';
+
+        return $product === 'cigarettes' ? $isCig : ! $isCig;
     }
 
     /**
@@ -609,7 +627,7 @@ class TobaccoProductSalesFileService
 
     protected function nacsCode(Item $item): string
     {
-        $type = strtolower(trim((string) ($item->tobacco_product_type ?? '')));
+        $type = TobaccoItem::kind($item);
 
         return match (true) {
             in_array($type, ['cigarettes', 'cigarette', 'cig'], true) => '003231',

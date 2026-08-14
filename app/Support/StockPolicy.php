@@ -18,8 +18,8 @@ class StockPolicy
         }
 
         $user = auth()->user();
-        if ($user instanceof User && $user->company) {
-            return $user->company;
+        if ($user instanceof User && $user->company_id) {
+            return Company::query()->find((int) $user->company_id);
         }
 
         return null;

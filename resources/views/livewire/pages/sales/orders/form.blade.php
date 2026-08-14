@@ -981,6 +981,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
+            'oversellingOn' => StockPolicy::allowsNegativeStock(),
             'favorites' => [
                 'all' => 'All Orders',
                 'new' => 'New Orders',
@@ -2572,6 +2573,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function shouldPromptForceSubstitute(Item $item): bool
     {
+        if (StockPolicy::allowsOversell(null, $item)) {
+            return false;
+        }
+
         if ((float) $item->available_quantity > 0) {
             return false;
         }
@@ -2632,12 +2637,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function keepOriginalItem(): void
     {
         $item = $this->pendingItemId
-            ? Item::query()->where('company_id', auth()->user()->company_id)->find($this->pendingItemId)
+            ? Item::query()->with(['prices', 'taxSchedule'])->where('company_id', auth()->user()->company_id)->find($this->pendingItemId)
             : null;
+        $lineIndex = $this->pendingLineIndex;
         $this->showSubstitutePrompt = false;
         $this->pendingItemId = null;
         $this->pendingLineIndex = null;
         $this->substituteOptions = [];
+        if ($item && $this->canAddItemToOrder($item)) {
+            if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
+                $this->fillLineFromItem($lineIndex, $item);
+            } else {
+                $this->appendItemLine($item);
+            }
+
+            return;
+        }
         $code = $item?->item_code ?? 'Item';
         $this->lineWarning = $code.' has no stock available and cannot be added to this order.';
     }
@@ -4619,7 +4634,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @endphp
                                     <tr
                                         wire:key="browse-item-{{ $itemId }}"
-                                        class="{{ $avail > 0 ? 'is-pickable' : 'is-disabled' }}{{ $isFocused ? ' is-focused' : '' }}{{ $isChecked ? ' is-checked' : '' }}"
+                                        class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}{{ $isFocused ? ' is-focused' : '' }}{{ $isChecked ? ' is-checked' : '' }}"
                                         wire:click="selectBrowseRow({{ $itemId }})"
                                         wire:dblclick.prevent="pickBrowseItem({{ $itemId }})"
                                         title="Click line to select · double-click to insert"
@@ -5054,7 +5069,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <button type="button" wire:click="cancelSubstitutePrompt" class="text-white hover:text-red-200" aria-label="Close">×</button>
                 </div>
                 <div class="p-3 space-y-2 text-sm">
-                    <p>Selected item is out of stock. Choose a substitute that has stock, or cancel.</p>
+                    <p>
+                        @if ($oversellingOn)
+                            Selected item has no stock on hand. Overselling is ON — you can add it anyway, or use a substitute.
+                        @else
+                            Selected item is out of stock. Choose a substitute that has stock, or cancel.
+                        @endif
+                    </p>
                     <ul class="border border-slate-300 divide-y max-h-48 overflow-auto">
                         @forelse ($substituteOptions as $opt)
                             <li class="flex items-center justify-between gap-2 px-2 py-1.5">
@@ -5063,7 +5084,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     — {{ $opt['description'] }}
                                     <span class="text-xs text-slate-500">(avail {{ number_format($opt['available'], 0) }})</span>
                                 </span>
-                                @if ($opt['available'] > 0)
+                                @if ($opt['available'] > 0 || $oversellingOn)
                                     <button type="button" wire:click="acceptSubstitute({{ $opt['id'] }})" class="chief-btn-primary text-xs">Use</button>
                                 @else
                                     <span class="text-xs text-red-700">No stock</span>
@@ -5074,6 +5095,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         @endforelse
                     </ul>
                     <div class="flex justify-end gap-2 pt-1">
+                        @if ($oversellingOn)
+                            <button type="button" wire:click="keepOriginalItem" class="chief-btn-primary">Add original</button>
+                        @endif
                         <button type="button" wire:click="cancelSubstitutePrompt" class="chief-btn">Cancel</button>
                     </div>
                 </div>

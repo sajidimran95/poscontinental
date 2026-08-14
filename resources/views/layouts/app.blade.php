@@ -247,6 +247,13 @@
         @livewireScripts
         <script>
             (function () {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+                const cookie = document.cookie.split('; ').find(function (r) { return r.indexOf('pos_tz=') === 0; });
+                const current = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
+                if (current !== tz) {
+                    document.cookie = 'pos_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
+                }
+
                 const el = document.getElementById('status-clock');
                 if (! el) return;
 

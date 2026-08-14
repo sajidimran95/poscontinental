@@ -47,6 +47,14 @@ CHIEF_TABLES = [
     "ItemSubstitutes_tbl",
     "ItemLotNumbers_tbl",
     "CustomerCategories_tbl",
+    "Invoices_tbl",
+    "Invoices_Orders_tbl",
+    "SalesOrders_tbl",
+    "Payments_tbl",
+    "PaymentMethods_tbl",
+    "CreditMemos_tbl",
+    "CreditMemos_Orders_tbl",
+    "Invoices_CreditMemos_tbl",
 ]
 
 for d in (WORK_DIR, LOG_DIR, STAGING_DIR, CSV_DIR):

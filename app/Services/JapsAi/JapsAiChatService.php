@@ -294,14 +294,14 @@ class JapsAiChatService
         $m = $s['last_30_days'];
 
         return "As of **{$asOf}** — live POS database numbers.\n\n"
-            ."### Today's sales\n"
-            .'- **Total:** '.$i->money((float) $t['total'])." ({$t['orders']} orders)\n"
-            .'- **Average order:** '.$i->money((float) $t['avg'])."\n\n"
+            ."### Today's billed sales (invoices)\n"
+            .'- **Total:** '.$i->money((float) $t['total']).' ('.($t['invoices'] ?? $t['orders']).' invoices)'."\n"
+            .'- **Average invoice:** '.$i->money((float) $t['avg'])."\n\n"
             ."### Yesterday\n"
-            .'- **Total:** '.$i->money((float) $y['total'])." ({$y['orders']} orders)\n\n"
+            .'- **Total:** '.$i->money((float) $y['total']).' ('.($y['invoices'] ?? $y['orders']).' invoices)'."\n\n"
             ."### Last 30 days\n"
-            .'- **Total:** '.$i->money((float) $m['total'])." ({$m['orders']} orders)\n"
-            .'- **Average order:** '.$i->money((float) $m['avg']);
+            .'- **Total:** '.$i->money((float) $m['total']).' ('.($m['invoices'] ?? $m['orders']).' invoices)'."\n"
+            .'- **Average invoice:** '.$i->money((float) $m['avg']);
     }
 
     private function replyOverview(BusinessInsightsService $i, string $asOf): string
@@ -315,8 +315,8 @@ class JapsAiChatService
             "As of **{$asOf}** — business overview.",
             '',
             '### Sales',
-            '- Today: '.$i->money((float) $s['today']['total']).' / '.$s['today']['orders'].' orders',
-            '- Last 30 days: '.$i->money((float) $s['last_30_days']['total']).' / '.$s['last_30_days']['orders'].' orders',
+            '- Today: '.$i->money((float) $s['today']['total']).' / '.($s['today']['invoices'] ?? $s['today']['orders']).' invoices',
+            '- Last 30 days: '.$i->money((float) $s['last_30_days']['total']).' / '.($s['last_30_days']['invoices'] ?? $s['last_30_days']['orders']).' invoices',
             '- Customers on file: '.$s['customers_on_file'],
             '',
             '### Inventory',

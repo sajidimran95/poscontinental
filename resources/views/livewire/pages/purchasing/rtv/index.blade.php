@@ -598,12 +598,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 el.focus();
                 const v = (el.value || '').trim();
                 if (v.length >= 2) {
-                    setTimeout(() => {
-                        const now = (document.getElementById('rtv-item-entry')?.value || '').trim();
-                        if (now.length >= 2 && now === v) {
-                            $wire.autoAddEntryIfExactMatch(now);
-                        }
-                    }, 750);
+                    $wire.addItemFromEntry(v);
                 } else {
                     el.select();
                 }
@@ -1150,10 +1145,13 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                         x-on:keydown="onKey($event)"
                                         x-on:input="scheduleAuto()"
                                         x-on:paste.prevent="
+                                            clearTimeout(timer);
                                             const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                             $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                            rapid = true;
-                                            scheduleAuto();
+                                            rapid = false;
+                                            if (($el.value || '').trim().length >= 2) {
+                                                $wire.addItemFromEntry($el.value);
+                                            }
                                         "
                                     />
                                     <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">

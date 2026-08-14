@@ -105,7 +105,14 @@ python inspect_bak.py
 
 - **Admin / roles are not deleted.**
 - **Walk-in customer (`WALKIN`)** is recreated after customer import.
-- Sales history (orders/invoices) is **not** imported by default (master data only). Say if you need transactional history too.
+- Sales history (orders/invoices) is **not** imported by `import_mysql.py` (master data only).
+- After clients/products/suppliers are loaded, import invoices:
+
+```powershell
+python import_invoices.py
+```
+
+This loads Chief `Invoices_tbl` (~43k), related sales orders + lines, payments, and applied credit memos. It does **not** delete items/customers/suppliers. Existing invoices for the company are replaced. Stock quantities are not changed.
 - After import, open POS web and verify: Items, Customers, Suppliers.
 
 ## Clean workspace

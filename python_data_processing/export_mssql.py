@@ -122,6 +122,10 @@ def main() -> int:
         "alias",
         "qty",
         "quantity",
+        "invoice",
+        "order",
+        "payment",
+        "credit",
     )
     already = {p.stem.lower() for p in CSV_DIR.glob("*.csv")}
     for name in sorted(available):

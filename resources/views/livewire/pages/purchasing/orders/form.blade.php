@@ -359,7 +359,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 
     /**
-     * Scan button: arm single entry bar (not each line).
+     * Scan button: arm field. If a code is already in the box, add it immediately.
      */
     public function focusScanAndAdd(): void
     {
@@ -375,12 +375,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 el.focus();
                 const v = (el.value || '').trim();
                 if (v.length >= 2) {
-                    setTimeout(() => {
-                        const now = (document.getElementById('po-item-entry')?.value || '').trim();
-                        if (now.length >= 2 && now === v) {
-                            $wire.autoAddEntryIfExactMatch(now);
-                        }
-                    }, 750);
+                    $wire.addItemFromEntry(v);
                 } else {
                     el.select();
                 }
@@ -926,7 +921,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     type="button"
                                     wire:click="focusScanAndAdd"
                                     class="so-scan-btn"
-                                    title="Scan: click then scan or type full code — auto-adds on match"
+                                    title="Scan: click to focus, or add the code already in the box"
                                 >
                                     <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
                                         <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
@@ -977,10 +972,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     x-on:keydown="onKey($event)"
                                     x-on:input="scheduleAuto()"
                                     x-on:paste.prevent="
+                                        clearTimeout(timer);
                                         const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                         $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                        rapid = true;
-                                        scheduleAuto();
+                                        rapid = false;
+                                        if (($el.value || '').trim().length >= 2) {
+                                            $wire.addItemFromEntry($el.value);
+                                        }
                                     "
                                 />
                                 <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">

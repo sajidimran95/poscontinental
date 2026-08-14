@@ -197,10 +197,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     <div class="posai-brand-sub">Live sales · stock · invoices · pipeline</div>
                 </div>
             </div>
-            <div class="posai-tabs" role="tablist">
-                <button type="button" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
-                <button type="button" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
-                <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
+            <div class="posai-head-actions">
+                <div class="posai-tabs" role="tablist">
+                    <button type="button" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
+                    <button type="button" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
+                    <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
+                </div>
+                @if ($panel === 'insights')
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
+                @endif
             </div>
         </header>
 
@@ -263,7 +268,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             </div>
         @elseif ($panel === 'insights')
             @php $o = $overview ?? []; @endphp
-            <div class="posai-panel">
+            <div class="posai-panel" wire:poll.60s="refreshOverview">
+                <div class="posai-live">
+                    Live POS totals · as of {{ data_get($o, 'as_of', '—') }}
+                </div>
                 <div class="posai-cards">
                     <article class="posai-card accent-sales">
                         <div class="posai-card-top">
@@ -271,12 +279,12 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             <span class="posai-card-label">Sales</span>
                         </div>
                         <div class="posai-card-hero">${{ number_format((float) data_get($o, 'sales.today.total', 0), 2) }}</div>
-                        <div class="posai-card-sub">Today · {{ (int) data_get($o, 'sales.today.orders', 0) }} orders</div>
+                        <div class="posai-card-sub">Today · {{ (int) data_get($o, 'sales.today.invoices', data_get($o, 'sales.today.orders', 0)) }} invoices</div>
                         <div class="posai-card-divider"></div>
                         <ul class="posai-card-meta">
                             <li><span>Last 30 days</span><strong>${{ number_format((float) data_get($o, 'sales.last_30_days.total', 0), 2) }}</strong></li>
-                            <li><span>Orders (30d)</span><strong>{{ (int) data_get($o, 'sales.last_30_days.orders', 0) }}</strong></li>
-                            <li><span>Avg order</span><strong>${{ number_format((float) data_get($o, 'sales.last_30_days.avg', 0), 2) }}</strong></li>
+                            <li><span>Invoices (30d)</span><strong>{{ (int) data_get($o, 'sales.last_30_days.invoices', data_get($o, 'sales.last_30_days.orders', 0)) }}</strong></li>
+                            <li><span>Avg invoice</span><strong>${{ number_format((float) data_get($o, 'sales.last_30_days.avg', 0), 2) }}</strong></li>
                             <li><span>Customers</span><strong>{{ (int) data_get($o, 'sales.customers_on_file', 0) }}</strong></li>
                         </ul>
                     </article>
@@ -474,6 +482,12 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             font-size: .76rem;
             color: #64748b;
         }
+        .posai-head-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: .45rem .65rem;
+        }
         .posai-tabs {
             display: inline-flex;
             gap: .2rem;
@@ -481,6 +495,11 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             background: #e2e6ec;
             border: 1px solid #c5ccd6;
             border-radius: 8px;
+        }
+        .posai-live {
+            font-size: .72rem;
+            color: #64748b;
+            margin: 0 0 .7rem;
         }
         .posai-tab {
             border: 0;

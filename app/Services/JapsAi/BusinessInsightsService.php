@@ -8,7 +8,7 @@ use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use App\Models\Item;
 use App\Models\SalesOrder;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -83,24 +83,27 @@ class BusinessInsightsService
         $yesterday = now()->subDay()->toDateString();
         $from30 = now()->subDays(30)->toDateString();
 
-        $sumOrders = function (string $from, string $to): array {
-            $q = SalesOrder::query()
+        // Billed sales from invoices (live totals — not a capped sample).
+        $sumInvoices = function (string $from, string $to): array {
+            $q = Invoice::query()
                 ->where('company_id', $this->companyId)
-                ->whereDate('order_date', '>=', $from)
-                ->whereDate('order_date', '<=', $to);
+                ->whereDate('invoice_date', '>=', $from)
+                ->whereDate('invoice_date', '<=', $to)
+                ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')");
             $count = (clone $q)->count();
-            $total = (float) (clone $q)->sum('total');
+            $total = (float) (clone $q)->sum('invoice_total');
 
             return [
                 'orders' => $count,
+                'invoices' => $count,
                 'total' => $total,
                 'avg' => $count > 0 ? round($total / $count, 2) : 0.0,
             ];
         };
 
-        $t = $sumOrders($today, $today);
-        $y = $sumOrders($yesterday, $yesterday);
-        $m = $sumOrders($from30, $today);
+        $t = $sumInvoices($today, $today);
+        $y = $sumInvoices($yesterday, $yesterday);
+        $m = $sumInvoices($from30, $today);
 
         return [
             'today' => $t,
@@ -165,39 +168,45 @@ class BusinessInsightsService
     /** @return array<string, mixed> */
     public function invoiceSummary(): array
     {
-        $open = Invoice::query()
-            ->with(['payments', 'credits'])
-            ->where('company_id', $this->companyId)
-            ->whereNotIn('status', ['void', 'cancelled', 'paid'])
-            ->limit(500)
-            ->get();
-
-        $openCount = 0;
-        $overdueCount = 0;
-        $outstanding = 0.0;
-        $overdueAmt = 0.0;
-        $today = now()->startOfDay();
-
-        foreach ($open as $inv) {
-            $bal = (float) $inv->invoice_balance;
-            if ($bal <= 0.009) {
-                continue;
-            }
-            $openCount++;
-            $outstanding += $bal;
-            $invDate = $inv->invoice_date?->copy()->startOfDay();
-            // Past due heuristic: older than 30 days with balance
-            if ($invDate && $invDate->lt($today->copy()->subDays(30))) {
-                $overdueCount++;
-                $overdueAmt += $bal;
-            }
-        }
+        $cutoff = now()->subDays(30)->toDateString();
+        $row = DB::selectOne(
+            "
+            SELECT
+                COUNT(*) AS open_count,
+                COALESCE(SUM(b.bal), 0) AS outstanding,
+                SUM(CASE WHEN b.invoice_date < ? THEN 1 ELSE 0 END) AS overdue_count,
+                COALESCE(SUM(CASE WHEN b.invoice_date < ? THEN b.bal ELSE 0 END), 0) AS overdue_amount
+            FROM (
+                SELECT
+                    i.invoice_date,
+                    (i.invoice_total
+                        - COALESCE(p.paid, 0)
+                        - COALESCE(c.cred, 0)
+                    ) AS bal
+                FROM invoices i
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount) AS paid
+                    FROM invoice_payments
+                    GROUP BY invoice_id
+                ) p ON p.invoice_id = i.id
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount) AS cred
+                    FROM invoice_credits
+                    GROUP BY invoice_id
+                ) c ON c.invoice_id = i.id
+                WHERE i.company_id = ?
+                  AND UPPER(i.status) NOT IN ('VOID', 'CANCELLED')
+            ) b
+            WHERE b.bal > 0.009
+            ",
+            [$cutoff, $cutoff, $this->companyId]
+        );
 
         return [
-            'open' => $openCount,
-            'overdue' => $overdueCount,
-            'outstanding' => round($outstanding, 2),
-            'overdue_amount' => round($overdueAmt, 2),
+            'open' => (int) ($row->open_count ?? 0),
+            'overdue' => (int) ($row->overdue_count ?? 0),
+            'outstanding' => round((float) ($row->outstanding ?? 0), 2),
+            'overdue_amount' => round((float) ($row->overdue_amount ?? 0), 2),
         ];
     }
 
@@ -274,15 +283,13 @@ class BusinessInsightsService
             ->whereDate('receipt_date', '>=', $from);
 
         $count = (clone $q)->count();
-
-        $lines = \App\Models\InventoryReceivingLine::query()
+        $value = (float) \App\Models\InventoryReceivingLine::query()
             ->whereHas('receiving', function ($q) use ($from) {
                 $q->where('company_id', $this->companyId)
                     ->whereDate('receipt_date', '>=', $from);
             })
-            ->get(['qty_received', 'unit_cost']);
-
-        $value = $lines->sum(fn ($l) => (float) $l->qty_received * (float) $l->unit_cost);
+            ->selectRaw('COALESCE(SUM(qty_received * unit_cost), 0) as v')
+            ->value('v');
 
         return [
             'days' => $days,
@@ -295,19 +302,21 @@ class BusinessInsightsService
     public function paymentsToday(): array
     {
         $today = now()->toDateString();
-        $rows = InvoicePayment::query()
+        $base = InvoicePayment::query()
             ->whereHas('invoice', fn ($q) => $q->where('company_id', $this->companyId))
-            ->whereDate('payment_date', $today)
-            ->get(['payment_method', 'amount']);
+            ->whereDate('payment_date', $today);
 
-        $byMethod = $rows->groupBy(fn ($p) => $p->payment_method ?: 'Other')
-            ->map(fn (Collection $g) => round((float) $g->sum('amount'), 2))
+        $byMethod = (clone $base)
+            ->selectRaw("COALESCE(NULLIF(payment_method, ''), 'Other') as method, SUM(amount) as total")
+            ->groupByRaw("COALESCE(NULLIF(payment_method, ''), 'Other')")
+            ->pluck('total', 'method')
+            ->map(fn ($v) => round((float) $v, 2))
             ->all();
 
         return [
             'date' => $today,
-            'count' => $rows->count(),
-            'total' => round((float) $rows->sum('amount'), 2),
+            'count' => (clone $base)->count(),
+            'total' => round((float) (clone $base)->sum('amount'), 2),
             'by_method' => $byMethod,
         ];
     }
@@ -324,16 +333,18 @@ class BusinessInsightsService
         $today = now()->toDateString();
 
         $base = InvoicePayment::query()
-            ->with(['invoice.customer'])
             ->whereHas('invoice', fn ($q) => $q->where('company_id', $this->companyId))
             ->whereRaw('LOWER(payment_method) = ?', [Str::lower($method)]);
 
-        $period = (clone $base)->whereDate('payment_date', '>=', $from)->get();
-        $todayRows = (clone $base)->whereDate('payment_date', $today)->get();
+        $period = (clone $base)->whereDate('payment_date', '>=', $from);
+        $todayRows = (clone $base)->whereDate('payment_date', $today);
 
-        $sample = $period->sortByDesc(fn ($p) => (string) $p->payment_date)
-            ->take(12)
-            ->values()
+        $sample = (clone $period)
+            ->with(['invoice.customer'])
+            ->orderByDesc('payment_date')
+            ->orderByDesc('id')
+            ->limit(12)
+            ->get()
             ->map(fn (InvoicePayment $p) => [
                 'date' => optional($p->payment_date)?->format('Y-m-d'),
                 'invoice' => $p->invoice?->invoice_number ?? '—',
@@ -346,10 +357,10 @@ class BusinessInsightsService
         return [
             'method' => $method,
             'days' => $days,
-            'today_count' => $todayRows->count(),
-            'today_total' => round((float) $todayRows->sum('amount'), 2),
-            'period_count' => $period->count(),
-            'period_total' => round((float) $period->sum('amount'), 2),
+            'today_count' => (clone $todayRows)->count(),
+            'today_total' => round((float) (clone $todayRows)->sum('amount'), 2),
+            'period_count' => (clone $period)->count(),
+            'period_total' => round((float) (clone $period)->sum('amount'), 2),
             'sample' => $sample,
         ];
     }
@@ -360,75 +371,100 @@ class BusinessInsightsService
         $from = now()->subDays($days)->toDateString();
 
         $recent = \App\Models\PurchaseOrder::query()
-            ->with('supplier')
             ->where('company_id', $this->companyId)
-            ->whereDate('requisition_date', '>=', $from)
-            ->orderByDesc('requisition_date')
-            ->limit(200)
-            ->get();
+            ->whereDate('requisition_date', '>=', $from);
 
-        $byStatus = $recent->groupBy(fn ($po) => $po->status ?: 'unknown')
-            ->map(fn (Collection $g) => [
-                'count' => $g->count(),
-                'value' => round((float) $g->sum('total'), 2),
+        $byStatus = (clone $recent)
+            ->selectRaw("COALESCE(NULLIF(status, ''), 'unknown') as status, COUNT(*) as cnt, SUM(total) as value")
+            ->groupByRaw("COALESCE(NULLIF(status, ''), 'unknown')")
+            ->get()
+            ->mapWithKeys(fn ($r) => [
+                (string) $r->status => [
+                    'count' => (int) $r->cnt,
+                    'value' => round((float) $r->value, 2),
+                ],
             ])
             ->all();
 
         $open = $this->openPurchaseOrders();
 
-        return [
-            'days' => $days,
-            'recent_count' => $recent->count(),
-            'recent_value' => round((float) $recent->sum('total'), 2),
-            'by_status' => $byStatus,
-            'open' => $open,
-            'sample' => $recent->take(10)->map(fn ($po) => [
+        $sample = (clone $recent)
+            ->with('supplier')
+            ->orderByDesc('requisition_date')
+            ->limit(10)
+            ->get()
+            ->map(fn ($po) => [
                 'po' => $po->po_number,
                 'supplier' => $po->supplier?->name ?? '—',
                 'status' => $po->status,
                 'total' => (float) ($po->total ?? 0),
                 'date' => optional($po->requisition_date)?->format('Y-m-d'),
-            ])->all(),
+            ])
+            ->all();
+
+        return [
+            'days' => $days,
+            'recent_count' => (clone $recent)->count(),
+            'recent_value' => round((float) (clone $recent)->sum('total'), 2),
+            'by_status' => $byStatus,
+            'open' => $open,
+            'sample' => $sample,
         ];
     }
 
     /** @return list<array{invoice: string, customer: string, balance: float, date: string|null}> */
     public function unpaidInvoices(int $limit = 15): array
     {
-        return Invoice::query()
-            ->with(['customer', 'payments', 'credits'])
-            ->where('company_id', $this->companyId)
-            ->whereNotIn('status', ['void', 'cancelled', 'paid'])
-            ->orderByDesc('invoice_date')
-            ->limit(80)
-            ->get()
-            ->filter(fn (Invoice $i) => $i->invoice_balance > 0.009)
-            ->take($limit)
-            ->map(fn (Invoice $i) => [
-                'invoice' => $i->invoice_number,
-                'customer' => $i->customer?->company_name ?? '—',
-                'balance' => round((float) $i->invoice_balance, 2),
-                'date' => optional($i->invoice_date)?->format('Y-m-d'),
-            ])
-            ->values()
-            ->all();
+        $limit = max(1, min(50, $limit));
+        $rows = DB::select(
+            "
+            SELECT x.invoice_number, x.invoice_date, x.company_name, x.bal
+            FROM (
+                SELECT i.invoice_number, i.invoice_date, i.id, cu.company_name,
+                       (i.invoice_total - COALESCE(p.paid, 0) - COALESCE(c.cred, 0)) AS bal
+                FROM invoices i
+                LEFT JOIN customers cu ON cu.id = i.customer_id
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount) AS paid FROM invoice_payments GROUP BY invoice_id
+                ) p ON p.invoice_id = i.id
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount) AS cred FROM invoice_credits GROUP BY invoice_id
+                ) c ON c.invoice_id = i.id
+                WHERE i.company_id = ?
+                  AND UPPER(i.status) NOT IN ('VOID', 'CANCELLED')
+            ) x
+            WHERE x.bal > 0.009
+            ORDER BY x.invoice_date DESC, x.id DESC
+            LIMIT {$limit}
+            ",
+            [$this->companyId]
+        );
+
+        return collect($rows)->map(fn ($r) => [
+            'invoice' => (string) $r->invoice_number,
+            'customer' => $r->company_name ?: '—',
+            'balance' => round((float) $r->bal, 2),
+            'date' => $r->invoice_date ? substr((string) $r->invoice_date, 0, 10) : null,
+        ])->all();
     }
 
     /** Open sales orders not fully invoiced / open status. */
     public function pipeline(): array
     {
-        $open = SalesOrder::query()
-            ->with('customer')
+        $base = SalesOrder::query()
             ->where('company_id', $this->companyId)
-            ->whereNotIn('status', ['invoiced', 'cancelled', 'void', 'closed'])
+            ->whereNotIn('status', ['Invoiced', 'Cancelled', 'Void', 'Closed', 'Credit']);
+
+        $sample = (clone $base)
+            ->with('customer')
             ->orderByDesc('order_date')
-            ->limit(20)
+            ->limit(8)
             ->get();
 
         return [
-            'open_orders' => $open->count(),
-            'open_value' => round((float) $open->sum('total'), 2),
-            'sample' => $open->take(8)->map(fn (SalesOrder $o) => [
+            'open_orders' => (clone $base)->count(),
+            'open_value' => round((float) (clone $base)->sum('total'), 2),
+            'sample' => $sample->map(fn (SalesOrder $o) => [
                 'order' => $o->order_number,
                 'customer' => $o->customer?->company_name,
                 'status' => $o->status,
@@ -474,18 +510,20 @@ class BusinessInsightsService
     /** Open purchase orders (not received / closed). */
     public function openPurchaseOrders(): array
     {
-        $open = \App\Models\PurchaseOrder::query()
-            ->with('supplier')
+        $base = \App\Models\PurchaseOrder::query()
             ->where('company_id', $this->companyId)
-            ->whereNotIn('status', ['received', 'closed', 'cancelled', 'void', 'complete', 'completed'])
+            ->whereNotIn('status', ['Received', 'Closed', 'Cancelled', 'Void', 'Complete', 'Completed']);
+
+        $sample = (clone $base)
+            ->with('supplier')
             ->orderByDesc('requisition_date')
-            ->limit(25)
+            ->limit(10)
             ->get();
 
         return [
-            'count' => $open->count(),
-            'value' => round((float) $open->sum('total'), 2),
-            'sample' => $open->take(10)->map(fn ($po) => [
+            'count' => (clone $base)->count(),
+            'value' => round((float) (clone $base)->sum('total'), 2),
+            'sample' => $sample->map(fn ($po) => [
                 'po' => $po->po_number,
                 'supplier' => $po->supplier?->name ?? '—',
                 'status' => $po->status,

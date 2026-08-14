@@ -2463,7 +2463,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 
     /**
-     * Scan button: arm field. Wait for full code + pause, then exact match auto-add.
+     * Scan button: arm field. If a code is already in the box, add it immediately.
      */
     public function focusScanAndAdd(): void
     {
@@ -2477,15 +2477,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 const el = document.getElementById('so-item-entry');
                 if (!el) return;
                 el.focus();
-                // Do not add on Scan click alone — finish typing full code first.
                 const v = (el.value || '').trim();
                 if (v.length >= 2) {
-                    setTimeout(() => {
-                        const now = (document.getElementById('so-item-entry')?.value || '').trim();
-                        if (now.length >= 2 && now === v) {
-                            $wire.autoAddIfExactMatch(now);
-                        }
-                    }, 750);
+                    $wire.addItemFromEntry(v);
                 } else {
                     el.select();
                 }
@@ -3649,7 +3643,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 type="button"
                                 wire:click="focusScanAndAdd"
                                 class="so-scan-btn"
-                                title="Scan: click, then scan barcode — adds automatically"
+                                title="Scan: click to focus, or add the code already in the box"
                                 @disabled($viewMode)
                             >
                                 <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
@@ -3724,10 +3718,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 x-on:keydown="onKey($event)"
                                 x-on:input="onInput()"
                                 x-on:paste.prevent="
+                                    clearTimeout(timer);
                                     const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                    rapid = true;
-                                    scheduleAuto();
+                                    rapid = false;
+                                    if (($el.value || '').trim().length >= 2) {
+                                        $wire.addItemFromEntry($el.value);
+                                    }
                                 "
                             />
                             @unless ($viewMode)

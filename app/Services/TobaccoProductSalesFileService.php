@@ -44,7 +44,11 @@ class TobaccoProductSalesFileService
     public const PUR_PACK_SIZE = 20;
 
     /** BID column starts (0-based), locked to the Nashville sample. */
+    /** BID description starts after BID(3)+key10+gap+code14. */
     public const BID_DESC_AT = 31;
+
+    /** Spaces after the BID key number (Continental reference visual gap). */
+    public const BID_KEY_GAP = 4;
 
     public const BID_DESC_LEN = 100;
 
@@ -392,22 +396,22 @@ class TobaccoProductSalesFileService
 
     /**
      * BID — 275 chars (product catalog line).
-     * Type digit 0 (majority of approved file). Seq (5) + product (8) split from 14-digit UPC.
+     * Continental reference: BID + 10-digit key + gap spaces + 14-digit code + description…
+     * Example: BID0855553008    0000000000085BIC LIGHTERS…
      */
     protected function bid(string $code14, Item $item, string $companyState): string
     {
         $desc = $this->upperAscii((string) ($item->description ?: $item->item_code));
-        $seq5 = substr($code14, 1, 5);
-        $product8 = substr($code14, 6, 8);
+        $key10 = substr($code14, -10);
         $unitSize = max(1, (int) ($item->cigarette_pack_size ?: $item->tobacco_stick_count ?: 1));
         $promo = $this->isPromoItem($item);
         $state = $this->upperAscii(substr($companyState ?: 'MI', 0, 2));
+        $gap = str_repeat(' ', self::BID_KEY_GAP);
 
         return $this->fields([
             ['BID', 3],
-            ['0', 1],
-            [$seq5, 5, '0', STR_PAD_LEFT],
-            [$product8, 8, '0', STR_PAD_LEFT],
+            [$key10, 10, '0', STR_PAD_LEFT],
+            [$gap, self::BID_KEY_GAP],
             [$code14, 14, '0', STR_PAD_LEFT],
             [$desc, self::BID_DESC_LEN],
             [$this->num($unitSize, 6), 6, '0', STR_PAD_LEFT],

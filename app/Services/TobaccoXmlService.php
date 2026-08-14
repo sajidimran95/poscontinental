@@ -311,6 +311,7 @@ class TobaccoXmlService
     ): array {
         $codes = $this->scheduleCodes($filerType, $product);
         $rows = [];
+        $missingFeinNames = [];
 
         foreach ($receivings as $receiving) {
             $supplier = $receiving->supplier;
@@ -339,6 +340,7 @@ class TobaccoXmlService
                     (float) ($line->unit_cost ?? 0),
                     $product,
                     $strictFein,
+                    $missingFeinNames,
                 );
                 if ($row !== null) {
                     $rows[] = $row;
@@ -374,6 +376,7 @@ class TobaccoXmlService
                     (float) $line->price,
                     $product,
                     $strictFein,
+                    $missingFeinNames,
                 );
                 if ($row !== null) {
                     $rows[] = $row;
@@ -409,11 +412,19 @@ class TobaccoXmlService
                     (float) $line->price,
                     $product,
                     $strictFein,
+                    $missingFeinNames,
                 );
                 if ($row !== null) {
                     $rows[] = $row;
                 }
             }
+        }
+
+        if ($strictFein && $missingFeinNames !== []) {
+            $names = array_values(array_unique($missingFeinNames));
+            throw new RuntimeException(
+                'A 9-digit FEIN is required for every supplier and customer on this MSA report. Add FEIN on Sales → Customers (or Purchasing → Suppliers) for: '.implode(', ', $names).'.'
+            );
         }
 
         return $rows;
@@ -456,15 +467,14 @@ class TobaccoXmlService
         float $unitPrice,
         string $product,
         bool $strictFein = true,
+        array &$missingFeinNames = [],
     ): ?array {
         $dateReceivedOrSold = $dateReceivedOrSold ?: ($invoiceDate ?: now()->toDateString());
         $invoiceDate = $invoiceDate ?: $dateReceivedOrSold;
         $partyFein = preg_replace('/\D+/', '', (string) $fein);
         if (strlen($partyFein) < 9) {
             if ($strictFein) {
-                throw new RuntimeException(
-                    'Supplier/customer FEIN is required on all MSA schedule parties. Missing FEIN for: '.($name ?: 'UNKNOWN')
-                );
+                $missingFeinNames[] = trim((string) ($name ?: 'UNKNOWN')) ?: 'UNKNOWN';
             }
 
             return null;

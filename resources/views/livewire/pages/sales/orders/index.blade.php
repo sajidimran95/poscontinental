@@ -1,5 +1,7 @@
 <?php
 
+use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
 use App\Services\InventoryService;
@@ -13,6 +15,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Orders')] class extends Component
 {
     use WithPagination;
+    use InteractsWithDeskQuery;
 
     #[Url]
     public string $search = '';
@@ -21,6 +24,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     /** '' | not_invoiced | Invoiced */
     public string $statusFilter = '';
+
+    public string $dateFrom = '';
+
+    public string $dateTo = '';
+
+    public string $customerId = '';
 
     public ?int $selectedId = null;
 
@@ -43,6 +52,22 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->selectedId = null;
     }
 
+    public function updatedDateFrom(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedCustomerId(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
+    }
+
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
@@ -58,8 +83,25 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     {
         $this->search = '';
         $this->statusFilter = '';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->customerId = '';
         $this->selectedId = null;
+        $this->clearQueryCriteria();
         $this->resetPage();
+    }
+
+    public function openDeskQuery(): void
+    {
+        $this->showQueryModal = true;
+        $this->queryStatus = '';
+        $fields = $this->deskQueryFields();
+        if ($this->queryField === '' || ! isset($fields[$this->queryField])) {
+            $this->queryField = (string) (array_key_first($fields) ?? '');
+            if ($this->queryField !== '') {
+                $this->syncQueryOperatorForField($this->queryField);
+            }
+        }
     }
 
     public function toggleCompactView(): void
@@ -252,6 +294,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->when($this->favorite === 'today', fn ($q) => $q->whereDate('order_date', '>=', now()->subDay()))
             ->when($this->statusFilter === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
             ->when($this->statusFilter === 'Invoiced', fn ($q) => $q->where('status', 'Invoiced'))
+            ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('order_date', '>=', $this->dateFrom))
+            ->when($this->dateTo !== '', fn ($q) => $q->whereDate('order_date', '<=', $this->dateTo))
+            ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
             ->orderByDesc('id');
 
         $listTitle = match ($this->favorite) {
@@ -269,6 +315,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             $listTitle = 'Orders List (Invoiced)';
         }
 
+        if ($this->queryCriteria !== []) {
+            $listTitle = $this->queryLoadedName !== ''
+                ? 'Query: '.$this->queryLoadedName
+                : 'Query Results ('.count($this->queryCriteria).' criteria)';
+        }
+
         return [
             'orders' => $query->paginate(50),
             'favorites' => [
@@ -280,10 +332,55 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'today' => 'Today & Yesterday',
             ],
             'listTitle' => $listTitle,
+            'queryFields' => $this->deskQueryFieldOptions(),
+            'queryFieldTypes' => $this->deskQueryFieldTypes(),
+            'queryOperators' => $this->deskQueryOperatorOptions(),
+            'savedDeskQueries' => $this->loadSavedDeskQueries(),
+            'deskQueryTitle' => 'Sales Order Query',
+            'filterCustomers' => Customer::query()
+                ->where('company_id', $companyId)
+                ->where('is_inactive', false)
+                ->orderBy('company_name')
+                ->limit(500)
+                ->get(['id', 'customer_id', 'company_name']),
             'selectedOrder' => $this->selectedId
                 ? SalesOrder::query()->where('company_id', $companyId)->find($this->selectedId)
                 : null,
         ];
+    }
+
+    /** @return array<string, array{label: string, column: string, has?: string}> */
+    protected function deskQueryFields(): array
+    {
+        return [
+            'order_number' => ['label' => 'Order Number', 'column' => 'order_number'],
+            'status' => ['label' => 'Status', 'column' => 'status'],
+            'order_type' => ['label' => 'Order Type', 'column' => 'order_type'],
+            'priority' => ['label' => 'Priority', 'column' => 'priority'],
+            'order_date' => ['label' => 'Order Date', 'column' => 'order_date', 'type' => 'date'],
+            'required_date' => ['label' => 'Required Date', 'column' => 'required_date', 'type' => 'date'],
+            'customer_po_no' => ['label' => 'Customer PO #', 'column' => 'customer_po_no'],
+            'reference_no' => ['label' => 'Reference #', 'column' => 'reference_no'],
+            'bill_to_name' => ['label' => 'Bill-to Name', 'column' => 'bill_to_name'],
+            'ship_to_name' => ['label' => 'Ship-to Name', 'column' => 'ship_to_name'],
+            'total' => ['label' => 'Order Total', 'column' => 'total', 'type' => 'number'],
+            'customer_code' => ['label' => 'Customer ID', 'has' => 'customer', 'column' => 'customer_id'],
+            'customer_name' => ['label' => 'Customer Name', 'has' => 'customer', 'column' => 'company_name'],
+            'customer_contact' => ['label' => 'Customer Contact', 'has' => 'customer', 'column' => 'contact'],
+            'customer_phone' => ['label' => 'Customer Phone', 'has' => 'customer', 'column' => 'telephone'],
+            'invoice_number' => ['label' => 'Invoice Number', 'has' => 'invoice', 'column' => 'invoice_number'],
+            'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
+            'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+            'ship_date' => ['label' => 'Ship Date', 'column' => 'ship_date', 'type' => 'date'],
+            'created_by_name' => ['label' => 'User Name', 'has' => 'createdBy', 'column' => 'name'],
+            'customer_city' => ['label' => 'Customer City', 'has' => 'customer', 'column' => 'city'],
+            'customer_state' => ['label' => 'Customer State', 'has' => 'customer', 'column' => 'state'],
+        ];
+    }
+
+    protected function deskQuerySessionKey(): string
+    {
+        return 'sales_orders_query_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     public function invoiceOrder(int $id): void
@@ -364,8 +461,22 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         class="desk-search orders-search-input"
                         aria-label="Search Orders"
                     />
+                    <button type="button" wire:click="openDeskQuery" class="desk-btn items-query-btn" title="Query by field">Query</button>
+                    @if ($queryCriteria !== [])
+                        <button type="button" wire:click="clearQueryCriteria" class="desk-btn desk-btn-sm" title="Clear query">Clear Query</button>
+                    @endif
 
                     <div class="orders-toolbar-right">
+                        <label class="desk-toolbar-label" for="orders-date-from">From</label>
+                        <input id="orders-date-from" type="date" wire:model.live="dateFrom" class="desk-input" aria-label="Order date from" />
+                        <label class="desk-toolbar-label" for="orders-date-to">To</label>
+                        <input id="orders-date-to" type="date" wire:model.live="dateTo" class="desk-input" aria-label="Order date to" />
+                        <select wire:model.live="customerId" class="desk-select orders-party-select" aria-label="Customer">
+                            <option value="">All customers</option>
+                            @foreach ($filterCustomers as $cust)
+                                <option value="{{ $cust->id }}">{{ $cust->customer_id }} — {{ $cust->company_name }}</option>
+                            @endforeach
+                        </select>
                         <select
                             id="orders-status-filter"
                             wire:model.live="statusFilter"
@@ -492,6 +603,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
+                <button type="button" wire:click="openDeskQuery" class="desk-rail-btn" title="Query orders by field" aria-label="Query orders">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.5"/>
+                        <path d="M10.5 10.5L14 14"/>
+                        <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
@@ -543,6 +661,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             </aside>
         </div>
     </div>
+    @include('livewire.partials.desk-query-modal')
 </div>
 @script
 <script>

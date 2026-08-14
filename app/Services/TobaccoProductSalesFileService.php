@@ -12,14 +12,11 @@ use Illuminate\Support\Str;
 
 /**
  * JAPS POS fixed-width tobacco product MSA sales file.
- * Sample: JAPS_POS_TOB_00001111_20260808.txt
+ * Layout locked to the approved sample:
+ * requirment/NASHVILLE_GOODS_DISTRIBUTION_TOB_17033752_20260808.txt
  *
- * Field map (verified against sample):
- * HID 337: lic8 · TOB TW · period · name32 · address90 · city25 · st2 · zip9 · USA · CONTACT20 · contact20 · fein30 · email60 · ver4 · bidCnt8 · fileYmd8 · flag1
- * BID 275: type2 · seq5 · product8 · code14 · desc100 · size6 · N · sp6 · nacs6 · sp10 · z6 · sp41 · st2 · z32 · sp6 · 003 · price11 · 006 · z11
- * SID 551: keys3×8 · name32 · acct8 · addr90 · city25 · st2 · zip9 · USA · st2 · sp3 · phone10 · type20 · z7 · YN · pad66 · name2 32 · addr2 90 · city2 25 · st · zip · USA · sp5 · phone2 · z14 · flag2 · pad · z11
- * PUR 158: keys · product14 · sp33 · date8 · sp20 · 001 · qty11 · pack4 · sticks10 · 004 · cents14 · z11
- * TOT 194: lic · period · bid9 · sid9 · pur9 · sp40 · 001 · sticks15 · sp18 · 003 · cents15 · 006 · z…
+ * HID 337 · BID 275 · SID 551 · PUR 158 · TOT 194
+ * Tobacco items only (type / brand / sticks / oz). No all-category fallback.
  */
 class TobaccoProductSalesFileService
 {
@@ -33,11 +30,32 @@ class TobaccoProductSalesFileService
 
     public const TOT_LEN = 194;
 
-    /** Company / customer name width (sample uses 32, not 30). */
+    /** Company / customer name width (approved sample uses 32). */
     public const NAME_LEN = 32;
 
-    /** Street / location address width (sample uses 90, not 85). */
+    /** Street / location address width (approved sample uses 90). */
     public const ADDR_LEN = 90;
+
+    /** Approved HID field after version 0002 — always 00000004. */
+    public const HID_FORMAT_ID = '00000004';
+
+    /** Approved PUR pack size is always 0020. */
+    public const PUR_PACK_SIZE = 20;
+
+    /** BID column starts (0-based), locked to the Nashville sample. */
+    public const BID_DESC_AT = 31;
+
+    public const BID_DESC_LEN = 100;
+
+    public const BID_SIZE_AT = 131;
+
+    public const BID_NACS_AT = 144;
+
+    public const BID_PROMO_AT = 166;
+
+    public const BID_STATE_AT = 207;
+
+    public const BID_PRICE_TAG_AT = 247;
 
     public function build(Company $company, string $periodStart, string $periodEnd, Collection $invoices): string
     {
@@ -48,40 +66,38 @@ class TobaccoProductSalesFileService
         $customers = $this->collectCustomerSales($invoices);
 
         $lines = [];
-        $lines[] = $this->hid($company, $license, $periodYmd, $fileYmd, $items->count());
+        $lines[] = $this->hid($company, $license, $periodYmd, $fileYmd);
 
-        $itemSeq = 0;
         $itemIndex = [];
         $companyState = $this->companyLocation($company)['state'];
         foreach ($items as $itemId => $meta) {
-            $itemSeq++;
-            $productKey = $this->num($itemSeq, 8);
-            $itemIndex[(int) $itemId] = $productKey;
-            $lines[] = $this->bid($itemSeq, $productKey, $meta['item'], $companyState);
+            $code14 = $this->itemCode14($meta['item']);
+            $itemIndex[(int) $itemId] = $code14;
+            $lines[] = $this->bid($code14, $meta['item'], $companyState);
         }
 
         $purCount = 0;
         $totalSticks = 0;
         $totalAmountCents = 0;
-        $sidSeq = 0;
+        $sidCount = 0;
 
         foreach ($customers as $bucket) {
-            $sidSeq++;
-            $custKey = $this->num($sidSeq, 8);
-            $lines[] = $this->sid($custKey, $bucket['customer'], $company, $sidSeq);
+            $sidCount++;
+            $custKey = $this->customerKey($bucket['customer'], $sidCount);
+            $lines[] = $this->sid($custKey, $bucket['customer'], $company, $sidCount);
 
             foreach ($bucket['lines'] as $sale) {
                 /** @var Item $item */
                 $item = $sale['item'];
-                $productKey = $itemIndex[(int) $item->id] ?? $this->num((int) $item->id, 8);
+                $code14 = $itemIndex[(int) $item->id] ?? $this->itemCode14($item);
                 $qty = (float) $sale['qty'];
                 $amount = (float) $sale['amount'];
-                $packSize = max(1, (int) ($item->cigarette_pack_size ?: 20));
                 $sticks = StickCount::forLine($item, $qty);
                 if ($sticks <= 0) {
-                    $sticks = (int) round($qty * $packSize);
+                    $unit = max(1, (int) ($item->tobacco_stick_count ?: $item->cigarette_pack_size ?: 1));
+                    $sticks = (int) round($qty * $unit);
                 }
-                $lines[] = $this->pur($custKey, $productKey, $sale['date'], $qty, $packSize, $sticks, $amount);
+                $lines[] = $this->pur($custKey, $code14, $sale['date'], $qty, self::PUR_PACK_SIZE, $sticks, $amount);
                 $purCount++;
                 $totalSticks += $sticks;
                 $totalAmountCents += (int) round($amount * 100);
@@ -92,11 +108,14 @@ class TobaccoProductSalesFileService
             $license,
             $periodYmd,
             $items->count(),
-            $sidSeq,
+            $sidCount,
             $purCount,
             $totalSticks,
             $totalAmountCents
         );
+
+        // One record = one line. Never allow CR/LF inside a field (address, name, desc).
+        $lines = array_map(fn (string $line) => str_replace(["\r", "\n"], '', $line), $lines);
 
         return implode("\r\n", $lines).($lines === [] ? '' : "\r\n");
     }
@@ -130,7 +149,7 @@ class TobaccoProductSalesFileService
             ?: '0';
         $digits = preg_replace('/\D+/', '', (string) $raw) ?: '0';
 
-        return $this->num((int) substr($digits, 0, 8), 8);
+        return $this->numDigits($digits, 8);
     }
 
     /**
@@ -138,14 +157,7 @@ class TobaccoProductSalesFileService
      */
     protected function collectTobaccoItems(Collection $invoices): Collection
     {
-        $map = $this->collectItemsFromInvoices($invoices, tobaccoOnly: true);
-
-        // Catalog may not have tobacco flags set — still export sold products so the file is not empty zeros.
-        if ($map->isEmpty()) {
-            $map = $this->collectItemsFromInvoices($invoices, tobaccoOnly: false);
-        }
-
-        return $map;
+        return $this->collectItemsFromInvoices($invoices, tobaccoOnly: true);
     }
 
     /**
@@ -180,7 +192,10 @@ class TobaccoProductSalesFileService
 
         ksort($map);
 
-        return collect($map);
+        return collect($map)->sortBy(fn ($row) => $this->itemCode14($row['item']))->values()
+            ->mapWithKeys(function ($row) {
+                return [(int) $row['item']->id => $row];
+            });
     }
 
     /**
@@ -188,13 +203,7 @@ class TobaccoProductSalesFileService
      */
     protected function collectCustomerSales(Collection $invoices): array
     {
-        $out = $this->collectCustomerSalesFromInvoices($invoices, tobaccoOnly: true);
-
-        if ($out === []) {
-            $out = $this->collectCustomerSalesFromInvoices($invoices, tobaccoOnly: false);
-        }
-
-        return $out;
+        return $this->collectCustomerSalesFromInvoices($invoices, tobaccoOnly: true);
     }
 
     /**
@@ -281,71 +290,123 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * HID — 337 chars (name32 + location/address90 + city/state/zip).
+     * 14-digit numeric product code from Primary UPC, else item code, else id.
+     * Approved BID/PUR product identity is this UPC — not a sequential 1,2,3 key.
      */
-    protected function hid(Company $company, string $license, string $periodYmd, string $fileYmd, int $bidCount): string
+    protected function itemCode14(Item $item): string
+    {
+        $raw = preg_replace('/\D+/', '', (string) ($item->primary_upc ?: '')) ?: '';
+        if ($raw === '') {
+            $raw = preg_replace('/\D+/', '', (string) ($item->item_code ?: '')) ?: '';
+        }
+        if ($raw === '') {
+            $raw = (string) $item->id;
+        }
+
+        return $this->numDigits($raw, 14);
+    }
+
+    /**
+     * Customer account key (8 digits) — matches SID/PUR keys in the approved file.
+     */
+    protected function customerKey(?Customer $customer, int $fallbackSeq): string
+    {
+        $acctSource = (string) ($customer?->customer_id ?: $customer?->id ?: $fallbackSeq);
+        $acctDigits = preg_replace('/\D+/', '', $acctSource) ?: (string) $fallbackSeq;
+
+        return $this->numDigits($acctDigits, 8);
+    }
+
+    /**
+     * HID contact: last name (20) then first name (20), same as approved HOSSAIN / EMRAN.
+     *
+     * @return array{last: string, first: string}
+     */
+    protected function contactNames(Company $company): array
+    {
+        $raw = strtoupper(trim((string) ($company->contact_name ?: 'OFFICE')));
+        $parts = preg_split('/\s+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: ['OFFICE'];
+        if (count($parts) === 1) {
+            return ['last' => $parts[0], 'first' => ''];
+        }
+        $last = (string) array_pop($parts);
+
+        return ['last' => $last, 'first' => implode(' ', $parts)];
+    }
+
+    protected function isPromoItem(Item $item): bool
+    {
+        return filled($item->manu_promotion_item)
+            || filled($item->manu_promotion_code)
+            || filled($item->manu_promotion_description);
+    }
+
+    /**
+     * HID — 337 chars (name32 + location/address90 + city/state/zip).
+     * After version 0002 the approved file always writes 00000004 (not BID count).
+     */
+    protected function hid(Company $company, string $license, string $periodYmd, string $fileYmd): string
     {
         $loc = $this->companyLocation($company);
+        $names = $this->contactNames($company);
 
-        return $this->fixed(
-            'HID'
-            .$license
-            .'TOB TW'
-            .$periodYmd
-            .$this->pad(strtoupper($loc['name']), self::NAME_LEN)
-            .$this->pad(strtoupper($loc['address']), self::ADDR_LEN)
-            .$this->pad(strtoupper($loc['city']), 25)
-            .$this->pad($loc['state'], 2)
-            .$this->zip9($loc['zip'])
-            .'USA'
-            .$this->pad('CONTACT', 20)
-            .$this->pad(strtoupper($loc['contact']), 20)
-            .$this->numDigits($loc['fein'], 30)
-            .$this->pad(strtolower($loc['email']), 60)
-            .'0002'
-            .$this->num($bidCount, 8)
-            .$fileYmd
-            .'0',
-            self::HID_LEN
-        );
+        return $this->fields([
+            ['HID', 3],
+            [$license, 8, '0', STR_PAD_LEFT],
+            ['TOB TW', 6],
+            [$periodYmd, 8],
+            [$this->upperAscii($loc['name']), self::NAME_LEN],
+            [$this->upperAscii($loc['address']), self::ADDR_LEN],
+            [$this->upperAscii($loc['city']), 25],
+            [$this->upperAscii($loc['state']), 2],
+            [$this->zip9($loc['zip']), 9, '0', STR_PAD_RIGHT],
+            ['USA', 3],
+            [$this->upperAscii($names['last']), 20],
+            [$this->upperAscii($names['first']), 20],
+            [$this->numDigits($loc['fein'], 30), 30, '0', STR_PAD_LEFT],
+            [strtolower($this->ascii($loc['email'])), 60],
+            ['0002', 4],
+            [self::HID_FORMAT_ID, 8],
+            [$fileYmd, 8],
+            ['0', 1],
+        ], self::HID_LEN);
     }
 
     /**
      * BID — 275 chars (product catalog line).
+     * Type digit 0 (majority of approved file). Seq (5) + product (8) split from 14-digit UPC.
      */
-    protected function bid(int $seq, string $productKey, Item $item, string $companyState): string
+    protected function bid(string $code14, Item $item, string $companyState): string
     {
-        $desc = $this->pad(mb_strtoupper((string) ($item->description ?: $item->item_code)), 100);
-        $codeDigits = preg_replace('/\D+/', '', (string) $item->item_code) ?: (string) $item->id;
-        $itemCode14 = $this->numDigits($codeDigits, 14);
-        $unitSize = $this->num((int) ($item->cigarette_pack_size ?: 200), 6);
-        $nacs = $this->nacsCode($item);
-        $priceCents = $this->num((int) round((float) $item->list_price * 100), 11);
-        $state = $this->pad(strtoupper(substr($companyState ?: 'MI', 0, 2)), 2);
+        $desc = $this->upperAscii((string) ($item->description ?: $item->item_code));
+        $seq5 = substr($code14, 1, 5);
+        $product8 = substr($code14, 6, 8);
+        $unitSize = max(1, (int) ($item->cigarette_pack_size ?: $item->tobacco_stick_count ?: 1));
+        $promo = $this->isPromoItem($item);
+        $state = $this->upperAscii(substr($companyState ?: 'MI', 0, 2));
 
-        return $this->fixed(
-            'BID'
-            .'2'
-            .$this->num($seq, 5)
-            .$productKey
-            .$itemCode14
-            .$desc
-            .$unitSize
-            .'N'
-            .$this->pad('', 6)
-            .$nacs
-            .$this->pad('', 10)
-            .$this->num(0, 6)
-            .$this->pad('', 41)
-            .$state
-            .$this->num(0, 32)
-            .$this->pad('', 6)
-            .'003'
-            .$priceCents
-            .'006'
-            .$this->num(0, 11),
-            self::BID_LEN
-        );
+        return $this->fields([
+            ['BID', 3],
+            ['0', 1],
+            [$seq5, 5, '0', STR_PAD_LEFT],
+            [$product8, 8, '0', STR_PAD_LEFT],
+            [$code14, 14, '0', STR_PAD_LEFT],
+            [$desc, self::BID_DESC_LEN],
+            [$this->num($unitSize, 6), 6, '0', STR_PAD_LEFT],
+            [$promo ? 'Y' : 'N', 1],
+            ['', 6],
+            [$this->nacsCode($item), 6],
+            ['', 10],
+            ['0', 6, '0', STR_PAD_LEFT],
+            [$promo ? str_repeat(' ', 11).'PROMO'.str_repeat(' ', 25) : '', 41],
+            [$state, 2],
+            ['0', 32, '0', STR_PAD_LEFT],
+            ['', 6],
+            ['003', 3],
+            [$this->num((int) round((float) $item->list_price * 100), 11), 11, '0', STR_PAD_LEFT],
+            ['006', 3],
+            ['0', 11, '0', STR_PAD_LEFT],
+        ], self::BID_LEN);
     }
 
     /**
@@ -359,27 +420,24 @@ class TobaccoProductSalesFileService
             || strtoupper((string) ($customer->customer_id ?? '')) === 'WALKIN'
             || stripos((string) ($customer->company_name ?? ''), 'walk') !== false;
 
-        $name = mb_strtoupper((string) (
+        $name = $this->upperAscii((string) (
             $customer?->company_name
             ?: $customer?->contact
             ?: 'WALK-IN CUSTOMER'
         ));
-        $acctSource = (string) ($customer?->customer_id ?: $customer?->id ?: $seq);
-        $acctDigits = preg_replace('/\D+/', '', $acctSource) ?: (string) $seq;
-        $acct = $this->numDigits($acctDigits, 8);
 
-        $addr = mb_strtoupper(trim((string) ($customer?->address ?: $co['address'])));
-        $city = mb_strtoupper(trim((string) ($customer?->city ?: $co['city'])));
-        $state = strtoupper(substr(trim((string) ($customer?->state ?: $co['state'])), 0, 2));
+        $addr = $this->upperAscii(trim((string) ($customer?->address ?: $co['address'])));
+        $city = $this->upperAscii(trim((string) ($customer?->city ?: $co['city'])));
+        $state = $this->upperAscii(substr(trim((string) ($customer?->state ?: $co['state'])), 0, 2));
         $zip = $this->zip9((string) ($customer?->zip_code ?: $co['zip']));
         $phoneRaw = (string) ($customer?->telephone ?: $customer?->mobile ?: $customer?->telephone2 ?: $co['phone']);
         $phone = $this->numDigits(preg_replace('/\D+/', '', $phoneRaw) ?: '0', 10);
 
         if ($isWalkIn) {
-            $name2 = mb_strtoupper($co['name']);
-            $addr2 = mb_strtoupper($co['address']);
-            $city2 = mb_strtoupper($co['city']);
-            $state2 = $co['state'];
+            $name2 = $this->upperAscii($co['name']);
+            $addr2 = $this->upperAscii($co['address']);
+            $city2 = $this->upperAscii($co['city']);
+            $state2 = $this->upperAscii($co['state']);
             $zip2 = $this->zip9($co['zip']);
             $phone2 = $this->numDigits(preg_replace('/\D+/', '', $co['phone']) ?: '0', 10);
             $accountYn = 'YN';
@@ -396,47 +454,46 @@ class TobaccoProductSalesFileService
         }
 
         $typeLabel = 'RETAIL';
-        $acctType = strtoupper((string) ($customer?->account_type ?? ''));
-        if (str_contains($acctType, 'DISTRIB') || str_contains($acctType, 'WHOLE') || str_contains(strtoupper($name), 'DISTRIBUTOR')) {
+        $acctType = $this->upperAscii((string) ($customer?->account_type ?? ''));
+        if (str_contains($acctType, 'DISTRIB') || str_contains($acctType, 'WHOLE') || str_contains($name, 'DISTRIBUTOR')) {
             $typeLabel = 'DISTRIBUTOR';
         }
         if ($isWalkIn) {
             $typeLabel = 'RETAIL';
         }
 
-        return $this->fixed(
-            'SID'
-            .$custKey
-            .$custKey
-            .$custKey
-            .$this->pad($name, self::NAME_LEN)
-            .$acct
-            .$this->pad($addr, self::ADDR_LEN)
-            .$this->pad($city, 25)
-            .$this->pad($state, 2)
-            .$zip
-            .'USA'
-            .$this->pad($state, 2)
-            .$this->pad('', 3)
-            .$phone
-            .$this->pad($typeLabel, 20)
-            .$this->num(0, 7)
-            .$accountYn
-            .$this->pad('', 66)
-            .$this->pad($name2, self::NAME_LEN)
-            .$this->pad($addr2, self::ADDR_LEN)
-            .$this->pad($city2, 25)
-            .$this->pad($state2, 2)
-            .$zip2
-            .'USA'
-            .$this->pad('', 5)
-            .$phone2
-            .$this->num(0, 14)
-            .$shipFlag
-            .$this->pad('', 41)
-            .$this->num(0, 11),
-            self::SID_LEN
-        );
+        return $this->fields([
+            ['SID', 3],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$name, self::NAME_LEN],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$addr, self::ADDR_LEN],
+            [$city, 25],
+            [$state, 2],
+            [$zip, 9, '0', STR_PAD_RIGHT],
+            ['USA', 3],
+            [$state, 2],
+            ['', 3],
+            [$phone, 10, '0', STR_PAD_LEFT],
+            [$typeLabel, 20],
+            ['0', 7, '0', STR_PAD_LEFT],
+            [$accountYn, 2],
+            ['', 66],
+            [$name2, self::NAME_LEN],
+            [$addr2, self::ADDR_LEN],
+            [$city2, 25],
+            [$state2, 2],
+            [$zip2, 9, '0', STR_PAD_RIGHT],
+            ['USA', 3],
+            ['', 5],
+            [$phone2, 10, '0', STR_PAD_LEFT],
+            ['0', 14, '0', STR_PAD_LEFT],
+            [$shipFlag, 2],
+            ['', 41],
+            ['0', 11, '0', STR_PAD_LEFT],
+        ], self::SID_LEN);
     }
 
     /**
@@ -497,24 +554,23 @@ class TobaccoProductSalesFileService
         $qtyInt = max(0, (int) round($qty));
         $cents = max(0, (int) round($amount * 100));
 
-        return $this->fixed(
-            'PUR'
-            .$custKey
-            .$custKey
-            .$custKey
-            .$this->pad($productKey, 14, '0', STR_PAD_LEFT)
-            .$this->pad('', 33)
-            .$this->pad($saleDateYmd, 8)
-            .$this->pad('', 20)
-            .'001'
-            .$this->num($qtyInt, 11)
-            .$this->num($packSize, 4)
-            .$this->num($sticks, 10)
-            .'004'
-            .$this->num($cents, 14)
-            .$this->num(0, 11),
-            self::PUR_LEN
-        );
+        return $this->fields([
+            ['PUR', 3],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$productKey, 14, '0', STR_PAD_LEFT],
+            ['', 33],
+            [$saleDateYmd, 8],
+            ['', 20],
+            ['001', 3],
+            [$this->num($qtyInt, 11), 11, '0', STR_PAD_LEFT],
+            [$this->num($packSize, 4), 4, '0', STR_PAD_LEFT],
+            [$this->num($sticks, 10), 10, '0', STR_PAD_LEFT],
+            ['004', 3],
+            [$this->num($cents, 14), 14, '0', STR_PAD_LEFT],
+            ['0', 11, '0', STR_PAD_LEFT],
+        ], self::PUR_LEN);
     }
 
     /**
@@ -529,25 +585,26 @@ class TobaccoProductSalesFileService
         int $totalSticks,
         int $totalAmountCents
     ): string {
-        return $this->fixed(
-            'TOT'
-            .$license
-            .$periodYmd
-            .$this->num($bidCount, 9)
-            .$this->num($sidCount, 9)
-            .$this->num($purCount, 9)
-            .$this->pad('', 40)
-            .'001'
-            .$this->num($totalSticks, 15)
-            .$this->pad('', 18)
-            .'003'
-            .$this->num($totalAmountCents, 15)
-            .'006'
-            .$this->num(0, 15)
-            .$this->num(0, 15)
-            .$this->num(0, 15),
-            self::TOT_LEN
-        );
+        return $this->fields([
+            ['TOT', 3],
+            [$license, 8, '0', STR_PAD_LEFT],
+            [$periodYmd, 8],
+            [$this->num($bidCount, 9), 9, '0', STR_PAD_LEFT],
+            [$this->num($sidCount, 9), 9, '0', STR_PAD_LEFT],
+            [$this->num($purCount, 9), 9, '0', STR_PAD_LEFT],
+            ['', 40],
+            ['001', 3],
+            [$this->num($totalSticks, 15), 15, '0', STR_PAD_LEFT],
+            ['', 18],
+            ['003', 3],
+            [$this->num($totalAmountCents, 15), 15, '0', STR_PAD_LEFT],
+            ['006', 3],
+            ['0', 15, '0', STR_PAD_LEFT],
+            ['004', 3],
+            ['0', 15, '0', STR_PAD_LEFT],
+            ['005', 3],
+            ['0', 15, '0', STR_PAD_LEFT],
+        ], self::TOT_LEN);
     }
 
     protected function nacsCode(Item $item): string
@@ -576,13 +633,61 @@ class TobaccoProductSalesFileService
         return $this->pad(substr($digits, 0, 9), 9, '0', STR_PAD_RIGHT);
     }
 
+    /**
+     * Concatenate exact-width ASCII fields so every column starts on the same
+     * character for every record of that type (Nashville BID desc @ 31, NACS @ 144, …).
+     *
+     * @param  list<array{0:string,1:int,2?:string,3?:int}>  $parts
+     */
+    protected function fields(array $parts, int $len): string
+    {
+        $out = '';
+        foreach ($parts as $part) {
+            $out .= $this->pad(
+                (string) ($part[0] ?? ''),
+                (int) $part[1],
+                (string) ($part[2] ?? ' '),
+                (int) ($part[3] ?? STR_PAD_RIGHT)
+            );
+        }
+
+        return $this->fixed($out, $len);
+    }
+
+    protected function upperAscii(string $value): string
+    {
+        return strtoupper($this->ascii($value));
+    }
+
+    /** Single-byte printable ASCII only — 1 char = 1 column. */
+    protected function ascii(string $value): string
+    {
+        $value = str_replace(["\r", "\n", "\t"], ' ', $value);
+
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if ($converted === false) {
+            $converted = @iconv('UTF-8', 'ASCII//IGNORE', $value);
+        }
+        if (! is_string($converted)) {
+            $converted = $value;
+        }
+
+        return preg_replace('/[^\x20-\x7E]/', ' ', $converted) ?? '';
+    }
+
     protected function pad(string $value, int $len, string $pad = ' ', int $style = STR_PAD_RIGHT): string
     {
-        $value = preg_replace("/[\r\n\t]+/", ' ', $value) ?? $value;
-        $value = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value) ?: $value;
-        $value = substr($value, 0, $len);
+        if ($len <= 0) {
+            return '';
+        }
 
-        return str_pad($value, $len, $pad, $style);
+        $padChar = $pad === '' ? ' ' : substr($pad, 0, 1);
+        $value = $this->ascii($value);
+        if (strlen($value) > $len) {
+            $value = substr($value, 0, $len);
+        }
+
+        return str_pad($value, $len, $padChar, $style);
     }
 
     protected function num(int $value, int $len): string

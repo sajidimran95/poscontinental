@@ -1,7 +1,9 @@
 <?php
 
+use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
+use App\Models\Supplier;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -11,6 +13,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 {
     use WithPagination;
+    use InteractsWithDeskQuery;
 
     #[Url]
     public string $search = '';
@@ -20,6 +23,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     /** '' | pending | received */
     public string $statusFilter = '';
+
+    public string $dateFrom = '';
+
+    public string $dateTo = '';
+
+    public string $supplierId = '';
 
     public ?int $selectedId = null;
 
@@ -48,6 +57,10 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             ->when($this->favorite === 'today', fn ($q) => $q->whereDate('requisition_date', today()))
             ->when($this->statusFilter === 'pending', fn ($q) => $q->whereIn('status', ['New', 'Partially Received']))
             ->when($this->statusFilter === 'received', fn ($q) => $q->where('status', 'Received'))
+            ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('requisition_date', '>=', $this->dateFrom))
+            ->when($this->dateTo !== '', fn ($q) => $q->whereDate('requisition_date', '<=', $this->dateTo))
+            ->when($this->supplierId !== '' && ctype_digit((string) $this->supplierId), fn ($q) => $q->where('supplier_id', (int) $this->supplierId))
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
             ->orderByDesc('id');
 
         $listTitle = match (true) {
@@ -57,6 +70,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             $this->favorite === 'today' => 'Purchase Orders List (Today)',
             default => 'Purchase Orders List',
         };
+
+        if ($this->queryCriteria !== []) {
+            $listTitle = $this->queryLoadedName !== ''
+                ? 'Query: '.$this->queryLoadedName
+                : 'Query Results ('.count($this->queryCriteria).' criteria)';
+        }
 
         return [
             'orders' => $query->paginate(50),
@@ -68,7 +87,48 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 'today' => 'Today',
             ],
             'listTitle' => $listTitle,
+            'queryFields' => $this->deskQueryFieldOptions(),
+            'queryFieldTypes' => $this->deskQueryFieldTypes(),
+            'queryOperators' => $this->deskQueryOperatorOptions(),
+            'savedDeskQueries' => $this->loadSavedDeskQueries(),
+            'deskQueryTitle' => 'Purchase Order Query',
+            'filterSuppliers' => Supplier::query()
+                ->where('company_id', $companyId)
+                ->where('is_inactive', false)
+                ->orderBy('name')
+                ->limit(500)
+                ->get(['id', 'supplier_id', 'name']),
         ];
+    }
+
+    /** @return array<string, array{label: string, column: string, has?: string}> */
+    protected function deskQueryFields(): array
+    {
+        return [
+            'po_number' => ['label' => 'PO Number', 'column' => 'po_number'],
+            'status' => ['label' => 'Status', 'column' => 'status'],
+            'order_type' => ['label' => 'Order Type', 'column' => 'order_type'],
+            'reference_no' => ['label' => 'Reference #', 'column' => 'reference_no'],
+            'requisition_date' => ['label' => 'Requisition Date', 'column' => 'requisition_date', 'type' => 'date'],
+            'required_date' => ['label' => 'Required Date', 'column' => 'required_date', 'type' => 'date'],
+            'total' => ['label' => 'PO Total', 'column' => 'total', 'type' => 'number'],
+            'supplier_code' => ['label' => 'Supplier ID', 'has' => 'supplier', 'column' => 'supplier_id'],
+            'supplier_name' => ['label' => 'Supplier Name', 'has' => 'supplier', 'column' => 'name'],
+            'buyer_name' => ['label' => 'Buyer', 'has' => 'buyer', 'column' => 'name'],
+            'supplier_contact' => ['label' => 'Supplier Contact', 'has' => 'supplier', 'column' => 'contact_name'],
+            'supplier_city' => ['label' => 'Supplier City', 'has' => 'supplier', 'column' => 'city'],
+            'supplier_state' => ['label' => 'Supplier State', 'has' => 'supplier', 'column' => 'state'],
+            'supplier_phone' => ['label' => 'Supplier Phone', 'has' => 'supplier', 'column' => 'phone1'],
+            'ship_from' => ['label' => 'Ship From', 'column' => 'ship_from'],
+            'comments' => ['label' => 'Comments', 'column' => 'comments'],
+            'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
+            'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+        ];
+    }
+
+    protected function deskQuerySessionKey(): string
+    {
+        return 'purchase_orders_query_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     public function updatingSearch(): void
@@ -98,6 +158,22 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         }
     }
 
+    public function updatedDateFrom(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedSupplierId(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
+    }
+
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
@@ -114,8 +190,25 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->favorite = 'all';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->supplierId = '';
         $this->selectedId = null;
+        $this->clearQueryCriteria();
         $this->resetPage();
+    }
+
+    public function openDeskQuery(): void
+    {
+        $this->showQueryModal = true;
+        $this->queryStatus = '';
+        $fields = $this->deskQueryFields();
+        if ($this->queryField === '' || ! isset($fields[$this->queryField])) {
+            $this->queryField = (string) (array_key_first($fields) ?? '');
+            if ($this->queryField !== '') {
+                $this->syncQueryOperatorForField($this->queryField);
+            }
+        }
     }
 
     public function toggleCompactView(): void
@@ -274,8 +367,22 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                         class="desk-search orders-search-input"
                         aria-label="Search Purchase Orders"
                     />
+                    <button type="button" wire:click="openDeskQuery" class="desk-btn items-query-btn" title="Query by field">Query</button>
+                    @if ($queryCriteria !== [])
+                        <button type="button" wire:click="clearQueryCriteria" class="desk-btn desk-btn-sm" title="Clear query">Clear Query</button>
+                    @endif
 
                     <div class="orders-toolbar-right">
+                        <label class="desk-toolbar-label" for="po-date-from">From</label>
+                        <input id="po-date-from" type="date" wire:model.live="dateFrom" class="desk-input" aria-label="Requisition date from" />
+                        <label class="desk-toolbar-label" for="po-date-to">To</label>
+                        <input id="po-date-to" type="date" wire:model.live="dateTo" class="desk-input" aria-label="Requisition date to" />
+                        <select wire:model.live="supplierId" class="desk-select orders-party-select" aria-label="Supplier">
+                            <option value="">All suppliers</option>
+                            @foreach ($filterSuppliers as $sup)
+                                <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                            @endforeach
+                        </select>
                         <select
                             id="po-status-filter"
                             wire:model.live="statusFilter"
@@ -378,6 +485,13 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                         <rect x="9" y="9" width="5" height="5" rx="0.5"/>
                     </svg>
                 </button>
+                <button type="button" wire:click="openDeskQuery" class="desk-rail-btn" title="Query purchase orders by field" aria-label="Query purchase orders">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.5"/>
+                        <path d="M10.5 10.5L14 14"/>
+                        <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
@@ -423,8 +537,8 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             </aside>
         </div>
     </div>
+    @include('livewire.partials.desk-query-modal')
 </div>
-
 @script
 <script>
     $wire.on('open-purchase-order-pdf', (payload) => {

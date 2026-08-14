@@ -40,6 +40,34 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public bool $includes_stamps = false;
 
+    /**
+     * Show a page alert instead of the Laravel debug screen.
+     */
+    public function exception(\Throwable $e, callable $stopPropagation): void
+    {
+        if (! $e instanceof \RuntimeException && ! $e instanceof \InvalidArgumentException) {
+            return;
+        }
+
+        $this->validation_status = 'invalid';
+        $this->validation_errors = [$this->professionalMsaMessage($e)];
+        $stopPropagation();
+    }
+
+    private function professionalMsaMessage(\Throwable $e): string
+    {
+        $msg = trim($e->getMessage());
+        if ($msg === '') {
+            return 'Unable to generate this report. Check company, customer, and supplier MSA settings, then try again.';
+        }
+
+        if (stripos($msg, 'FEIN') !== false) {
+            return $msg;
+        }
+
+        return $msg;
+    }
+
     public function mount(): void
     {
         // Default to last completed week (Sun–Sat).
@@ -311,7 +339,6 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                     ->where('company_id', $companyId)
                     ->whereBetween('invoice_date', [$this->period_start, $this->period_end])
                     ->get();
-                $sales = 0;
                 $tobSales = 0;
                 foreach ($invoices as $invoice) {
                     foreach ($invoice->salesOrder?->lines ?? [] as $line) {
@@ -323,7 +350,6 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                         if ($qty == 0.0) {
                             continue;
                         }
-                        $sales++;
                         $type = trim((string) ($item->tobacco_product_type ?? ''));
                         $isTob = $type !== ''
                             || filled($item->tobacco_brand_code)
@@ -334,9 +360,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                         }
                     }
                 }
-                // Prefer tobacco lines when any exist; otherwise count all invoiced sale lines.
                 $this->purchase_rows = 0;
-                $this->sale_rows = $tobSales > 0 ? $tobSales : $sales;
+                $this->sale_rows = $tobSales;
                 $this->return_rows = 0;
             } catch (\Throwable) {
                 $this->purchase_rows = 0;
@@ -417,13 +442,21 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         }, $filename, ['Content-Type' => 'application/xml']);
     }
 
-    public function downloadTxt(TobaccoXmlService $xmlService): StreamedResponse
+    public function downloadTxt(TobaccoXmlService $xmlService): ?StreamedResponse
     {
         if ($this->isMsaFileReport()) {
             return $this->downloadAllSalesFile(app(TobaccoProductSalesFileService::class));
         }
 
-        $text = $this->buildTextPayload($xmlService);
+        try {
+            $text = $this->buildTextPayload($xmlService);
+        } catch (\Throwable $e) {
+            $this->validation_status = 'invalid';
+            $this->validation_errors = [$e->getMessage()];
+
+            return null;
+        }
+
         [$filer, $product] = $this->resolveReturn();
         $filename = 'msa-'.$filer.'-'.$product.'-'.$this->period_start.'.txt';
 
@@ -433,27 +466,37 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     }
 
     /** Fixed-width TOB sales file — same design/data layout as JAPS_POS_TOB_*.txt */
-    public function downloadAllSalesFile(TobaccoProductSalesFileService $fileService): StreamedResponse
+    public function downloadAllSalesFile(TobaccoProductSalesFileService $fileService): ?StreamedResponse
     {
         $this->return_type = 'msa_report';
 
-        $company = auth()->user()->company()->first() ?? auth()->user()->company;
-        $companyId = (int) auth()->user()->company_id;
+        try {
+            $company = auth()->user()->company()->first() ?? auth()->user()->company;
+            $companyId = (int) auth()->user()->company_id;
 
-        $invoices = Invoice::query()
-            ->with(['customer', 'salesOrder.lines.item'])
-            ->where('company_id', $companyId)
-            ->whereBetween('invoice_date', [$this->period_start, $this->period_end])
-            ->orderBy('invoice_date')
-            ->orderBy('id')
-            ->get();
+            $invoices = Invoice::query()
+                ->with(['customer', 'salesOrder.lines.item'])
+                ->where('company_id', $companyId)
+                ->whereBetween('invoice_date', [$this->period_start, $this->period_end])
+                ->orderBy('invoice_date')
+                ->orderBy('id')
+                ->get();
 
-        $payload = $fileService->build($company, $this->period_start, $this->period_end, $invoices);
-        $filename = $fileService->filename($company, $this->period_end);
+            $payload = $fileService->build($company, $this->period_start, $this->period_end, $invoices);
+            $filename = $fileService->filename($company, $this->period_end);
+        } catch (\Throwable $e) {
+            $this->validation_status = 'invalid';
+            $this->validation_errors = [$e->getMessage()];
+
+            return null;
+        }
 
         return response()->streamDownload(function () use ($payload) {
             echo $payload;
-        }, $filename, ['Content-Type' => 'text/plain; charset=UTF-8']);
+        }, $filename, [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'no-store',
+        ]);
     }
 
     /** @return array{0: string, 1: string} */
@@ -613,7 +656,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             <div class="msa-alert msa-alert-ok" role="status">XML passed schema validation for the selected MSA return.</div>
         @elseif ($validation_status === 'invalid')
             <div class="msa-alert msa-alert-err" role="alert">
-                <strong>Validation failed</strong>
+                <strong>Cannot generate report</strong>
                 <ul>
                     @foreach ($validation_errors as $error)
                         <li>{{ $error }}</li>

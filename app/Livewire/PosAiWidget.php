@@ -2,12 +2,15 @@
 
 namespace App\Livewire;
 
+use App\Livewire\Concerns\PersistsPosAiChat;
 use App\Models\Company;
 use App\Services\JapsAi\JapsAiChatService;
 use Livewire\Component;
 
 class PosAiWidget extends Component
 {
+    use PersistsPosAiChat;
+
     public bool $open = false;
 
     public string $message = '';
@@ -19,25 +22,21 @@ class PosAiWidget extends Component
 
     public function mount(): void
     {
-        $this->messages = [[
-            'role' => 'assistant',
-            'text' => "Hi! I'm POS AI for **this company only**. "
-                ."Tap a **Suggested question** for free live data (no OpenAI credits). "
-                ."I only answer wholesale POS topics — sales, stock, invoices, purchases, payments.",
-            'tool' => null,
-        ]];
+        $this->loadPersistedChat();
     }
 
     public function toggle(): void
     {
         $this->open = ! $this->open;
         if ($this->open) {
+            $this->loadPersistedChat();
             $this->scrollBottom();
         }
     }
 
     public function close(): void
     {
+        $this->persistChat();
         $this->open = false;
     }
 
@@ -83,6 +82,7 @@ class PosAiWidget extends Component
         }
 
         $this->scrollBottom();
+        $this->persistChat();
     }
 
     private function scrollBottom(): void

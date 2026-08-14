@@ -292,6 +292,7 @@ class JapsAiChatService
         $t = $s['today'];
         $y = $s['yesterday'];
         $m = $s['last_30_days'];
+        $a = $s['all_time'] ?? ['total' => 0, 'invoices' => 0, 'avg' => 0];
 
         return "As of **{$asOf}** — live POS database numbers.\n\n"
             ."### Today's billed sales (invoices)\n"
@@ -301,7 +302,10 @@ class JapsAiChatService
             .'- **Total:** '.$i->money((float) $y['total']).' ('.($y['invoices'] ?? $y['orders']).' invoices)'."\n\n"
             ."### Last 30 days\n"
             .'- **Total:** '.$i->money((float) $m['total']).' ('.($m['invoices'] ?? $m['orders']).' invoices)'."\n"
-            .'- **Average invoice:** '.$i->money((float) $m['avg']);
+            .'- **Average invoice:** '.$i->money((float) $m['avg'])."\n\n"
+            ."### All billed invoices\n"
+            .'- **Total:** '.$i->money((float) ($a['total'] ?? 0)).' ('.($a['invoices'] ?? 0).' invoices)'."\n"
+            .'- **Average invoice:** '.$i->money((float) ($a['avg'] ?? 0));
     }
 
     private function replyOverview(BusinessInsightsService $i, string $asOf): string
@@ -311,21 +315,43 @@ class JapsAiChatService
         $inv = $o['inventory'];
         $ar = $o['invoices'];
 
+        $pay = $o['payments_today'] ?? [];
+        $po = $o['purchase_orders_open'] ?? [];
+        $pipe = $o['sales_pipeline'] ?? [];
+        $recv = $o['purchases_receiving_30d'] ?? [];
+        $cm = $o['credit_memos_30d'] ?? [];
+        $cust = $o['customers'] ?? [];
+
         $lines = [
-            "As of **{$asOf}** — business overview.",
+            "As of **{$asOf}** — live POS totals (full database, not a sample).",
             '',
-            '### Sales',
+            '### Sales (billed invoices)',
             '- Today: '.$i->money((float) $s['today']['total']).' / '.($s['today']['invoices'] ?? $s['today']['orders']).' invoices',
+            '- Yesterday: '.$i->money((float) $s['yesterday']['total']).' / '.($s['yesterday']['invoices'] ?? $s['yesterday']['orders']).' invoices',
             '- Last 30 days: '.$i->money((float) $s['last_30_days']['total']).' / '.($s['last_30_days']['invoices'] ?? $s['last_30_days']['orders']).' invoices',
-            '- Customers on file: '.$s['customers_on_file'],
+            '- All billed: '.$i->money((float) ($s['all_time']['total'] ?? 0)).' / '.($s['all_time']['invoices'] ?? 0).' invoices',
             '',
             '### Inventory',
             "- {$inv['need_attention']} of {$inv['products']} products need attention",
             "- Out of stock: {$inv['out_of_stock']} · Below reorder: {$inv['below_reorder']}",
             '',
-            '### Invoices',
-            "- Open with balance: {$ar['open']} · Outstanding: ".$i->money((float) $ar['outstanding']),
-            "- Older open (30+ days): {$ar['overdue']} · ".$i->money((float) $ar['overdue_amount']),
+            '### Accounts receivable (Invoices → NOT PAID)',
+            "- NOT PAID invoices: {$ar['open']} · Outstanding: ".$i->money((float) $ar['outstanding']),
+            "- Older than 30 days: {$ar['overdue']} · ".$i->money((float) $ar['overdue_amount']),
+            '',
+            '### Payments today',
+            '- Count: '.($pay['count'] ?? 0).' · Total: '.$i->money((float) ($pay['total'] ?? 0)),
+            '',
+            '### Pipeline / purchasing',
+            '- Open sales orders: '.($pipe['open_orders'] ?? 0).' · '.$i->money((float) ($pipe['open_value'] ?? 0)),
+            '- Open purchase orders: '.($po['count'] ?? 0).' · '.$i->money((float) ($po['value'] ?? 0)),
+            '- Receiving (30d): '.($recv['receipts'] ?? 0).' receipts · '.$i->money((float) ($recv['line_value'] ?? 0)),
+            '- Credit memos (30d): '.($cm['count'] ?? 0).' · '.$i->money((float) ($cm['total'] ?? 0)),
+            '',
+            '### Customers',
+            '- Active: '.($cust['active'] ?? $s['customers_on_file'] ?? 0)
+                .' · Inactive: '.($cust['inactive'] ?? 0)
+                .' · Total: '.($cust['total'] ?? $s['customers_on_file'] ?? 0),
         ];
 
         if (! empty($o['actions'])) {
@@ -411,18 +437,24 @@ class JapsAiChatService
 
     private function replyUnpaid(BusinessInsightsService $i, string $asOf): string
     {
-        $rows = $i->unpaidInvoices(12);
         $sum = $i->invoiceSummary();
+        $total = (int) $sum['open'];
+        $rows = $i->unpaidInvoices(min(500, max($total, 1)));
+        $shown = count($rows);
         $lines = [
-            "As of **{$asOf}** — unpaid / open invoices.",
+            "As of **{$asOf}** — same as **Invoices list → NOT PAID**.",
             '',
-            '- Open with balance: **'.$sum['open'].'**',
-            '- Outstanding: **'.$i->money((float) $sum['outstanding']).'**',
+            '- NOT PAID invoices: **'.$total.'**',
+            '- Outstanding balance: **'.$i->money((float) $sum['outstanding']).'**',
+            '- Older than 30 days: **'.$sum['overdue'].'** · '.$i->money((float) $sum['overdue_amount']),
             '',
         ];
         if ($rows === []) {
-            $lines[] = 'No open balances found.';
+            $lines[] = 'No NOT PAID invoices found.';
         } else {
+            $lines[] = $shown < $total
+                ? "### Showing {$shown} of {$total} (newest first)"
+                : "### All {$total} NOT PAID invoices";
             foreach ($rows as $r) {
                 $lines[] = '- **'.$r['invoice'].'** · '.$r['customer'].' · '.$i->money($r['balance']).' · '.$r['date'];
             }

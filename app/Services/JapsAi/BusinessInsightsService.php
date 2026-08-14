@@ -105,10 +105,22 @@ class BusinessInsightsService
         $y = $sumInvoices($yesterday, $yesterday);
         $m = $sumInvoices($from30, $today);
 
+        $allQ = Invoice::query()
+            ->where('company_id', $this->companyId)
+            ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')");
+        $allCount = (clone $allQ)->count();
+        $allTotal = (float) (clone $allQ)->sum('invoice_total');
+
         return [
             'today' => $t,
             'yesterday' => $y,
             'last_30_days' => $m,
+            'all_time' => [
+                'orders' => $allCount,
+                'invoices' => $allCount,
+                'total' => $allTotal,
+                'avg' => $allCount > 0 ? round($allTotal / $allCount, 2) : 0.0,
+            ],
             'customers_on_file' => Customer::query()
                 ->where('company_id', $this->companyId)
                 ->where('is_inactive', false)
@@ -195,9 +207,8 @@ class BusinessInsightsService
                     GROUP BY invoice_id
                 ) c ON c.invoice_id = i.id
                 WHERE i.company_id = ?
-                  AND UPPER(i.status) NOT IN ('VOID', 'CANCELLED')
+                  AND i.status = 'NOT PAID'
             ) b
-            WHERE b.bal > 0.009
             ",
             [$cutoff, $cutoff, $this->companyId]
         );
@@ -256,12 +267,15 @@ class BusinessInsightsService
         $from = now()->subDays($days)->toDateString();
 
         $rows = \App\Models\SalesOrderLine::query()
-            ->selectRaw('item_code, description, SUM(qty_ordered) as qty, SUM(line_total) as revenue')
+            ->selectRaw('item_code, MAX(description) as description, SUM(qty_ordered) as qty, SUM(line_total) as revenue')
             ->whereHas('salesOrder', function ($q) use ($from) {
                 $q->where('company_id', $this->companyId)
-                    ->whereDate('order_date', '>=', $from);
+                    ->whereHas('invoice', function ($inv) use ($from) {
+                        $inv->whereDate('invoice_date', '>=', $from)
+                            ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')");
+                    });
             })
-            ->groupBy('item_code', 'description')
+            ->groupBy('item_code')
             ->orderByDesc('revenue')
             ->limit($limit)
             ->get();
@@ -306,12 +320,18 @@ class BusinessInsightsService
             ->whereHas('invoice', fn ($q) => $q->where('company_id', $this->companyId))
             ->whereDate('payment_date', $today);
 
-        $byMethod = (clone $base)
-            ->selectRaw("COALESCE(NULLIF(payment_method, ''), 'Other') as method, SUM(amount) as total")
-            ->groupByRaw("COALESCE(NULLIF(payment_method, ''), 'Other')")
-            ->pluck('total', 'method')
-            ->map(fn ($v) => round((float) $v, 2))
-            ->all();
+        $byMethod = [];
+        foreach (
+            (clone $base)
+                ->select('payment_method', DB::raw('SUM(amount) as total'))
+                ->groupBy('payment_method')
+                ->get() as $row
+        ) {
+            $key = trim((string) ($row->payment_method ?? '')) !== ''
+                ? (string) $row->payment_method
+                : 'Other';
+            $byMethod[$key] = round(($byMethod[$key] ?? 0) + (float) $row->total, 2);
+        }
 
         return [
             'date' => $today,
@@ -374,17 +394,19 @@ class BusinessInsightsService
             ->where('company_id', $this->companyId)
             ->whereDate('requisition_date', '>=', $from);
 
-        $byStatus = (clone $recent)
-            ->selectRaw("COALESCE(NULLIF(status, ''), 'unknown') as status, COUNT(*) as cnt, SUM(total) as value")
-            ->groupByRaw("COALESCE(NULLIF(status, ''), 'unknown')")
-            ->get()
-            ->mapWithKeys(fn ($r) => [
-                (string) $r->status => [
-                    'count' => (int) $r->cnt,
-                    'value' => round((float) $r->value, 2),
-                ],
-            ])
-            ->all();
+        $byStatus = [];
+        foreach (
+            (clone $recent)
+                ->select('status', DB::raw('COUNT(*) as cnt'), DB::raw('SUM(total) as value'))
+                ->groupBy('status')
+                ->get() as $r
+        ) {
+            $key = trim((string) ($r->status ?? '')) !== '' ? (string) $r->status : 'unknown';
+            $byStatus[$key] = [
+                'count' => (int) $r->cnt,
+                'value' => round((float) $r->value, 2),
+            ];
+        }
 
         $open = $this->openPurchaseOrders();
 
@@ -412,29 +434,29 @@ class BusinessInsightsService
         ];
     }
 
-    /** @return list<array{invoice: string, customer: string, balance: float, date: string|null}> */
-    public function unpaidInvoices(int $limit = 15): array
+    /**
+     * Same set as Sales → Invoices list filter status = NOT PAID.
+     *
+     * @return list<array{invoice: string, customer: string, balance: float, date: string|null}>
+     */
+    public function unpaidInvoices(int $limit = 50): array
     {
-        $limit = max(1, min(50, $limit));
+        $limit = max(1, min(500, $limit));
         $rows = DB::select(
             "
-            SELECT x.invoice_number, x.invoice_date, x.company_name, x.bal
-            FROM (
-                SELECT i.invoice_number, i.invoice_date, i.id, cu.company_name,
-                       (i.invoice_total - COALESCE(p.paid, 0) - COALESCE(c.cred, 0)) AS bal
-                FROM invoices i
-                LEFT JOIN customers cu ON cu.id = i.customer_id
-                LEFT JOIN (
-                    SELECT invoice_id, SUM(amount) AS paid FROM invoice_payments GROUP BY invoice_id
-                ) p ON p.invoice_id = i.id
-                LEFT JOIN (
-                    SELECT invoice_id, SUM(amount) AS cred FROM invoice_credits GROUP BY invoice_id
-                ) c ON c.invoice_id = i.id
-                WHERE i.company_id = ?
-                  AND UPPER(i.status) NOT IN ('VOID', 'CANCELLED')
-            ) x
-            WHERE x.bal > 0.009
-            ORDER BY x.invoice_date DESC, x.id DESC
+            SELECT i.invoice_number, i.invoice_date, cu.company_name,
+                   (i.invoice_total - COALESCE(p.paid, 0) - COALESCE(c.cred, 0)) AS bal
+            FROM invoices i
+            LEFT JOIN customers cu ON cu.id = i.customer_id
+            LEFT JOIN (
+                SELECT invoice_id, SUM(amount) AS paid FROM invoice_payments GROUP BY invoice_id
+            ) p ON p.invoice_id = i.id
+            LEFT JOIN (
+                SELECT invoice_id, SUM(amount) AS cred FROM invoice_credits GROUP BY invoice_id
+            ) c ON c.invoice_id = i.id
+            WHERE i.company_id = ?
+              AND i.status = 'NOT PAID'
+            ORDER BY i.id DESC
             LIMIT {$limit}
             ",
             [$this->companyId]
@@ -481,7 +503,7 @@ class BusinessInsightsService
         $q = Invoice::query()
             ->where('company_id', $this->companyId)
             ->whereDate('invoice_date', $today)
-            ->whereNotIn('status', ['void', 'cancelled']);
+            ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')");
 
         $count = (clone $q)->count();
         $total = (float) (clone $q)->sum('invoice_total');
@@ -538,10 +560,11 @@ class BusinessInsightsService
     {
         $from = now()->subDays($days)->toDateString();
 
-        $rows = SalesOrder::query()
-            ->selectRaw('customer_id, COUNT(*) as orders, SUM(total) as revenue')
+        $rows = Invoice::query()
+            ->selectRaw('customer_id, COUNT(*) as orders, SUM(invoice_total) as revenue')
             ->where('company_id', $this->companyId)
-            ->whereDate('order_date', '>=', $from)
+            ->whereDate('invoice_date', '>=', $from)
+            ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')")
             ->whereNotNull('customer_id')
             ->groupBy('customer_id')
             ->orderByDesc('revenue')
@@ -566,7 +589,7 @@ class BusinessInsightsService
         $q = \App\Models\CreditMemo::query()
             ->where('company_id', $this->companyId)
             ->whereDate('memo_date', '>=', $from)
-            ->whereNotIn('status', ['void', 'cancelled']);
+            ->whereRaw("UPPER(status) NOT IN ('VOID', 'CANCELLED')");
 
         $count = (clone $q)->count();
         $total = (float) (clone $q)->sum('amount');

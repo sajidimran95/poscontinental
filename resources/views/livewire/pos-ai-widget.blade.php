@@ -35,6 +35,7 @@
                 </div>
             </div>
             <div class="posai-w-head-actions">
+                <button type="button" class="posai-w-link" wire:click="clearChat" title="Start a new chat">Clear</button>
                 @if (Route::has('admin.japsai'))
                     <a href="{{ route('admin.japsai') }}" wire:navigate class="posai-w-link" title="Open full POS AI">Full</a>
                 @endif

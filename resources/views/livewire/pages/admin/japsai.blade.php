@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PersistsPosAiChat;
 use App\Models\Company;
 use App\Services\JapsAi\BusinessInsightsService;
 use App\Services\JapsAi\JapsAiChatService;
@@ -9,6 +10,7 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 {
+    use PersistsPosAiChat;
     /** insights | chat | settings */
     public string $panel = 'insights';
 
@@ -41,14 +43,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     {
         $this->loadSettingsForm();
         $this->refreshOverview();
-        $this->messages = [[
-            'role' => 'assistant',
-            'text' => "Hi! I'm POS AI for this company only. "
-                ."**Suggested questions are free** (live POS data, no OpenAI credits). "
-                ."I only discuss wholesale POS topics — not general questions. "
-                ."Typed free-form text needs an OpenAI key with available credits.",
-            'tool' => null,
-        ]];
+        $this->loadPersistedChat();
     }
 
     public function setPanel(string $panel): void
@@ -65,6 +60,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             $this->loadSettingsForm();
         }
         if ($panel === 'chat') {
+            $this->loadPersistedChat();
             $this->dispatchScroll();
         }
     }
@@ -158,6 +154,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         }
 
         $this->refreshOverview();
+        $this->persistChat();
         $this->dispatchScroll();
     }
 
@@ -205,6 +202,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 </div>
                 @if ($panel === 'insights')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
+                @endif
+                @if ($panel === 'chat')
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="clearChat" title="Start a new chat">Clear chat</button>
                 @endif
             </div>
         </header>
@@ -284,8 +284,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         <ul class="posai-card-meta">
                             <li><span>Last 30 days</span><strong>${{ number_format((float) data_get($o, 'sales.last_30_days.total', 0), 2) }}</strong></li>
                             <li><span>Invoices (30d)</span><strong>{{ (int) data_get($o, 'sales.last_30_days.invoices', data_get($o, 'sales.last_30_days.orders', 0)) }}</strong></li>
-                            <li><span>Avg invoice</span><strong>${{ number_format((float) data_get($o, 'sales.last_30_days.avg', 0), 2) }}</strong></li>
-                            <li><span>Customers</span><strong>{{ (int) data_get($o, 'sales.customers_on_file', 0) }}</strong></li>
+                            <li><span>All billed</span><strong>${{ number_format((float) data_get($o, 'sales.all_time.total', 0), 2) }}</strong></li>
+                            <li><span>Invoices (all)</span><strong>{{ (int) data_get($o, 'sales.all_time.invoices', 0) }}</strong></li>
                         </ul>
                     </article>
 
@@ -319,10 +319,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             <span class="posai-card-label">Invoices</span>
                         </div>
                         <div class="posai-card-hero">${{ number_format((float) data_get($o, 'invoices.outstanding', 0), 2) }}</div>
-                        <div class="posai-card-sub">Outstanding open balance</div>
+                        <div class="posai-card-sub">NOT PAID outstanding balance</div>
                         <div class="posai-card-divider"></div>
                         <ul class="posai-card-meta">
-                            <li><span>Open invoices</span><strong>{{ (int) data_get($o, 'invoices.open', 0) }}</strong></li>
+                            <li><span>NOT PAID invoices</span><strong>{{ (int) data_get($o, 'invoices.open', 0) }}</strong></li>
                             <li><span>Older open</span><strong>{{ (int) data_get($o, 'invoices.overdue', 0) }}</strong></li>
                             <li><span>Older amount</span><strong>${{ number_format((float) data_get($o, 'invoices.overdue_amount', 0), 2) }}</strong></li>
                         </ul>

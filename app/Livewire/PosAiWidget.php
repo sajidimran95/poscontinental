@@ -61,24 +61,16 @@ class PosAiWidget extends Component
             return;
         }
 
-        $this->messages[] = ['role' => 'user', 'text' => $text, 'tool' => null];
+        $this->messages[] = $this->posAiMakeMessage('user', $text);
         $this->message = '';
         $this->scrollBottom();
 
         try {
             $company = Company::query()->findOrFail(auth()->user()->company_id);
             $result = JapsAiChatService::forCompany($company)->handle($text, $forcedIntent);
-            $this->messages[] = [
-                'role' => 'assistant',
-                'text' => $result['reply'],
-                'tool' => $result['tool'] ?? null,
-            ];
+            $this->messages[] = $this->posAiMakeMessage('assistant', $result['reply'], $result['tool'] ?? null);
         } catch (\Throwable $e) {
-            $this->messages[] = [
-                'role' => 'assistant',
-                'text' => 'Could not read live data: '.$e->getMessage(),
-                'tool' => 'error',
-            ];
+            $this->messages[] = $this->posAiMakeMessage('assistant', 'Could not read live data: '.$e->getMessage(), 'error');
         }
 
         $this->scrollBottom();

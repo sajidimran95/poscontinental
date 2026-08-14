@@ -48,7 +48,13 @@
         </header>
 
         <div class="posai-w-messages" id="posai-widget-messages" wire:key="widget-msgs-{{ count($messages) }}">
+            @php $lastChatDay = ''; @endphp
             @foreach ($messages as $m)
+                @php $chatDay = $this->formatChatDay($m['at'] ?? null); @endphp
+                @if ($chatDay !== '' && $chatDay !== $lastChatDay)
+                    @php $lastChatDay = $chatDay; @endphp
+                    <div class="posai-w-day">{{ $chatDay }}</div>
+                @endif
                 <div class="posai-w-msg posai-w-msg-{{ $m['role'] }}">
                     @if ($m['role'] === 'assistant')
                         <span class="posai-w-avatar ai">AI</span>
@@ -63,6 +69,9 @@
                             <div class="posai-w-tool">OpenAI · this company only</div>
                         @endif
                         <div class="posai-w-bubble">{!! $this->formatReply($m['text']) !!}</div>
+                        @if (! empty($m['at']))
+                            <div class="posai-w-time">{{ $this->formatChatTime($m['at']) }}</div>
+                        @endif
                     </div>
                 </div>
             @endforeach
@@ -253,6 +262,25 @@
         .posai-w-msg-user {
             align-self: flex-end;
             flex-direction: row-reverse;
+        }
+        .posai-w-day {
+            align-self: center;
+            font-size: .68rem;
+            font-weight: 600;
+            color: #64748b;
+            background: #fff;
+            border: 1px solid #d0d7e0;
+            border-radius: 999px;
+            padding: .18rem .6rem;
+            margin: .15rem 0;
+        }
+        .posai-w-time {
+            margin-top: .18rem;
+            font-size: .65rem;
+            color: #64748b;
+        }
+        .posai-w-msg-user .posai-w-time {
+            text-align: right;
         }
         .posai-w-avatar {
             width: 1.55rem;

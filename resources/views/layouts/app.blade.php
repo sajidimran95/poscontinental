@@ -40,7 +40,6 @@
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
-                                ['Terminal', 'admin.terminal'],
                             ],
                             'Inquiry' => [
                                 ['Stock Status', 'inquiries.stock-status'],
@@ -170,7 +169,6 @@
                     'admin.company-settings' => 'Company Settings',
                     'admin.overselling-settings' => 'Overselling Settings',
                     'admin.japsai' => 'POS AI',
-                    'admin.terminal' => 'Terminal',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {

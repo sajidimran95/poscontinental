@@ -15,14 +15,63 @@ trait PersistsPosAiChat
 
     protected function posAiGreeting(): array
     {
-        return [
-            'role' => 'assistant',
-            'text' => "Hi! I'm POS AI for this company only. "
+        return $this->posAiMakeMessage(
+            'assistant',
+            "Hi! I'm POS AI for this company only. "
                 .'**Suggested questions are free** (live POS data, no OpenAI credits). '
                 .'I only discuss wholesale POS topics — not general questions. '
-                .'Typed free-form text needs an OpenAI key with available credits.',
-            'tool' => null,
+                .'Typed free-form text needs an OpenAI key with available credits.'
+        );
+    }
+
+    /**
+     * @return array{role: string, text: string, tool: string|null, at: string}
+     */
+    protected function posAiMakeMessage(string $role, string $text, ?string $tool = null): array
+    {
+        return [
+            'role' => $role,
+            'text' => $text,
+            'tool' => $tool,
+            'at' => now()->toIso8601String(),
         ];
+    }
+
+    public function formatChatDay(?string $at): string
+    {
+        $dt = $this->parseChatAt($at);
+        if (! $dt) {
+            return '';
+        }
+
+        if ($dt->isToday()) {
+            return 'Today · '.$dt->format('M j, Y');
+        }
+        if ($dt->isYesterday()) {
+            return 'Yesterday · '.$dt->format('M j, Y');
+        }
+
+        return $dt->format('l, M j, Y');
+    }
+
+    public function formatChatTime(?string $at): string
+    {
+        $dt = $this->parseChatAt($at);
+
+        return $dt ? $dt->format('g:i A') : '';
+    }
+
+    protected function parseChatAt(?string $at): ?\Carbon\CarbonInterface
+    {
+        if (! is_string($at) || trim($at) === '') {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($at)->timezone((string) (config('app.timezone') ?: 'UTC'));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function loadPersistedChat(): void
@@ -112,6 +161,7 @@ trait PersistsPosAiChat
                 'role' => (string) $m['role'],
                 'text' => (string) $m['text'],
                 'tool' => $m['tool'] ?? null,
+                'at' => is_string($m['at'] ?? null) ? $m['at'] : null,
             ];
         }
 

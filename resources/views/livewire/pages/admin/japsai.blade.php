@@ -132,7 +132,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             return;
         }
 
-        $this->messages[] = ['role' => 'user', 'text' => $text, 'tool' => null];
+        $this->messages[] = $this->posAiMakeMessage('user', $text);
         $this->message = '';
         $this->dispatchScroll();
 
@@ -140,17 +140,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             $company = Company::query()->findOrFail(auth()->user()->company_id);
             $svc = JapsAiChatService::forCompany($company);
             $result = $svc->handle($text, $forcedIntent);
-            $this->messages[] = [
-                'role' => 'assistant',
-                'text' => $result['reply'],
-                'tool' => $result['tool'] ?? null,
-            ];
+            $this->messages[] = $this->posAiMakeMessage('assistant', $result['reply'], $result['tool'] ?? null);
         } catch (\Throwable $e) {
-            $this->messages[] = [
-                'role' => 'assistant',
-                'text' => 'Something went wrong reading live data: '.$e->getMessage(),
-                'tool' => 'error',
-            ];
+            $this->messages[] = $this->posAiMakeMessage(
+                'assistant',
+                'Something went wrong reading live data: '.$e->getMessage(),
+                'error'
+            );
         }
 
         $this->refreshOverview();
@@ -361,7 +357,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         @else
             <div class="posai-chat">
                 <div class="posai-messages" id="posai-messages" wire:key="posai-messages-{{ count($messages) }}">
+                    @php $lastChatDay = ''; @endphp
                     @foreach ($messages as $m)
+                        @php $chatDay = $this->formatChatDay($m['at'] ?? null); @endphp
+                        @if ($chatDay !== '' && $chatDay !== $lastChatDay)
+                            @php $lastChatDay = $chatDay; @endphp
+                            <div class="posai-day">{{ $chatDay }}</div>
+                        @endif
                         <div class="posai-msg posai-msg-{{ $m['role'] }}">
                             @if ($m['role'] === 'assistant')
                                 <span class="posai-avatar ai" aria-hidden="true">AI</span>
@@ -373,6 +375,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                                     <div class="posai-tool">✓ lookup {{ str_replace('_', ' ', $m['tool']) }}</div>
                                 @endif
                                 <div class="posai-bubble">{!! $this->formatReply($m['text']) !!}</div>
+                                @if (! empty($m['at']))
+                                    <div class="posai-time">{{ $this->formatChatTime($m['at']) }}</div>
+                                @endif
                             </div>
                         </div>
                     @endforeach
@@ -823,6 +828,25 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         .posai-msg-user {
             align-self: flex-end;
             flex-direction: row-reverse;
+        }
+        .posai-day {
+            align-self: center;
+            font-size: .72rem;
+            font-weight: 600;
+            color: #64748b;
+            background: #fff;
+            border: 1px solid #d0d7e0;
+            border-radius: 999px;
+            padding: .2rem .7rem;
+            margin: .1rem 0;
+        }
+        .posai-time {
+            margin-top: .2rem;
+            font-size: .68rem;
+            color: #64748b;
+        }
+        .posai-msg-user .posai-time {
+            text-align: right;
         }
         .posai-avatar {
             width: 1.75rem;

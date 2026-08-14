@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Models\StockCount;
 use App\Services\InventoryService;
 use Livewire\Attributes\Layout;
@@ -11,6 +12,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 {
     use WithPagination;
+    use InteractsWithDeskQuery;
 
     #[Url]
     public string $search = '';
@@ -24,6 +26,8 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     {
         $companyId = auth()->user()->company_id;
         $hasSearch = $this->search !== '';
+
+        $hasQuery = $this->queryCriteria !== [];
 
         $query = StockCount::query()
             ->with(['site', 'processedByUser'])
@@ -40,10 +44,11 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
+            ->when($hasQuery, fn ($q) => $this->applyQueryCriteria($q))
             ->orderByDesc('id');
 
         // Chief: with no search criteria, show 10 most recently updated
-        if (! $hasSearch && $this->favorite === 'all') {
+        if (! $hasSearch && ! $hasQuery && $this->favorite === 'all') {
             $counts = $query->limit(10)->get();
             $total = $counts->count();
             $footerNote = '10 most recently updated records with no search criteria.';
@@ -59,18 +64,54 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             default => 'Stock Counts List',
         };
 
+        if ($hasQuery) {
+            $listTitle = $this->queryLoadedName !== ''
+                ? 'Query: '.$this->queryLoadedName
+                : 'Query Results ('.count($this->queryCriteria).' criteria)';
+        }
+
         return [
             'counts' => $counts,
             'total' => $total,
             'footerNote' => $footerNote,
-            'isPaginated' => $hasSearch || $this->favorite !== 'all',
+            'isPaginated' => $hasSearch || $hasQuery || $this->favorite !== 'all',
             'favorites' => [
                 'all' => 'All Stock Counts',
                 'new' => 'New',
                 'processed' => 'Processed',
             ],
             'listTitle' => $listTitle,
+            'queryFields' => $this->deskQueryFieldOptions(),
+            'queryFieldTypes' => $this->deskQueryFieldTypes(),
+            'queryOperators' => $this->deskQueryOperatorOptions(),
+            'savedDeskQueries' => $this->loadSavedDeskQueries(),
+            'deskQueryTitle' => 'Stock Count Query',
         ];
+    }
+
+    /** @return array<string, array{label: string, column: string, has?: string, type?: string}> */
+    protected function deskQueryFields(): array
+    {
+        return [
+            'stock_count_no' => ['label' => 'Stock Count #', 'column' => 'stock_count_no'],
+            'status' => ['label' => 'Status', 'column' => 'status'],
+            'description' => ['label' => 'Description', 'column' => 'description'],
+            'date_created' => ['label' => 'Date Created', 'column' => 'date_created', 'type' => 'date'],
+            'last_count_date' => ['label' => 'Last Count Date', 'column' => 'last_count_date', 'type' => 'date'],
+            'date_entered' => ['label' => 'Date Entered', 'column' => 'date_entered', 'type' => 'date'],
+            'date_processed' => ['label' => 'Date Processed', 'column' => 'date_processed', 'type' => 'date'],
+            'comments' => ['label' => 'Comments', 'column' => 'comments'],
+            'site_code' => ['label' => 'Site Code', 'has' => 'site', 'column' => 'code'],
+            'site_name' => ['label' => 'Site Name', 'has' => 'site', 'column' => 'name'],
+            'processed_by_name' => ['label' => 'Processed By', 'has' => 'processedByUser', 'column' => 'name'],
+            'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
+            'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+        ];
+    }
+
+    protected function deskQuerySessionKey(): string
+    {
+        return 'stock_counts_query_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     public function updatingSearch(): void
@@ -101,7 +142,21 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
         $this->search = '';
         $this->favorite = 'all';
         $this->selectedId = null;
+        $this->clearQueryCriteria();
         $this->resetPage();
+    }
+
+    public function openDeskQuery(): void
+    {
+        $this->showQueryModal = true;
+        $this->queryStatus = '';
+        $fields = $this->deskQueryFields();
+        if ($this->queryField === '' || ! isset($fields[$this->queryField])) {
+            $this->queryField = (string) (array_key_first($fields) ?? '');
+            if ($this->queryField !== '') {
+                $this->syncQueryOperatorForField($this->queryField);
+            }
+        }
     }
 
     public function refreshList(): void
@@ -221,6 +276,10 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                         class="desk-search orders-search-input"
                         aria-label="Search Stock Counts"
                     />
+                    <button type="button" wire:click="openDeskQuery" class="desk-btn items-query-btn" title="Query by field">Query</button>
+                    @if ($queryCriteria !== [])
+                        <button type="button" wire:click="clearQueryCriteria" class="desk-btn desk-btn-sm" title="Clear query">Clear Query</button>
+                    @endif
 
                     <div class="orders-toolbar-right">
                         <button type="button" wire:click="newSearch" class="desk-btn" title="Reset search and filters">
@@ -324,6 +383,13 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
             {{-- Right rail: document, pen, print, delete, refresh, + --}}
             <aside class="desk-rail" aria-label="Stock count actions">
+                <button type="button" wire:click="openDeskQuery" class="desk-rail-btn" title="Query stock counts by field" aria-label="Query stock counts">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.5"/>
+                        <path d="M10.5 10.5L14 14"/>
+                        <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="openSelected" class="desk-rail-btn" title="Open selected" aria-label="Open selected" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
@@ -369,6 +435,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             </aside>
         </div>
     </div>
+    @include('livewire.partials.desk-query-modal')
 </div>
 
 @script

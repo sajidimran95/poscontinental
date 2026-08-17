@@ -822,7 +822,7 @@
                 dy: 0,
                 pin() {
                     const menu = document.querySelector('.chief-menu');
-                    const soBottom = document.querySelector('.so-bottom');
+                    const soBottom = document.querySelector('.so-bottom') || document.querySelector('.entity-footer');
                     const foot = document.querySelector('.chief-status-bar');
                     const top = menu ? Math.round(menu.getBoundingClientRect().bottom) : 34;
                     let end = window.innerHeight;

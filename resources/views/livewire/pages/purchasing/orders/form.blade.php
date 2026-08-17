@@ -1,13 +1,16 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Item;
 use App\Models\PaymentTerm;
 use App\Models\PurchaseOrder;
 use App\Models\ShipVia;
 use App\Models\Site;
+use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -58,6 +61,35 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     public string $itemLookup = '';
 
     public bool $showItemBrowse = false;
+
+    public bool $showBrowse = false;
+
+    public bool $browseNewOnly = false;
+
+    public string $browseSearch = '';
+
+    public ?int $browseCategoryId = null;
+
+    public ?int $browseSubcategoryId = null;
+
+    public bool $browseSavedSearchOpen = false;
+
+    /** @var array<int, array{id:int,item_code:string,description:?string,unit_of_measure:?string,list_price:float|string|null,on_hand:float,available:float,is_new:bool}> */
+    public array $browseRows = [];
+
+    public int $browseTotal = 0;
+
+    public bool $browseHasMore = false;
+
+    public bool $browseLoadingMore = false;
+
+    public ?int $browseSelectedId = null;
+
+    public array $browseCheckedIds = [];
+
+    public string $lineWarning = '';
+
+    public string $lineWarningKind = 'error';
 
     public ?int $browseLineIndex = null;
 
@@ -174,46 +206,72 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'general' => 'General',
                 'items' => 'Items',
             ],
-            'browseItems' => $this->showItemBrowse
-                ? Item::query()
+            'browseItems' => collect($this->browseRows),
+            'browseCategories' => $this->showBrowse
+                ? Category::query()
                     ->where('company_id', $companyId)
-                    ->where('is_inactive', false)
-                    ->where('can_order', true)
-                    ->when($this->itemBrowseSearch !== '', function ($q) {
-                        $term = '%'.$this->itemBrowseSearch.'%';
-                        $raw = trim($this->itemBrowseSearch);
-                        $q->where(function ($inner) use ($term, $raw) {
-                            $inner->where('item_code', 'like', $term)
-                                ->orWhere('description', 'like', $term)
-                                ->orWhere('primary_upc', 'like', $term)
-                                ->orWhereHas('upcs', fn ($u) => $u->where('upc', 'like', $term)->orWhere('upc', $raw));
-                        });
-                    })
-                    ->orderBy('item_code')
-                    ->limit(100)
-                    ->get(['id', 'item_code', 'description', 'unit_of_measure', 'standard_cost', 'current_cost', 'quantity_in_stock'])
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name'])
                 : collect(),
+            'browseSubcategories' => ($this->showBrowse && $this->browseCategoryId)
+                ? Subcategory::query()
+                    ->where('company_id', $companyId)
+                    ->where('category_id', $this->browseCategoryId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name', 'category_id'])
+                : collect(),
+            'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
+            'oversellingOn' => true,
         ];
     }
 
     public function openItemBrowse(?int $lineIndex = null): void
     {
+        abort_if($this->viewMode, 403);
+
         $this->browseLineIndex = $lineIndex;
         $code = '';
         if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
             $code = trim((string) ($this->lines[$lineIndex]['item_code'] ?? ''));
         }
-        $this->itemBrowseSearch = $code !== '' ? $code : ($this->itemLookup !== '' ? trim($this->itemLookup) : '');
+        $this->browseSearch = $code !== '' ? $code : ($this->itemLookup !== '' ? trim($this->itemLookup) : '');
+        $this->itemBrowseSearch = $this->browseSearch;
         $this->lookupMessage = '';
+        $this->lineWarning = '';
+        $this->showBrowse = true;
         $this->showItemBrowse = true;
-        $this->js('requestAnimationFrame(() => { document.getElementById("po-item-browse")?.focus(); });');
+        $this->activeTab = 'items';
+        $this->resetBrowseAndLoadFirstPage();
+        $this->focusBrowseSearch();
     }
 
     public function closeItemBrowse(): void
     {
+        $this->closeBrowse();
+    }
+
+    public function closeBrowse(): void
+    {
+        $this->showBrowse = false;
         $this->showItemBrowse = false;
         $this->browseLineIndex = null;
         $this->itemBrowseSearch = '';
+        $this->clearBrowseState();
+    }
+
+    public function browseEscape(): void
+    {
+        if ($this->browseSavedSearchOpen) {
+            $this->browseSavedSearchOpen = false;
+
+            return;
+        }
+
+        $this->closeBrowse();
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -230,9 +288,333 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
+        $this->browseSelectedId = $itemId;
         $this->applyItemToOrder($item);
-        $this->closeItemBrowse();
-        $this->clearAndFocusEntry();
+        $this->lineWarning = '';
+        $this->lookupMessage = '';
+        $this->focusBrowseSearch();
+    }
+
+    protected const BROWSE_PAGE_SIZE = 80;
+
+    public function updatedBrowseSearch(): void
+    {
+        if (! $this->showBrowse) {
+            return;
+        }
+        $this->itemBrowseSearch = $this->browseSearch;
+        $this->resetBrowseAndLoadFirstPage();
+    }
+
+    public function updatedBrowseNewOnly(): void
+    {
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function setBrowseCategory(?int $categoryId = null): void
+    {
+        $this->browseCategoryId = $categoryId;
+        $this->browseSubcategoryId = null;
+        $this->browseSavedSearchOpen = true;
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function setBrowseSubcategory(?int $subcategoryId = null): void
+    {
+        $this->browseSubcategoryId = $subcategoryId;
+        $this->browseSavedSearchOpen = true;
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function clearBrowseFilters(): void
+    {
+        $this->browseSearch = '';
+        $this->itemBrowseSearch = '';
+        $this->browseNewOnly = false;
+        $this->browseCategoryId = null;
+        $this->browseSubcategoryId = null;
+        $this->browseSelectedId = null;
+        $this->browseCheckedIds = [];
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function toggleBrowseSavedSearch(): void
+    {
+        $this->browseSavedSearchOpen = ! $this->browseSavedSearchOpen;
+    }
+
+    public function closeBrowseSavedSearch(): void
+    {
+        $this->browseSavedSearchOpen = false;
+    }
+
+    public function selectBrowseRow(int $itemId): void
+    {
+        $this->toggleBrowseChecked($itemId);
+    }
+
+    public function toggleBrowseChecked(int $itemId): void
+    {
+        $id = (int) $itemId;
+        if ($id <= 0) {
+            return;
+        }
+
+        $ids = collect($this->browseCheckedIds)
+            ->map(fn ($v) => (string) (int) $v)
+            ->filter(fn (string $v) => $v !== '' && $v !== '0')
+            ->unique()
+            ->values()
+            ->all();
+
+        $key = (string) $id;
+        if (in_array($key, $ids, true)) {
+            $this->browseCheckedIds = array_values(array_filter($ids, fn (string $v) => $v !== $key));
+        } else {
+            $ids[] = $key;
+            $this->browseCheckedIds = $ids;
+        }
+
+        $count = count($this->browseCheckedIds);
+        $this->browseSelectedId = $count === 1 ? (int) $this->browseCheckedIds[0] : null;
+    }
+
+    public function updatedBrowseCheckedIds(): void
+    {
+        $this->browseCheckedIds = collect($this->browseCheckedIds)
+            ->map(fn ($v) => (string) (int) $v)
+            ->filter(fn (string $v) => $v !== '' && $v !== '0')
+            ->unique()
+            ->values()
+            ->all();
+
+        $count = count($this->browseCheckedIds);
+        $this->browseSelectedId = $count === 1 ? (int) $this->browseCheckedIds[0] : null;
+    }
+
+    public function selectAllBrowseVisible(): void
+    {
+        $ids = collect($this->browseRows)
+            ->pluck('id')
+            ->map(fn ($id) => (string) (int) $id)
+            ->filter(fn (string $id) => $id !== '' && $id !== '0')
+            ->unique()
+            ->values()
+            ->all();
+
+        $this->browseCheckedIds = $ids;
+        $this->browseSelectedId = count($ids) === 1 ? (int) $ids[0] : null;
+    }
+
+    public function insertBrowseSelected(): void
+    {
+        $id = $this->resolveBrowseTargetId();
+        if ($id === null) {
+            $this->lineWarning = count($this->browseCheckedIds) > 1
+                ? 'Multiple items checked — use Insert All Checked, or uncheck to a single item.'
+                : 'Select one item first.';
+            $this->lineWarningKind = 'warning';
+
+            return;
+        }
+        $this->pickBrowseItem($id);
+    }
+
+    public function insertBrowseChecked(): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
+        if ($ids === []) {
+            $this->insertBrowseSelected();
+
+            return;
+        }
+
+        foreach ($ids as $itemId) {
+            $this->pickBrowseItem($itemId);
+        }
+        $this->browseCheckedIds = [];
+        $this->browseSelectedId = null;
+    }
+
+    public function openBrowseNewItem(): void
+    {
+        if (! Route::has('inventory.items.create')) {
+            return;
+        }
+        $this->dispatch('open-item-record', url: route('inventory.items.create'));
+    }
+
+    public function openBrowseEditSelected(): void
+    {
+        $id = $this->resolveBrowseTargetId();
+        if ($id === null || ! Route::has('inventory.items.edit')) {
+            return;
+        }
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($id);
+        if (! $item) {
+            return;
+        }
+        $this->dispatch('open-item-record', url: route('inventory.items.edit', $item));
+    }
+
+    protected function browseHasSingleSelection(): bool
+    {
+        $checked = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
+        if (count($checked) > 1) {
+            return false;
+        }
+        if (count($checked) === 1) {
+            return true;
+        }
+
+        return (int) ($this->browseSelectedId ?? 0) > 0;
+    }
+
+    protected function resolveBrowseTargetId(): ?int
+    {
+        if (! $this->browseHasSingleSelection()) {
+            return null;
+        }
+        $checked = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
+        if (count($checked) === 1) {
+            return $checked[0];
+        }
+        $id = (int) ($this->browseSelectedId ?? 0);
+
+        return $id > 0 ? $id : null;
+    }
+
+    public function refreshBrowseItems(): void
+    {
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function loadMoreBrowseItems(): void
+    {
+        if (! $this->showBrowse || ! $this->browseHasMore || $this->browseLoadingMore) {
+            return;
+        }
+        $this->browseLoadingMore = true;
+        $this->appendBrowsePage(count($this->browseRows));
+        $this->browseLoadingMore = false;
+    }
+
+    protected function clearBrowseState(): void
+    {
+        $this->browseRows = [];
+        $this->browseTotal = 0;
+        $this->browseHasMore = false;
+        $this->browseLoadingMore = false;
+        $this->browseCategoryId = null;
+        $this->browseSubcategoryId = null;
+        $this->browseSavedSearchOpen = false;
+        $this->browseSelectedId = null;
+        $this->browseCheckedIds = [];
+    }
+
+    protected function resetBrowseAndLoadFirstPage(): void
+    {
+        $this->browseRows = [];
+        $this->browseHasMore = false;
+        $this->browseLoadingMore = false;
+        $companyId = (int) auth()->user()->company_id;
+        $this->browseTotal = $this->browseBaseQuery($companyId)->count();
+        $this->appendBrowsePage(0);
+    }
+
+    protected function appendBrowsePage(int $offset): void
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
+        $newSince = now()->subDays($newDays);
+
+        $rows = $this->browseBaseQuery($companyId)
+            ->when(
+                $this->browseNewOnly,
+                fn ($q) => $q->orderByDesc('created_at')->orderBy('item_code'),
+                fn ($q) => $q->orderByDesc('quantity_in_stock')->orderBy('item_code')
+            )
+            ->offset($offset)
+            ->limit(self::BROWSE_PAGE_SIZE)
+            ->get([
+                'id',
+                'item_code',
+                'description',
+                'unit_of_measure',
+                'list_price',
+                'current_cost',
+                'standard_cost',
+                'quantity_in_stock',
+                'allocated_qty',
+                'created_at',
+            ]);
+
+        $mapped = $rows->map(function ($row) use ($newSince) {
+            $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
+            $cost = $row->current_cost ?: $row->standard_cost ?: $row->list_price;
+
+            return [
+                'id' => (int) $row->id,
+                'item_code' => (string) $row->item_code,
+                'description' => $row->description,
+                'unit_of_measure' => $row->unit_of_measure,
+                'list_price' => $cost,
+                'on_hand' => (float) $row->quantity_in_stock,
+                'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
+                'is_new' => $created !== null && $created->gte($newSince),
+            ];
+        })->all();
+
+        $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
+        $this->browseHasMore = count($this->browseRows) < $this->browseTotal;
+    }
+
+    protected function browseBaseQuery(int $companyId)
+    {
+        $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
+        $newSince = now()->subDays($newDays);
+
+        return DB::table('items')
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where('can_order', true)
+            ->when($this->browseNewOnly, fn ($q) => $q->where('created_at', '>=', $newSince))
+            ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
+            ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
+            ->when(filled($this->browseSearch), function ($q) {
+                $raw = trim($this->browseSearch);
+                $term = '%'.$raw.'%';
+                $q->where(function ($inner) use ($term, $raw) {
+                    $inner->where('item_code', 'like', $term)
+                        ->orWhere('description', 'like', $term)
+                        ->orWhere('primary_upc', 'like', $term)
+                        ->orWhereExists(function ($sub) use ($term, $raw) {
+                            $sub->select(DB::raw(1))
+                                ->from('item_upcs')
+                                ->whereColumn('item_upcs.item_id', 'items.id')
+                                ->where(function ($u) use ($term, $raw) {
+                                    $u->where('item_upcs.upc', $raw)
+                                        ->orWhere('item_upcs.upc', 'like', $term);
+                                });
+                        });
+                });
+            });
+    }
+
+    protected function focusBrowseSearch(bool $select = false): void
+    {
+        $selectJs = $select ? ' el.select();' : '';
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-browse-search"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
     public function addLine(): void
@@ -311,6 +693,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $this->lookupMessage = '';
+        $this->browseSearch = $code;
         $this->itemBrowseSearch = $code;
         $this->openItemBrowse(null);
     }
@@ -548,38 +931,43 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         abort_if($this->viewMode, 403);
 
         if ($code !== null) {
-            $this->itemBrowseSearch = trim($code);
+            $this->browseSearch = trim($code);
+            $this->itemBrowseSearch = $this->browseSearch;
         }
 
-        $resolved = trim($this->itemBrowseSearch);
+        $resolved = trim($this->browseSearch);
         if ($resolved === '') {
-            $this->js('requestAnimationFrame(() => { document.getElementById("po-item-browse")?.focus(); });');
+            $this->focusBrowseSearch();
 
             return;
         }
 
         $item = $this->findPurchaseItem($resolved);
         if ($item) {
+            $this->browseSearch = '';
             $this->itemBrowseSearch = '';
             $this->pickBrowseItem((int) $item->id);
+            $this->resetBrowseAndLoadFirstPage();
+            $this->focusBrowseSearch();
 
             return;
         }
 
-        $this->js('requestAnimationFrame(() => { const el = document.getElementById("po-item-browse"); if (el) { el.focus(); el.select(); } });');
+        $this->resetBrowseAndLoadFirstPage();
+        $this->focusBrowseSearch(true);
     }
 
     public function focusBrowseScan(): void
     {
         abort_if($this->viewMode, 403);
 
-        if (trim($this->itemBrowseSearch) !== '') {
+        if (trim($this->browseSearch) !== '') {
             $this->scanBrowseAndPick();
 
             return;
         }
 
-        $this->js('requestAnimationFrame(() => { document.getElementById("po-item-browse")?.focus(); });');
+        $this->focusBrowseSearch();
     }
 
     public function clearLineItemCode(int $index): void
@@ -1168,71 +1556,25 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         </div>
     </form>
 
-    @if ($showItemBrowse)
-        <div class="desk-modal-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Browse items">
-            <div class="desk-modal" style="max-width:48rem">
-                <div class="desk-modal-head">
-                    <span>Browse Inventory Items</span>
-                    <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
-                </div>
-                <div class="desk-modal-body">
-                    <div class="so-entry po-item-entry" style="margin-bottom:0.75rem;border:0;border-radius:6px">
-                        <span class="so-entry-label">Search</span>
-                        <div class="so-scan-bar so-browse-scan-bar" role="search">
-                            <button
-                                type="button"
-                                wire:click="focusBrowseScan"
-                                class="so-scan-btn"
-                                title="Scan barcode — focus search or add on Enter"
-                            >
-                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                </svg>
-                                <span>Scan</span>
-                            </button>
-                            <input
-                                id="po-item-browse"
-                                type="search"
-                                wire:model.live.debounce.250ms="itemBrowseSearch"
-                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
-                                class="so-input so-entry-input so-item-browse-search-bottom"
-                                placeholder="Scan barcode or search code / description / UPC…"
-                                autocomplete="off"
-                            />
-                        </div>
-                    </div>
-                    <div class="desk-grid" style="max-height:22rem;border:1px solid #e2e8f0;border-radius:8px">
-                        <table class="desk-table">
-                            <thead>
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th>Description</th>
-                                    <th class="text-center">UOM</th>
-                                    <th class="desk-money">In Stock</th>
-                                    <th class="desk-money">Cost</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($browseItems as $bi)
-                                    <tr class="cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
-                                        <td class="desk-num">{{ $bi->item_code }}</td>
-                                        <td>{{ $bi->description }}</td>
-                                        <td class="text-center">{{ $bi->unit_of_measure }}</td>
-                                        <td class="desk-money">{{ number_format((float) $bi->quantity_in_stock, 2) }}</td>
-                                        <td class="desk-money">${{ number_format((float) ($bi->current_cost ?: $bi->standard_cost), 2) }}</td>
-                                        <td>
-                                            <button type="button" wire:click.stop="pickBrowseItem({{ $bi->id }})" class="desk-btn desk-btn-sm desk-btn-primary">Add</button>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr class="is-empty"><td colspan="6">No items found. Create items under Inventory → Items first.</td></tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    @endif
+    @include('livewire.pages.sales.orders.partials.item-browse-panel')
 </div>
+
+@script
+<script>
+    $wire.on('open-item-record', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
+    });
+    $wire.$watch('showBrowse', (open) => {
+        if (!open) return;
+        requestAnimationFrame(() => {
+            const el = document.getElementById('so-browse-search');
+            if (el) {
+                el.focus();
+                el.select?.();
+            }
+        });
+    });
+</script>
+@endscript

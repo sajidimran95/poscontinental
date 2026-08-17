@@ -46,6 +46,11 @@ class User extends Authenticatable
         ];
     }
 
+    private ?bool $adminCache = null;
+
+    /** @var array<string, bool> */
+    private array $featureAccessCache = [];
+
     public function avatarUrl(): ?string
     {
         if (! filled($this->avatar_path)) {
@@ -117,10 +122,20 @@ class User extends Authenticatable
 
     public function isAdmin(): bool
     {
-        return $this->role?->name === 'admin';
+        return $this->adminCache ??= ($this->role?->name === 'admin');
     }
 
     public function canAccessFeature(string $feature, string $action = 'view'): bool
+    {
+        $cacheKey = $feature.'.'.$action;
+        if (array_key_exists($cacheKey, $this->featureAccessCache)) {
+            return $this->featureAccessCache[$cacheKey];
+        }
+
+        return $this->featureAccessCache[$cacheKey] = $this->resolveFeatureAccess($feature, $action);
+    }
+
+    protected function resolveFeatureAccess(string $feature, string $action): bool
     {
         if ($this->isAdmin()) {
             return true;

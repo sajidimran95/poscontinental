@@ -54,7 +54,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = Invoice::query()
-            ->with(['customer', 'salesOrder', 'payments', 'credits.creditMemo.salesOrder'])
+            ->with([
+                'customer:id,customer_id,company_name',
+                'salesOrder:id,order_number,bill_to_name',
+            ])
+            ->withSum('payments', 'amount')
+            ->withSum('credits', 'amount')
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -126,7 +131,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
                     ->values()
                 : collect(),
-            'hasCreditSalesOrder' => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id'),
+            'hasCreditSalesOrder' => once(fn () => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id')),
             'draftPayTotal' => $draftPayTotal,
             'draftCreditTotal' => $draftCreditTotal,
             'previewBalance' => $previewBalance,

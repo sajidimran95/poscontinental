@@ -30,9 +30,21 @@ class AppFeatures
         'admin.email' => ['admin.email_setup', 'admin.email_logs'],
     ];
 
+    /** @var array<string, array{label: string, group: string, routes: list<string>}>|null */
+    private static ?array $catalog = null;
+
+    /** @var list<string>|null */
+    private static ?array $keyList = null;
+
+    /** @var array<string, string>|null */
+    private static ?array $routeFeatureMap = null;
+
+    /** @var array<string, array<string, list<string>>> */
+    private static array $expandCache = [];
+
     public static function all(): array
     {
-        return [
+        return self::$catalog ??= [
             'admin.company' => [
                 'label' => 'Company Settings',
                 'group' => 'File',
@@ -188,7 +200,7 @@ class AppFeatures
 
     public static function keys(): array
     {
-        return array_keys(self::all());
+        return self::$keyList ??= array_keys(self::all());
     }
 
     /** @return list<string> All "feature.action" permission tokens. */
@@ -221,6 +233,11 @@ class AppFeatures
             return null;
         }
 
+        $cacheKey = implode("\0", $raw);
+        if (array_key_exists($cacheKey, self::$expandCache)) {
+            return self::$expandCache[$cacheKey];
+        }
+
         $map = [];
         foreach ($raw as $entry) {
             if (! is_string($entry) || $entry === '') {
@@ -246,7 +263,7 @@ class AppFeatures
             }
         }
 
-        return $map;
+        return self::$expandCache[$cacheKey] = $map;
     }
 
     /**
@@ -260,7 +277,7 @@ class AppFeatures
             return self::LEGACY_ALIASES[$feature];
         }
 
-        if (in_array($feature, self::keys(), true)) {
+        if (isset(self::all()[$feature])) {
             return [$feature];
         }
 
@@ -287,7 +304,7 @@ class AppFeatures
             return ['inventory.stock_counts', 'inventory.stamp_inventory'];
         }
 
-        if (in_array($feature, self::keys(), true)) {
+        if (isset(self::all()[$feature])) {
             return [$feature];
         }
 
@@ -304,7 +321,7 @@ class AppFeatures
     {
         $tokens = [];
         foreach ($map as $feature => $actions) {
-            if (! in_array($feature, self::keys(), true)) {
+            if (! isset(self::all()[$feature])) {
                 continue;
             }
             foreach (self::ACTIONS as $action) {
@@ -323,22 +340,38 @@ class AppFeatures
             return null;
         }
 
-        foreach (self::all() as $key => $meta) {
-            if (in_array($routeName, $meta['routes'], true)) {
+        $map = self::routeFeatureMap();
+        if (isset($map[$routeName])) {
+            return $map[$routeName];
+        }
+
+        foreach ($map as $route => $key) {
+            $prefix = preg_replace('/\.(index|create|edit|show|print|pdf|email|receipt|media)$/', '', $route);
+            if ($prefix && (str_starts_with($routeName, $prefix.'.') || $routeName === $prefix)) {
                 return $key;
             }
         }
 
+        return null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected static function routeFeatureMap(): array
+    {
+        if (self::$routeFeatureMap !== null) {
+            return self::$routeFeatureMap;
+        }
+
+        $map = [];
         foreach (self::all() as $key => $meta) {
             foreach ($meta['routes'] as $route) {
-                $prefix = preg_replace('/\.(index|create|edit|show|print|pdf|email|receipt|media)$/', '', $route);
-                if ($prefix && (str_starts_with($routeName, $prefix.'.') || $routeName === $prefix)) {
-                    return $key;
-                }
+                $map[$route] = $key;
             }
         }
 
-        return null;
+        return self::$routeFeatureMap = $map;
     }
 
     public static function actionForRoute(?string $routeName): string

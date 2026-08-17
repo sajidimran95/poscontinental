@@ -49,6 +49,10 @@ class Invoice extends Model
 
     public function getTotalPaymentsAttribute(): float
     {
+        if (array_key_exists('payments_sum_amount', $this->attributes)) {
+            return (float) $this->attributes['payments_sum_amount'];
+        }
+
         if ($this->relationLoaded('payments')) {
             return (float) $this->payments->sum('amount');
         }
@@ -58,6 +62,10 @@ class Invoice extends Model
 
     public function getTotalCreditsAttribute(): float
     {
+        if (array_key_exists('credits_sum_amount', $this->attributes)) {
+            return (float) $this->attributes['credits_sum_amount'];
+        }
+
         if ($this->relationLoaded('credits')) {
             return (float) $this->credits->sum('amount');
         }

@@ -99,8 +99,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $companyId = auth()->user()->company_id;
         $itemNewDays = Item::NEW_ITEM_DAYS;
 
-        $query = Item::query()
-            ->with(['department', 'category', 'subcategory'])
+            $query = Item::query()
+            ->with([
+                'department:id,code,name',
+                'category:id,code,name',
+                'subcategory:id,code,name',
+            ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';

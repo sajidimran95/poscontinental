@@ -84,9 +84,17 @@
                         ];
                     @endphp
                     @foreach ($menus as $menu => $items)
-                        @php $menuItems = collect($items)->filter(fn ($row) => $routeExists($row[1])); @endphp
-                        @continue($menuItems->isEmpty())
-                        @php $menuHasAccess = $menuItems->contains(fn ($row) => $canRoute($row[1])); @endphp
+                        @php
+                            $menuItems = [];
+                            foreach ($items as $row) {
+                                if (! $routeExists($row[1])) {
+                                    continue;
+                                }
+                                $menuItems[] = [$row[0], $row[1], $canRoute($row[1])];
+                            }
+                        @endphp
+                        @continue($menuItems === [])
+                        @php $menuHasAccess = collect($menuItems)->contains(fn ($row) => $row[2]); @endphp
                         <div class="relative group">
                             <button
                                 type="button"
@@ -94,8 +102,8 @@
                                 aria-haspopup="true"
                             >{{ $menu }}</button>
                             <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
-                                @foreach ($menuItems as [$label, $route])
-                                    @if ($canRoute($route))
+                                @foreach ($menuItems as [$label, $route, $allowed])
+                                    @if ($allowed)
                                         <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
                                     @else
                                         <button

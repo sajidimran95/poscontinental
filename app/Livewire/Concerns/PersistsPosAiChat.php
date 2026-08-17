@@ -135,10 +135,15 @@ trait PersistsPosAiChat
 
     protected function posAiChatTableReady(): bool
     {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+
         try {
-            return Schema::hasTable('pos_ai_chats');
+            return $ready = Schema::hasTable('pos_ai_chats');
         } catch (\Throwable) {
-            return false;
+            return $ready = false;
         }
     }
 

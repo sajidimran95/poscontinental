@@ -17,12 +17,18 @@ class StockPolicy
             return $company;
         }
 
-        $user = auth()->user();
-        if ($user instanceof User && $user->company_id) {
-            return Company::query()->find((int) $user->company_id);
-        }
+        return once(static function (): ?Company {
+            $user = auth()->user();
+            if (! $user instanceof User || ! $user->company_id) {
+                return null;
+            }
 
-        return null;
+            if ($user->relationLoaded('company')) {
+                return $user->company;
+            }
+
+            return Company::query()->find((int) $user->company_id);
+        });
     }
 
     /**

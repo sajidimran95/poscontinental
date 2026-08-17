@@ -274,7 +274,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = SalesOrder::query()
-            ->with(['customer', 'createdBy', 'invoice'])
+            ->with([
+                'customer:id,customer_id,company_name,contact,telephone,address',
+                'createdBy:id,name',
+                'invoice:id,sales_order_id,invoice_number,status',
+            ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';

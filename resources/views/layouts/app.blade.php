@@ -422,6 +422,43 @@
                 };
 
                 const alertSel = '[role="alert"], [role="alertdialog"], [role="status"], .so-msg, .desk-flash, .stamp-inv-flash, .so-field-error, .so-browse-alert, .isa-err, .pos-permission-toast, .desk-chief-prompt';
+                const flashSel = '.desk-flash, .so-msg, .so-browse-alert, .stamp-inv-flash, .bp-flash, .bp-flash-error, .pc-footer-msg';
+                const flashDismissed = new Set();
+                const FLASH_MS = 2500;
+
+                function isStickyFlash(el) {
+                    if (! el || ! el.matches) return true;
+                    if (el.closest && el.closest('.desk-chief-prompt, [role="alertdialog"], dialog')) return true;
+                    if (el.classList && el.classList.contains('so-msg-credit')) return true;
+                    const t = String(el.textContent || '').toLowerCase();
+                    if (t.indexOf('locked:') !== -1) return true;
+
+                    return false;
+                }
+
+                function hideFlash(el) {
+                    const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (text) flashDismissed.add(text);
+                    el.style.display = 'none';
+                }
+
+                function scheduleFlashHide(el) {
+                    if (! el || el.nodeType !== 1 || ! el.matches) return;
+                    if (! el.matches(flashSel)) {
+                        if (el.querySelectorAll) el.querySelectorAll(flashSel).forEach(scheduleFlashHide);
+                        return;
+                    }
+                    if (isStickyFlash(el)) return;
+                    const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (text.length < 2) return;
+                    if (flashDismissed.has(text)) {
+                        el.style.display = 'none';
+                        return;
+                    }
+                    if (el.dataset.flashTimer === '1') return;
+                    el.dataset.flashTimer = '1';
+                    window.setTimeout(function () { hideFlash(el); }, FLASH_MS);
+                }
 
                 function kindFromEl(el) {
                     const fromText = kindFromText(el.textContent || '');
@@ -439,6 +476,7 @@
                     if (el.closest && el.closest('.home-chief-alert')) return;
                     if (el.id === 'pos-permission-toast' && el.hidden) return;
                     if (! el.matches(alertSel)) return;
+                    scheduleFlashHide(el);
                     const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
                     if (text.length < 3) return;
                     const now = Date.now();
@@ -457,6 +495,7 @@
 
                 function scanAlerts() {
                     document.querySelectorAll(alertSel).forEach(maybePlay);
+                    document.querySelectorAll(flashSel).forEach(scheduleFlashHide);
                 }
 
                 const obs = new MutationObserver(function (muts) {
@@ -468,8 +507,10 @@
                         m.addedNodes.forEach(function (n) {
                             if (n.nodeType !== 1) return;
                             maybePlay(n);
+                            scheduleFlashHide(n);
                             if (n.querySelectorAll) {
                                 n.querySelectorAll(alertSel).forEach(maybePlay);
+                                n.querySelectorAll(flashSel).forEach(scheduleFlashHide);
                             }
                         });
                     });
@@ -504,6 +545,7 @@
                     if (Livewire.hook) {
                         Livewire.hook('morph.updated', function ({ el }) {
                             if (! el || ! el.matches) return;
+                            scheduleFlashHide(el);
                             if (! el.matches('.desk-flash, [role="alert"], [role="alertdialog"], [role="status"], .isa-err, .so-msg, .so-field-error, .desk-chief-prompt')) return;
                             const t = String(el.textContent || '').toLowerCase();
                             if (t.indexOf('permission') === -1 && t.indexOf('your role') === -1) return;

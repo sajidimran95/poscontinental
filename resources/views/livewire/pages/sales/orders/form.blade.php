@@ -59,7 +59,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public ?int $browseSubcategoryId = null;
 
-    /** @var array<int, array{id:int,item_code:string,description:?string,unit_of_measure:?string,list_price:float|string|null,available:float,is_new:bool}> */
+    public bool $browseSavedSearchOpen = false;
+
+    /** @var array<int, array{id:int,item_code:string,description:?string,unit_of_measure:?string,list_price:float|string|null,on_hand:float,available:float,is_new:bool}> */
     public array $browseRows = [];
 
     public int $browseTotal = 0;
@@ -1069,6 +1071,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->browseCategoryId = $categoryId;
         $this->browseSubcategoryId = null;
+        $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
         }
@@ -1077,6 +1080,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function setBrowseSubcategory(?int $subcategoryId = null): void
     {
         $this->browseSubcategoryId = $subcategoryId;
+        $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
         }
@@ -1093,6 +1097,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
         }
+    }
+
+    public function toggleBrowseSavedSearch(): void
+    {
+        $this->browseSavedSearchOpen = ! $this->browseSavedSearchOpen;
+    }
+
+    public function closeBrowseSavedSearch(): void
+    {
+        $this->browseSavedSearchOpen = false;
     }
 
     public function selectBrowseRow(int $itemId): void
@@ -1375,11 +1389,33 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->clearBrowseState();
     }
 
+    public function browseEscape(): void
+    {
+        if ($this->browseSavedSearchOpen) {
+            $this->browseSavedSearchOpen = false;
+
+            return;
+        }
+
+        $this->closeBrowse();
+    }
+
     protected function notifyAlert(string $message, string $kind = 'error'): void
     {
         $this->lineWarning = $message;
         $this->lineWarningKind = $kind;
         $this->playPosSound($kind);
+        $this->js('window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss("line")');
+    }
+
+    public function dismissLineWarning(): void
+    {
+        $this->lineWarning = '';
+    }
+
+    public function dismissFormErrors(): void
+    {
+        $this->resetErrorBag();
     }
 
     protected function playPosSound(string $kind = 'error'): void
@@ -1407,6 +1443,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->browseLoadingMore = false;
         $this->browseCategoryId = null;
         $this->browseSubcategoryId = null;
+        $this->browseSavedSearchOpen = false;
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
     }
@@ -1455,6 +1492,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'description' => $row->description,
                 'unit_of_measure' => $row->unit_of_measure,
                 'list_price' => $row->list_price,
+                'on_hand' => (float) $row->quantity_in_stock,
                 'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
                 'is_new' => $created !== null && $created->gte($newSince),
             ];
@@ -3140,9 +3178,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'instructions' => (string) ($l->instructions ?? ''),
                 ];
             })->values()->all();
-            while (count($this->lines) < 12) {
-                $this->lines[] = $this->emptyLine();
-            }
             if ($this->selectedLineIndex !== null && isset($this->lines[$this->selectedLineIndex])) {
                 $this->selectLine($this->selectedLineIndex);
             }
@@ -3296,7 +3331,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
         <fieldset class="so-form-fields" @disabled($viewMode)>
         @if (session('status'))
-            <div class="so-msg so-msg-info" role="status">{{ session('status') }}</div>
+            <div class="so-msg so-msg-info" role="status" x-data x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('status', $el)">{{ session('status') }}</div>
         @endif
         @if (filled($orderLockMessage))
             <div class="so-msg so-msg-danger" role="alert">
@@ -3304,7 +3339,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             </div>
         @endif
         @if ($errors->any())
-            <div class="so-msg so-msg-danger" role="alert">
+            <div
+                class="so-msg so-msg-danger"
+                role="alert"
+                wire:key="so-form-errors-{{ md5(implode('|', $errors->all())) }}"
+                x-data
+                x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('errors')"
+            >
                 <strong>Error:</strong>
                 <ul style="margin:0.35rem 0 0;padding-left:1.15rem">
                     @foreach ($errors->all() as $message)
@@ -3332,6 +3373,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             <div
                 class="so-msg {{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'so-msg-danger' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'so-msg-info' : 'so-msg-alert') }}"
                 role="alert"
+                wire:key="so-line-warning-{{ md5($lineWarning.'|'.$lineWarningKind) }}"
+                x-data
+                x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('line')"
             >
                 <strong>{{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'Alert' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'Note' : 'Warning') }}:</strong>
                 {{ $lineWarning }}
@@ -3613,7 +3657,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
             </div>
             @elseif ($activeTab === 'items')
-                <div class="so-expand-panel{{ $showBrowse ? ' so-expand-with-browse' : '' }}" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
+                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
                     x-data="{
                         ctxOpen: false,
                         ctxX: 0,
@@ -3663,6 +3707,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 @foreach ($lines as $i => $line)
                                     @php
                                         $filled = filled($line['item_code'] ?? null);
+                                        if (! $filled) {
+                                            continue;
+                                        }
                                         $qty = (float) ($line['qty_ordered'] ?? 0);
                                         $unitDisc = (float) ($line['unit_discount'] ?? 0);
                                         $lineDisc = (float) ($line['discount'] ?? ($qty * $unitDisc));
@@ -3966,7 +4013,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                 </div>
                 </div>{{-- /.so-expand-main --}}
-                @include('livewire.pages.sales.orders.partials.item-browse-panel')
                 </div>
             @elseif ($activeTab === 'shipping')
                 <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
@@ -4072,6 +4118,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
         </fieldset>
     </form>
+
+    @include('livewire.pages.sales.orders.partials.item-browse-panel')
 
     <div class="so-bottom so-bottom-full">
         <div class="so-bottom-tabs">
@@ -4611,7 +4659,29 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         window.playPosAlert && window.playPosAlert(posKindFromText(value));
     };
 
-    $wire.$watch('lineWarning', (value) => playLineSound(value));
+    const soBannerTimers = { line: null, errors: null, status: null };
+    window.scheduleSoBannerDismiss = (which, statusEl) => {
+        const delay = 2500;
+        if (which === 'line') {
+            clearTimeout(soBannerTimers.line);
+            soBannerTimers.line = setTimeout(() => $wire.dismissLineWarning(), delay);
+            return;
+        }
+        if (which === 'errors') {
+            clearTimeout(soBannerTimers.errors);
+            soBannerTimers.errors = setTimeout(() => $wire.dismissFormErrors(), delay);
+            return;
+        }
+        if (which === 'status' && statusEl) {
+            clearTimeout(soBannerTimers.status);
+            soBannerTimers.status = setTimeout(() => { statusEl.style.display = 'none'; }, delay);
+        }
+    };
+
+    $wire.$watch('lineWarning', (value) => {
+        playLineSound(value);
+        if (value) window.scheduleSoBannerDismiss('line');
+    });
     $wire.$watch('customerAlert', (value) => playLineSound(value));
     $wire.$watch('creditWarning', (value) => playLineSound(value));
     $wire.$watch('taxExemptWarning', (value) => playLineSound(value));

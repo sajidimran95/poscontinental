@@ -1,80 +1,26 @@
     @if ($showBrowse)
-        {{-- Docked on the right of the sales order (not a popup) --}}
         <style>
-            .so-expand-panel.so-expand-with-browse {
-                display: flex !important;
-                flex-direction: row !important;
-                align-items: stretch !important;
-                width: 100% !important;
-                max-width: none !important;
-                min-width: 0 !important;
-                min-height: 0 !important;
-                height: 100% !important;
-                max-height: 100% !important;
-                flex: 1 1 auto !important;
-                gap: 0 !important;
-            }
-            .so-expand-with-browse > .so-expand-main {
-                flex: 1 1 55% !important;
-                min-width: 0 !important;
-                min-height: 0 !important;
-                max-width: 58% !important;
-                height: 100% !important;
+            .so-browse-dock.so-browse-popup {
+                position: fixed !important;
+                top: 4.25rem;
+                right: 1.5rem;
+                left: auto;
+                width: min(64rem, calc(100vw - 3rem));
+                height: min(40rem, calc(100vh - 5.5rem));
+                z-index: 80;
                 display: flex !important;
                 flex-direction: column !important;
-                overflow: hidden !important;
-            }
-            .so-expand-with-browse > .so-browse-dock {
-                flex: 1 1 45% !important;
-                min-width: 0 !important;
                 min-height: 0 !important;
-                max-width: 48% !important;
-                height: auto !important;
-                max-height: none !important;
-                align-self: stretch !important;
-            }
-            .so-expand-with-browse .so-items-wrap,
-            .so-expand-with-browse .so-items-wrap-tall {
-                min-height: 0 !important;
-                flex: 1 1 0 !important;
-                overflow: hidden !important;
-            }
-            .so-expand-with-browse .so-footer {
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                align-items: flex-start !important;
-                gap: 0.45rem 0.85rem !important;
-                padding: 0.4rem 0.55rem !important;
-                flex-shrink: 0 !important;
-            }
-            .so-expand-with-browse .so-counters {
-                flex: 1 1 auto !important;
-                min-width: 0 !important;
-                gap: 0.35rem 1rem !important;
-            }
-            .so-expand-with-browse .so-counter-col {
-                min-width: 0 !important;
-            }
-            .so-expand-with-browse .so-totals {
-                flex: 0 0 auto !important;
-                min-width: 0 !important;
-                max-width: 13.5rem !important;
-                width: auto !important;
-                margin-left: auto !important;
+                overflow: hidden;
+                background: #fff;
+                border: 1px solid #475569;
+                border-radius: 6px;
+                box-shadow: 0 18px 48px rgba(15, 23, 42, .38);
             }
             .so-browse-dock .desk-modal-close {
                 margin-right: 0.4rem;
                 padding: 0 0.45rem;
                 flex-shrink: 0;
-            }
-            .so-browse-dock {
-                display: flex !important;
-                flex-direction: column !important;
-                min-height: 0 !important;
-                height: 100%;
-                overflow: hidden;
-                background: #fff;
-                border-left: 1px solid #c5cad3;
             }
             .so-browse-dock .desk-modal-head {
                 display: flex !important;
@@ -82,6 +28,8 @@
                 justify-content: flex-start !important;
                 gap: .5rem !important;
                 flex-shrink: 0;
+                cursor: move;
+                user-select: none;
             }
             .so-browse-head-count {
                 margin-left: auto;
@@ -222,75 +170,6 @@
                 overflow: auto !important;
                 background: #fff;
             }
-            .so-browse-filter-panel {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-shrink: 0 !important;
-                border-left: 1px solid #e2e8f0 !important;
-                background: #fff !important;
-                min-height: 0 !important;
-            }
-            .so-browse-lists-stack {
-                display: flex !important;
-                flex-direction: column !important;
-                width: 14rem !important;
-                min-width: 14rem !important;
-                min-height: 0 !important;
-                flex: 1 1 auto !important;
-            }
-            .so-browse-listbox {
-                display: flex !important;
-                flex-direction: column !important;
-                flex: 1 1 50% !important;
-                min-height: 0 !important;
-                border-bottom: 1px solid #e2e8f0;
-            }
-            .so-browse-listbox:last-child { border-bottom: 0; }
-            .so-browse-listbox-caption {
-                padding: .4rem .55rem;
-                font-size: 11px;
-                font-weight: 700;
-                color: #334155;
-                background: #f8fafc;
-                border-bottom: 1px solid #e2e8f0;
-                text-transform: uppercase;
-                letter-spacing: .02em;
-            }
-            .so-browse-listbox-body {
-                flex: 1 1 auto !important;
-                min-height: 0 !important;
-                overflow-y: auto !important;
-                background: #fff !important;
-            }
-            .so-browse-list-item {
-                display: block !important;
-                width: 100% !important;
-                text-align: left !important;
-                border: 0 !important;
-                border-radius: 0 !important;
-                background: transparent !important;
-                color: #0f172a !important;
-                font-size: 12px !important;
-                font-weight: 500 !important;
-                padding: .32rem .55rem !important;
-                cursor: pointer !important;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                border-bottom: 1px solid #f1f5f9 !important;
-            }
-            .so-browse-list-item:hover { background: #f1f5f9 !important; }
-            .so-browse-list-item.is-selected {
-                background: #eff6ff !important;
-                color: #1e40af !important;
-                font-weight: 700 !important;
-                box-shadow: inset 3px 0 0 #2b5797;
-            }
-            .so-browse-list-empty {
-                font-size: 12px;
-                color: #94a3b8;
-                padding: .65rem .55rem;
-            }
             .so-browse-side-tools {
                 display: flex;
                 flex-direction: column;
@@ -358,6 +237,7 @@
             }
             .so-item-browse-table {
                 width: 100%;
+                table-layout: fixed;
                 border-collapse: collapse;
                 font-size: 13px;
             }
@@ -365,28 +245,31 @@
                 position: sticky;
                 top: 0;
                 z-index: 2;
-                background: #f1f5f9;
-                border-bottom: 1px solid #e2e8f0;
-                padding: .45rem .55rem;
+                background: #e8eef6;
+                border-bottom: 1px solid #c5cad3;
+                padding: .42rem .55rem;
                 font-size: 12px;
                 font-weight: 700;
-                color: #334155;
+                color: #1e293b;
                 text-align: left;
                 white-space: nowrap;
             }
             .so-item-browse-table thead th.is-num,
-            .so-item-browse-table td.is-num { text-align: right; }
+            .so-item-browse-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
             .so-item-browse-table td {
-                padding: .35rem .55rem;
-                border-bottom: 1px solid #f1f5f9;
+                padding: .42rem .55rem;
+                border-bottom: 1px solid #e2e8f0;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 color: #0f172a;
+                line-height: 1.35;
             }
-            .so-item-browse-table td.col-desc-cell { white-space: normal; }
+            .so-item-browse-table td.col-desc-cell {
+                white-space: nowrap;
+            }
             .so-item-browse-table tr.is-pickable { cursor: pointer; }
-            .so-item-browse-table tr.is-pickable:hover { background: #f8fafc; }
+            .so-item-browse-table tr.is-pickable:hover { background: #f1f5f9; }
             .so-item-browse-table tr.is-disabled { opacity: .55; cursor: not-allowed; }
             .so-item-browse-empty {
                 text-align: center;
@@ -394,12 +277,116 @@
                 padding: 1.25rem !important;
                 font-size: 13px;
             }
+            .so-saved-search {
+                position: static;
+                flex: 0 0 auto;
+            }
+            .so-saved-search-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: .35rem;
+                height: 2.35rem;
+                max-width: 14rem;
+                padding: 0 .7rem;
+                border: 1px solid #94a3b8;
+                border-radius: 4px;
+                background: linear-gradient(180deg, #fff, #e8eef7);
+                color: #0f172a;
+                font-size: 13px;
+                font-weight: 700;
+                cursor: pointer;
+                white-space: nowrap;
+            }
+            .so-saved-search-btn:hover,
+            .so-saved-search-btn.is-open {
+                background: #dbeafe;
+                border-color: #2b5797;
+            }
+            .so-saved-search-btn .ss-label {
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .so-cat-popup {
+                position: fixed !important;
+                top: 2.15rem;
+                right: 0;
+                left: auto;
+                bottom: 0;
+                z-index: 200 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                width: 17.5rem;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                background: #fff;
+                border: 1px solid #334155;
+                border-radius: 0;
+                box-shadow: -10px 0 28px rgba(15, 23, 42, .28);
+                overflow: hidden;
+            }
+            .so-cat-popup .desk-modal-head {
+                cursor: move;
+                user-select: none;
+                flex-shrink: 0;
+            }
+            .so-cat-popup .desk-modal-close {
+                margin-left: auto;
+            }
+            .so-saved-search-menu {
+                display: flex;
+                flex-direction: column;
+                flex: 1 1 auto;
+                min-height: 0;
+                width: 100%;
+                background: #fff;
+                overflow: hidden;
+            }
+            .so-saved-search-list {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                background: #fff;
+            }
+            .so-saved-search-item {
+                display: block;
+                width: 100%;
+                text-align: left;
+                border: 0;
+                border-bottom: 1px solid #f1f5f9;
+                background: transparent;
+                color: #0f172a;
+                font-size: 12px;
+                font-weight: 600;
+                padding: .28rem .55rem;
+                cursor: pointer;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .so-saved-search-item.is-sub {
+                padding-left: 1.35rem;
+                font-weight: 500;
+                color: #334155;
+                background: #f8fafc;
+            }
+            .so-saved-search-item:hover { background: #e8f0fe; }
+            .so-saved-search-item.is-selected {
+                background: #316ac5;
+                color: #fff;
+            }
+            .so-saved-search-empty {
+                padding: .7rem .6rem;
+                font-size: 12px;
+                color: #94a3b8;
+                font-style: italic;
+            }
             .so-item-browse-foot-chief {
                 display: flex;
                 flex-wrap: nowrap;
                 align-items: center;
                 gap: .65rem;
-                padding: .65rem 4.75rem .65rem .85rem;
+                padding: .55rem .75rem;
                 background: #f8fafc;
                 border-top: 1px solid #e2e8f0;
                 flex-shrink: 0;
@@ -460,33 +447,58 @@
                 align-items: center;
                 justify-content: center;
             }
-            @media (max-width: 1280px) {
-                .so-expand-with-browse > .so-expand-main { max-width: 56% !important; }
-                .so-expand-with-browse > .so-browse-dock { max-width: 46% !important; }
-                .so-expand-with-browse .so-footer { font-size: 12px !important; }
-                .so-expand-with-browse .so-totals-row { gap: 0.65rem !important; padding: 0.18rem 0 !important; }
-            }
-            @media (max-width: 1100px) {
-                .so-expand-with-browse > .so-expand-main,
-                .so-expand-with-browse > .so-browse-dock {
-                    max-width: none !important;
-                }
-                .so-item-browse-body { min-height: 0; }
-            }
             @media (max-width: 800px) {
-                .so-item-browse-body { flex-direction: column; }
-                .so-browse-filter-panel {
-                    width: 100% !important;
-                    max-height: 12rem;
-                    border-left: 0 !important;
-                    border-top: 1px solid #e2e8f0 !important;
+                .so-browse-dock.so-browse-popup {
+                    top: 3.75rem;
+                    right: .5rem;
+                    width: calc(100vw - 1rem);
+                    height: min(36rem, calc(100vh - 5rem));
                 }
-                .so-browse-lists-stack { width: 100% !important; min-width: 0 !important; }
+                .so-cat-popup {
+                    width: min(17.5rem, 92vw);
+                }
+                .so-item-browse-body { flex-direction: column; }
                 .so-browse-side-tools { flex-direction: row; border-left: 0; border-top: 1px solid #e2e8f0; }
             }
         </style>
-        <aside class="so-browse-dock" role="region" aria-labelledby="item-browse-title" wire:keydown.escape.window="closeBrowse" style="flex:1 1 45%;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-self:stretch;">
-            <div class="desk-modal-head">
+        <aside
+            class="so-browse-dock so-browse-popup"
+            role="dialog"
+            aria-labelledby="item-browse-title"
+            wire:keydown.escape.window="browseEscape"
+            x-data="{
+                x: (window.__soBrowsePos && window.__soBrowsePos.x != null) ? window.__soBrowsePos.x : null,
+                y: (window.__soBrowsePos && window.__soBrowsePos.y != null) ? window.__soBrowsePos.y : null,
+                drag: false,
+                dx: 0,
+                dy: 0,
+                start(e) {
+                    if (e.button !== 0 || e.target.closest('button, input, select, a, label')) return;
+                    const r = this.$el.getBoundingClientRect();
+                    this.drag = true;
+                    this.dx = e.clientX - r.left;
+                    this.dy = e.clientY - r.top;
+                    this.x = r.left;
+                    this.y = r.top;
+                },
+                move(e) {
+                    if (!this.drag) return;
+                    const w = this.$el.offsetWidth;
+                    const h = this.$el.offsetHeight;
+                    this.x = Math.min(window.innerWidth - 96, Math.max(8 - w + 96, e.clientX - this.dx));
+                    this.y = Math.min(window.innerHeight - 48, Math.max(8, e.clientY - this.dy));
+                },
+                stop() {
+                    if (!this.drag) return;
+                    this.drag = false;
+                    window.__soBrowsePos = { x: this.x, y: this.y };
+                }
+            }"
+            :style="x === null ? {} : { left: x + 'px', top: y + 'px', right: 'auto' }"
+            @mousemove.window="move($event)"
+            @mouseup.window="stop()"
+        >
+            <div class="desk-modal-head" @mousedown="start($event)">
                     <span id="item-browse-title">Browse Items</span>
                     <span class="so-browse-head-count" wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems">
                         Record Count: {{ number_format($browseTotal) }}
@@ -556,6 +568,9 @@
                     <div
                         class="so-browse-alert so-browse-alert-{{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'error' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'ok' : 'warn') }}"
                         role="alert"
+                        wire:key="so-browse-warning-{{ md5($lineWarning.'|'.$lineWarningKind) }}"
+                        x-data
+                        x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('line')"
                     >
                         {{ $lineWarning }}
                     </div>
@@ -583,9 +598,10 @@
                         <table class="so-item-browse-table">
                             <colgroup>
                                 <col style="width:2.1rem" />
-                                <col style="width:7.5rem" />
+                                <col style="width:7.25rem" />
                                 <col />
-                                <col style="width:4.5rem" />
+                                <col style="width:4.25rem" />
+                                <col style="width:5.5rem" />
                                 <col style="width:5.75rem" />
                                 <col style="width:5.5rem" />
                             </colgroup>
@@ -595,8 +611,9 @@
                                     <th scope="col">Item Code</th>
                                     <th scope="col">Item Description</th>
                                     <th scope="col">U of M</th>
-                                    <th scope="col" class="is-num">Available Qty</th>
                                     <th scope="col" class="is-num">Price</th>
+                                    <th scope="col" class="is-num">Available Qty</th>
+                                    <th scope="col" class="is-num">Qty in Stock</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -631,14 +648,15 @@
                                             />
                                         </td>
                                         <td class="font-mono">{{ $bi['item_code'] }}</td>
-                                        <td class="col-desc-cell">{{ $bi['description'] }}</td>
+                                        <td class="col-desc-cell" title="{{ $bi['description'] }}">{{ $bi['description'] }}</td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
-                                        <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
                                         <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>
+                                        <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
+                                        <td class="is-num">{{ number_format((float) ($bi['on_hand'] ?? $avail), 0) }}</td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="so-item-browse-empty">
+                                        <td colspan="7" class="so-item-browse-empty">
                                             <span wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">No items found to match selected criteria.</span>
                                             <span wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">Loading items…</span>
                                         </td>
@@ -646,7 +664,7 @@
                                 @endforelse
                                 @if ($browseHasMore && count($browseRows) > 0)
                                     <tr wire:key="browse-load-more">
-                                        <td colspan="6" class="so-item-browse-empty" style="padding:0.75rem !important;">
+                                        <td colspan="7" class="so-item-browse-empty" style="padding:0.75rem !important;">
                                             <button
                                                 type="button"
                                                 class="desk-btn desk-btn-sm"
@@ -664,140 +682,87 @@
                         </table>
                     </div>
 
-                    <div class="so-browse-filter-panel" aria-label="Category filters">
-                        <div class="so-browse-lists-stack">
-                        <div class="so-browse-listbox">
-                            <div class="so-browse-listbox-caption">Category</div>
-                            <div class="so-browse-listbox-body" role="listbox" aria-label="Categories">
-                                <button
-                                    type="button"
-                                    role="option"
-                                    aria-selected="{{ $browseCategoryId === null ? 'true' : 'false' }}"
-                                    class="so-browse-list-item{{ $browseCategoryId === null ? ' is-selected' : '' }}"
-                                    wire:click="setBrowseCategory(null)"
-                                >(All)</button>
-                                @foreach ($browseCategories as $cat)
-                                    @php
-                                        $catCode = trim((string) ($cat->code ?? ''));
-                                        $catName = trim((string) ($cat->name ?? ''));
-                                        $catLabel = $catCode !== '' && $catName !== ''
-                                            ? strtoupper($catCode).' — '.$catName
-                                            : ($catCode !== '' ? strtoupper($catCode) : $catName);
-                                    @endphp
-                                    <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected="{{ (int) $browseCategoryId === (int) $cat->id ? 'true' : 'false' }}"
-                                        class="so-browse-list-item{{ (int) $browseCategoryId === (int) $cat->id ? ' is-selected' : '' }}"
-                                        wire:click="setBrowseCategory({{ $cat->id }})"
-                                        title="{{ $catLabel }}"
-                                    >{{ $catLabel }}</button>
-                                @endforeach
-                                @if ($browseCategories->isEmpty())
-                                    <div class="so-browse-list-empty">No categories</div>
-                                @endif
-                            </div>
-                        </div>
-                        <div class="so-browse-listbox">
-                            <div class="so-browse-listbox-caption">Subcategory</div>
-                            <div class="so-browse-listbox-body" role="listbox" aria-label="Subcategories">
-                                @if (! $browseCategoryId)
-                                    <div class="so-browse-list-empty">Select a category</div>
-                                @else
-                                    <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected="{{ $browseSubcategoryId === null ? 'true' : 'false' }}"
-                                        class="so-browse-list-item{{ $browseSubcategoryId === null ? ' is-selected' : '' }}"
-                                        wire:click="setBrowseSubcategory(null)"
-                                    >(All)</button>
-                                    @forelse ($browseSubcategories as $sub)
-                                        @php
-                                            $subCode = trim((string) ($sub->code ?? ''));
-                                            $subName = trim((string) ($sub->name ?? ''));
-                                            $subLabel = $subCode !== '' && $subName !== ''
-                                                ? strtoupper($subCode).' — '.$subName
-                                                : ($subCode !== '' ? strtoupper($subCode) : $subName);
-                                        @endphp
-                                        <button
-                                            type="button"
-                                            role="option"
-                                            aria-selected="{{ (int) $browseSubcategoryId === (int) $sub->id ? 'true' : 'false' }}"
-                                            class="so-browse-list-item{{ (int) $browseSubcategoryId === (int) $sub->id ? ' is-selected' : '' }}"
-                                            wire:click="setBrowseSubcategory({{ $sub->id }})"
-                                            title="{{ $subLabel }}"
-                                        >{{ $subLabel }}</button>
-                                    @empty
-                                        <div class="so-browse-list-empty">No subcategories</div>
-                                    @endforelse
-                                @endif
-                            </div>
-                        </div>
-                        </div>
-                        <div class="so-browse-side-tools" aria-label="Browse tools">
-                            @php
-                                $sideCheckedCount = collect($browseCheckedIds)->map(fn ($v) => (int) $v)->filter()->unique()->count();
-                                $sideCanSingle = $sideCheckedCount <= 1 && ($sideCheckedCount === 1 || (int) ($browseSelectedId ?? 0) > 0);
-                                $sideCanAdd = $sideCheckedCount >= 1 || $sideCanSingle;
-                                $sideHasRows = count($browseRows) > 0;
-                            @endphp
-                            <button type="button" class="so-browse-tool-btn" title="Clear filters" aria-label="Clear filters" wire:click="clearBrowseFilters">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                                    <path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5L2 3z"/>
-                                </svg>
-                            </button>
-                            <button type="button" class="so-browse-tool-btn" title="Refresh list" aria-label="Refresh list" wire:click="refreshBrowseItems">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                    <path d="M13.5 8a5.5 5.5 0 1 1-1.4-3.6"/>
-                                    <path d="M13.5 2.5v3.2h-3.2"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn"
-                                title="Select all loaded items"
-                                aria-label="Select all loaded items"
-                                wire:click="selectAllBrowseVisible"
-                                @disabled(! $sideHasRows)
-                            >
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
-                                    <path d="M5 8l2 2 4-4" stroke-width="1.6"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn is-primary"
-                                title="Insert all checked items"
-                                aria-label="Insert all checked items"
-                                wire:click="insertBrowseChecked"
-                                @disabled(! $sideCanAdd)
-                            >
-                                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                                    <path d="M8 3v10M3 8h10"/>
-                                </svg>
-                            </button>
-                            <button type="button" class="so-browse-tool-btn" title="Add new item (always available)" aria-label="Add new item" wire:click="openBrowseNewItem">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
-                                    <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
-                                    <path d="M12.5 9v5M10 11.5h5" stroke-width="1.5"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn"
-                                title="{{ $sideCanSingle ? 'View/edit selected item' : ($sideCheckedCount > 1 ? 'Edit disabled — multiple items checked' : 'Select one item to edit') }}"
-                                aria-label="View/edit selected item"
-                                wire:click="openBrowseEditSelected"
-                                @disabled(! $sideCanSingle)
-                            >
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                    <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
-                                </svg>
-                            </button>
-                        </div>
+                    <div class="so-browse-side-tools" aria-label="Browse tools">
+                        @php
+                            $sideCheckedCount = collect($browseCheckedIds)->map(fn ($v) => (int) $v)->filter()->unique()->count();
+                            $sideCanSingle = $sideCheckedCount <= 1 && ($sideCheckedCount === 1 || (int) ($browseSelectedId ?? 0) > 0);
+                            $sideCanAdd = $sideCheckedCount >= 1 || $sideCanSingle;
+                            $sideHasRows = count($browseRows) > 0;
+                        @endphp
+                        <button type="button" class="so-browse-tool-btn" title="Clear filters" aria-label="Clear filters" wire:click="clearBrowseFilters">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                                <path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5L2 3z"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="so-browse-tool-btn" title="Refresh list" aria-label="Refresh list" wire:click="refreshBrowseItems">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                <path d="M13.5 8a5.5 5.5 0 1 1-1.4-3.6"/>
+                                <path d="M13.5 2.5v3.2h-3.2"/>
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="so-browse-tool-btn"
+                            title="Select all loaded items"
+                            aria-label="Select all loaded items"
+                            wire:click="selectAllBrowseVisible"
+                            @disabled(! $sideHasRows)
+                        >
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
+                                <path d="M5 8l2 2 4-4" stroke-width="1.6"/>
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="so-browse-tool-btn is-primary"
+                            title="Insert all checked items"
+                            aria-label="Insert all checked items"
+                            wire:click="insertBrowseChecked"
+                            @disabled(! $sideCanAdd)
+                        >
+                            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                                <path d="M8 3v10M3 8h10"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="so-browse-tool-btn" title="Add new item (always available)" aria-label="Add new item" wire:click="openBrowseNewItem">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
+                                <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                                <path d="M12.5 9v5M10 11.5h5" stroke-width="1.5"/>
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="so-browse-tool-btn"
+                            title="{{ $sideCanSingle ? 'View/edit selected item' : ($sideCheckedCount > 1 ? 'Edit disabled — multiple items checked' : 'Select one item to edit') }}"
+                            aria-label="View/edit selected item"
+                            wire:click="openBrowseEditSelected"
+                            @disabled(! $sideCanSingle)
+                        >
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
+                @php
+                    $savedSearchLabel = 'Saved Search';
+                    $selectedCat = $browseCategoryId
+                        ? $browseCategories->firstWhere('id', (int) $browseCategoryId)
+                        : null;
+                    if ($selectedCat) {
+                        $savedCode = strtoupper(trim((string) ($selectedCat->code ?? '')));
+                        $savedName = trim((string) ($selectedCat->name ?? ''));
+                        $savedSearchLabel = $savedCode !== '' ? $savedCode : ($savedName !== '' ? $savedName : 'Saved Search');
+                        if ($browseSubcategoryId) {
+                            $selectedSub = $browseSubcategories->firstWhere('id', (int) $browseSubcategoryId);
+                            if ($selectedSub) {
+                                $subCode = strtoupper(trim((string) ($selectedSub->code ?? '')));
+                                $savedSearchLabel .= ' / '.($subCode !== '' ? $subCode : trim((string) ($selectedSub->name ?? '')));
+                            }
+                        }
+                    }
+                @endphp
                 <div class="so-item-browse-foot so-item-browse-foot-chief">
                     <div class="so-item-browse-foot-search so-browse-scan-row">
                         <span class="so-browse-foot-label">Search All Items</span>
@@ -825,10 +790,154 @@
                             />
                         </div>
                     </div>
+                    <div class="so-saved-search">
+                        <button
+                            type="button"
+                            class="so-saved-search-btn{{ $browseSavedSearchOpen ? ' is-open' : '' }}"
+                            wire:click="toggleBrowseSavedSearch"
+                            aria-expanded="{{ $browseSavedSearchOpen ? 'true' : 'false' }}"
+                            aria-haspopup="dialog"
+                            title="Categories and saved search"
+                        >
+                            <span class="ss-label">{{ $savedSearchLabel }}</span>
+                            <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 4.5L6 8l3-3.5H3z"/></svg>
+                        </button>
+                    </div>
                     <div class="so-item-browse-foot-actions">
                         <button type="button" wire:click="closeBrowse" class="desk-btn">Close</button>
                     </div>
                 </div>
         </aside>
+        @if ($browseSavedSearchOpen)
+        <template x-teleport="body">
+        <aside
+            class="so-cat-popup"
+            role="dialog"
+            aria-labelledby="so-cat-popup-title"
+            x-data="{
+                x: null,
+                y: null,
+                drag: false,
+                dx: 0,
+                dy: 0,
+                pin() {
+                    const menu = document.querySelector('.chief-menu');
+                    const soBottom = document.querySelector('.so-bottom');
+                    const foot = document.querySelector('.chief-status-bar');
+                    const top = menu ? Math.round(menu.getBoundingClientRect().bottom) : 34;
+                    let end = window.innerHeight;
+                    if (soBottom) {
+                        end = Math.round(soBottom.getBoundingClientRect().top);
+                    } else if (foot) {
+                        end = Math.round(foot.getBoundingClientRect().top);
+                    }
+                    const h = Math.max(120, end - top);
+                    this.$el.style.setProperty('top', top + 'px', 'important');
+                    this.$el.style.setProperty('bottom', 'auto', 'important');
+                    this.$el.style.setProperty('height', h + 'px', 'important');
+                    this.$el.style.setProperty('max-height', h + 'px', 'important');
+                    this.$el.style.setProperty('min-height', h + 'px', 'important');
+                },
+                start(e) {
+                    if (e.button !== 0 || e.target.closest('button, input, select, a, label')) return;
+                    const r = this.$el.getBoundingClientRect();
+                    this.drag = true;
+                    this.dx = e.clientX - r.left;
+                    this.dy = e.clientY - r.top;
+                    this.x = r.left;
+                    this.y = r.top;
+                },
+                move(e) {
+                    if (!this.drag) return;
+                    const w = this.$el.offsetWidth;
+                    this.x = Math.min(window.innerWidth - 96, Math.max(8 - w + 96, e.clientX - this.dx));
+                    this.y = Math.min(window.innerHeight - 48, Math.max(8, e.clientY - this.dy));
+                },
+                stop() {
+                    this.drag = false;
+                }
+            }"
+            x-init="
+                pin();
+                const onResize = () => pin();
+                window.addEventListener('resize', onResize);
+                queueMicrotask(() => pin());
+                return () => window.removeEventListener('resize', onResize);
+            "
+            :style="x === null ? {} : { left: x + 'px', top: y + 'px', right: 'auto' }"
+            @mousemove.window="move($event)"
+            @mouseup.window="stop()"
+        >
+            <div class="desk-modal-head" @mousedown="start($event)">
+                <span id="so-cat-popup-title">Category</span>
+                <button type="button" class="desk-modal-close" wire:click.stop="closeBrowseSavedSearch" aria-label="Close">×</button>
+            </div>
+            <div class="so-saved-search-menu" role="listbox" aria-label="Categories">
+                <div class="so-saved-search-list">
+                    <button
+                        type="button"
+                        role="option"
+                        class="so-saved-search-item"
+                        wire:click.stop="clearBrowseFilters"
+                    >Clear Searches</button>
+                    <button
+                        type="button"
+                        role="option"
+                        class="so-saved-search-item{{ $browseCategoryId === null ? ' is-selected' : '' }}"
+                        wire:click.stop="setBrowseCategory(null)"
+                    >All Items</button>
+                    @foreach ($browseCategories as $cat)
+                        @php
+                            $catCode = trim((string) ($cat->code ?? ''));
+                            $catName = trim((string) ($cat->name ?? ''));
+                            $catLabel = $catCode !== '' ? strtoupper($catCode) : $catName;
+                            if ($catCode !== '' && $catName !== '' && strcasecmp($catCode, $catName) !== 0) {
+                                $catLabel = strtoupper($catCode).' — '.$catName;
+                            }
+                            $catOpen = (int) $browseCategoryId === (int) $cat->id;
+                        @endphp
+                        <button
+                            type="button"
+                            role="option"
+                            class="so-saved-search-item{{ $catOpen ? ' is-selected' : '' }}"
+                            wire:click.stop="setBrowseCategory({{ $cat->id }})"
+                            title="{{ $catLabel }}"
+                        >{{ $catLabel }}</button>
+                        @if ($catOpen)
+                            <button
+                                type="button"
+                                role="option"
+                                class="so-saved-search-item is-sub{{ $browseSubcategoryId === null ? ' is-selected' : '' }}"
+                                wire:click.stop="setBrowseSubcategory(null)"
+                            >(All)</button>
+                            @forelse ($browseSubcategories as $sub)
+                                @php
+                                    $subCode = trim((string) ($sub->code ?? ''));
+                                    $subName = trim((string) ($sub->name ?? ''));
+                                    $subLabel = $subCode !== '' ? strtoupper($subCode) : $subName;
+                                    if ($subCode !== '' && $subName !== '' && strcasecmp($subCode, $subName) !== 0) {
+                                        $subLabel = strtoupper($subCode).' — '.$subName;
+                                    }
+                                @endphp
+                                <button
+                                    type="button"
+                                    role="option"
+                                    class="so-saved-search-item is-sub{{ (int) $browseSubcategoryId === (int) $sub->id ? ' is-selected' : '' }}"
+                                    wire:click.stop="setBrowseSubcategory({{ $sub->id }})"
+                                    title="{{ $subLabel }}"
+                                >{{ $subLabel }}</button>
+                            @empty
+                                <div class="so-saved-search-empty">No subcategories</div>
+                            @endforelse
+                        @endif
+                    @endforeach
+                    @if ($browseCategories->isEmpty())
+                        <div class="so-saved-search-empty">No categories</div>
+                    @endif
+                </div>
+            </div>
+        </aside>
+        </template>
+        @endif
     @endif
 

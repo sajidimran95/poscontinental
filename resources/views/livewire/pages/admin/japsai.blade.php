@@ -51,6 +51,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         if (! in_array($panel, ['insights', 'chat', 'settings'], true)) {
             return;
         }
+        if ($panel === 'settings' && ! (auth()->user()?->canManagePosAiSettings() ?? false)) {
+            return;
+        }
         $this->panel = $panel;
         $this->statusMessage = '';
         if ($panel === 'insights') {
@@ -84,6 +87,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public function saveSettings(): void
     {
+        abort_unless(auth()->user()?->canManagePosAiSettings() ?? false, 403);
+
         $this->statusMessage = '';
         $this->validate([
             'japs_ai_enabled' => ['boolean'],
@@ -194,7 +199,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 <div class="posai-tabs" role="tablist">
                     <button type="button" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
                     <button type="button" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
-                    <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
+                    @if (auth()->user()?->canManagePosAiSettings())
+                        <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
+                    @endif
                 </div>
                 @if ($panel === 'insights')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
@@ -205,7 +212,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             </div>
         </header>
 
-        @if ($panel === 'settings')
+        @if ($panel === 'settings' && auth()->user()?->canManagePosAiSettings())
             <div class="posai-panel">
                 <h3 class="posai-section-title">Settings</h3>
 

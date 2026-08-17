@@ -645,7 +645,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             return;
         }
 
-        $this->role_permissions = AppFeatures::permissionTokens();
+        $this->role_permissions = AppFeatures::roleBulkPermissionTokens();
     }
 
     public function clearAllPermissions(): void
@@ -661,6 +661,9 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
         $current = $this->role_permissions;
         foreach (AppFeatures::keys() as $feature) {
+            if (AppFeatures::isRestrictedCapability($feature)) {
+                continue;
+            }
             $token = AppFeatures::token($feature, $action);
             if (! in_array($token, $current, true)) {
                 $current[] = $token;
@@ -701,6 +704,9 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
     {
         $current = $this->role_permissions;
         foreach (AppFeatures::featuresForMenu($menu) as $feature) {
+            if (AppFeatures::isRestrictedCapability($feature)) {
+                continue;
+            }
             foreach (AppFeatures::ACTIONS as $action) {
                 $token = AppFeatures::token($feature, $action);
                 if (! in_array($token, $current, true)) {
@@ -910,6 +916,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     Loaded from role
                                     <strong>{{ $selectedRoleLabel ?? '—' }}</strong>.
                                     Change features for this user only — the role itself is not updated.
+                                    Change Order Price stays off unless you turn on <strong>Edit</strong> for this user.
+                                    POS AI Chat stays off unless you turn on <strong>View</strong> — that user can chat only, not change AI settings.
                                 @endif
                             </p>
 
@@ -1031,7 +1039,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
                                 </span>
                             </div>
-                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Overselling Settings, Email, Users &amp; Roles) stay off by default — turn them on only when needed. Terminal and Lookups are always available.</p>
+                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Overselling Settings, Email, Users &amp; Roles, POS AI Settings) stay off by default. POS AI Chat is also off by default — turn on <strong>View</strong> for a user so they can use the chat widget only (they cannot change AI settings). Change Order Price stays off unless you enable Edit for that user. Terminal and Lookups are always available.</p>
 
                             <div class="role-menu-grid">
                                 @foreach ($menuCards as $menu => $submenus)

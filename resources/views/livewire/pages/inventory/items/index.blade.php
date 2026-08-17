@@ -38,6 +38,18 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public bool $compactView = false;
 
+    public bool $showColumnPicker = false;
+
+    /** @var list<string> */
+    public array $visibleColumns = [];
+
+    /** @var list<string> */
+    public array $draftVisibleColumns = [];
+
+    public ?string $fieldsAvailableSelected = null;
+
+    public ?string $fieldsVisibleSelected = null;
+
     public string $scanStatus = '';
 
     /** Chief-style query builder (LESTHANO popup) */
@@ -97,7 +109,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $itemNewDays = Item::NEW_ITEM_DAYS;
 
         $query = Item::query()
-            ->with('department')
+            ->with(['department', 'category', 'subcategory'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -285,6 +297,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             }
         }
 
+        $catalog = $this->itemListColumnCatalog();
+        $visibleKeys = $this->normalizedVisibleColumns();
+
         return [
             'items' => $query->paginate(50),
             'favorites' => $favorites,
@@ -303,7 +318,16 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'adjustSites' => ($this->showStockAdjust && $this->stockModalMode === 'adjust')
                 ? Site::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(['id', 'code', 'name'])
                 : collect(),
+            'itemColumnCatalog' => $catalog,
+            'visibleColumnKeys' => $visibleKeys,
+            'availableColumnKeys' => $this->availableColumnKeys($this->showColumnPicker ? $this->draftVisibleColumns : $visibleKeys),
+            'columnColspan' => count($visibleKeys) + 1,
         ];
+    }
+
+    public function mount(): void
+    {
+        $this->visibleColumns = $this->loadVisibleColumns();
     }
 
     public function updatingSearch(): void
@@ -619,6 +643,241 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function toggleCompactView(): void
     {
         $this->compactView = ! $this->compactView;
+    }
+
+    public function openColumnPicker(): void
+    {
+        $this->draftVisibleColumns = $this->normalizedVisibleColumns();
+        $available = $this->availableColumnKeys($this->draftVisibleColumns);
+        $this->fieldsVisibleSelected = $this->draftVisibleColumns[0] ?? null;
+        $this->fieldsAvailableSelected = $available[0] ?? null;
+        $this->showColumnPicker = true;
+    }
+
+    public function closeColumnPicker(): void
+    {
+        $this->showColumnPicker = false;
+        $this->fieldsAvailableSelected = null;
+        $this->fieldsVisibleSelected = null;
+    }
+
+    public function applyColumnPicker(): void
+    {
+        $keys = $this->sanitizeColumnKeys($this->draftVisibleColumns);
+        if ($keys === []) {
+            $keys = ['item_code'];
+        }
+        $this->visibleColumns = $keys;
+        $this->storeVisibleColumns($keys);
+        $this->closeColumnPicker();
+    }
+
+    public function selectAvailableField(string $key): void
+    {
+        if (! isset($this->itemListColumnCatalog()[$key])) {
+            return;
+        }
+        $this->fieldsAvailableSelected = $key;
+    }
+
+    public function selectVisibleField(string $key): void
+    {
+        if (! in_array($key, $this->draftVisibleColumns, true)) {
+            return;
+        }
+        $this->fieldsVisibleSelected = $key;
+    }
+
+    public function showSelectedField(): void
+    {
+        $key = $this->fieldsAvailableSelected;
+        if (! $key || in_array($key, $this->draftVisibleColumns, true) || ! isset($this->itemListColumnCatalog()[$key])) {
+            return;
+        }
+        $this->draftVisibleColumns[] = $key;
+        $this->fieldsVisibleSelected = $key;
+        $remaining = $this->availableColumnKeys($this->draftVisibleColumns);
+        $this->fieldsAvailableSelected = $remaining[0] ?? null;
+    }
+
+    public function showField(string $key): void
+    {
+        $this->fieldsAvailableSelected = $key;
+        $this->showSelectedField();
+    }
+
+    public function hideSelectedField(): void
+    {
+        $key = $this->fieldsVisibleSelected;
+        if (! $key) {
+            return;
+        }
+        $this->draftVisibleColumns = array_values(array_filter(
+            $this->draftVisibleColumns,
+            fn ($k) => $k !== $key
+        ));
+        if ($this->draftVisibleColumns === []) {
+            $this->draftVisibleColumns = ['item_code'];
+        }
+        $this->fieldsAvailableSelected = $key === 'item_code' && in_array('item_code', $this->draftVisibleColumns, true)
+            ? ($this->availableColumnKeys($this->draftVisibleColumns)[0] ?? null)
+            : $key;
+        $this->fieldsVisibleSelected = $this->draftVisibleColumns[0] ?? null;
+    }
+
+    public function hideField(string $key): void
+    {
+        $this->fieldsVisibleSelected = $key;
+        $this->hideSelectedField();
+    }
+
+    public function moveVisibleFieldUp(): void
+    {
+        $this->moveVisibleField(-1);
+    }
+
+    public function moveVisibleFieldDown(): void
+    {
+        $this->moveVisibleField(1);
+    }
+
+    protected function moveVisibleField(int $delta): void
+    {
+        $key = $this->fieldsVisibleSelected;
+        if (! $key) {
+            return;
+        }
+        $i = array_search($key, $this->draftVisibleColumns, true);
+        if ($i === false) {
+            return;
+        }
+        $j = $i + $delta;
+        if ($j < 0 || $j >= count($this->draftVisibleColumns)) {
+            return;
+        }
+        $swap = $this->draftVisibleColumns[$j];
+        $this->draftVisibleColumns[$j] = $this->draftVisibleColumns[$i];
+        $this->draftVisibleColumns[$i] = $swap;
+    }
+
+    /**
+     * @return array<string, array{label: string, type: string}>
+     */
+    protected function itemListColumnCatalog(): array
+    {
+        return [
+            'id' => ['label' => 'ItemID', 'type' => 'text'],
+            'item_code' => ['label' => 'Item Code', 'type' => 'code'],
+            'is_new' => ['label' => 'New', 'type' => 'new'],
+            'description' => ['label' => 'Item Description', 'type' => 'text'],
+            'extended_description' => ['label' => 'Extended Description', 'type' => 'text'],
+            'item_line_message' => ['label' => 'Item Message', 'type' => 'text'],
+            'item_type' => ['label' => 'Item Type', 'type' => 'text'],
+            'class' => ['label' => 'Item Class', 'type' => 'text'],
+            'department' => ['label' => 'Department', 'type' => 'text'],
+            'category' => ['label' => 'Category', 'type' => 'text'],
+            'subcategory' => ['label' => 'Subcategory', 'type' => 'text'],
+            'unit_of_measure' => ['label' => 'Unit of Measure', 'type' => 'text'],
+            'list_price' => ['label' => 'List Price', 'type' => 'money'],
+            'msrp' => ['label' => 'MSR Price', 'type' => 'money'],
+            'standard_cost' => ['label' => 'Standard Cost', 'type' => 'money'],
+            'current_cost' => ['label' => 'Current Cost', 'type' => 'money'],
+            'last_cost' => ['label' => 'Last Cost', 'type' => 'money'],
+            'average_cost' => ['label' => 'Average Cost', 'type' => 'money'],
+            'quantity_in_stock' => ['label' => 'Quantity In Stock', 'type' => 'qty'],
+            'available_quantity' => ['label' => 'Available Quantity', 'type' => 'qty'],
+            'allocated_qty' => ['label' => 'Allocated', 'type' => 'qty'],
+            'on_order_qty' => ['label' => 'On Order', 'type' => 'qty'],
+            'allow_back_order' => ['label' => 'Can Back Order', 'type' => 'bool'],
+            'can_sell' => ['label' => 'Can Sell', 'type' => 'can_sell'],
+            'is_inactive' => ['label' => 'Inactive', 'type' => 'inactive'],
+            'primary_upc' => ['label' => 'UPC', 'type' => 'text'],
+            'manufacturer' => ['label' => 'Manufacturer', 'type' => 'text'],
+            'last_received_at' => ['label' => 'Last Received', 'type' => 'date'],
+            'last_sold_at' => ['label' => 'Last Sold', 'type' => 'date'],
+            'last_count_date' => ['label' => 'Last Count Date', 'type' => 'date'],
+        ];
+    }
+
+    /** @return list<string> */
+    protected function defaultVisibleColumns(): array
+    {
+        return [
+            'item_code',
+            'is_new',
+            'description',
+            'department',
+            'unit_of_measure',
+            'list_price',
+            'standard_cost',
+            'quantity_in_stock',
+            'available_quantity',
+            'can_sell',
+            'is_inactive',
+        ];
+    }
+
+    /** @return list<string> */
+    protected function normalizedVisibleColumns(): array
+    {
+        $keys = $this->sanitizeColumnKeys($this->visibleColumns);
+
+        return $keys !== [] ? $keys : $this->defaultVisibleColumns();
+    }
+
+    /**
+     * @param  list<string>  $keys
+     * @return list<string>
+     */
+    protected function sanitizeColumnKeys(array $keys): array
+    {
+        $catalog = $this->itemListColumnCatalog();
+        $out = [];
+        foreach ($keys as $key) {
+            if (is_string($key) && isset($catalog[$key]) && ! in_array($key, $out, true)) {
+                $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string>  $visible
+     * @return list<string>
+     */
+    protected function availableColumnKeys(array $visible): array
+    {
+        $visible = $this->sanitizeColumnKeys($visible);
+        $out = [];
+        foreach (array_keys($this->itemListColumnCatalog()) as $key) {
+            if (! in_array($key, $visible, true)) {
+                $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<string> */
+    protected function loadVisibleColumns(): array
+    {
+        $saved = Session::get($this->visibleColumnsSessionKey(), []);
+
+        return is_array($saved) && $saved !== []
+            ? $this->sanitizeColumnKeys($saved)
+            : $this->defaultVisibleColumns();
+    }
+
+    /** @param  list<string>  $keys */
+    protected function storeVisibleColumns(array $keys): void
+    {
+        Session::put($this->visibleColumnsSessionKey(), $keys);
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'items_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     public function refreshList(): void
@@ -1369,17 +1628,13 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Item Code</th>
-                                <th class="text-center" style="width:3.5rem">New</th>
-                                <th>Description</th>
-                                <th>Department</th>
-                                <th>UOM</th>
-                                <th class="desk-money">List Price</th>
-                                <th class="desk-money">Std Cost</th>
-                                <th class="desk-money">In Stock</th>
-                                <th class="desk-money">Available</th>
-                                <th class="text-center">Can Sell</th>
-                                <th class="text-center">Status</th>
+                                @foreach ($visibleColumnKeys as $colKey)
+                                    @php $col = $itemColumnCatalog[$colKey]; @endphp
+                                    <th @class([
+                                        'text-center' => in_array($col['type'], ['new', 'bool', 'can_sell', 'inactive'], true),
+                                        'desk-money' => in_array($col['type'], ['money', 'qty'], true),
+                                    ])>{{ $col['label'] }}</th>
+                                @endforeach
                             </tr>
                         </thead>
                         <tbody>
@@ -1399,53 +1654,73 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                             aria-label="Select item {{ $item->item_code }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
-                                    </td>
-                                    <td class="text-center">
-                                        @if ($item->isNew())
-                                            <span class="desk-pill desk-pill-new" title="Created within last {{ \App\Models\Item::NEW_ITEM_DAYS }} days">New</span>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @php $col = $itemColumnCatalog[$colKey]; @endphp
+                                        @if ($colKey === 'item_code')
+                                            <td class="desk-num">
+                                                <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
+                                            </td>
+                                        @elseif ($colKey === 'is_new')
+                                            <td class="text-center">
+                                                @if ($item->isNew())
+                                                    <span class="desk-pill desk-pill-new" title="Created within last {{ \App\Models\Item::NEW_ITEM_DAYS }} days">New</span>
+                                                @else
+                                                    <span class="text-slate-300">—</span>
+                                                @endif
+                                            </td>
+                                        @elseif ($colKey === 'can_sell')
+                                            <td class="text-center" wire:click.stop>
+                                                <button
+                                                    type="button"
+                                                    wire:click="toggleCanSell({{ $item->id }})"
+                                                    @class([
+                                                        'desk-pill',
+                                                        'desk-pill-invoiced' => $item->can_sell,
+                                                        'desk-pill-muted' => ! $item->can_sell,
+                                                    ])
+                                                    title="{{ $item->can_sell ? 'Can sell — click to disable' : 'Cannot sell — click to enable' }}"
+                                                    aria-label="Toggle can sell"
+                                                >{{ $item->can_sell ? 'Yes' : 'No' }}</button>
+                                            </td>
+                                        @elseif ($colKey === 'is_inactive')
+                                            <td class="text-center" wire:click.stop>
+                                                <button
+                                                    type="button"
+                                                    wire:click="toggleInactive({{ $item->id }})"
+                                                    @class([
+                                                        'desk-pill',
+                                                        'desk-pill-muted' => $item->is_inactive,
+                                                        'desk-pill-invoiced' => ! $item->is_inactive,
+                                                    ])
+                                                    title="{{ $item->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
+                                                    aria-label="Toggle inactive"
+                                                >{{ $item->is_inactive ? 'Inactive' : 'Active' }}</button>
+                                            </td>
+                                        @elseif ($colKey === 'allow_back_order')
+                                            <td class="text-center">{{ $item->allow_back_order ? 'Yes' : 'No' }}</td>
+                                        @elseif ($col['type'] === 'money')
+                                            <td class="desk-money">${{ number_format((float) $item->{$colKey}, 2) }}</td>
+                                        @elseif ($col['type'] === 'qty')
+                                            <td class="desk-money">{{ number_format((float) ($colKey === 'available_quantity' ? $item->available_quantity : $item->{$colKey}), 2) }}</td>
+                                        @elseif ($col['type'] === 'date')
+                                            <td>{{ optional($item->{$colKey})?->format('n/j/Y') ?: '—' }}</td>
+                                        @elseif ($colKey === 'department')
+                                            <td>{{ $item->department?->name ?: '—' }}</td>
+                                        @elseif ($colKey === 'category')
+                                            <td>{{ $item->category?->name ?: '—' }}</td>
+                                        @elseif ($colKey === 'subcategory')
+                                            <td>{{ $item->subcategory?->name ?: '—' }}</td>
+                                        @elseif ($colKey === 'description' || $colKey === 'extended_description' || $colKey === 'item_line_message')
+                                            @php $text = (string) ($item->{$colKey} ?? ''); @endphp
+                                            <td title="{{ $text }}">{{ $text !== '' ? \Illuminate\Support\Str::limit($text, 48) : '—' }}</td>
                                         @else
-                                            <span class="text-slate-300">—</span>
+                                            <td>{{ filled($item->{$colKey} ?? null) ? $item->{$colKey} : '—' }}</td>
                                         @endif
-                                    </td>
-                                    <td title="{{ $item->description }}">{{ \Illuminate\Support\Str::limit($item->description, 48) }}</td>
-                                    <td>{{ $item->department?->name ?: '—' }}</td>
-                                    <td>{{ $item->unit_of_measure }}</td>
-                                    <td class="desk-money">${{ number_format($item->list_price, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($item->standard_cost, 2) }}</td>
-                                    <td class="desk-money">{{ number_format($item->quantity_in_stock, 2) }}</td>
-                                    <td class="desk-money">{{ number_format($item->available_quantity, 2) }}</td>
-                                    <td class="text-center" wire:click.stop>
-                                        <button
-                                            type="button"
-                                            wire:click="toggleCanSell({{ $item->id }})"
-                                            @class([
-                                                'desk-pill',
-                                                'desk-pill-invoiced' => $item->can_sell,
-                                                'desk-pill-muted' => ! $item->can_sell,
-                                            ])
-                                            title="{{ $item->can_sell ? 'Can sell — click to disable' : 'Cannot sell — click to enable' }}"
-                                            aria-label="Toggle can sell"
-                                        >{{ $item->can_sell ? 'Yes' : 'No' }}</button>
-                                    </td>
-                                    <td class="text-center" wire:click.stop>
-                                        <button
-                                            type="button"
-                                            wire:click="toggleInactive({{ $item->id }})"
-                                            @class([
-                                                'desk-pill',
-                                                'desk-pill-muted' => $item->is_inactive,
-                                                'desk-pill-invoiced' => ! $item->is_inactive,
-                                            ])
-                                            title="{{ $item->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
-                                            aria-label="Toggle inactive"
-                                        >{{ $item->is_inactive ? 'Inactive' : 'Active' }}</button>
-                                    </td>
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="12">No items found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="{{ $columnColspan }}">No items found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -1458,8 +1733,15 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </x-record-count>
             </div>
 
-            {{-- Right icon rail — items list: grid, cross-pen, pen, delete, print, refresh, + --}}
+            {{-- Right icon rail — show/hide fields, compact, query, view, edit, … --}}
             <aside class="desk-rail" aria-label="Item actions">
+                <button type="button" wire:click="openColumnPicker" class="desk-rail-btn" title="Show/Hide Fields" aria-label="Show/Hide Fields">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
+                        <rect x="1.5" y="2.5" width="13" height="11" rx="1"/>
+                        <path d="M1.5 6h13M6 2.5v11"/>
+                        <rect x="9.2" y="8.6" width="5.2" height="5.2" rx="0.6" fill="#fff" stroke="currentColor" stroke-width="1.2"/>
+                    </svg>
+                </button>
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -1554,6 +1836,160 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             </aside>
         </div>
     </div>
+
+@if ($showColumnPicker)
+    <style>
+        .shf-backdrop { z-index: 90 !important; }
+        .shf-modal {
+            max-width: 34rem;
+            width: min(34rem, 96vw);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .shf-body {
+            padding: .85rem .9rem .7rem;
+            background: #fff;
+        }
+        .shf-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: .55rem .65rem;
+            align-items: stretch;
+        }
+        .shf-col-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0 0 .35rem;
+        }
+        .shf-list {
+            min-height: 16rem;
+            max-height: 20rem;
+            overflow: auto;
+            border: 1px solid #64748b;
+            background: #fff;
+            font-size: 13px;
+            font-family: Tahoma, "Segoe UI", sans-serif;
+        }
+        .shf-list-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border: 0;
+            border-bottom: 1px solid #e2e8f0;
+            background: transparent;
+            padding: .28rem .5rem;
+            cursor: pointer;
+            color: #0f172a;
+        }
+        .shf-list-item:hover { background: #e8f0fe; }
+        .shf-list-item.is-selected {
+            background: #316ac5;
+            color: #fff;
+        }
+        .shf-list-empty {
+            padding: .75rem .5rem;
+            color: #94a3b8;
+            font-style: italic;
+            font-size: 12px;
+        }
+        .shf-arrows {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: .35rem;
+            padding-top: 1.35rem;
+        }
+        .shf-arrow {
+            width: 2rem;
+            height: 1.85rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #94a3b8;
+            border-radius: 3px;
+            background: linear-gradient(180deg, #fff, #e8eef7);
+            color: #1e293b;
+            cursor: pointer;
+            padding: 0;
+        }
+        .shf-arrow:hover { background: #dbeafe; }
+        .shf-arrow:disabled { opacity: .4; cursor: not-allowed; }
+        .shf-foot {
+            display: flex;
+            justify-content: flex-end;
+            gap: .5rem;
+            padding: .65rem .9rem;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+    </style>
+    <div class="desk-modal-backdrop shf-backdrop" wire:click.self="closeColumnPicker" role="dialog" aria-modal="true" aria-labelledby="item-fields-title">
+        <div class="desk-modal shf-modal" wire:keydown.escape.window="closeColumnPicker">
+            <div class="desk-modal-head">
+                <span id="item-fields-title">Show/Hide Fields</span>
+                <button type="button" wire:click="closeColumnPicker" class="desk-modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="shf-body">
+                <div class="shf-grid">
+                    <div>
+                        <p class="shf-col-title">Available Fields</p>
+                        <div class="shf-list" role="listbox" aria-label="Available Fields">
+                            @forelse ($availableColumnKeys as $key)
+                                <button
+                                    type="button"
+                                    role="option"
+                                    wire:click="selectAvailableField('{{ $key }}')"
+                                    wire:dblclick="showField('{{ $key }}')"
+                                    @class(['shf-list-item', 'is-selected' => $fieldsAvailableSelected === $key])
+                                    aria-selected="{{ $fieldsAvailableSelected === $key ? 'true' : 'false' }}"
+                                >{{ $itemColumnCatalog[$key]['label'] }}</button>
+                            @empty
+                                <div class="shf-list-empty">All fields are shown.</div>
+                            @endforelse
+                        </div>
+                    </div>
+                    <div class="shf-arrows">
+                        <button type="button" class="shf-arrow" wire:click="showSelectedField" title="Show field" aria-label="Show field" @disabled(! $fieldsAvailableSelected)>
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l6 5-6 5"/></svg>
+                        </button>
+                        <button type="button" class="shf-arrow" wire:click="hideSelectedField" title="Hide field" aria-label="Hide field" @disabled(! $fieldsVisibleSelected)>
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 3L5 8l6 5"/></svg>
+                        </button>
+                        <button type="button" class="shf-arrow" wire:click="moveVisibleFieldUp" title="Move up" aria-label="Move up" @disabled(! $fieldsVisibleSelected)>
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l5-6 5 6"/></svg>
+                        </button>
+                        <button type="button" class="shf-arrow" wire:click="moveVisibleFieldDown" title="Move down" aria-label="Move down" @disabled(! $fieldsVisibleSelected)>
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 5l5 6 5-6"/></svg>
+                        </button>
+                    </div>
+                    <div>
+                        <p class="shf-col-title">Show these fields in this order</p>
+                        <div class="shf-list" role="listbox" aria-label="Shown fields">
+                            @foreach ($draftVisibleColumns as $key)
+                                @if (isset($itemColumnCatalog[$key]))
+                                    <button
+                                        type="button"
+                                        role="option"
+                                        wire:click="selectVisibleField('{{ $key }}')"
+                                        wire:dblclick="hideField('{{ $key }}')"
+                                        @class(['shf-list-item', 'is-selected' => $fieldsVisibleSelected === $key])
+                                        aria-selected="{{ $fieldsVisibleSelected === $key ? 'true' : 'false' }}"
+                                    >{{ $itemColumnCatalog[$key]['label'] }}</button>
+                                @endif
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="shf-foot">
+                <button type="button" class="desk-btn desk-btn-primary" wire:click="applyColumnPicker">OK</button>
+                <button type="button" class="desk-btn" wire:click="closeColumnPicker">Cancel</button>
+            </div>
+        </div>
+    </div>
+@endif
 
 @if ($showItemQuery)
     <style>

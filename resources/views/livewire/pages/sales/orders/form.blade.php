@@ -166,6 +166,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $lineWarning = '';
 
+    public string $lineWarningKind = 'error';
+
     public string $orderLockMessage = '';
 
     public bool $showSubstitutePrompt = false;
@@ -629,7 +631,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncLineContextHeader($i);
         $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
         if ($itemId <= 0) {
-            $this->lineWarning = 'Select a line with an item first.';
+            $this->notifyAlert('Select a line with an item first.', 'warning');
 
             return;
         }
@@ -640,7 +642,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ->find($itemId);
 
         if (! $item) {
-            $this->lineWarning = 'Item not found.';
+            $this->notifyAlert('Item not found.', 'error');
 
             return;
         }
@@ -685,7 +687,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->fillLineFromItem($i, $item);
         $this->syncLineContextHeader($i);
-        $this->lineWarning = 'Line replaced with substitute '.$item->item_code.'.';
+        $this->notifyAlert('Line replaced with substitute '.$item->item_code.'.', 'success');
     }
 
     public function openLineMessage(?int $index = null): void
@@ -695,7 +697,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
         if (! filled($this->lines[$i]['item_code'] ?? null)) {
-            $this->lineWarning = 'Select a line with an item first.';
+            $this->notifyAlert('Select a line with an item first.', 'warning');
 
             return;
         }
@@ -857,13 +859,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $itemId = (int) ($this->lines[$i]['item_id'] ?? 0);
         if ($itemId <= 0) {
-            $this->lineWarning = 'No item linked on this line.';
+            $this->notifyAlert('No item linked on this line.', 'warning');
 
             return;
         }
         $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
         if (! $item) {
-            $this->lineWarning = 'Item not found.';
+            $this->notifyAlert('Item not found.', 'error');
 
             return;
         }
@@ -980,6 +982,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalDiscounts' => $filledLines->sum(fn ($l) => (float) $l['discount']),
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
+            'canChangePrice' => $this->userCanChangeOrderPrice(),
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'oversellingOn' => StockPolicy::allowsNegativeStock(),
             'favorites' => [
@@ -999,9 +1002,43 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function updatedBrowseSearch(): void
     {
-        if ($this->showBrowse) {
-            $this->resetBrowseAndLoadFirstPage();
+        if (! $this->showBrowse) {
+            return;
         }
+
+        if ($this->autoAddBrowseIfExactMatch()) {
+            return;
+        }
+
+        $this->resetBrowseAndLoadFirstPage();
+    }
+
+    /**
+     * When the browse search box is a complete unique item/UPC code, add that item to the cart.
+     */
+    protected function autoAddBrowseIfExactMatch(): bool
+    {
+        if ($this->viewMode) {
+            return false;
+        }
+
+        $code = trim($this->browseSearch);
+        if ($code === '' || mb_strlen($code) < 2) {
+            return false;
+        }
+
+        $item = $this->findItem($code);
+        if (! $item || $this->codeIsPrefixOfLongerItemCode($code)) {
+            return false;
+        }
+
+        $this->browseSearch = '';
+        $this->lineWarning = '';
+        $this->pickBrowseItem((int) $item->id);
+        $this->resetBrowseAndLoadFirstPage();
+        $this->focusBrowseSearch();
+
+        return true;
     }
 
     public function updatedBrowseNewOnly(): void
@@ -1146,16 +1183,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function insertBrowseSelected(): void
     {
         if (! $this->browseHasSingleSelection()) {
-            $this->lineWarning = count($this->browseCheckedIds) > 1
-                ? 'Multiple items checked — use Insert All Checked, or uncheck to a single item.'
-                : 'Select one item first.';
+            $this->notifyAlert(
+                count($this->browseCheckedIds) > 1
+                    ? 'Multiple items checked — use Insert All Checked, or uncheck to a single item.'
+                    : 'Select one item first.',
+                'warning'
+            );
 
             return;
         }
 
         $id = $this->resolveBrowseTargetId();
         if ($id === null) {
-            $this->lineWarning = 'Select an item first.';
+            $this->notifyAlert('Select an item first.', 'warning');
 
             return;
         }
@@ -1196,7 +1236,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
         }
 
-        $this->showBrowse = false;
         $this->itemEntry = '';
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
@@ -1208,20 +1247,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         if ($added === 0) {
-            $this->lineWarning = 'No checked items could be added to this order.';
+            $this->notifyAlert('No checked items could be added to this order.', 'error');
 
             return;
         }
 
         if ($deferredSubstitute !== null) {
-            $this->lineWarning = $added.' item(s) added. Some out-of-stock items were skipped (need substitute).';
+            $this->notifyAlert($added.' item(s) added. Some out-of-stock items were skipped (need substitute).', 'warning');
         }
     }
 
     public function openBrowseNewItem(): void
     {
         if (! Route::has('inventory.items.create')) {
-            $this->lineWarning = 'Item create screen is not available.';
+            $this->notifyAlert('Item create screen is not available.', 'error');
 
             return;
         }
@@ -1231,27 +1270,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function openBrowseEditSelected(): void
     {
         if (! $this->browseHasSingleSelection()) {
-            $this->lineWarning = count($this->browseCheckedIds) > 1
-                ? 'Select only one item to edit.'
-                : 'Select an item to edit.';
+            $this->notifyAlert(
+                count($this->browseCheckedIds) > 1
+                    ? 'Select only one item to edit.'
+                    : 'Select an item to edit.',
+                'warning'
+            );
 
             return;
         }
 
         $id = $this->resolveBrowseTargetId();
         if ($id === null) {
-            $this->lineWarning = 'Select an item to edit.';
+            $this->notifyAlert('Select an item to edit.', 'warning');
 
             return;
         }
         $item = Item::query()->where('company_id', auth()->user()->company_id)->find($id);
         if (! $item) {
-            $this->lineWarning = 'Item not found.';
+            $this->notifyAlert('Item not found.', 'error');
 
             return;
         }
         if (! Route::has('inventory.items.edit')) {
-            $this->lineWarning = 'Item edit screen is not available.';
+            $this->notifyAlert('Item edit screen is not available.', 'error');
 
             return;
         }
@@ -1302,9 +1344,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showShipBrowse = false;
         if ($this->showBrowse) {
             $this->browseSearch = trim($this->itemEntry);
-            if ($this->activeTab === 'expand') {
-                $this->activeTab = 'items';
-            }
+            $this->activeTab = 'items';
             $this->resetBrowseAndLoadFirstPage();
         } else {
             $this->clearBrowseState();
@@ -1323,9 +1363,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showBrowse = true;
         $this->showCustomerBrowse = false;
         $this->showShipBrowse = false;
-        if ($this->activeTab === 'expand') {
-            $this->activeTab = 'items';
-        }
+        $this->activeTab = 'items';
         $this->resetBrowseAndLoadFirstPage();
     }
 
@@ -1333,6 +1371,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->showBrowse = false;
         $this->clearBrowseState();
+    }
+
+    protected function notifyAlert(string $message, string $kind = 'error'): void
+    {
+        $this->lineWarning = $message;
+        $this->lineWarningKind = $kind;
+        $this->playPosSound($kind);
+    }
+
+    protected function playPosSound(string $kind = 'error'): void
+    {
+        $this->dispatch('pos-alert', kind: $kind);
+        $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 
     public function loadMoreBrowseItems(): void
@@ -1473,6 +1524,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
+        $this->notifyAlert('Product "'.$resolved.'" is not available.', 'error');
         $this->resetBrowseAndLoadFirstPage();
         $this->focusBrowseSearch(true);
     }
@@ -1508,24 +1560,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ->where('company_id', auth()->user()->company_id)
                 ->find($this->customer_id);
             if (! $customer) {
-                $this->lineWarning = 'Customer not found.';
+                $this->notifyAlert('Customer not found.', 'error');
 
                 return;
             }
             $customer->is_favorite = ! (bool) $customer->is_favorite;
             $customer->save();
-            $this->lineWarning = $customer->is_favorite
-                ? $customer->customer_id.' added to favorites.'
-                : $customer->customer_id.' removed from favorites.';
+            $this->notifyAlert(
+                $customer->is_favorite
+                    ? $customer->customer_id.' added to favorites.'
+                    : $customer->customer_id.' removed from favorites.',
+                'success'
+            );
 
             return;
         }
 
         // No customer selected: toggle favorites-only filter on the dropdown/browse list.
         $this->customerFavoritesOnly = ! $this->customerFavoritesOnly;
-        $this->lineWarning = $this->customerFavoritesOnly
-            ? 'Showing favorite customers only. Click the star again to show all.'
-            : 'Showing all customers.';
+        $this->notifyAlert(
+            $this->customerFavoritesOnly
+                ? 'Showing favorite customers only. Click the star again to show all.'
+                : 'Showing all customers.',
+            'info'
+        );
     }
 
     public function toggleBrowseCustomerFavorite(int $customerId): void
@@ -1583,6 +1641,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 .(filled($customer->company_name) ? ' — '.$customer->company_name : '')
             );
             $this->showCustomerConfirmModal = true;
+            $this->playPosSound('warning');
         }
 
         $this->applySelectedCustomer($customer);
@@ -1774,10 +1833,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         if (is_string($key) && preg_match('/^(\d+)\.price$/', $key, $m)) {
             $i = (int) $m[1];
-            if (isset($this->lines[$i])) {
-                $this->lines[$i]['price'] = $this->formatMoney($this->lines[$i]['price'] ?? '');
+            if (! $this->userCanChangeOrderPrice()) {
+                $this->restoreLineSystemPrice($i);
+            } else {
+                if (isset($this->lines[$i])) {
+                    $this->lines[$i]['price'] = $this->formatMoney($this->lines[$i]['price'] ?? '');
+                }
+                $this->considerPriceChange($i);
             }
-            $this->considerPriceChange($i);
         }
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -1794,6 +1857,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
         if (! in_array($field, ['qty_ordered', 'price', 'unit_discount'], true)) {
+            return;
+        }
+        if ($field === 'price' && ! $this->userCanChangeOrderPrice()) {
             return;
         }
         if (! in_array($field, ['price'], true) && ! filled($this->lines[$index]['item_code'] ?? null)) {
@@ -1827,12 +1893,35 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->suggestTax();
     }
 
+    /** Admin always can; other users only when Change Order Price (edit) is granted to them. */
+    protected function userCanChangeOrderPrice(): bool
+    {
+        return auth()->user()?->canAccessFeature('sales.price_override', 'edit') ?? false;
+    }
+
+    protected function restoreLineSystemPrice(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+
+        $restore = $this->lines[$index]['system_price'] ?? '';
+        $this->lines[$index]['price'] = $restore !== ''
+            ? $this->formatMoney($restore)
+            : $this->formatMoney($this->lines[$index]['price'] ?? '');
+    }
+
     /**
      * After unit price changes: check allowed limit first, then optional memorize dialog.
      */
     public function considerPriceChange(int $index): void
     {
         if ($this->viewMode || $this->suppressPriceNotice) {
+            return;
+        }
+        if (! $this->userCanChangeOrderPrice()) {
+            $this->restoreLineSystemPrice($index);
+
             return;
         }
         if ($this->showMemorizePriceModal || $this->showPriceBelowLimitModal) {
@@ -1873,6 +1962,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $floor = $this->itemAllowedPriceFloor((int) $this->lines[$index]['item_id']);
         if ($floor > 0 && $newPrice + 0.0001 < $floor) {
             $this->showPriceBelowLimitModal = true;
+            $this->playPosSound('warning');
 
             return;
         }
@@ -1926,6 +2016,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->memorizeLineIndex = $index;
         $this->memorizePriceValue = $this->formatMoney($newPrice);
         $this->showMemorizePriceModal = true;
+        $this->playPosSound('warning');
     }
 
     public function confirmPriceBelowLimit(): void
@@ -1933,6 +2024,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $index = $this->priceBelowLimitLineIndex ?? $this->memorizeLineIndex;
         $this->showPriceBelowLimitModal = false;
         $this->priceBelowLimitLineIndex = null;
+
+        if (! $this->userCanChangeOrderPrice()) {
+            if ($index !== null) {
+                $this->restoreLineSystemPrice($index);
+            }
+
+            return;
+        }
 
         if ($index === null || ! isset($this->lines[$index])) {
             return;
@@ -1964,6 +2063,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function confirmMemorizePrice(): void
     {
         $index = $this->memorizeLineIndex;
+        if (! $this->userCanChangeOrderPrice()) {
+            $this->rejectMemorizePrice(false);
+            if ($index !== null) {
+                $this->restoreLineSystemPrice($index);
+            }
+
+            return;
+        }
         if ($index === null || ! isset($this->lines[$index]) || ! $this->customer_id) {
             $this->rejectMemorizePrice(false);
 
@@ -2292,7 +2399,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $item = $this->findItem($code);
         if (! $item) {
-            $this->lineWarning = 'Item "'.$code.'" was not found.';
+            $this->notifyAlert('Item "'.$code.'" was not found.', 'error');
 
             return;
         }
@@ -2321,18 +2428,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
-            $this->lineWarning = $item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.';
+            $this->notifyAlert($item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.', 'success');
 
             return;
         }
 
         $this->fillLineFromItem($index, $item);
+        $this->playPosSound('success');
     }
 
     public function printInvoiceStyle(): void
     {
         if (! $this->salesOrder?->exists) {
-            $this->lineWarning = 'Save the sales order first, then print.';
+            $this->notifyAlert('Save the sales order first, then print.', 'warning');
 
             return;
         }
@@ -2344,7 +2452,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function printPickList(): void
     {
         if (! $this->salesOrder?->exists) {
-            $this->lineWarning = 'Save the sales order first, then print pick list.';
+            $this->notifyAlert('Save the sales order first, then print pick list.', 'warning');
 
             return;
         }
@@ -2373,7 +2481,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $item = $this->findItem($code);
         if ($item) {
             $this->itemEntry = '';
-            $this->showBrowse = false;
             $this->lineWarning = '';
             $this->queueItemOrPromptSubstitute($item);
             // Stay ready for continuous gun scans.
@@ -2384,7 +2491,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->scanModeActive = false;
-        $this->lineWarning = '';
+        $this->notifyAlert('Product "'.$code.'" is not available.', 'error');
         $this->openBrowseForSearch($code);
     }
 
@@ -2416,7 +2523,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         // Full unique match — add line.
         $this->itemEntry = '';
-        $this->showBrowse = false;
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
         $this->scanModeActive = true;
@@ -2526,7 +2632,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $item) {
             return;
         }
-        $this->showBrowse = false;
         $this->itemEntry = '';
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
@@ -2599,13 +2704,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         if (StockPolicy::allowsOversell(null, $item)) {
-            $this->lineWarning = $item->item_code
-                .' has no stock on hand — order will go negative on invoice (overselling is ON).';
+            $this->notifyAlert(
+                $item->item_code.' has no stock on hand — order will go negative on invoice (overselling is ON).',
+                'warning'
+            );
 
             return true;
         }
 
-        $this->lineWarning = $item->item_code.' has no stock available and cannot be added to this order.';
+        $this->notifyAlert($item->item_code.' has no stock available and cannot be added to this order.', 'error');
 
         return false;
     }
@@ -2631,7 +2738,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         } else {
             $this->appendItemLine($item);
         }
-        $this->lineWarning = 'Used force substitute '.$item->item_code.' (original out of stock).';
+        $this->notifyAlert('Used force substitute '.$item->item_code.' (original out of stock).', 'warning');
     }
 
     public function keepOriginalItem(): void
@@ -2654,7 +2761,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
         $code = $item?->item_code ?? 'Item';
-        $this->lineWarning = $code.' has no stock available and cannot be added to this order.';
+        $this->notifyAlert($code.' has no stock available and cannot be added to this order.', 'error');
     }
 
     public function cancelSubstitutePrompt(): void
@@ -2683,12 +2790,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
+            $this->notifyAlert($item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.', 'success');
 
             return;
         }
 
         $this->lines[] = $this->emptyLine();
         $this->fillLineFromItem(count($this->lines) - 1, $item);
+        $this->playPosSound('success');
     }
 
     protected function findLineIndexForItem(int $itemId): ?int
@@ -2868,6 +2977,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->lineWarning = '';
 
+        if (! $this->userCanChangeOrderPrice()) {
+            foreach ($this->lines as $i => $line) {
+                $this->restoreLineSystemPrice($i);
+            }
+        }
+
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
         $decimal = static fn ($v): float => ($v === null || $v === '') ? 0.0 : (float) $v;
         $subtotal = collect($this->lines)->sum(fn ($l) => filled($l['item_code'] ?? null)
@@ -3037,9 +3152,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->optPrintSalesOrder = false;
         $this->optCreatePrintInvoice = false;
         $this->optPrintPickList = false;
-        $this->lineWarning = $isNewOrder
-            ? 'Order created. Choose print options, then OK.'
-            : 'Order saved. Choose print options, then OK.';
+        $this->notifyAlert(
+            $isNewOrder
+                ? 'Order created. Choose print options, then OK.'
+                : 'Order saved. Choose print options, then OK.',
+            'success'
+        );
     }
 
     public function confirmPrintDialog(): void
@@ -3070,7 +3188,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $invoice = $this->createInvoiceForOrder($order);
                 $order = $order->fresh(['lines', 'customer', 'invoice']);
             } catch (\Throwable $e) {
-                $this->lineWarning = 'Could not create invoice: '.$e->getMessage();
+                $this->notifyAlert('Could not create invoice: '.$e->getMessage(), 'error');
                 $this->showPrintDialog = false;
 
                 return;
@@ -3208,8 +3326,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             </div>
         @endif
         @if (filled($lineWarning))
-            <div class="so-msg so-msg-info" role="status">
-                <strong>Note:</strong> {{ $lineWarning }}
+            <div
+                class="so-msg {{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'so-msg-danger' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'so-msg-info' : 'so-msg-alert') }}"
+                role="alert"
+            >
+                <strong>{{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'Alert' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'Note' : 'Warning') }}:</strong>
+                {{ $lineWarning }}
             </div>
         @endif
 
@@ -3488,7 +3610,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
             </div>
             @elseif ($activeTab === 'items')
-                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
+                <div class="so-expand-panel{{ $showBrowse ? ' so-expand-with-browse' : '' }}" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
                     x-data="{
                         ctxOpen: false,
                         ctxX: 0,
@@ -3507,6 +3629,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     @click="closeCtx()"
                     @keydown.escape.window="closeCtx()"
                 >
+                <div class="so-expand-main">
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
@@ -3588,7 +3711,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             @endif
                                         </td>
                                         <td class="col-num">
-                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled)
+                                            @if ($selectedLineIndex === $i && ! $viewMode && $filled && $canChangePrice)
                                                 <input
                                                     type="text"
                                                     inputmode="decimal"
@@ -3603,7 +3726,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                     aria-label="Line price"
                                                 />
                                             @else
-                                                {{ $filled && (float) ($line['price'] ?? 0) != 0.0 ? number_format((float) $line['price'], 2) : '' }}
+                                                <span @if ($filled && ! $viewMode && ! $canChangePrice) title="Price is locked. An administrator can enable Change Order Price for your user." @endif>
+                                                    {{ $filled && (float) ($line['price'] ?? 0) != 0.0 ? number_format((float) $line['price'], 2) : '' }}
+                                                </span>
                                             @endif
                                         </td>
                                         <td class="col-num">
@@ -3672,7 +3797,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 class="so-input so-entry-input"
                                 id="so-item-entry"
                                 name="so_item_entry"
-                                placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan or type full code then ✓' }}"
+                                placeholder="Scan or type full code — adds when it matches"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)
@@ -3683,10 +3808,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     // Wait for FULL code (e.g. 2593a). Resets on every key — never add on '25' mid-type.
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        const scanOn = !!$wire.scanModeActive;
-                                        if (!scanOn && !this.rapid) {
-                                            return;
-                                        }
                                         // Human typing needs longer pause so 25…2593a finishes first.
                                         // Barcode gun: short pause after last char.
                                         const delay = this.rapid ? 100 : 750;
@@ -3841,6 +3962,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>
                 </div>
+                </div>{{-- /.so-expand-main --}}
+                @include('livewire.pages.sales.orders.partials.item-browse-panel')
                 </div>
             @elseif ($activeTab === 'shipping')
                 <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
@@ -3970,9 +4093,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     @if ($showPriceBelowLimitModal)
         <div
-            class="desk-modal-backdrop desk-modal-top"
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
             wire:click.self="rejectPriceBelowLimit"
-            role="dialog"
+            role="alertdialog"
             aria-modal="true"
             aria-labelledby="price-below-limit-title"
         >
@@ -4002,9 +4125,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     @if ($showMemorizePriceModal)
         <div
-            class="desk-modal-backdrop desk-modal-top"
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
             wire:click.self="rejectMemorizePrice"
-            role="dialog"
+            role="alertdialog"
             aria-modal="true"
             aria-labelledby="memorize-price-title"
         >
@@ -4034,9 +4157,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     @if ($showCustomerConfirmModal)
         <div
-            class="desk-modal-backdrop desk-modal-top"
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
             wire:click.self="rejectCustomerSelection"
-            role="dialog"
+            role="alertdialog"
             aria-modal="true"
             aria-labelledby="customer-confirm-title"
         >
@@ -4139,711 +4262,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <span wire:loading.remove wire:target="saveShipToAddress">Save ship-to</span>
                             <span wire:loading wire:target="saveShipToAddress">Saving…</span>
                         </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    @endif
-
-    @if ($showBrowse)
-        {{-- Layout only: keep normal desk-modal colors --}}
-        <style>
-            .so-item-browse-backdrop { z-index: 80 !important; }
-            .so-item-browse-modal {
-                max-width: min(72rem, 98vw) !important;
-                width: min(72rem, 98vw);
-                height: min(48rem, 92vh) !important;
-                display: flex !important;
-                flex-direction: column !important;
-            }
-            .so-item-browse-modal .desk-modal-head {
-                display: flex !important;
-                align-items: center !important;
-                justify-content: flex-start !important;
-                gap: .5rem !important;
-            }
-            .so-browse-head-count {
-                margin-left: auto;
-                margin-right: .35rem;
-                font-size: 12px;
-                font-weight: 600;
-                color: #fff;
-                white-space: nowrap;
-            }
-            .so-item-browse-toolbar {
-                display: flex;
-                align-items: center;
-                gap: .65rem;
-                padding: .45rem .75rem;
-                background: #f8fafc;
-                border-bottom: 1px solid #e2e8f0;
-                flex-shrink: 0;
-            }
-            .so-browse-action {
-                position: relative;
-            }
-            .so-browse-action-btn {
-                display: inline-flex;
-                align-items: center;
-                gap: .3rem;
-                height: 1.85rem;
-                padding: 0 .55rem;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                background: #fff;
-                color: #0f172a;
-                font-size: 12px;
-                font-weight: 600;
-                cursor: pointer;
-            }
-            .so-browse-action-btn:hover { background: #f1f5f9; }
-            .so-browse-action-menu {
-                position: absolute;
-                top: calc(100% + 0.25rem);
-                left: 0;
-                z-index: 20;
-                min-width: 15.5rem;
-                padding: .25rem 0;
-                background: #fff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
-            }
-            .so-browse-action-item {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: .75rem;
-                width: 100%;
-                text-align: left;
-                border: 0;
-                background: transparent;
-                color: #0f172a;
-                font-size: 12px;
-                padding: .4rem .7rem;
-                cursor: pointer;
-            }
-            .so-browse-action-item:hover { background: #f1f5f9; }
-            .so-browse-action-item .kbd {
-                color: #94a3b8;
-                font-size: 11px;
-                white-space: nowrap;
-            }
-            .so-browse-action-sep {
-                height: 1px;
-                background: #e2e8f0;
-                margin: .2rem 0;
-            }
-            .so-item-browse-table th.is-check,
-            .so-item-browse-table td.is-check {
-                width: 2.1rem;
-                text-align: center;
-                padding-left: .35rem;
-                padding-right: .35rem;
-            }
-            .so-item-browse-table tr.is-focused {
-                background: #eff6ff;
-            }
-            .so-item-browse-table tr.is-focused:hover {
-                background: #dbeafe;
-            }
-            .so-item-browse-table tr.is-checked {
-                background: #f0fdf4;
-            }
-            .so-item-browse-table tr.is-checked.is-focused {
-                background: #dbeafe;
-            }
-            .so-item-browse-table td.is-check input[type="checkbox"] {
-                width: 1rem;
-                height: 1rem;
-                cursor: pointer;
-                accent-color: #2b5797;
-            }
-            .so-item-browse-check {
-                display: inline-flex;
-                align-items: center;
-                gap: .35rem;
-                font-size: 12px;
-                color: #334155;
-            }
-            .so-item-browse-body {
-                display: flex !important;
-                flex: 1 1 auto !important;
-                min-height: 0 !important;
-                background: #fff;
-            }
-            .so-item-browse-scroll {
-                flex: 1 1 auto !important;
-                min-width: 0 !important;
-                min-height: 0 !important;
-                overflow: auto !important;
-                background: #fff;
-            }
-            .so-browse-filter-panel {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-shrink: 0 !important;
-                border-left: 1px solid #e2e8f0 !important;
-                background: #fff !important;
-                min-height: 0 !important;
-            }
-            .so-browse-lists-stack {
-                display: flex !important;
-                flex-direction: column !important;
-                width: 14rem !important;
-                min-width: 14rem !important;
-                min-height: 0 !important;
-                flex: 1 1 auto !important;
-            }
-            .so-browse-listbox {
-                display: flex !important;
-                flex-direction: column !important;
-                flex: 1 1 50% !important;
-                min-height: 0 !important;
-                border-bottom: 1px solid #e2e8f0;
-            }
-            .so-browse-listbox:last-child { border-bottom: 0; }
-            .so-browse-listbox-caption {
-                padding: .4rem .55rem;
-                font-size: 11px;
-                font-weight: 700;
-                color: #334155;
-                background: #f8fafc;
-                border-bottom: 1px solid #e2e8f0;
-                text-transform: uppercase;
-                letter-spacing: .02em;
-            }
-            .so-browse-listbox-body {
-                flex: 1 1 auto !important;
-                min-height: 0 !important;
-                overflow-y: auto !important;
-                background: #fff !important;
-            }
-            .so-browse-list-item {
-                display: block !important;
-                width: 100% !important;
-                text-align: left !important;
-                border: 0 !important;
-                border-radius: 0 !important;
-                background: transparent !important;
-                color: #0f172a !important;
-                font-size: 12px !important;
-                font-weight: 500 !important;
-                padding: .32rem .55rem !important;
-                cursor: pointer !important;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                border-bottom: 1px solid #f1f5f9 !important;
-            }
-            .so-browse-list-item:hover { background: #f1f5f9 !important; }
-            .so-browse-list-item.is-selected {
-                background: #eff6ff !important;
-                color: #1e40af !important;
-                font-weight: 700 !important;
-                box-shadow: inset 3px 0 0 #2b5797;
-            }
-            .so-browse-list-empty {
-                font-size: 12px;
-                color: #94a3b8;
-                padding: .65rem .55rem;
-            }
-            .so-browse-side-tools {
-                display: flex;
-                flex-direction: column;
-                gap: .3rem;
-                padding: .4rem .3rem;
-                border-left: 1px solid #e2e8f0;
-                background: #f8fafc;
-                flex-shrink: 0;
-            }
-            .so-browse-tool-btn {
-                width: 1.75rem;
-                height: 1.75rem;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                background: #fff;
-                color: #334155;
-                padding: 0;
-                cursor: pointer;
-            }
-            .so-browse-tool-btn:hover {
-                background: #f1f5f9;
-                border-color: #94a3b8;
-            }
-            .so-browse-tool-btn:disabled,
-            .so-browse-tool-btn.is-disabled {
-                opacity: .38;
-                cursor: not-allowed;
-                pointer-events: none;
-            }
-            .so-browse-action-item:disabled {
-                opacity: .42;
-                cursor: not-allowed;
-                color: #94a3b8;
-            }
-            .so-browse-action-item:disabled:hover {
-                background: transparent;
-            }
-            .so-browse-tool-btn.is-primary {
-                width: 2rem;
-                height: 2rem;
-                border: 2px solid #1d4ed8;
-                background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
-                color: #fff;
-                box-shadow: 0 0 0 2px rgba(37, 99, 235, .22), 0 2px 6px rgba(37, 99, 235, .35);
-            }
-            .so-browse-tool-btn.is-primary:hover:not(:disabled) {
-                background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
-                border-color: #1e40af;
-                color: #fff;
-                box-shadow: 0 0 0 3px rgba(37, 99, 235, .28), 0 3px 8px rgba(37, 99, 235, .4);
-            }
-            .so-browse-tool-btn.is-primary:disabled,
-            .so-browse-tool-btn.is-primary.is-disabled {
-                opacity: .45;
-                border-color: #93c5fd;
-                background: #bfdbfe;
-                color: #fff;
-                box-shadow: none;
-            }
-            .so-browse-tool-btn.is-primary svg {
-                stroke-width: 2.2;
-            }
-            .so-item-browse-table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 13px;
-            }
-            .so-item-browse-table thead th {
-                position: sticky;
-                top: 0;
-                z-index: 2;
-                background: #f1f5f9;
-                border-bottom: 1px solid #e2e8f0;
-                padding: .45rem .55rem;
-                font-size: 12px;
-                font-weight: 700;
-                color: #334155;
-                text-align: left;
-                white-space: nowrap;
-            }
-            .so-item-browse-table thead th.is-num,
-            .so-item-browse-table td.is-num { text-align: right; }
-            .so-item-browse-table td {
-                padding: .35rem .55rem;
-                border-bottom: 1px solid #f1f5f9;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                color: #0f172a;
-            }
-            .so-item-browse-table td.col-desc-cell { white-space: normal; }
-            .so-item-browse-table tr.is-pickable { cursor: pointer; }
-            .so-item-browse-table tr.is-pickable:hover { background: #f8fafc; }
-            .so-item-browse-table tr.is-disabled { opacity: .55; cursor: not-allowed; }
-            .so-item-browse-empty {
-                text-align: center;
-                color: #64748b;
-                padding: 1.25rem !important;
-                font-size: 13px;
-            }
-            .so-item-browse-foot-chief {
-                display: flex;
-                flex-wrap: nowrap;
-                align-items: center;
-                gap: .65rem;
-                padding: .55rem .75rem;
-                background: #f8fafc;
-                border-top: 1px solid #e2e8f0;
-                flex-shrink: 0;
-            }
-            .so-item-browse-foot-search {
-                display: flex;
-                flex-wrap: nowrap;
-                align-items: center;
-                gap: 0;
-                flex: 1 1 auto;
-                min-width: 0;
-                position: relative;
-                max-width: 28rem;
-            }
-            .so-browse-search-ico {
-                position: absolute;
-                left: .55rem;
-                top: 50%;
-                transform: translateY(-50%);
-                color: #64748b;
-                flex-shrink: 0;
-                pointer-events: none;
-                z-index: 1;
-                width: 14px;
-                height: 14px;
-            }
-            .so-item-browse-search-bottom {
-                width: 100%;
-                max-width: 28rem;
-                height: 2.1rem !important;
-                padding-left: 2rem !important;
-                margin: 0 !important;
-                box-sizing: border-box;
-            }
-            .so-item-browse-foot-actions {
-                margin-left: auto;
-                display: flex;
-                flex-wrap: nowrap;
-                gap: .5rem;
-                align-items: center;
-                flex-shrink: 0;
-            }
-            .so-item-browse-foot-actions .desk-btn {
-                height: 2.1rem;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-            }
-            @media (max-width: 800px) {
-                .so-item-browse-body { flex-direction: column; }
-                .so-browse-filter-panel {
-                    width: 100% !important;
-                    max-height: 12rem;
-                    border-left: 0 !important;
-                    border-top: 1px solid #e2e8f0 !important;
-                }
-                .so-browse-lists-stack { width: 100% !important; min-width: 0 !important; }
-                .so-browse-side-tools { flex-direction: row; border-left: 0; border-top: 1px solid #e2e8f0; }
-            }
-        </style>
-        <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeBrowse" role="dialog" aria-modal="true" aria-labelledby="item-browse-title">
-            <div class="desk-modal desk-modal-lg so-item-browse-modal" wire:keydown.escape.window="closeBrowse">
-                <div class="desk-modal-head">
-                    <span id="item-browse-title">Browse Items</span>
-                    <span class="so-browse-head-count" wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems">
-                        Record Count: {{ number_format($browseTotal) }}
-                    </span>
-                    <button type="button" wire:click="closeBrowse" class="desk-modal-close" aria-label="Close">×</button>
-                </div>
-                <div class="so-item-browse-toolbar">
-                    @php
-                        $browseCheckedCount = collect($browseCheckedIds)->map(fn ($v) => (int) $v)->filter()->unique()->count();
-                        $browseCanSingle = $browseCheckedCount <= 1 && ($browseCheckedCount === 1 || (int) ($browseSelectedId ?? 0) > 0);
-                        $browseCanMultiInsert = $browseCheckedCount >= 1;
-                    @endphp
-                    <div class="so-browse-action" x-data="{ open: false }" @keydown.escape.window="open = false" @click.outside="open = false">
-                        <button type="button" class="so-browse-action-btn" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">
-                            Action
-                            <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 4.5L6 8l3-3.5H3z"/></svg>
-                        </button>
-                        <div class="so-browse-action-menu" x-show="open" x-cloak role="menu" @click="open = false">
-                            <button
-                                type="button"
-                                class="so-browse-action-item"
-                                role="menuitem"
-                                wire:click="insertBrowseChecked"
-                                @disabled(! $browseCanMultiInsert && ! $browseCanSingle)
-                            >
-                                <span>Insert All Checked Items</span>
-                                <span class="kbd">Ctrl+K</span>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-action-item"
-                                role="menuitem"
-                                wire:click="insertBrowseSelected"
-                                @disabled(! $browseCanSingle)
-                            >
-                                <span>Insert Selected Item</span>
-                                <span class="kbd">Ctrl+L</span>
-                            </button>
-                            <div class="so-browse-action-sep" role="separator"></div>
-                            <button type="button" class="so-browse-action-item" role="menuitem" wire:click="openBrowseNewItem">
-                                <span>Add New Item</span>
-                                <span class="kbd">Ctrl+N</span>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-action-item"
-                                role="menuitem"
-                                wire:click="openBrowseEditSelected"
-                                @disabled(! $browseCanSingle)
-                            >
-                                <span>View/Edit Selected Item</span>
-                                <span class="kbd">Ctrl+E</span>
-                            </button>
-                            <div class="so-browse-action-sep" role="separator"></div>
-                            <button type="button" class="so-browse-action-item" role="menuitem" wire:click="closeBrowse">
-                                <span>Close</span>
-                            </button>
-                        </div>
-                    </div>
-                    <label class="so-item-browse-check">
-                        <input type="checkbox" wire:model.live="browseNewOnly" />
-                        New only ({{ $itemNewDays }} days)
-                    </label>
-                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible">Loading…</span>
-                </div>
-                <div
-                    class="so-item-browse-body"
-                    wire:keydown.ctrl.k.prevent="insertBrowseChecked"
-                    wire:keydown.ctrl.l.prevent="insertBrowseSelected"
-                    wire:keydown.ctrl.n.prevent="openBrowseNewItem"
-                    wire:keydown.ctrl.e.prevent="openBrowseEditSelected"
-                    tabindex="-1"
-                >
-                    <div
-                        class="so-item-browse-scroll"
-                        tabindex="0"
-                        x-data
-                        @scroll.passthrough="
-                            const el = $event.target;
-                            if (!el || {{ $browseHasMore ? 'false' : 'true' }}) return;
-                            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
-                                $wire.loadMoreBrowseItems();
-                            }
-                        "
-                    >
-                        <table class="so-item-browse-table">
-                            <colgroup>
-                                <col style="width:2.1rem" />
-                                <col style="width:7.5rem" />
-                                <col />
-                                <col style="width:4.5rem" />
-                                <col style="width:5.75rem" />
-                                <col style="width:5.5rem" />
-                            </colgroup>
-                            <thead>
-                                <tr>
-                                    <th scope="col" class="is-check" aria-label="Check"></th>
-                                    <th scope="col">Item Code</th>
-                                    <th scope="col">Item Description</th>
-                                    <th scope="col">U of M</th>
-                                    <th scope="col" class="is-num">Available Qty</th>
-                                    <th scope="col" class="is-num">Price</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($browseRows as $bi)
-                                    @php
-                                        $avail = (float) $bi['available'];
-                                        $itemId = (int) $bi['id'];
-                                        $isChecked = collect($browseCheckedIds)->contains(fn ($v) => (int) $v === $itemId);
-                                        $isFocused = (int) $browseSelectedId === $itemId;
-                                    @endphp
-                                    <tr
-                                        wire:key="browse-item-{{ $itemId }}"
-                                        class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}{{ $isFocused ? ' is-focused' : '' }}{{ $isChecked ? ' is-checked' : '' }}"
-                                        wire:click="selectBrowseRow({{ $itemId }})"
-                                        wire:dblclick.prevent="pickBrowseItem({{ $itemId }})"
-                                        title="Click line to select · double-click to insert"
-                                    >
-                                        <td class="is-check" wire:click.stop>
-                                            <input
-                                                type="checkbox"
-                                                value="{{ $itemId }}"
-                                                wire:model.live="browseCheckedIds"
-                                                aria-label="Check item {{ $bi['item_code'] }}"
-                                            />
-                                        </td>
-                                        <td class="font-mono">{{ $bi['item_code'] }}</td>
-                                        <td class="col-desc-cell">{{ $bi['description'] }}</td>
-                                        <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
-                                        <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
-                                        <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="6" class="so-item-browse-empty">
-                                            <span wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">No items found to match selected criteria.</span>
-                                            <span wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">Loading items…</span>
-                                        </td>
-                                    </tr>
-                                @endforelse
-                                @if ($browseHasMore && count($browseRows) > 0)
-                                    <tr wire:key="browse-load-more">
-                                        <td colspan="6" class="so-item-browse-empty" style="padding:0.75rem !important;">
-                                            <button
-                                                type="button"
-                                                class="desk-btn desk-btn-sm"
-                                                wire:click="loadMoreBrowseItems"
-                                                wire:loading.attr="disabled"
-                                                wire:target="loadMoreBrowseItems"
-                                            >
-                                                <span wire:loading.remove wire:target="loadMoreBrowseItems">Load more items…</span>
-                                                <span wire:loading wire:target="loadMoreBrowseItems">Loading…</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endif
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="so-browse-filter-panel" aria-label="Category filters">
-                        <div class="so-browse-lists-stack">
-                        <div class="so-browse-listbox">
-                            <div class="so-browse-listbox-caption">Category</div>
-                            <div class="so-browse-listbox-body" role="listbox" aria-label="Categories">
-                                <button
-                                    type="button"
-                                    role="option"
-                                    aria-selected="{{ $browseCategoryId === null ? 'true' : 'false' }}"
-                                    class="so-browse-list-item{{ $browseCategoryId === null ? ' is-selected' : '' }}"
-                                    wire:click="setBrowseCategory(null)"
-                                >(All)</button>
-                                @foreach ($browseCategories as $cat)
-                                    @php
-                                        $catCode = trim((string) ($cat->code ?? ''));
-                                        $catName = trim((string) ($cat->name ?? ''));
-                                        $catLabel = $catCode !== '' && $catName !== ''
-                                            ? strtoupper($catCode).' — '.$catName
-                                            : ($catCode !== '' ? strtoupper($catCode) : $catName);
-                                    @endphp
-                                    <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected="{{ (int) $browseCategoryId === (int) $cat->id ? 'true' : 'false' }}"
-                                        class="so-browse-list-item{{ (int) $browseCategoryId === (int) $cat->id ? ' is-selected' : '' }}"
-                                        wire:click="setBrowseCategory({{ $cat->id }})"
-                                        title="{{ $catLabel }}"
-                                    >{{ $catLabel }}</button>
-                                @endforeach
-                                @if ($browseCategories->isEmpty())
-                                    <div class="so-browse-list-empty">No categories</div>
-                                @endif
-                            </div>
-                        </div>
-                        <div class="so-browse-listbox">
-                            <div class="so-browse-listbox-caption">Subcategory</div>
-                            <div class="so-browse-listbox-body" role="listbox" aria-label="Subcategories">
-                                @if (! $browseCategoryId)
-                                    <div class="so-browse-list-empty">Select a category</div>
-                                @else
-                                    <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected="{{ $browseSubcategoryId === null ? 'true' : 'false' }}"
-                                        class="so-browse-list-item{{ $browseSubcategoryId === null ? ' is-selected' : '' }}"
-                                        wire:click="setBrowseSubcategory(null)"
-                                    >(All)</button>
-                                    @forelse ($browseSubcategories as $sub)
-                                        @php
-                                            $subCode = trim((string) ($sub->code ?? ''));
-                                            $subName = trim((string) ($sub->name ?? ''));
-                                            $subLabel = $subCode !== '' && $subName !== ''
-                                                ? strtoupper($subCode).' — '.$subName
-                                                : ($subCode !== '' ? strtoupper($subCode) : $subName);
-                                        @endphp
-                                        <button
-                                            type="button"
-                                            role="option"
-                                            aria-selected="{{ (int) $browseSubcategoryId === (int) $sub->id ? 'true' : 'false' }}"
-                                            class="so-browse-list-item{{ (int) $browseSubcategoryId === (int) $sub->id ? ' is-selected' : '' }}"
-                                            wire:click="setBrowseSubcategory({{ $sub->id }})"
-                                            title="{{ $subLabel }}"
-                                        >{{ $subLabel }}</button>
-                                    @empty
-                                        <div class="so-browse-list-empty">No subcategories</div>
-                                    @endforelse
-                                @endif
-                            </div>
-                        </div>
-                        </div>
-                        <div class="so-browse-side-tools" aria-label="Browse tools">
-                            @php
-                                $sideCheckedCount = collect($browseCheckedIds)->map(fn ($v) => (int) $v)->filter()->unique()->count();
-                                $sideCanSingle = $sideCheckedCount <= 1 && ($sideCheckedCount === 1 || (int) ($browseSelectedId ?? 0) > 0);
-                                $sideCanAdd = $sideCheckedCount >= 1 || $sideCanSingle;
-                                $sideHasRows = count($browseRows) > 0;
-                            @endphp
-                            <button type="button" class="so-browse-tool-btn" title="Clear filters" aria-label="Clear filters" wire:click="clearBrowseFilters">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                                    <path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5L2 3z"/>
-                                </svg>
-                            </button>
-                            <button type="button" class="so-browse-tool-btn" title="Refresh list" aria-label="Refresh list" wire:click="refreshBrowseItems">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                    <path d="M13.5 8a5.5 5.5 0 1 1-1.4-3.6"/>
-                                    <path d="M13.5 2.5v3.2h-3.2"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn"
-                                title="Select all loaded items"
-                                aria-label="Select all loaded items"
-                                wire:click="selectAllBrowseVisible"
-                                @disabled(! $sideHasRows)
-                            >
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
-                                    <path d="M5 8l2 2 4-4" stroke-width="1.6"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn is-primary"
-                                title="Insert all checked items"
-                                aria-label="Insert all checked items"
-                                wire:click="insertBrowseChecked"
-                                @disabled(! $sideCanAdd)
-                            >
-                                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                                    <path d="M8 3v10M3 8h10"/>
-                                </svg>
-                            </button>
-                            <button type="button" class="so-browse-tool-btn" title="Add new item (always available)" aria-label="Add new item" wire:click="openBrowseNewItem">
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
-                                    <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
-                                    <path d="M12.5 9v5M10 11.5h5" stroke-width="1.5"/>
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                class="so-browse-tool-btn"
-                                title="{{ $sideCanSingle ? 'View/edit selected item' : ($sideCheckedCount > 1 ? 'Edit disabled — multiple items checked' : 'Select one item to edit') }}"
-                                aria-label="View/edit selected item"
-                                wire:click="openBrowseEditSelected"
-                                @disabled(! $sideCanSingle)
-                            >
-                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                    <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="so-item-browse-foot so-item-browse-foot-chief">
-                    <div class="so-item-browse-foot-search so-browse-scan-row">
-                        <span class="so-browse-foot-label">Search</span>
-                        <div class="so-scan-bar so-browse-scan-bar">
-                            <button
-                                type="button"
-                                wire:click="focusBrowseScan"
-                                class="so-scan-btn"
-                                title="Scan barcode — focus search or add on Enter"
-                            >
-                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                </svg>
-                                <span>Scan</span>
-                            </button>
-                            <input
-                                type="search"
-                                wire:model.live.debounce.300ms="browseSearch"
-                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
-                                class="so-input so-item-browse-search-bottom"
-                                placeholder="Scan barcode or search code / description / UPC…"
-                                aria-label="Scan or search items"
-                                id="so-browse-search"
-                                autocomplete="off"
-                            />
-                        </div>
-                    </div>
-                    <div class="so-item-browse-foot-actions">
-                        <button type="button" wire:click="closeBrowse" class="desk-btn">Close</button>
                     </div>
                 </div>
             </div>
@@ -5165,7 +4583,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         window.open(url, '_blank');
     });
 
-    // Focus search when item browse popup opens (ready for barcode gun).
+    // Focus search when item browse panel opens (ready for barcode gun).
     $wire.$watch('showBrowse', (open) => {
         if (!open) return;
         requestAnimationFrame(() => {
@@ -5175,6 +4593,45 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 el.select?.();
             }
         });
+    });
+
+    const posKindFromText = (text) => {
+        const t = String(text || '').toLowerCase();
+        if (t.indexOf('not found') !== -1 || t.indexOf('not available') !== -1 || t.indexOf('cannot') !== -1 || t.indexOf('could not') !== -1 || t.indexOf('error') !== -1) return 'error';
+        if (t.indexOf('no stock') !== -1 || t.indexOf('oversell') !== -1 || t.indexOf('skipped') !== -1 || t.indexOf('substitute') !== -1) return 'warning';
+        if (t.indexOf('added') !== -1 || t.indexOf('increased') !== -1 || t.indexOf('saved') !== -1 || t.indexOf('created') !== -1) return 'success';
+        return 'warning';
+    };
+
+    const playLineSound = (value) => {
+        if (!value) return;
+        window.playPosAlert && window.playPosAlert(posKindFromText(value));
+    };
+
+    $wire.$watch('lineWarning', (value) => playLineSound(value));
+    $wire.$watch('customerAlert', (value) => playLineSound(value));
+    $wire.$watch('creditWarning', (value) => playLineSound(value));
+    $wire.$watch('taxExemptWarning', (value) => playLineSound(value));
+    $wire.$watch('orderLockMessage', (value) => playLineSound(value));
+    $wire.$watch('showLineMessageAlert', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showSubstitutePrompt', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showMemorizePriceModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showPriceBelowLimitModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showCustomerConfirmModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+
+    $wire.on('pos-alert', (e) => {
+        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+        window.playPosAlert && window.playPosAlert(kind);
     });
 </script>
 @endscript

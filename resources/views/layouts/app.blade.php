@@ -36,7 +36,7 @@
                                 ['My Profile', 'profile'],
                                 ['Company Settings', 'admin.company-settings'],
                                 ['Overselling Settings', 'admin.overselling-settings'],
-                                ['POS AI', 'admin.japsai'],
+                                ['POS AI Settings', 'admin.japsai'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
@@ -98,7 +98,14 @@
                                     @if ($canRoute($route))
                                         <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
                                     @else
-                                        <span class="chief-menu-item-disabled" role="menuitem" aria-disabled="true" title="No permission">{{ $label }}</span>
+                                        <button
+                                            type="button"
+                                            class="chief-menu-item-disabled"
+                                            role="menuitem"
+                                            aria-disabled="true"
+                                            title="No permission"
+                                            onclick="window.posPermissionDenied && window.posPermissionDenied({{ json_encode($label) }})"
+                                        >{{ $label }}</button>
                                     @endif
                                 @endforeach
                             </div>
@@ -168,7 +175,7 @@
                     'profile' => 'My Profile',
                     'admin.company-settings' => 'Company Settings',
                     'admin.overselling-settings' => 'Overselling Settings',
-                    'admin.japsai' => 'POS AI',
+                    'admin.japsai' => 'POS AI Settings',
                 ];
                 $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
                 if (isset($documentTabs)) {
@@ -235,7 +242,7 @@
             @php
                 $posAiCompany = auth()->user()?->company;
                 $showPosAiWidget = (bool) ($posAiCompany?->japs_ai_widget_enabled ?? false)
-                    && (auth()->user()?->canAccessFeature('admin.japsai', 'view') ?? false)
+                    && (auth()->user()?->canUsePosAiChat() ?? false)
                     && request()->routeIs('admin.japsai') === false;
             @endphp
             @if ($showPosAiWidget)
@@ -244,6 +251,27 @@
                 @endpersist
             @endif
         @endauth
+        <style>
+            .pos-permission-toast {
+                position: fixed;
+                top: 3.6rem;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 220;
+                max-width: min(36rem, calc(100vw - 2rem));
+                padding: 0.7rem 1.15rem;
+                background: #fef2f2;
+                color: #991b1b;
+                border: 1px solid #fecaca;
+                border-left: 5px solid #dc2626;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 700;
+                line-height: 1.4;
+                box-shadow: 0 10px 28px rgba(15, 23, 42, 0.2);
+            }
+        </style>
+        <div id="pos-permission-toast" class="pos-permission-toast" role="alert" @if (! session('pos_permission')) hidden @endif>{{ session('pos_permission') }}</div>
         @livewireScripts
         <script>
             (function () {
@@ -281,6 +309,203 @@
 
                 tick();
                 setInterval(tick, 30000);
+            })();
+
+            (function () {
+                let audioCtx = null;
+                let lastKey = '';
+                let lastAt = 0;
+                let toastTimer = 0;
+
+                function audio() {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (! AC) return null;
+                    if (! audioCtx) audioCtx = new AC();
+                    if (audioCtx.state === 'suspended') {
+                        audioCtx.resume();
+                    }
+
+                    return audioCtx;
+                }
+
+                document.addEventListener('pointerdown', function () { audio(); });
+                document.addEventListener('keydown', function () { audio(); });
+
+                function kindFromText(text) {
+                    const t = String(text || '').toLowerCase();
+                    if (
+                        t.indexOf('permission') !== -1
+                        || t.indexOf('your role cannot') !== -1
+                        || t.indexOf('your role does not') !== -1
+                        || t.indexOf('no permission') !== -1
+                        || t.indexOf('not allowed') !== -1
+                        || t.indexOf('access denied') !== -1
+                        || t.indexOf('cannot delete') !== -1
+                        || t.indexOf('cannot enter') !== -1
+                        || t.indexOf('cannot apply') !== -1
+                        || t.indexOf('cannot save') !== -1
+                        || t.indexOf('cannot create') !== -1
+                        || t.indexOf('cannot edit') !== -1
+                        || t.indexOf('cannot assign') !== -1
+                        || t.indexOf('cannot adjust') !== -1
+                    ) {
+                        return 'error';
+                    }
+                    if (t.indexOf('not found') !== -1 || t.indexOf('not available') !== -1 || t.indexOf('could not') !== -1) return 'error';
+                    if (t.indexOf('memorize') !== -1 || t.indexOf('are you sure') !== -1 || t.indexOf('below allowed') !== -1) {
+                        return 'warning';
+                    }
+                    if (t.indexOf('saved') !== -1 || t.indexOf('created') !== -1 || t.indexOf('deleted') !== -1 || t.indexOf('added') !== -1) return 'success';
+                    return null;
+                }
+
+                window.playPosAlert = function (kind) {
+                    const nowMs = Date.now();
+                    if (nowMs - lastAt < 280) return;
+                    lastAt = nowMs;
+                    const ac = audio();
+                    if (! ac) return;
+                    const now = ac.currentTime;
+                    const beep = function (freq, start, dur, vol) {
+                        const osc = ac.createOscillator();
+                        const gain = ac.createGain();
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(freq, now + start);
+                        gain.gain.setValueAtTime(0.0001, now + start);
+                        gain.gain.exponentialRampToValueAtTime(vol || 0.22, now + start + 0.012);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+                        osc.connect(gain);
+                        gain.connect(ac.destination);
+                        osc.start(now + start);
+                        osc.stop(now + start + dur + 0.02);
+                    };
+                    kind = kind || 'error';
+                    if (kind === 'error' || kind === 'danger') {
+                        beep(980, 0, 0.16, 0.28);
+                        beep(420, 0.18, 0.28, 0.28);
+                    } else if (kind === 'warning' || kind === 'alert' || kind === 'credit') {
+                        beep(760, 0, 0.22, 0.22);
+                    } else if (kind === 'success' || kind === 'info') {
+                        beep(1320, 0, 0.08, 0.16);
+                        beep(1760, 0.09, 0.11, 0.16);
+                    } else {
+                        beep(1080, 0, 0.1, 0.16);
+                    }
+                };
+
+                function showPermissionToast(message) {
+                    const el = document.getElementById('pos-permission-toast');
+                    if (! el) return;
+                    el.textContent = message;
+                    el.hidden = false;
+                    window.clearTimeout(toastTimer);
+                    toastTimer = window.setTimeout(function () {
+                        el.hidden = true;
+                    }, 4500);
+                }
+
+                window.posPermissionDenied = function (label) {
+                    const name = String(label || '').trim();
+                    const msg = name
+                        ? 'No permission for "' + name + '". Your role cannot open this.'
+                        : 'Your role does not have permission for this action.';
+                    showPermissionToast(msg);
+                    window.playPosAlert('error');
+                };
+
+                const alertSel = '[role="alert"], [role="alertdialog"], [role="status"], .so-msg, .desk-flash, .stamp-inv-flash, .so-field-error, .so-browse-alert, .isa-err, .pos-permission-toast, .desk-chief-prompt';
+
+                function kindFromEl(el) {
+                    const fromText = kindFromText(el.textContent || '');
+                    if (fromText) return fromText;
+                    const cls = String(el.className || '');
+                    if (cls.indexOf('danger') !== -1 || cls.indexOf('err') !== -1 || cls.indexOf('alert-error') !== -1) return 'error';
+                    if (cls.indexOf('credit') !== -1 || cls.indexOf('alert-warn') !== -1 || cls.indexOf('so-msg-alert') !== -1 || cls.indexOf('chief-prompt') !== -1) return 'warning';
+                    if (el.getAttribute && el.getAttribute('role') === 'alertdialog') return 'warning';
+                    if (cls.indexOf('info') !== -1 || cls.indexOf('alert-ok') !== -1) return 'success';
+                    return 'info';
+                }
+
+                function maybePlay(el) {
+                    if (! el || el.nodeType !== 1 || ! el.matches) return;
+                    if (el.closest && el.closest('.home-chief-alert')) return;
+                    if (el.id === 'pos-permission-toast' && el.hidden) return;
+                    if (! el.matches(alertSel)) return;
+                    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (text.length < 3) return;
+                    const now = Date.now();
+                    const key = kindFromEl(el) + '|' + text;
+                    if (key === lastKey && now - lastAt < 1600) return;
+                    lastKey = key;
+                    window.playPosAlert(kindFromEl(el));
+                }
+
+                function maybePlayFromNode(n) {
+                    if (! n) return;
+                    const el = n.nodeType === 1 ? n : n.parentElement;
+                    if (! el || ! el.closest) return;
+                    maybePlay(el.closest(alertSel));
+                }
+
+                function scanAlerts() {
+                    document.querySelectorAll(alertSel).forEach(maybePlay);
+                }
+
+                const obs = new MutationObserver(function (muts) {
+                    muts.forEach(function (m) {
+                        if (m.type === 'characterData') {
+                            maybePlayFromNode(m.target);
+                            return;
+                        }
+                        m.addedNodes.forEach(function (n) {
+                            if (n.nodeType !== 1) return;
+                            maybePlay(n);
+                            if (n.querySelectorAll) {
+                                n.querySelectorAll(alertSel).forEach(maybePlay);
+                            }
+                        });
+                    });
+                });
+
+                function watch() {
+                    const root = document.getElementById('main-content') || document.body;
+                    obs.observe(root, { childList: true, subtree: true, characterData: true });
+                    scanAlerts();
+                    const toast = document.getElementById('pos-permission-toast');
+                    if (toast && ! toast.hidden && (toast.textContent || '').trim()) {
+                        window.clearTimeout(toastTimer);
+                        toastTimer = window.setTimeout(function () { toast.hidden = true; }, 4500);
+                    }
+                }
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', watch);
+                } else {
+                    watch();
+                }
+                document.addEventListener('livewire:navigated', watch);
+
+                let livewireBound = false;
+                const bindLivewire = function () {
+                    if (livewireBound || ! window.Livewire || ! Livewire.on) return;
+                    livewireBound = true;
+                    Livewire.on('pos-alert', function (e) {
+                        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+                        window.playPosAlert(kind);
+                    });
+                    if (Livewire.hook) {
+                        Livewire.hook('morph.updated', function ({ el }) {
+                            if (! el || ! el.matches) return;
+                            if (! el.matches('.desk-flash, [role="alert"], [role="alertdialog"], [role="status"], .isa-err, .so-msg, .so-field-error, .desk-chief-prompt')) return;
+                            const t = String(el.textContent || '').toLowerCase();
+                            if (t.indexOf('permission') === -1 && t.indexOf('your role') === -1) return;
+                            maybePlay(el);
+                        });
+                    }
+                };
+                document.addEventListener('livewire:init', bindLivewire);
+                queueMicrotask(bindLivewire);
+                setTimeout(bindLivewire, 400);
             })();
         </script>
     </body>

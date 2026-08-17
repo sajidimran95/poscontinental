@@ -32,6 +32,10 @@ class EnsureFeatureAccess
             return $next($request);
         }
 
-        abort(403, 'Your role does not have '.$action.' access to this feature.');
+        $message = 'Your role does not have '.$action.' access to this feature.';
+
+        return redirect()
+            ->route('home')
+            ->with('pos_permission', $message);
     }
 }

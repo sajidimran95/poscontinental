@@ -22,11 +22,13 @@ class PosAiWidget extends Component
 
     public function mount(): void
     {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
         $this->loadPersistedChat();
     }
 
     public function toggle(): void
     {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
         $this->open = ! $this->open;
         if ($this->open) {
             $this->loadPersistedChat();
@@ -42,6 +44,7 @@ class PosAiWidget extends Component
 
     public function runQuick(string $intent): void
     {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
         $label = collect(JapsAiChatService::QUICK_PROMPTS)->firstWhere('intent', $intent)['label']
             ?? $intent;
         $this->activeQuick = $intent;
@@ -51,6 +54,7 @@ class PosAiWidget extends Component
 
     public function send(): void
     {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
         $this->sendChat(trim($this->message), null);
     }
 

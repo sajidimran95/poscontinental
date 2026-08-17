@@ -139,4 +139,17 @@ class User extends Authenticatable
 
         return $this->role->allows($feature, $action);
     }
+
+    /** Floating AI chat widget — View on POS AI Chat, or any POS AI Settings access. */
+    public function canUsePosAiChat(): bool
+    {
+        return $this->canAccessFeature('admin.japsai_chat', 'view')
+            || $this->canAccessFeature('admin.japsai', 'view');
+    }
+
+    /** File → POS AI settings (API key, enable widget). Not granted by chat-only View. */
+    public function canManagePosAiSettings(): bool
+    {
+        return $this->canAccessFeature('admin.japsai', 'edit');
+    }
 }

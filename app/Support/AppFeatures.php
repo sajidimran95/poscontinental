@@ -44,9 +44,14 @@ class AppFeatures
                 'routes' => ['admin.overselling-settings'],
             ],
             'admin.japsai' => [
-                'label' => 'POS AI',
+                'label' => 'POS AI Settings',
                 'group' => 'File',
                 'routes' => ['admin.japsai'],
+            ],
+            'admin.japsai_chat' => [
+                'label' => 'POS AI Chat',
+                'group' => 'File',
+                'routes' => [],
             ],
             'admin.users' => [
                 'label' => 'Users & Roles',
@@ -101,6 +106,11 @@ class AppFeatures
                 'label' => 'Sales Orders',
                 'group' => 'Sales',
                 'routes' => ['sales.orders.index', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.show', 'sales.orders.print', 'sales.orders.invoice', 'sales.orders.pick-list'],
+            ],
+            'sales.price_override' => [
+                'label' => 'Change Order Price',
+                'group' => 'Sales',
+                'routes' => [],
             ],
             'sales.customers' => [
                 'label' => 'Customers',
@@ -376,7 +386,8 @@ class AppFeatures
             'File' => [
                 ['label' => 'Company Settings', 'feature' => 'admin.company'],
                 ['label' => 'Overselling Settings', 'feature' => 'admin.overselling'],
-                ['label' => 'POS AI', 'feature' => 'admin.japsai'],
+                ['label' => 'POS AI Settings', 'feature' => 'admin.japsai'],
+                ['label' => 'POS AI Chat', 'feature' => 'admin.japsai_chat'],
                 ['label' => 'Users & Roles', 'feature' => 'admin.users'],
                 ['label' => 'Email Setup', 'feature' => 'admin.email_setup'],
                 ['label' => 'Email Send Log', 'feature' => 'admin.email_logs'],
@@ -395,6 +406,7 @@ class AppFeatures
             'Sales' => [
                 ['label' => 'Sales Orders', 'feature' => 'sales.orders'],
                 ['label' => 'New Sales Order', 'feature' => 'sales.orders'],
+                ['label' => 'Change Order Price', 'feature' => 'sales.price_override'],
                 ['label' => 'Customers', 'feature' => 'sales.customers'],
                 ['label' => 'New Customer', 'feature' => 'sales.customers'],
                 ['label' => 'Invoices', 'feature' => 'sales.invoices'],
@@ -456,10 +468,64 @@ class AppFeatures
         ];
     }
 
+    /**
+     * In-page capabilities that stay off until granted to a specific user (or role).
+     *
+     * @return list<string>
+     */
+    public static function restrictedCapabilities(): array
+    {
+        return [
+            'sales.price_override',
+            'admin.japsai_chat',
+        ];
+    }
+
+    /**
+     * Features excluded from new non-admin roles and "reset from role".
+     *
+     * @return list<string>
+     */
+    public static function offByDefaultFeatures(): array
+    {
+        return array_values(array_unique([
+            ...self::restrictedAdminFeatures(),
+            ...self::restrictedCapabilities(),
+        ]));
+    }
+
     /** Whether a feature is a restricted File admin feature. */
     public static function isRestrictedAdminFeature(string $feature): bool
     {
         return in_array($feature, self::restrictedAdminFeatures(), true);
+    }
+
+    public static function isRestrictedCapability(string $feature): bool
+    {
+        return in_array($feature, self::restrictedCapabilities(), true);
+    }
+
+    /**
+     * Permission tokens excluding in-page capabilities that stay off until granted per user.
+     *
+     * @return list<string>
+     */
+    public static function roleBulkPermissionTokens(): array
+    {
+        $blocked = self::restrictedCapabilities();
+
+        return array_values(array_filter(
+            self::permissionTokens(),
+            function (string $token) use ($blocked): bool {
+                foreach ($blocked as $feature) {
+                    if ($token === $feature || str_starts_with($token, $feature.'.')) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        ));
     }
 
     /**
@@ -469,7 +535,7 @@ class AppFeatures
      */
     public static function defaultRolePermissionTokens(): array
     {
-        $blocked = self::restrictedAdminFeatures();
+        $blocked = self::offByDefaultFeatures();
 
         return array_values(array_filter(
             self::permissionTokens(),
@@ -497,7 +563,7 @@ class AppFeatures
             return [];
         }
 
-        $blocked = self::restrictedAdminFeatures();
+        $blocked = self::offByDefaultFeatures();
 
         return array_values(array_filter(
             $tokens,

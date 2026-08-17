@@ -36,8 +36,8 @@
             </div>
             <div class="posai-w-head-actions">
                 <button type="button" class="posai-w-link" wire:click="clearChat" title="Start a new chat">Clear</button>
-                @if (Route::has('admin.japsai'))
-                    <a href="{{ route('admin.japsai') }}" wire:navigate class="posai-w-link" title="Open full POS AI">Full</a>
+                @if (Route::has('admin.japsai') && (auth()->user()?->canAccessFeature('admin.japsai', 'view') ?? false))
+                    <a href="{{ route('admin.japsai') }}" wire:navigate class="posai-w-link" title="Open POS AI settings">Settings</a>
                 @endif
                 <button type="button" class="posai-w-icon-btn" wire:click="close" title="Close" aria-label="Close">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -427,8 +427,18 @@
         }
         .posai-w-send:hover { background: #1e3f70; }
         .posai-w-send:disabled { opacity: .6; cursor: wait; }
+        /* Keep the FAB off the Browse Close button when the product list is open */
+        body:has(.so-browse-dock) .posai-w-fab {
+            bottom: 10rem;
+            right: 1.25rem;
+        }
+        body:has(.so-page .so-footer) .posai-w-fab {
+            bottom: 9.25rem;
+            right: 1.25rem;
+        }
         @media (max-width: 480px) {
             .posai-w-fab { right: .75rem; bottom: 5.25rem; }
+            body:has(.so-browse-dock) .posai-w-fab { bottom: 9.5rem; right: .75rem; }
             .posai-w-panel { width: 100vw; }
         }
     </style>

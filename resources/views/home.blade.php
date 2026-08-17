@@ -130,7 +130,14 @@
                                         <span class="home-chief-link-text">{{ $label }}</span>
                                     </a>
                                 @else
-                                    <span class="home-chief-disabled" title="No permission" aria-disabled="true">
+                                    <span
+                                        class="home-chief-disabled"
+                                        title="No permission"
+                                        role="button"
+                                        tabindex="0"
+                                        onclick="window.posPermissionDenied && window.posPermissionDenied({{ json_encode($label) }})"
+                                        onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); window.posPermissionDenied && window.posPermissionDenied({{ json_encode($label) }}); }"
+                                    >
                                         <span class="home-chief-link-dot" aria-hidden="true"></span>
                                         <span class="home-chief-link-text">{{ $label }}</span>
                                     </span>

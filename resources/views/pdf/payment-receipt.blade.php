@@ -57,6 +57,7 @@
         <tr>
             <th style="width:100px">Payment Date</th>
             <th style="width:120px">Method</th>
+            <th style="width:110px">Check #</th>
             <th class="right" style="width:100px">Amount</th>
             <th>Comments</th>
         </tr>
@@ -65,6 +66,7 @@
         <tr>
             <td>{{ optional($payment->payment_date)?->format('n/j/Y') }}</td>
             <td><strong>{{ $payment->payment_method ?: '—' }}</strong></td>
+            <td class="mono">{{ $payment->check_number ?: '—' }}</td>
             <td class="right"><strong>${{ number_format((float) $payment->amount, 2) }}</strong></td>
             <td class="muted">{{ $payment->comments ?: '—' }}</td>
         </tr>

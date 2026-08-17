@@ -126,6 +126,10 @@
                 <div style="margin-top:8px">
                     Payments received: {{ $invoice->payments->count() }}
                     ({{ $invoice->payments->pluck('payment_method')->unique()->filter()->implode(', ') }})
+                    @php $checkNos = $invoice->payments->pluck('check_number')->filter()->unique(); @endphp
+                    @if ($checkNos->isNotEmpty())
+                        · Check # {{ $checkNos->implode(', ') }}
+                    @endif
                 </div>
             @endif
             @if ($invoice->credits->count())

@@ -31,7 +31,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public string $driverSavedAt = '';
 
-    /** @var list<array{key: string, payment_date: string, payment_method: string, amount: string, comments: string}> */
+    /** @var list<array{key: string, payment_date: string, payment_method: string, check_number: string, amount: string, comments: string}> */
     public array $draftPayments = [];
 
     /** @var list<array{key: string, credit_memo_id: string, amount: string}> */
@@ -64,7 +64,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             $c->where('company_name', 'like', $term)
                                 ->orWhere('customer_id', 'like', $term);
                         })
-                        ->orWhereHas('salesOrder', fn ($o) => $o->where('order_number', 'like', $term));
+                        ->orWhereHas('salesOrder', fn ($o) => $o->where('order_number', 'like', $term))
+                        ->orWhereHas('payments', function ($p) use ($term) {
+                            $p->where('check_number', 'like', $term);
+                        });
                 });
             });
 
@@ -370,6 +373,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'key' => uniqid('pay_', true),
             'payment_date' => now()->toDateString(),
             'payment_method' => 'Cash',
+            'check_number' => '',
             'amount' => $fillRemaining ? number_format($due, 2, '.', '') : '',
             'comments' => '',
         ];
@@ -527,6 +531,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ->map(fn ($r) => [
                 'payment_date' => trim((string) ($r['payment_date'] ?? '')),
                 'payment_method' => trim((string) ($r['payment_method'] ?? '')),
+                'check_number' => trim((string) ($r['check_number'] ?? '')),
                 'amount' => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2),
                 'comments' => trim((string) ($r['comments'] ?? '')),
             ])
@@ -571,6 +576,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         foreach ($payments as $i => $row) {
             if ($row['payment_date'] === '' || $row['payment_method'] === '') {
                 session()->flash('status', 'Payment row '.($i + 1).' needs a date and method.');
+
+                return;
+            }
+            if (InvoicePayment::isCheckMethod($row['payment_method']) && $row['check_number'] === '') {
+                session()->flash('status', 'Payment row '.($i + 1).' needs a check number.');
 
                 return;
             }
@@ -619,6 +629,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         'invoice_id' => $invoice->id,
                         'payment_date' => $row['payment_date'],
                         'payment_method' => $row['payment_method'],
+                        'check_number' => InvoicePayment::isCheckMethod($row['payment_method'])
+                            ? $row['check_number']
+                            : null,
                         'amount' => $row['amount'],
                         'comments' => $row['comments'] !== '' ? $row['comments'] : null,
                         'user_id' => auth()->id(),
@@ -749,7 +762,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         id="invoices-search"
                         type="search"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Invoice #, order #, customer…"
+                        placeholder="Invoice #, order #, customer, check #…"
                         class="desk-search orders-search-input"
                         aria-label="Search Invoices"
                     />
@@ -979,6 +992,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     <tr>
                                         <th style="width:8.5rem">Payment Date</th>
                                         <th style="width:9rem">Payment Method</th>
+                                        <th style="width:7.5rem">Check #</th>
                                         <th style="width:7rem" class="text-right">Amount</th>
                                         <th>Comments</th>
                                     </tr>
@@ -988,6 +1002,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                         <tr class="pc-row-saved">
                                             <td>{{ optional($p->payment_date)?->format('n/j/Y') }}</td>
                                             <td>{{ $p->payment_method }}</td>
+                                            <td class="desk-num">{{ $p->check_number ?: '—' }}</td>
                                             <td class="desk-money">${{ number_format((float) $p->amount, 2) }}</td>
                                             <td>
                                                 <span class="pc-saved-tag">Saved</span>
@@ -997,6 +1012,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     @endforeach
 
                                     @forelse ($draftPayments as $i => $row)
+                                        @php $rowIsCheck = \App\Models\InvoicePayment::isCheckMethod($row['payment_method'] ?? ''); @endphp
                                         <tr
                                             wire:key="draft-pay-{{ $row['key'] }}"
                                             wire:click="selectPaymentRow({{ $i }})"
@@ -1015,6 +1031,19 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                                 </select>
                                             </td>
                                             <td>
+                                                @if ($rowIsCheck)
+                                                    <input
+                                                        type="text"
+                                                        class="so-input pc-cell-input"
+                                                        wire:model.live="draftPayments.{{ $i }}.check_number"
+                                                        placeholder="Check number"
+                                                        autocomplete="off"
+                                                    />
+                                                @else
+                                                    <span class="text-slate-400">—</span>
+                                                @endif
+                                            </td>
+                                            <td>
                                                 <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0" />
                                             </td>
                                             <td>
@@ -1023,7 +1052,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                         </tr>
                                     @empty
                                         @if ($modalInvoice->payments->isEmpty())
-                                            <tr class="is-empty"><td colspan="4">Use + or Add Payment to enter amount. Split any amount, then Add 2nd Due for the rest.</td></tr>
+                                            <tr class="is-empty"><td colspan="5">Use + or Add Payment to enter amount. Split any amount, then Add 2nd Due for the rest.</td></tr>
                                         @endif
                                     @endforelse
                                 </tbody>

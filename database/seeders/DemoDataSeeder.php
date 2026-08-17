@@ -1067,6 +1067,7 @@ class DemoDataSeeder extends Seeder
                     'invoice_id' => $invoice->id,
                     'payment_date' => now()->subDays(3)->toDateString(),
                     'payment_method' => 'Check',
+                    'check_number' => '1001',
                     'amount' => round((float) $invoice->invoice_total / 2, 2),
                     'comments' => 'Demo partial payment',
                     'user_id' => $adminId,

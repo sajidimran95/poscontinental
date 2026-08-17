@@ -38,17 +38,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public bool $compactView = false;
 
-    public bool $showColumnPicker = false;
-
     /** @var list<string> */
     public array $visibleColumns = [];
-
-    /** @var list<string> */
-    public array $draftVisibleColumns = [];
-
-    public ?string $fieldsAvailableSelected = null;
-
-    public ?string $fieldsVisibleSelected = null;
 
     public string $scanStatus = '';
 
@@ -320,7 +311,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 : collect(),
             'itemColumnCatalog' => $catalog,
             'visibleColumnKeys' => $visibleKeys,
-            'availableColumnKeys' => $this->availableColumnKeys($this->showColumnPicker ? $this->draftVisibleColumns : $visibleKeys),
             'columnColspan' => count($visibleKeys) + 1,
         ];
     }
@@ -645,119 +635,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->compactView = ! $this->compactView;
     }
 
-    public function openColumnPicker(): void
+    public function applyColumnPicker($keys = null): void
     {
-        $this->draftVisibleColumns = $this->normalizedVisibleColumns();
-        $available = $this->availableColumnKeys($this->draftVisibleColumns);
-        $this->fieldsVisibleSelected = $this->draftVisibleColumns[0] ?? null;
-        $this->fieldsAvailableSelected = $available[0] ?? null;
-        $this->showColumnPicker = true;
-    }
-
-    public function closeColumnPicker(): void
-    {
-        $this->showColumnPicker = false;
-        $this->fieldsAvailableSelected = null;
-        $this->fieldsVisibleSelected = null;
-    }
-
-    public function applyColumnPicker(): void
-    {
-        $keys = $this->sanitizeColumnKeys($this->draftVisibleColumns);
+        $keys = $this->sanitizeColumnKeys(is_array($keys) ? $keys : []);
         if ($keys === []) {
             $keys = ['item_code'];
         }
         $this->visibleColumns = $keys;
         $this->storeVisibleColumns($keys);
-        $this->closeColumnPicker();
-    }
-
-    public function selectAvailableField(string $key): void
-    {
-        if (! isset($this->itemListColumnCatalog()[$key])) {
-            return;
-        }
-        $this->fieldsAvailableSelected = $key;
-    }
-
-    public function selectVisibleField(string $key): void
-    {
-        if (! in_array($key, $this->draftVisibleColumns, true)) {
-            return;
-        }
-        $this->fieldsVisibleSelected = $key;
-    }
-
-    public function showSelectedField(): void
-    {
-        $key = $this->fieldsAvailableSelected;
-        if (! $key || in_array($key, $this->draftVisibleColumns, true) || ! isset($this->itemListColumnCatalog()[$key])) {
-            return;
-        }
-        $this->draftVisibleColumns[] = $key;
-        $this->fieldsVisibleSelected = $key;
-        $remaining = $this->availableColumnKeys($this->draftVisibleColumns);
-        $this->fieldsAvailableSelected = $remaining[0] ?? null;
-    }
-
-    public function showField(string $key): void
-    {
-        $this->fieldsAvailableSelected = $key;
-        $this->showSelectedField();
-    }
-
-    public function hideSelectedField(): void
-    {
-        $key = $this->fieldsVisibleSelected;
-        if (! $key) {
-            return;
-        }
-        $this->draftVisibleColumns = array_values(array_filter(
-            $this->draftVisibleColumns,
-            fn ($k) => $k !== $key
-        ));
-        if ($this->draftVisibleColumns === []) {
-            $this->draftVisibleColumns = ['item_code'];
-        }
-        $this->fieldsAvailableSelected = $key === 'item_code' && in_array('item_code', $this->draftVisibleColumns, true)
-            ? ($this->availableColumnKeys($this->draftVisibleColumns)[0] ?? null)
-            : $key;
-        $this->fieldsVisibleSelected = $this->draftVisibleColumns[0] ?? null;
-    }
-
-    public function hideField(string $key): void
-    {
-        $this->fieldsVisibleSelected = $key;
-        $this->hideSelectedField();
-    }
-
-    public function moveVisibleFieldUp(): void
-    {
-        $this->moveVisibleField(-1);
-    }
-
-    public function moveVisibleFieldDown(): void
-    {
-        $this->moveVisibleField(1);
-    }
-
-    protected function moveVisibleField(int $delta): void
-    {
-        $key = $this->fieldsVisibleSelected;
-        if (! $key) {
-            return;
-        }
-        $i = array_search($key, $this->draftVisibleColumns, true);
-        if ($i === false) {
-            return;
-        }
-        $j = $i + $delta;
-        if ($j < 0 || $j >= count($this->draftVisibleColumns)) {
-            return;
-        }
-        $swap = $this->draftVisibleColumns[$j];
-        $this->draftVisibleColumns[$j] = $this->draftVisibleColumns[$i];
-        $this->draftVisibleColumns[$i] = $swap;
     }
 
     /**
@@ -835,23 +720,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $out = [];
         foreach ($keys as $key) {
             if (is_string($key) && isset($catalog[$key]) && ! in_array($key, $out, true)) {
-                $out[] = $key;
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * @param  list<string>  $visible
-     * @return list<string>
-     */
-    protected function availableColumnKeys(array $visible): array
-    {
-        $visible = $this->sanitizeColumnKeys($visible);
-        $out = [];
-        foreach (array_keys($this->itemListColumnCatalog()) as $key) {
-            if (! in_array($key, $visible, true)) {
                 $out[] = $key;
             }
         }
@@ -1735,7 +1603,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
             {{-- Right icon rail — show/hide fields, compact, query, view, edit, … --}}
             <aside class="desk-rail" aria-label="Item actions">
-                <button type="button" wire:click="openColumnPicker" class="desk-rail-btn" title="Show/Hide Fields" aria-label="Show/Hide Fields">
+                <button type="button" class="desk-rail-btn" title="Show/Hide Fields" aria-label="Show/Hide Fields" @click="$dispatch('open-item-fields')">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true">
                         <rect x="1.5" y="2.5" width="13" height="11" rx="1"/>
                         <path d="M1.5 6h13M6 2.5v11"/>
@@ -1837,7 +1705,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         </div>
     </div>
 
-@if ($showColumnPicker)
     <style>
         .shf-backdrop { z-index: 90 !important; }
         .shf-modal {
@@ -1925,71 +1792,138 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             background: #f8fafc;
         }
     </style>
-    <div class="desk-modal-backdrop shf-backdrop" wire:click.self="closeColumnPicker" role="dialog" aria-modal="true" aria-labelledby="item-fields-title">
-        <div class="desk-modal shf-modal" wire:keydown.escape.window="closeColumnPicker">
-            <div class="desk-modal-head">
-                <span id="item-fields-title">Show/Hide Fields</span>
-                <button type="button" wire:click="closeColumnPicker" class="desk-modal-close" aria-label="Close">×</button>
-            </div>
-            <div class="shf-body">
-                <div class="shf-grid">
-                    <div>
-                        <p class="shf-col-title">Available Fields</p>
-                        <div class="shf-list" role="listbox" aria-label="Available Fields">
-                            @forelse ($availableColumnKeys as $key)
-                                <button
-                                    type="button"
-                                    role="option"
-                                    wire:click="selectAvailableField('{{ $key }}')"
-                                    wire:dblclick="showField('{{ $key }}')"
-                                    @class(['shf-list-item', 'is-selected' => $fieldsAvailableSelected === $key])
-                                    aria-selected="{{ $fieldsAvailableSelected === $key ? 'true' : 'false' }}"
-                                >{{ $itemColumnCatalog[$key]['label'] }}</button>
-                            @empty
-                                <div class="shf-list-empty">All fields are shown.</div>
-                            @endforelse
-                        </div>
-                    </div>
-                    <div class="shf-arrows">
-                        <button type="button" class="shf-arrow" wire:click="showSelectedField" title="Show field" aria-label="Show field" @disabled(! $fieldsAvailableSelected)>
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l6 5-6 5"/></svg>
-                        </button>
-                        <button type="button" class="shf-arrow" wire:click="hideSelectedField" title="Hide field" aria-label="Hide field" @disabled(! $fieldsVisibleSelected)>
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 3L5 8l6 5"/></svg>
-                        </button>
-                        <button type="button" class="shf-arrow" wire:click="moveVisibleFieldUp" title="Move up" aria-label="Move up" @disabled(! $fieldsVisibleSelected)>
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l5-6 5 6"/></svg>
-                        </button>
-                        <button type="button" class="shf-arrow" wire:click="moveVisibleFieldDown" title="Move down" aria-label="Move down" @disabled(! $fieldsVisibleSelected)>
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 5l5 6 5-6"/></svg>
-                        </button>
-                    </div>
-                    <div>
-                        <p class="shf-col-title">Show these fields in this order</p>
-                        <div class="shf-list" role="listbox" aria-label="Shown fields">
-                            @foreach ($draftVisibleColumns as $key)
-                                @if (isset($itemColumnCatalog[$key]))
+    <div
+        wire:ignore
+        x-data="{
+            pickerOpen: false,
+            catalog: {{ Js::from(collect($itemColumnCatalog)->map(fn ($col) => $col['label'])) }},
+            draft: [],
+            availableSelected: null,
+            visibleSelected: null,
+            get availableKeys() {
+                return Object.keys(this.catalog).filter((k) => !this.draft.includes(k));
+            },
+            openPicker() {
+                const current = $wire.visibleColumns;
+                this.draft = Array.isArray(current) && current.length ? [...current] : {{ Js::from($visibleColumnKeys) }};
+                if (!this.draft.length) this.draft = ['item_code'];
+                this.visibleSelected = this.draft[0] || null;
+                this.availableSelected = this.availableKeys[0] || null;
+                this.pickerOpen = true;
+            },
+            closePicker() { this.pickerOpen = false; },
+            showSelected() {
+                const key = this.availableSelected;
+                if (!key || this.draft.includes(key) || !this.catalog[key]) return;
+                this.draft = [...this.draft, key];
+                this.visibleSelected = key;
+                this.availableSelected = this.availableKeys[0] || null;
+            },
+            hideSelected() {
+                const key = this.visibleSelected;
+                if (!key) return;
+                this.draft = this.draft.filter((k) => k !== key);
+                if (!this.draft.length) this.draft = ['item_code'];
+                this.availableSelected = (key === 'item_code' && this.draft.includes('item_code'))
+                    ? (this.availableKeys[0] || null)
+                    : (this.catalog[key] ? key : (this.availableKeys[0] || null));
+                this.visibleSelected = this.draft[0] || null;
+            },
+            move(delta) {
+                const key = this.visibleSelected;
+                if (!key) return;
+                const i = this.draft.indexOf(key);
+                const j = i + delta;
+                if (i < 0 || j < 0 || j >= this.draft.length) return;
+                const next = [...this.draft];
+                const tmp = next[j];
+                next[j] = next[i];
+                next[i] = tmp;
+                this.draft = next;
+            },
+            apply() {
+                this.pickerOpen = false;
+                $wire.applyColumnPicker(this.draft);
+            }
+        }"
+        @open-item-fields.window="openPicker()"
+    >
+        <div
+            class="desk-modal-backdrop shf-backdrop"
+            x-show="pickerOpen"
+            x-cloak
+            x-transition.opacity.duration.80ms
+            @click.self="closePicker()"
+            @keydown.escape.window="if (pickerOpen) closePicker()"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="item-fields-title"
+        >
+            <div class="desk-modal shf-modal" @click.stop>
+                <div class="desk-modal-head">
+                    <span id="item-fields-title">Show/Hide Fields</span>
+                    <button type="button" class="desk-modal-close" aria-label="Close" @click="closePicker()">×</button>
+                </div>
+                <div class="shf-body">
+                    <div class="shf-grid">
+                        <div>
+                            <p class="shf-col-title">Available Fields</p>
+                            <div class="shf-list" role="listbox" aria-label="Available Fields">
+                                <template x-for="key in availableKeys" :key="key">
                                     <button
                                         type="button"
                                         role="option"
-                                        wire:click="selectVisibleField('{{ $key }}')"
-                                        wire:dblclick="hideField('{{ $key }}')"
-                                        @class(['shf-list-item', 'is-selected' => $fieldsVisibleSelected === $key])
-                                        aria-selected="{{ $fieldsVisibleSelected === $key ? 'true' : 'false' }}"
-                                    >{{ $itemColumnCatalog[$key]['label'] }}</button>
-                                @endif
-                            @endforeach
+                                        class="shf-list-item"
+                                        :class="{ 'is-selected': availableSelected === key }"
+                                        :aria-selected="availableSelected === key ? 'true' : 'false'"
+                                        @click="availableSelected = key"
+                                        @dblclick.prevent="availableSelected = key; showSelected()"
+                                        x-text="catalog[key]"
+                                    ></button>
+                                </template>
+                                <div class="shf-list-empty" x-show="availableKeys.length === 0">All fields are shown.</div>
+                            </div>
+                        </div>
+                        <div class="shf-arrows">
+                            <button type="button" class="shf-arrow" title="Show field" aria-label="Show field" :disabled="!availableSelected" @click="showSelected()">
+                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l6 5-6 5"/></svg>
+                            </button>
+                            <button type="button" class="shf-arrow" title="Hide field" aria-label="Hide field" :disabled="!visibleSelected" @click="hideSelected()">
+                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 3L5 8l6 5"/></svg>
+                            </button>
+                            <button type="button" class="shf-arrow" title="Move up" aria-label="Move up" :disabled="!visibleSelected" @click="move(-1)">
+                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l5-6 5 6"/></svg>
+                            </button>
+                            <button type="button" class="shf-arrow" title="Move down" aria-label="Move down" :disabled="!visibleSelected" @click="move(1)">
+                                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 5l5 6 5-6"/></svg>
+                            </button>
+                        </div>
+                        <div>
+                            <p class="shf-col-title">Show these fields in this order</p>
+                            <div class="shf-list" role="listbox" aria-label="Shown fields">
+                                <template x-for="key in draft" :key="key">
+                                    <button
+                                        type="button"
+                                        role="option"
+                                        class="shf-list-item"
+                                        :class="{ 'is-selected': visibleSelected === key }"
+                                        :aria-selected="visibleSelected === key ? 'true' : 'false'"
+                                        @click="visibleSelected = key"
+                                        @dblclick.prevent="visibleSelected = key; hideSelected()"
+                                        x-text="catalog[key]"
+                                    ></button>
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="shf-foot">
-                <button type="button" class="desk-btn desk-btn-primary" wire:click="applyColumnPicker">OK</button>
-                <button type="button" class="desk-btn" wire:click="closeColumnPicker">Cancel</button>
+                <div class="shf-foot">
+                    <button type="button" class="desk-btn desk-btn-primary" @click="apply()">OK</button>
+                    <button type="button" class="desk-btn" @click="closePicker()">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
-@endif
 
 @if ($showItemQuery)
     <style>

@@ -546,7 +546,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->selectedStockRemaining = '';
     }
 
-    protected function refreshSelectedLineStock(?int $index = null): void
+    protected function refreshSelectedLineStock(?int $index = null, ?Item $knownItem = null): void
     {
         $i = $index ?? $this->selectedLineIndex;
         if ($i === null || ! isset($this->lines[$i]) || empty($this->lines[$i]['item_id'])) {
@@ -556,9 +556,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $itemId = (int) $this->lines[$i]['item_id'];
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->find($itemId);
+        $item = ($knownItem && (int) $knownItem->id === $itemId)
+            ? $knownItem
+            : Item::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->find($itemId);
 
         if (! $item) {
             $this->clearSelectedStock();
@@ -2626,18 +2628,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function pickBrowseItem(int $itemId): void
     {
-        $item = Item::query()->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
+        abort_if($this->viewMode, 403);
+
+        $item = Item::query()
+            ->with('prices')
             ->where('company_id', auth()->user()->company_id)
             ->find($itemId);
         if (! $item) {
             return;
         }
         $this->itemEntry = '';
-        $this->browseSelectedId = null;
-        $this->browseCheckedIds = [];
+        $this->browseSelectedId = $itemId;
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
-        $this->focusItemEntry();
     }
 
     protected function queueItemOrPromptSubstitute(Item $item): void
@@ -2786,11 +2789,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->orderLineMessagePopup = $msg;
             $this->orderLineInstructionsPopup = $instr;
             $this->showLineMessageAlert = $msg !== '' || $instr !== '';
-            $this->refreshSelectedLineStock($existingIndex);
+            $this->refreshSelectedLineStock($existingIndex, $item);
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
-            $this->notifyAlert($item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.', 'success');
+            $this->playPosSound('success');
 
             return;
         }
@@ -2863,7 +2866,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->orderLineMessagePopup = '';
         $this->orderLineInstructionsPopup = '';
         $this->showLineMessageAlert = false;
-        $this->refreshSelectedLineStock($index);
+        $this->refreshSelectedLineStock($index, $item);
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();

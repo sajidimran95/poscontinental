@@ -571,7 +571,7 @@
                     <div
                         class="so-item-browse-scroll"
                         tabindex="0"
-                        x-data
+                        x-data="{ clickTimer: null }"
                         @scroll.passthrough="
                             const el = $event.target;
                             if (!el || {{ $browseHasMore ? 'false' : 'true' }}) return;
@@ -610,8 +610,16 @@
                                     <tr
                                         wire:key="browse-item-{{ $itemId }}"
                                         class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}{{ $isFocused ? ' is-focused' : '' }}{{ $isChecked ? ' is-checked' : '' }}"
-                                        wire:click="selectBrowseRow({{ $itemId }})"
-                                        wire:dblclick.prevent="pickBrowseItem({{ $itemId }})"
+                                        @click="
+                                            if ($event.target.closest('input, button, a, label')) return;
+                                            clearTimeout(clickTimer);
+                                            clickTimer = setTimeout(() => $wire.selectBrowseRow({{ $itemId }}), 280);
+                                        "
+                                        @dblclick.prevent="
+                                            clearTimeout(clickTimer);
+                                            clickTimer = null;
+                                            $wire.pickBrowseItem({{ $itemId }});
+                                        "
                                         title="Click line to select · double-click to insert"
                                     >
                                         <td class="is-check" wire:click.stop>

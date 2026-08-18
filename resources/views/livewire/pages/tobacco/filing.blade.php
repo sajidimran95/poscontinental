@@ -86,6 +86,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     {
         $this->validation_status = null;
         $this->validation_errors = [];
+        $this->refreshPreviewCounts();
     }
 
     /**
@@ -402,9 +403,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 TobaccoItem::constrainCigarettesQuery($itemIds);
             }
 
-            $this->purchase_rows = $this->countReceivingLinesForItemIds($companyId, $itemIds);
-            $this->sale_rows = $this->countInvoiceLinesForItemIds($companyId, $itemIds);
-            $this->return_rows = $this->countCreditMemoLinesForItemIds($companyId, $itemIds);
+            $this->purchase_rows = $this->countReceivingLinesForItemIds($companyId, $itemIds->clone());
+            $this->sale_rows = $this->countInvoiceLinesForItemIds($companyId, $itemIds->clone());
+            $this->return_rows = $this->countCreditMemoLinesForItemIds($companyId, $itemIds->clone());
         } catch (\Throwable) {
             $this->purchase_rows = 0;
             $this->sale_rows = 0;

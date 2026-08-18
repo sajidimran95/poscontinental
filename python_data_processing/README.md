@@ -113,7 +113,21 @@ python import_invoices.py
 ```
 
 This loads Chief `Invoices_tbl` (~43k), related sales orders + lines, payments, and applied credit memos. It does **not** delete items/customers/suppliers. Existing invoices for the company are replaced. Stock quantities are not changed.
-- After import, open POS web and verify: Items, Customers, Suppliers.
+- After clients/products/suppliers are loaded, import purchase orders only:
+
+```powershell
+python import_purchase_orders.py
+```
+
+This loads Chief `PurchaseOrders_tbl` + `PurchaseOrderDetails_tbl`. It does **not** delete items/customers/suppliers/invoices. Existing purchase orders for the company are replaced.
+- After purchase orders are loaded, import inventory receipts and return-to-vendor:
+
+```powershell
+python import_receivings_rtv.py
+```
+
+This loads Chief `InventoryReceipts_tbl` + `RTVs_tbl` (and their detail lines). It does **not** delete items/customers/suppliers/invoices/POs, and it does **not** change on-hand stock. Existing receipts and RTVs for the company are replaced.
+- After import, open POS web and verify: Items, Customers, Suppliers, Purchase Orders, Receivings, RTV.
 
 ## Clean workspace
 

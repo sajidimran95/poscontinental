@@ -14,9 +14,7 @@ class CaptureUserTimezone
         $tz = UserTimezone::sanitize($request->cookie('pos_tz'))
             ?: UserTimezone::sanitize($request->header('X-Timezone'));
 
-        if ($tz && $request->hasSession()) {
-            $request->session()->put('pos_tz', $tz);
-        }
+        UserTimezone::apply($tz);
 
         return $next($request);
     }

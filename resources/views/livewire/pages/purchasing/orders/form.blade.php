@@ -692,7 +692,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
-        $this->lookupMessage = '';
+        $this->playPosSound('error');
+        $this->lookupMessage = 'Item '.$code.' was not found.';
         $this->browseSearch = $code;
         $this->itemBrowseSearch = $code;
         $this->openItemBrowse(null);
@@ -809,6 +810,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         : 'EA';
                 }
                 $this->lines = $lines;
+                $this->playPosSound('success');
 
                 return;
             }
@@ -841,6 +843,14 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if (! $hasEmpty) {
             $this->lines = array_values(array_merge($this->lines, [$this->emptyLine()]));
         }
+
+        $this->playPosSound('success');
+    }
+
+    protected function playPosSound(string $kind = 'error'): void
+    {
+        $this->dispatch('pos-alert', kind: $kind);
+        $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 
     protected function fillLineFromItem(int $index, Item $item): void
@@ -1565,6 +1575,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');
+    });
+    $wire.on('pos-alert', (e) => {
+        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+        window.playPosAlert && window.playPosAlert(kind);
     });
     $wire.$watch('showBrowse', (open) => {
         if (!open) return;

@@ -322,6 +322,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                                 <th>Date Created</th>
                                 <th>Last Count Date</th>
                                 <th>Date Entered</th>
+                                <th>Date Processed</th>
                                 <th>Site</th>
                                 <th>Processed By</th>
                             </tr>
@@ -355,15 +356,16 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                                         ])>{{ $count->status }}</span>
                                     </td>
                                     <td title="{{ $count->description }}">{{ $count->description ? \Illuminate\Support\Str::limit($count->description, 40) : '' }}</td>
-                                    <td>{{ optional($count->date_created)?->format('n/j/Y g:i:s A') ?: '—' }}</td>
-                                    <td>{{ optional($count->last_count_date)?->format('n/j/Y g:i:s A') ?: '—' }}</td>
-                                    <td>{{ optional($count->date_entered ?? $count->created_at)?->format('n/j/Y g:i:s A') ?: '—' }}</td>
+                                    <td>{{ user_time($count->date_created) }}</td>
+                                    <td>{{ user_time($count->last_count_date) }}</td>
+                                    <td>{{ user_time($count->date_entered ?? $count->created_at) }}</td>
+                                    <td>{{ user_time($count->date_processed) }}</td>
                                     <td class="desk-num">{{ $count->site?->code ?: '—' }}</td>
                                     <td>{{ $count->processedByUser?->name ?: '—' }}</td>
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="9">No stock counts found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="10">No stock counts found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>

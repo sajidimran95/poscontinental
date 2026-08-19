@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Supplier;
-use App\Models\SupplierContact;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -104,22 +106,56 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
 
     public function save(): void
     {
-        $rules = [
-            'supplier_id' => 'required|string|max:64',
+        $companyId = (int) auth()->user()->company_id;
+
+        $this->validate([
+            'supplier_id' => [
+                'required',
+                'string',
+                'max:64',
+                Rule::unique('suppliers', 'supplier_id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId))
+                    ->ignore($this->supplier?->id),
+            ],
             'name' => 'required|string|max:255',
+            'contact_name' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:32',
+            'zip_code' => 'nullable|string|max:20',
+            'country' => 'nullable|string|max:64',
             'is_tobacco_supplier' => 'boolean',
             'fein_no' => $this->is_tobacco_supplier ? 'required|string|max:32' : 'nullable|string|max:32',
+            'phone1' => 'nullable|string|max:32',
+            'phone2' => 'nullable|string|max:32',
+            'fax' => 'nullable|string|max:32',
+            'email' => 'nullable|email|max:255',
+            'web_page' => 'nullable|string|max:255',
+            'contacts.*.department' => 'nullable|string|max:255',
             'contacts.*.contact_name' => 'nullable|string|max:255',
-        ];
-
-        $this->validate($rules, [
+            'contacts.*.title' => 'nullable|string|max:255',
+            'contacts.*.phone' => 'nullable|string|max:32',
+            'contacts.*.ext' => 'nullable|string|max:16',
+        ], [
             'supplier_id.required' => 'Supplier ID is required.',
+            'supplier_id.max' => 'Supplier ID can be at most 64 characters.',
+            'supplier_id.unique' => 'A supplier with this ID already exists.',
             'name.required' => 'Company name is required.',
+            'name.max' => 'Company name can be at most 255 characters.',
             'fein_no.required' => 'FEIN No. is required for tobacco suppliers.',
+            'fein_no.max' => 'FEIN No. can be at most 32 characters.',
+            'phone1.max' => 'Telephone can be at most 32 characters.',
+            'phone2.max' => 'Phone 2 can be at most 32 characters.',
+            'fax.max' => 'Fax can be at most 32 characters.',
+            'email.email' => 'Enter a valid email address.',
+            'state.max' => 'State can be at most 32 characters.',
+            'zip_code.max' => 'ZIP code can be at most 20 characters.',
+            'contacts.*.phone.max' => 'Contact phone can be at most 32 characters.',
+            'contacts.*.ext.max' => 'Phone extension can be at most 16 characters.',
         ]);
 
         $data = [
-            'company_id' => auth()->user()->company_id,
+            'company_id' => $companyId,
             'supplier_id' => $this->supplier_id,
             'is_inactive' => $this->is_inactive,
             'is_tobacco_supplier' => $this->is_tobacco_supplier,
@@ -138,29 +174,77 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
             'web_page' => $this->web_page,
         ];
 
-        if ($this->supplier) {
-            $this->supplier->update($data);
-            $supplier = $this->supplier;
-            $supplier->contacts()->delete();
-        } else {
-            $supplier = Supplier::query()->create($data);
-        }
+        try {
+            DB::transaction(function () use ($data) {
+                if ($this->supplier) {
+                    $this->supplier->update($data);
+                    $supplier = $this->supplier;
+                    $supplier->contacts()->delete();
+                } else {
+                    $supplier = Supplier::query()->create($data);
+                }
 
-        foreach ($this->contacts as $contact) {
-            if (trim($contact['contact_name'] ?? '') === '') {
-                continue;
-            }
-            $supplier->contacts()->create($contact);
+                foreach ($this->contacts as $contact) {
+                    if (trim($contact['contact_name'] ?? '') === '') {
+                        continue;
+                    }
+                    $supplier->contacts()->create([
+                        'department' => $contact['department'] ?? '',
+                        'contact_name' => $contact['contact_name'],
+                        'title' => $contact['title'] ?? '',
+                        'phone' => $contact['phone'] ?? '',
+                        'ext' => $contact['ext'] ?? '',
+                    ]);
+                }
+            });
+        } catch (QueryException $e) {
+            $this->addError('name', $this->supplierSaveErrorMessage($e));
+
+            return;
         }
 
         session()->flash('status', 'Supplier saved.');
         $this->redirect(route('purchasing.suppliers.index'), navigate: true);
+    }
+
+    protected function supplierSaveErrorMessage(QueryException $e): string
+    {
+        $sqlState = (string) ($e->errorInfo[0] ?? '');
+        $message = $e->getMessage();
+
+        if ($sqlState === '22001' || str_contains($message, 'Data too long')) {
+            if (str_contains($message, "'ext'")) {
+                return 'Phone extension is too long. Use at most 16 characters (for example 1234).';
+            }
+            if (str_contains($message, "'phone'")) {
+                return 'A phone number is too long. Use at most 32 characters.';
+            }
+
+            return 'One or more fields are too long. Shorten the highlighted values and try again.';
+        }
+
+        if ($sqlState === '23000' || str_contains($message, 'Duplicate')) {
+            return 'A supplier with this ID already exists. Choose a different Supplier ID.';
+        }
+
+        return 'Unable to save this supplier. Check the form and try again.';
     }
 }; ?>
 
 <div class="desk-page entity-page">
     <form wire:submit="save" class="desk-main entity-form item-form">
         <x-action-bar :title="$supplier ? 'Edit Supplier — '.$supplier_id : 'New Supplier'" />
+
+        @if ($errors->any())
+            <div class="desk-flash bp-flash-error" role="alert">
+                <strong>Unable to save supplier.</strong>
+                <ul style="margin:0.35rem 0 0;padding-left:1.15rem">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
         <div class="entity-body">
             <div class="entity-header">
@@ -272,11 +356,11 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
                         <tbody>
                             @foreach ($contacts as $i => $contact)
                                 <tr>
-                                    <td><input wire:model="contacts.{{ $i }}.department" class="so-input item-cell-ctl" /></td>
-                                    <td><input wire:model="contacts.{{ $i }}.contact_name" class="so-input item-cell-ctl" /></td>
-                                    <td><input wire:model="contacts.{{ $i }}.title" class="so-input item-cell-ctl" /></td>
-                                    <td><input wire:model="contacts.{{ $i }}.phone" class="so-input item-cell-ctl" /></td>
-                                    <td class="text-center"><input wire:model="contacts.{{ $i }}.ext" class="so-input text-center item-cell-ctl" style="max-width:4rem;margin:0 auto" /></td>
+                                    <td><input wire:model="contacts.{{ $i }}.department" class="so-input item-cell-ctl @error('contacts.'.$i.'.department') is-invalid @enderror" maxlength="255" /></td>
+                                    <td><input wire:model="contacts.{{ $i }}.contact_name" class="so-input item-cell-ctl @error('contacts.'.$i.'.contact_name') is-invalid @enderror" maxlength="255" /></td>
+                                    <td><input wire:model="contacts.{{ $i }}.title" class="so-input item-cell-ctl @error('contacts.'.$i.'.title') is-invalid @enderror" maxlength="255" /></td>
+                                    <td><input wire:model="contacts.{{ $i }}.phone" class="so-input item-cell-ctl @error('contacts.'.$i.'.phone') is-invalid @enderror" maxlength="32" /></td>
+                                    <td class="text-center"><input wire:model="contacts.{{ $i }}.ext" class="so-input text-center item-cell-ctl @error('contacts.'.$i.'.ext') is-invalid @enderror" maxlength="16" style="max-width:4rem;margin:0 auto" title="Phone extension, up to 16 characters" /></td>
                                     <td class="text-center"><button type="button" wire:click="removeContact({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                 </tr>
                             @endforeach

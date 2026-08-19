@@ -783,7 +783,7 @@
                                 wire:model.live.debounce.300ms="browseSearch"
                                 wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
                                 class="so-input so-item-browse-search-bottom"
-                                placeholder="Type or scan code — matching item adds to cart"
+                                placeholder="{{ $browseSearchPlaceholder ?? 'Type or scan code — matching item adds to cart' }}"
                                 aria-label="Scan or search items"
                                 id="so-browse-search"
                                 autocomplete="off"

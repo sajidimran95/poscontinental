@@ -4,6 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        @include('layouts.partials.user-timezone')
         <title>{{ $title ?? ($pageTitle ?? config('app.name', 'Continental Wholesale')) }} — JAPS POS</title>
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500&display=swap" rel="stylesheet" />
@@ -40,6 +41,7 @@
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
+                                ['Terminal', 'admin.terminal'],
                             ],
                             'Inquiry' => [
                                 ['Stock Status', 'inquiries.stock-status'],
@@ -283,13 +285,6 @@
         @livewireScripts
         <script>
             (function () {
-                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-                const cookie = document.cookie.split('; ').find(function (r) { return r.indexOf('pos_tz=') === 0; });
-                const current = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
-                if (current !== tz) {
-                    document.cookie = 'pos_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
-                }
-
                 const el = document.getElementById('status-clock');
                 if (! el) return;
 

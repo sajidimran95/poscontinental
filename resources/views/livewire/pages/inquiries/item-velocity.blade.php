@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\BrowsesItemsForInquiry;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrderLine;
@@ -10,6 +11,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 {
+    use BrowsesItemsForInquiry;
+
     #[Url]
     public string $itemCode = '';
 
@@ -26,15 +29,11 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     public string $lookupError = '';
 
-    public bool $showItemBrowse = false;
-
-    public string $itemBrowseSearch = '';
-
     public function mount(): void
     {
         $this->applyPreset();
         if (trim($this->itemCode) !== '') {
-            $this->lookupItem();
+            $this->lookupItem(playSound: false);
         }
     }
 
@@ -68,7 +67,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         $this->applyPreset();
     }
 
-    public function lookupItem(?string $code = null): void
+    public function lookupItem(?string $code = null, bool $playSound = true): void
     {
         $this->lookupError = '';
         if ($code !== null) {
@@ -89,11 +88,15 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
         if ($item) {
             $this->itemCode = $item->item_code;
-            $this->showItemBrowse = false;
+            $this->closeBrowse();
+            if ($playSound) {
+                $this->playPosSound('success');
+            }
         } else {
-            $this->lookupError = '';
-            $this->itemBrowseSearch = $resolved;
-            $this->showItemBrowse = true;
+            if ($playSound) {
+                $this->playPosSound('error');
+            }
+            $this->openItemBrowse();
         }
     }
 
@@ -114,59 +117,10 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     public function clearLookup(): void
     {
-        $this->reset(['itemCode', 'itemId', 'customerId', 'lookupError', 'showItemBrowse', 'itemBrowseSearch']);
+        $this->reset(['itemCode', 'itemId', 'customerId', 'lookupError']);
+        $this->closeBrowse();
         $this->datePreset = '30';
         $this->applyPreset();
-    }
-
-    public function openItemBrowse(): void
-    {
-        $this->itemBrowseSearch = trim($this->itemCode);
-        $this->lookupError = '';
-        $this->showItemBrowse = true;
-    }
-
-    public function closeItemBrowse(): void
-    {
-        $this->showItemBrowse = false;
-        $this->itemBrowseSearch = '';
-    }
-
-    /**
-     * Browse search Enter / scanner: exact barcode match selects the item.
-     */
-    public function scanBrowseAndPick(?string $code = null): void
-    {
-        if ($code !== null) {
-            $this->itemBrowseSearch = trim($code);
-        }
-
-        $resolved = trim($this->itemBrowseSearch);
-        if ($resolved === '') {
-            $this->js('requestAnimationFrame(() => { document.getElementById("iv-item-browse")?.focus(); });');
-
-            return;
-        }
-
-        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
-        if ($item) {
-            $this->pickBrowseItem((int) $item->id);
-
-            return;
-        }
-
-        $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-item-browse"); if (el) { el.focus(); el.select(); } });');
-    }
-
-    public function focusBrowseScan(): void
-    {
-        if (trim($this->itemBrowseSearch) !== '') {
-            $this->scanBrowseAndPick();
-
-            return;
-        }
-
-        $this->js('requestAnimationFrame(() => { document.getElementById("iv-item-browse")?.focus(); });');
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -176,13 +130,16 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             ->find($itemId);
 
         if (! $item) {
+            $this->playPosSound('error');
+
             return;
         }
 
         $this->itemId = $item->id;
         $this->itemCode = $item->item_code;
         $this->lookupError = '';
-        $this->closeItemBrowse();
+        $this->closeBrowse();
+        $this->playPosSound('success');
     }
 
     public function with(): array
@@ -237,7 +194,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             $days = 1;
         }
 
-        return [
+        return array_merge($this->inquiryBrowseViewData(), [
             'item' => $this->itemId
                 ? Item::query()
                     ->with(['department', 'category'])
@@ -255,24 +212,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             'orderCount' => $orderCount,
             'avgDailyQty' => $totalQty / $days,
             'outsideRangeCount' => $outsideRangeCount,
-            'browseItems' => $this->showItemBrowse
-                ? Item::query()
-                    ->where('company_id', $companyId)
-                    ->where('is_inactive', false)
-                    ->when($this->itemBrowseSearch !== '', function ($q) {
-                        $term = '%'.$this->itemBrowseSearch.'%';
-                        $q->where(function ($inner) use ($term) {
-                            $inner->where('item_code', 'like', $term)
-                                ->orWhere('description', 'like', $term)
-                                ->orWhere('primary_upc', 'like', $term)
-                                ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
-                        });
-                    })
-                    ->orderBy('item_code')
-                    ->limit(150)
-                    ->get(['id', 'item_code', 'description', 'primary_upc', 'unit_of_measure', 'quantity_in_stock', 'allocated_qty'])
-                : collect(),
-        ];
+        ]);
     }
 }; ?>
 
@@ -295,6 +235,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                         type="search"
                         wire:model="itemCode"
                         wire:keydown.enter.prevent="lookupItem($event.target.value)"
+                        wire:keydown.f2.prevent="openItemBrowse"
                         class="so-input font-mono"
                         placeholder="Scan or type item code / UPC…"
                         autofocus
@@ -304,7 +245,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                         type="button"
                         wire:click="openItemBrowse"
                         class="so-icon-btn"
-                        title="Browse items"
+                        title="Browse items (F2)"
                         aria-label="Browse items"
                     >
                         <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
@@ -316,6 +257,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                 </div>
             </div>
             <div class="rpt-actions" style="margin-left:0">
+                <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
                 <button type="button" wire:click="lookupItem" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
                     <span wire:loading.remove wire:target="lookupItem">Lookup</span>
                     <span wire:loading wire:target="lookupItem">Looking up…</span>
@@ -372,7 +314,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                         {{ $item->description }}
                         · {{ $dateFrom !== '' || $dateTo !== '' ? (($dateFrom ?: '…').' → '.($dateTo ?: '…')) : 'All dates' }}
                     @else
-                        Lookup an item to view sales velocity · click ⋯
+                        Lookup an item to view sales velocity · Browse (F2)
                     @endif
                 </span>
             </div>
@@ -453,7 +395,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                 @if ($item)
                     {{ number_format($rows->count()) }} line(s) · Qty {{ number_format($totalQty, 2) }} · Sales ${{ number_format($totalSales, 2) }}
                 @else
-                    Ready for inquiry · click ⋯ to pick an existing code / UPC
+                    Ready for inquiry · Browse (F2) to pick an existing code / UPC
                 @endif
             </span>
             @if ($item && Route::has('inventory.items.edit'))
@@ -464,70 +406,29 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         </div>
     </div>
 
-    @if ($showItemBrowse)
-        <div class="desk-modal-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Browse items">
-            <div class="desk-modal" style="max-width:48rem">
-                <div class="desk-modal-head">
-                    <span>Existing Item Codes / UPCs</span>
-                    <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
-                </div>
-                <div class="desk-modal-body">
-                    <div class="so-entry" style="margin-bottom:0.75rem;border:0;border-radius:6px">
-                        <span class="so-entry-label">Search</span>
-                        <div class="so-scan-bar so-browse-scan-bar" role="search">
-                            <button type="button" wire:click="focusBrowseScan" class="so-scan-btn" title="Scan barcode">
-                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                </svg>
-                                <span>Scan</span>
-                            </button>
-                            <input
-                                id="iv-item-browse"
-                                type="search"
-                                wire:model.live.debounce.250ms="itemBrowseSearch"
-                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
-                                class="so-input so-entry-input"
-                                placeholder="Scan barcode or filter code / UPC…"
-                                autocomplete="off"
-                            />
-                        </div>
-                    </div>
-                    <div class="desk-grid" style="max-height:22rem;border:1px solid #e2e8f0;border-radius:8px">
-                        <table class="desk-table">
-                            <thead>
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th>UPC</th>
-                                    <th>Description</th>
-                                    <th class="text-center">UOM</th>
-                                    <th class="text-right">Available</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($browseItems as $bi)
-                                    @php $avail = (float) $bi->quantity_in_stock - (float) $bi->allocated_qty; @endphp
-                                    <tr class="cursor-pointer" wire:click="pickBrowseItem({{ $bi->id }})">
-                                        <td class="desk-num">{{ $bi->item_code }}</td>
-                                        <td class="desk-num">{{ $bi->primary_upc ?: '—' }}</td>
-                                        <td>{{ $bi->description }}</td>
-                                        <td class="text-center">{{ $bi->unit_of_measure ?: '—' }}</td>
-                                        <td class="desk-money">{{ number_format($avail, 2) }}</td>
-                                        <td>
-                                            <button type="button" wire:click.stop="pickBrowseItem({{ $bi->id }})" class="desk-btn desk-btn-sm desk-btn-primary">Select</button>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr class="is-empty">
-                                        <td colspan="6">No matching items. Create items under Inventory → Items first.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                    <p class="item-hint" style="padding:0.65rem 0 0">Click a row or <strong>Select</strong> to load that item’s velocity.</p>
-                </div>
-            </div>
-        </div>
-    @endif
+    @include('livewire.pages.sales.orders.partials.item-browse-panel')
 </div>
+
+@script
+<script>
+    $wire.on('open-item-record', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
+    });
+    $wire.on('pos-alert', (e) => {
+        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+        window.playPosAlert && window.playPosAlert(kind);
+    });
+    $wire.$watch('showBrowse', (open) => {
+        if (!open) return;
+        requestAnimationFrame(() => {
+            const el = document.getElementById('so-browse-search');
+            if (el) {
+                el.focus();
+                el.select?.();
+            }
+        });
+    });
+</script>
+@endscript

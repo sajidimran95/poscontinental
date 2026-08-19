@@ -306,6 +306,13 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         $company = auth()->user()->company;
         $tobLicense = $company?->msaLicenseNumber('otp') ?: '—';
         $cigLicense = $company?->msaLicenseNumber('cigarettes') ?: '—';
+        $msaDistributorId = $company?->msaDistributorId() ?: '—';
+        $sellerName = trim((string) ($company?->name ?? ''));
+        $sellerAddress = trim(implode(', ', array_filter([
+            (string) ($company?->address ?? ''),
+            (string) ($company?->city ?? ''),
+            trim((string) ($company?->state ?? '').' '.(string) ($company?->zip_code ?? '')),
+        ])));
         $activeLicense = $product === 'otp' ? $tobLicense : $cigLicense;
         $activeLicenseLabel = $company?->msaLicenseLabel($product) ?? ($product === 'otp' ? 'Secondary Tob Number' : 'Secondary Cig Number');
 
@@ -332,8 +339,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             ],
             'msa_report' => [
                 'title' => 'MSA Report',
-                'desc' => 'One sales file with cigarettes and OTP together (Cig # '.$cigLicense.' · Tob # '.$tobLicense.')',
-                'schedules' => 'Cigarettes + OTP in one file',
+                'desc' => '',
+                'schedules' => '',
             ],
         ];
 
@@ -347,6 +354,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             'maxPeriodDate' => $this->maxAllowedDate()->toDateString(),
             'tobLicense' => $tobLicense,
             'cigLicense' => $cigLicense,
+            'msaDistributorId' => $msaDistributorId,
+            'sellerName' => $sellerName,
+            'sellerAddress' => $sellerAddress,
             'activeLicense' => $activeLicense,
             'activeLicenseLabel' => $activeLicenseLabel,
             'readinessIssues' => $isFileReport
@@ -673,8 +683,12 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                             <span class="msa-return-radio" aria-hidden="true"></span>
                             <span class="msa-return-copy">
                                 <span class="msa-return-title">{{ $opt['title'] }}</span>
-                                <span class="msa-return-desc">{{ $opt['desc'] }}</span>
-                                <span class="msa-return-codes">{{ $opt['schedules'] }}</span>
+                                @if ($opt['desc'] !== '')
+                                    <span class="msa-return-desc">{{ $opt['desc'] }}</span>
+                                @endif
+                                @if ($opt['schedules'] !== '')
+                                    <span class="msa-return-codes">{{ $opt['schedules'] }}</span>
+                                @endif
                             </span>
                         </label>
                     @endforeach
@@ -724,7 +738,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                     <div class="msa-selected-box">
                         <div class="msa-selected-label">Selected</div>
                         <div class="msa-selected-title">{{ $selectedReturn['title'] }}</div>
-                        <div class="msa-selected-desc">{{ $selectedReturn['desc'] }}</div>
+                        @if (($selectedReturn['desc'] ?? '') !== '')
+                            <div class="msa-selected-desc">{{ $selectedReturn['desc'] }}</div>
+                        @endif
                         @if (! $isFileReport)
                             <div class="msa-selected-meta">
                                 {{ $activeLicenseLabel }}: <strong>{{ $activeLicense }}</strong>
@@ -736,8 +752,16 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                             </div>
                         @else
                             <div class="msa-selected-meta">
-                                One file: cigarettes + OTP · Cig # <strong>{{ $cigLicense }}</strong>
-                                · Tob # <strong>{{ $tobLicense }}</strong>
+                                MSA ID: <strong>{{ $msaDistributorId }}</strong>
+                            </div>
+                            <div class="msa-selected-meta">
+                                Seller: <strong>{{ $sellerName }}</strong>
+                                @if ($sellerAddress !== '')
+                                    · {{ $sellerAddress }}
+                                @endif
+                            </div>
+                            <div class="msa-selected-meta">
+                                Purchaser: customer name, address, city, state, zip, and phone from each sale
                             </div>
                         @endif
                     </div>
@@ -758,17 +782,17 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">All tobacco sales</span>
                     <strong class="msa-stat-val">{{ $sale_rows }}</strong>
-                    <span class="msa-stat-code">Cig + OTP in one file</span>
+                    <span class="msa-stat-code">Cig + OTP</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">Cigarette sales</span>
                     <strong class="msa-stat-val">{{ $cig_sale_rows }}</strong>
-                    <span class="msa-stat-code">Cig # {{ $cigLicense }}</span>
+                    <span class="msa-stat-code">Cigarettes</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">OTP / tobacco sales</span>
                     <strong class="msa-stat-val">{{ $otp_sale_rows }}</strong>
-                    <span class="msa-stat-code">Tob # {{ $tobLicense }}</span>
+                    <span class="msa-stat-code">OTP</span>
                 </div>
             @else
                 <div class="msa-stat">

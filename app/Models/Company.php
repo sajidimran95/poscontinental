@@ -13,6 +13,7 @@ class Company extends Model
         'fein_no',
         'secondary_tob_number',
         'secondary_cig_number',
+        'msa_distributor_id',
         'state_license_number',
         'transmitter_account_number',
         'is_active',
@@ -51,6 +52,16 @@ class Company extends Model
             : ($this->secondary_cig_number ?: $this->state_license_number);
 
         return preg_replace('/\D+/', '', (string) $raw) ?: '';
+    }
+
+    /**
+     * MSAi MULTICAT Distributor ID (HID/TOT columns 4–11). Whatever is saved in Company Settings.
+     */
+    public function msaDistributorId(): string
+    {
+        $raw = preg_replace('/\D+/', '', (string) ($this->msa_distributor_id ?? '')) ?: '';
+
+        return $raw;
     }
 
     public function msaLicenseLabel(string $product): string

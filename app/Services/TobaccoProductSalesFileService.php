@@ -158,13 +158,20 @@ class TobaccoProductSalesFileService
         };
     }
 
+    /**
+     * MULTICAT HID/TOT columns 4–11: MSA Distributor ID from Company Settings (not hardcoded).
+     */
     protected function licenseDigits(Company $company, string $product = 'all'): string
     {
-        $raw = match ($product) {
-            'cigarettes' => $company->msaLicenseNumber('cigarettes'),
-            'otp' => $company->msaLicenseNumber('otp'),
-            default => $company->msaLicenseNumber('otp') ?: $company->msaLicenseNumber('cigarettes'),
-        };
+        $raw = $company->msaDistributorId();
+        if ($raw === '') {
+            $raw = match ($product) {
+                'cigarettes' => $company->msaLicenseNumber('cigarettes'),
+                'otp' => $company->msaLicenseNumber('otp'),
+                default => $company->msaLicenseNumber('otp') ?: $company->msaLicenseNumber('cigarettes'),
+            };
+        }
+
         $digits = preg_replace('/\D+/', '', (string) ($raw ?: '0')) ?: '0';
 
         return $this->numDigits($digits, 8);
@@ -232,7 +239,7 @@ class TobaccoProductSalesFileService
         $out = [];
 
         foreach ($invoices as $invoice) {
-            $customer = $invoice->customer;
+            $customer = $invoice->customer ?? $invoice->salesOrder?->customer;
             $cid = (int) ($customer?->id ?: 0);
             if (! isset($out[$cid])) {
                 $out[$cid] = ['customer' => $customer, 'lines' => []];
@@ -346,10 +353,16 @@ class TobaccoProductSalesFileService
      */
     protected function contactNames(Company $company): array
     {
-        $raw = strtoupper(trim((string) ($company->contact_name ?: 'OFFICE')));
+        $raw = strtoupper(trim((string) ($company->contact_name ?: '')));
+        if ($raw === '') {
+            $raw = strtoupper(trim((string) ($company->name ?: 'OFFICE STAFF')));
+            $raw = preg_replace('/\b(INC|LLC|LTD|CO|CORP|COMPANY)\b\.?/', '', $raw) ?? $raw;
+            $raw = trim(preg_replace('/\s+/', ' ', $raw) ?? '') ?: 'OFFICE STAFF';
+        }
+
         $parts = preg_split('/\s+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: ['OFFICE'];
         if (count($parts) === 1) {
-            return ['last' => $parts[0], 'first' => ''];
+            return ['last' => $parts[0], 'first' => 'OFFICE'];
         }
         $last = (string) array_pop($parts);
 
@@ -371,6 +384,8 @@ class TobaccoProductSalesFileService
     {
         $loc = $this->companyLocation($company);
         $names = $this->contactNames($company);
+        $phone = $this->numDigits(preg_replace('/\D+/', '', $loc['phone']) ?: '0', 10);
+        $fax = $this->numDigits(preg_replace('/\D+/', '', $loc['fax']) ?: '0', 10);
 
         return $this->fields([
             ['HID', 3],
@@ -385,7 +400,10 @@ class TobaccoProductSalesFileService
             ['USA', 3],
             [$this->upperAscii($names['last']), 20],
             [$this->upperAscii($names['first']), 20],
-            [$this->numDigits($loc['fein'], 30), 30, '0', STR_PAD_LEFT],
+            ['00000', 5, '0', STR_PAD_LEFT],
+            [$phone, 10, '0', STR_PAD_LEFT],
+            ['00000', 5, '0', STR_PAD_LEFT],
+            [$fax, 10, '0', STR_PAD_LEFT],
             [strtolower($this->ascii($loc['email'])), 60],
             ['0002', 4],
             [self::HID_FORMAT_ID, 8],
@@ -437,6 +455,7 @@ class TobaccoProductSalesFileService
     protected function sid(string $custKey, ?Customer $customer, Company $company, int $seq): string
     {
         $co = $this->companyLocation($company);
+        $ship = $this->customerShipTo($customer);
 
         $isWalkIn = ! $customer
             || strtoupper((string) ($customer->customer_id ?? '')) === 'WALKIN'
@@ -445,17 +464,53 @@ class TobaccoProductSalesFileService
         $name = $this->upperAscii((string) (
             $customer?->company_name
             ?: $customer?->contact
+            ?: $ship['name']
             ?: 'WALK-IN CUSTOMER'
         ));
 
-        $addr = $this->upperAscii(trim((string) ($customer?->address ?: $co['address'])));
-        $city = $this->upperAscii(trim((string) ($customer?->city ?: $co['city'])));
-        $state = $this->upperAscii(substr(trim((string) ($customer?->state ?: $co['state'])), 0, 2));
-        $zip = $this->zip9((string) ($customer?->zip_code ?: $co['zip']));
-        $phoneRaw = (string) ($customer?->telephone ?: $customer?->mobile ?: $customer?->telephone2 ?: $co['phone']);
+        $addr = $this->upperAscii(trim((string) (
+            $customer?->address
+            ?: $ship['address']
+            ?: $customer?->owner_address
+            ?: ''
+        )));
+        $city = $this->upperAscii(trim((string) (
+            $customer?->city
+            ?: $ship['city']
+            ?: $customer?->owner_city
+            ?: ''
+        )));
+        $state = $this->upperAscii(substr(trim((string) (
+            $customer?->state
+            ?: $ship['state']
+            ?: $customer?->owner_state
+            ?: ''
+        )), 0, 2));
+        $zip = $this->zip9((string) (
+            $customer?->zip_code
+            ?: $ship['zip']
+            ?: $customer?->owner_zip
+            ?: ''
+        ));
+        $phoneRaw = (string) (
+            $customer?->telephone
+            ?: $customer?->mobile
+            ?: $customer?->telephone2
+            ?: $ship['phone']
+            ?: $customer?->owner_telephone
+            ?: ''
+        );
         $phone = $this->numDigits(preg_replace('/\D+/', '', $phoneRaw) ?: '0', 10);
 
         if ($isWalkIn) {
+            $name = $this->upperAscii($name !== '' && $name !== 'WALK-IN CUSTOMER' ? $name : $co['name']);
+            $addr = $this->upperAscii($addr !== '' ? $addr : $co['address']);
+            $city = $this->upperAscii($city !== '' ? $city : $co['city']);
+            $state = $this->upperAscii($state !== '' ? $state : $co['state']);
+            $zip = $zip !== $this->zip9('') ? $zip : $this->zip9($co['zip']);
+            $phone = $phone !== $this->numDigits('0', 10)
+                ? $phone
+                : $this->numDigits(preg_replace('/\D+/', '', $co['phone']) ?: '0', 10);
             $name2 = $this->upperAscii($co['name']);
             $addr2 = $this->upperAscii($co['address']);
             $city2 = $this->upperAscii($co['city']);
@@ -519,7 +574,35 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * @return array{name: string, address: string, city: string, state: string, zip: string, contact: string, email: string, phone: string, fein: string}
+     * @return array{name: string, address: string, city: string, state: string, zip: string, phone: string}
+     */
+    protected function customerShipTo(?Customer $customer): array
+    {
+        $empty = ['name' => '', 'address' => '', 'city' => '', 'state' => '', 'zip' => '', 'phone' => ''];
+        if (! $customer) {
+            return $empty;
+        }
+
+        $rows = $customer->relationLoaded('shippingAddresses')
+            ? $customer->shippingAddresses
+            : collect();
+        $row = $rows->firstWhere('is_primary', true) ?: $rows->first();
+        if (! $row) {
+            return $empty;
+        }
+
+        return [
+            'name' => trim((string) ($row->name ?? '')),
+            'address' => trim((string) ($row->address ?? '')),
+            'city' => trim((string) ($row->city ?? '')),
+            'state' => trim((string) ($row->state ?? '')),
+            'zip' => trim((string) ($row->zip ?? '')),
+            'phone' => trim((string) ($row->telephone ?? '')),
+        ];
+    }
+
+    /**
+     * @return array{name: string, address: string, city: string, state: string, zip: string, contact: string, email: string, phone: string, fax: string, fein: string}
      */
     protected function companyLocation(Company $company): array
     {
@@ -557,6 +640,7 @@ class TobaccoProductSalesFileService
             'contact' => trim((string) ($company->contact_name ?: 'OFFICE')),
             'email' => trim((string) ($company->email ?: '')),
             'phone' => trim((string) ($company->phone ?: '')),
+            'fax' => trim((string) ($company->fax ?: '')),
             'fein' => (string) ($company->fein_no ?: '0'),
         ];
     }

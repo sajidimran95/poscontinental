@@ -33,7 +33,12 @@ class MsaSalesFileController extends Controller
         }
 
         $invoices = Invoice::query()
-            ->with(['customer', 'salesOrder.lines.item.category', 'salesOrder.lines.item.subcategory'])
+            ->with([
+                'customer.shippingAddresses',
+                'salesOrder.customer.shippingAddresses',
+                'salesOrder.lines.item.category',
+                'salesOrder.lines.item.subcategory',
+            ])
             ->where('company_id', (int) $user->company_id)
             ->whereDate('invoice_date', '>=', $start)
             ->whereDate('invoice_date', '<=', $end)

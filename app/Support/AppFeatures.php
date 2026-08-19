@@ -80,11 +80,6 @@ class AppFeatures
                 'group' => 'File',
                 'routes' => ['admin.email-logs'],
             ],
-            'admin.terminal' => [
-                'label' => 'Terminal',
-                'group' => 'File',
-                'routes' => ['admin.terminal'],
-            ],
             'inquiries.stock_status' => [
                 'label' => 'Stock Status',
                 'group' => 'Inquiry',

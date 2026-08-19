@@ -41,7 +41,6 @@
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
-                                ['Terminal', 'admin.terminal'],
                             ],
                             'Inquiry' => [
                                 ['Stock Status', 'inquiries.stock-status'],

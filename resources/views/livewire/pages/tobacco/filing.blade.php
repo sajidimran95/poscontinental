@@ -78,7 +78,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public function mount(): void
     {
-        $this->applyCurrentMonthToToday();
+        $this->applySundayToSaturdayWeek();
         $this->refreshPreviewCounts();
     }
 
@@ -86,6 +86,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     {
         $this->validation_status = null;
         $this->validation_errors = [];
+        if ($this->isMsaFileReport()) {
+            $this->applySundayToSaturdayWeek();
+        }
         $this->refreshPreviewCounts();
     }
 
@@ -119,6 +122,12 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         $this->syncingWeek = true;
 
         try {
+            if ($this->isMsaFileReport()) {
+                $anchor = $preferStart ? $this->period_start : $this->period_end;
+                $this->applySundayToSaturdayWeek($anchor !== '' ? $anchor : null);
+
+                return;
+            }
             $max = $this->maxAllowedDate();
 
             $start = $this->parseDateOr($this->period_start, $this->currentMonthStart());
@@ -522,7 +531,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     public function downloadAllSalesFile(): RedirectResponse
     {
         $this->return_type = 'msa_report';
-        $this->normalizeManualPeriod(preferStart: true);
+        $this->applySundayToSaturdayWeek();
 
         return redirect()->route('reports.msa.file', [
             'from' => $this->period_start,
@@ -729,9 +738,14 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                     >Next week →</button>
                 </div>
                 <p class="msa-period-hint">
-                    Default is <strong>this month, day 1 through today</strong>.
-                    Change <strong>Period from / Period to</strong> to any dates you want — download uses those dates.
-                    Future dates are not allowed. Week buttons are optional.
+                    @if ($isFileReport)
+                        MSA sales file is one <strong>Sunday–Saturday</strong> week. Period to is always Saturday.
+                        Download includes only that week’s sales.
+                    @else
+                        Default is <strong>this month, day 1 through today</strong>.
+                        Change <strong>Period from / Period to</strong> to any dates you want — download uses those dates.
+                        Future dates are not allowed. Week buttons are optional.
+                    @endif
                 </p>
 
                 @if ($selectedReturn)

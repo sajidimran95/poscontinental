@@ -27,7 +27,7 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $this->assertSame(TobaccoProductSalesFileService::HID_LEN, strlen($hid));
         $this->assertSame('HID', substr($hid, 0, 3));
         $this->assertSame('17000299', substr($hid, 3, 8));
-        $this->assertSame('TOB TW', substr($hid, 11, 6));
+        $this->assertSame('TOB  W', substr($hid, 11, 6));
         $this->assertStringContainsString('CONTINENTAL WHOLESALE', substr($hid, 25, 32));
         $this->assertSame('3802 TRADE CENTER DR', trim(substr($hid, 57, 90)));
         $this->assertSame('7345550100', substr($hid, 231, 10));
@@ -111,6 +111,105 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $this->assertStringNotContainsString('3802 TRADE CENTER DR', $sid);
     }
 
+    public function test_bid_uses_gtin14_pack_size_and_on_hand_not_price(): void
+    {
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'MARL',
+            'primary_upc' => '4254418',
+            'description' => 'MARLBORO BOX KING',
+            'tobacco_product_type' => 'cigarettes',
+            'cigarette_pack_size' => 20,
+            'list_price' => 33.49,
+            'quantity_in_stock' => 12,
+        ]));
+
+        $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
+        $this->assertSame(TobaccoProductSalesFileService::BID_LEN, strlen($bid));
+        $this->assertSame('00000004254418', substr($bid, 3, 14));
+        $this->assertSame('00000004254418', substr($bid, 17, 14));
+        $this->assertSame('000020', substr($bid, 131, 6));
+        $this->assertSame('003', substr($bid, 247, 3));
+        $this->assertSame('00000000012', substr($bid, 250, 11));
+        $this->assertStringNotContainsString('00000033490', $bid);
+    }
+
+    public function test_pur_puts_dollars_in_002_not_004(): void
+    {
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'MARL',
+            'primary_upc' => '28200135704',
+            'description' => 'MARLBORO BOX KING',
+            'tobacco_product_type' => 'cigarettes',
+            'list_price' => 10,
+        ]), qty: 2, price: 13.29);
+
+        $pur = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'PUR'));
+        $this->assertSame(TobaccoProductSalesFileService::PUR_LEN, strlen($pur));
+        $this->assertSame('001', substr($pur, 102, 3));
+        $this->assertSame('00000000002', substr($pur, 105, 11));
+        $this->assertSame('002', substr($pur, 116, 3));
+        $this->assertSame('00000002658', substr($pur, 119, 11));
+        $this->assertSame('004', substr($pur, 130, 3));
+        $this->assertSame('00000000000', substr($pur, 133, 11));
+    }
+
+    public function test_hemp_wrap_is_excluded_from_tob_file(): void
+    {
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'ZZH',
+            'primary_upc' => '036000291452',
+            'description' => 'ZIG ZAG HEMP WRAP',
+            'tobacco_product_type' => 'otp',
+        ]));
+
+        $this->assertNull(collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID')));
+        $this->assertNull(collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'PUR')));
+    }
+
+    public function test_short_customer_phone_is_blank_not_zero_padded(): void
+    {
+        $item = new Item([
+            'item_code' => 'CIG1',
+            'primary_upc' => '012345678901',
+            'description' => 'MARLBORO BOX KING',
+            'tobacco_product_type' => 'cigarettes',
+        ]);
+        $item->id = 3;
+        $item->setRelation('category', new Category(['name' => 'MI Cigarettes']));
+
+        $line = new SalesOrderLine(['qty_ordered' => 1, 'qty_shipped' => 1, 'price' => 5, 'discount' => 0]);
+        $line->setRelation('item', $item);
+        $order = new SalesOrder;
+        $order->setRelation('lines', collect([$line]));
+
+        $customer = new Customer([
+            'customer_id' => 'C2',
+            'company_name' => 'SAMAHA OIL COMPANY',
+            'address' => '3891 PLATT RD.',
+            'city' => 'ANN ARBOR',
+            'state' => 'MI',
+            'zip_code' => '48108',
+            'telephone' => '2',
+        ]);
+        $customer->id = 2;
+
+        $invoice = new Invoice(['invoice_date' => '2026-08-12']);
+        $invoice->setRelation('customer', $customer);
+        $invoice->setRelation('salesOrder', $order);
+
+        $file = app(TobaccoProductSalesFileService::class)->build(
+            $this->company(['msa_distributor_id' => '17000299']),
+            '2026-08-09',
+            '2026-08-15',
+            collect([$invoice]),
+            'all'
+        );
+        $sid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'SID'));
+
+        $this->assertSame(str_repeat(' ', 10), substr($sid, 201, 10));
+        $this->assertStringNotContainsString('0000000002', $sid);
+    }
+
     /**
      * @param  array<string, mixed>  $extra
      */
@@ -128,6 +227,48 @@ class TobaccoProductSalesFileServiceTest extends TestCase
             'contact_name' => 'Office Manager',
             'fein_no' => '383576375',
         ], $extra));
+    }
+
+    private function sampleFile(Item $item, float $qty = 1, float $price = 10): string
+    {
+        $item->id = $item->id ?: 9;
+        if (! $item->relationLoaded('category')) {
+            $item->setRelation('category', new Category(['name' => 'MI Cigarettes']));
+        }
+
+        $line = new SalesOrderLine([
+            'qty_ordered' => $qty,
+            'qty_shipped' => $qty,
+            'price' => $price,
+            'discount' => 0,
+        ]);
+        $line->setRelation('item', $item);
+
+        $order = new SalesOrder;
+        $order->setRelation('lines', collect([$line]));
+
+        $customer = new Customer([
+            'customer_id' => 'C88',
+            'company_name' => 'SMOKE SHOP LLC',
+            'address' => '100 MAIN ST',
+            'city' => 'DETROIT',
+            'state' => 'MI',
+            'zip_code' => '48201',
+            'telephone' => '3135559999',
+        ]);
+        $customer->id = 88;
+
+        $invoice = new Invoice(['invoice_date' => '2026-08-12']);
+        $invoice->setRelation('customer', $customer);
+        $invoice->setRelation('salesOrder', $order);
+
+        return app(TobaccoProductSalesFileService::class)->build(
+            $this->company(['msa_distributor_id' => '17000299']),
+            '2026-08-09',
+            '2026-08-15',
+            collect([$invoice]),
+            'all'
+        );
     }
 
     private function hidLine(Company $company): string

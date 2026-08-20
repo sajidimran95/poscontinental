@@ -420,15 +420,15 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->requested_by_id = $rtv->requested_by_id;
         $this->site_id = $rtv->site_id;
         $this->comments = $rtv->comments ?? '';
-        $this->discount = (string) $rtv->discount;
-        $this->freight = (string) $rtv->freight;
+        $this->discount = $this->formatQtyDisplay($rtv->discount);
+        $this->freight = $this->formatQtyDisplay($rtv->freight);
         $this->lines = $rtv->lines->map(fn ($l) => [
             'item_id' => $l->item_id,
             'item_code' => $l->item_code ?? '',
             'description' => $l->description ?? '',
             'uom' => $l->uom ?? '',
-            'qty' => (string) $l->qty,
-            'unit_cost' => (string) $l->unit_cost,
+            'qty' => $this->formatQtyDisplay($l->qty),
+            'unit_cost' => $this->formatQtyDisplay($l->unit_cost),
         ])->all() ?: [$this->emptyLine()];
 
         $this->inventory_receiving_id = null;
@@ -641,7 +641,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             $sameCode = $code !== '' && mb_strtolower(trim((string) ($line['item_code'] ?? ''))) === $code;
             if ($sameId || $sameCode) {
                 $qty = (float) ($line['qty'] ?? 0);
-                $lines[$i]['qty'] = (string) ($qty + 1);
+                $lines[$i]['qty'] = $this->formatQtyDisplay($qty + 1);
                 $lines[$i]['item_code'] = (string) ($recvLine->item_code ?? $lines[$i]['item_code']);
                 $lines[$i]['description'] = (string) ($recvLine->description ?? $lines[$i]['description'] ?? '');
                 if (! filled($lines[$i]['uom'] ?? null)) {
@@ -832,13 +832,13 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $lines[$index]['description'] = (string) ($line->description ?? '');
         $lines[$index]['uom'] = $this->resolveUomFromReceivingLine($line);
         $qty = (float) $line->qty_received;
-        $lines[$index]['qty'] = $qty > 0 ? rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') : '1';
+        $lines[$index]['qty'] = $qty > 0 ? $this->formatQtyDisplay($qty) : '1';
         $cost = (float) $line->unit_cost;
-        $lines[$index]['unit_cost'] = (string) (0 + $cost);
+        $lines[$index]['unit_cost'] = $this->formatQtyDisplay($cost);
         $this->lines = array_values($lines);
     }
 
-    public function save(): void
+    public function save(bool $closeForm = true): void
     {
         abort_if($this->viewMode, 403);
 
@@ -929,8 +929,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             $this->rtv = $rtv->fresh('lines');
         });
 
-        $this->showForm = false;
-        session()->flash('status', 'RTV '.$this->rtv_number.' saved.');
+        if ($closeForm) {
+            $this->showForm = false;
+            session()->flash('status', 'RTV '.$this->rtv_number.' saved.');
+        }
     }
 
     public function process(int $id): void
@@ -939,6 +941,69 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         abort_unless($rtv->company_id === auth()->user()->company_id, 403);
         app(InventoryService::class)->processRtv($rtv);
         session()->flash('status', 'RTV processed — stock decremented.');
+    }
+
+    /** Process the RTV on the form. Save alone does not change stock. */
+    public function processCurrent(): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $this->save(closeForm: false);
+        if ($this->getErrorBag()->isNotEmpty() || ! $this->rtv?->id) {
+            return;
+        }
+
+        $rtv = ReturnToVendor::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->findOrFail((int) $this->rtv->id);
+
+        if ($rtv->status === 'Returned') {
+            session()->flash('status', 'RTV already processed.');
+            $this->showForm = false;
+
+            return;
+        }
+
+        app(InventoryService::class)->processRtv($rtv);
+        $this->showForm = false;
+        session()->flash('status', 'RTV '.$rtv->rtv_number.' processed — stock reduced.');
+    }
+
+    public function processSelected(): void
+    {
+        if (! $this->selectedId) {
+            return;
+        }
+
+        $rtv = ReturnToVendor::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->findOrFail((int) $this->selectedId);
+
+        if ($rtv->status === 'Returned') {
+            session()->flash('status', 'That RTV is already processed.');
+
+            return;
+        }
+
+        app(InventoryService::class)->processRtv($rtv);
+        session()->flash('status', 'RTV '.$rtv->rtv_number.' processed — stock reduced.');
+    }
+
+    /** Show 10 not 10.0000 (keeps decimals only when needed). */
+    protected function formatQtyDisplay(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $n = (float) $value;
+        if (abs($n) < 0.0000001) {
+            return '0';
+        }
+
+        $formatted = number_format($n, 4, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.') ?: '0';
     }
 
     public function cancelForm(): void
@@ -1290,7 +1355,15 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <a href="{{ route('purchasing.rtv.print', $rtv) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
                             <button type="button" wire:click="edit({{ $rtv->id }})" class="desk-btn desk-btn-primary">Edit RTV</button>
                         @elseif (! $isReturned)
-                            <button type="submit" class="desk-btn desk-btn-primary">Save RTV</button>
+                            <button type="submit" class="desk-btn">Save RTV</button>
+                            <button
+                                type="button"
+                                wire:click="processCurrent"
+                                wire:confirm="Process this RTV and reduce stock now?"
+                                class="desk-btn desk-btn-primary"
+                            >
+                                Process RTV
+                            </button>
                         @endif
                     </div>
                 </div>
@@ -1440,6 +1513,19 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                             <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="processSelected"
+                        wire:confirm="Process selected RTV and reduce stock?"
+                        class="desk-rail-btn"
+                        title="Process selected (reduce stock)"
+                        aria-label="Process selected RTV"
+                        @disabled(! $selectedId)
+                    >
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M3 8.5l3.2 3.2L13 4.8"/>
                         </svg>
                     </button>
                     <button

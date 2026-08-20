@@ -55,9 +55,10 @@ class TobaccoXmlService
         $transmissionId = $fein.now()->format('YmdHis');
 
         $rootXml = '<?xml version="1.0" encoding="UTF-8"?>'
-            .'<Transmission xmlns="http://www.irs.gov/efile"'
-            .' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-            .' xsi:schemaLocation="http://www.irs.gov/efile ./ExtendedCommon/Transmission.xsd"/>';
+            .'<Transmission xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+            .' xmlns="http://www.irs.gov/efile"'
+            .' xsi:schemaLocation="http://www.irs.gov/efile ./ExtendedCommon/Transmission.xsd">'
+            .'</Transmission>';
         $xml = new SimpleXMLElement($rootXml);
 
         $header = $xml->addChild('TransmissionHeader');
@@ -105,7 +106,17 @@ class TobaccoXmlService
             $this->appendStampInventory($returnNode, $stamps);
         }
 
-        return $xml->asXML() ?: '';
+        $payload = $xml->asXML() ?: '';
+
+        // Michigan e-file uploader requires this exact Transmission opening tag (attribute order + schemaLocation).
+        return (string) preg_replace(
+            '/<Transmission\b[^>]*>/',
+            '<Transmission xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'."\n"
+            .'xmlns="http://www.irs.gov/efile" xsi:schemaLocation="http://www.irs.gov/efile'."\n"
+            .'./ExtendedCommon/Transmission.xsd">',
+            $payload,
+            1
+        );
     }
 
     /**

@@ -190,20 +190,18 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * MULTICAT HID/TOT columns 4–11: MSA Distributor ID from Company Settings (not hardcoded).
+     * MULTICAT HID/TOT columns 4–11: MSAi Distributor ID (DID) only — never Secondary Tob/Cig license.
      */
     protected function licenseDigits(Company $company, string $product = 'all'): string
     {
         $raw = $company->msaDistributorId();
-        if ($raw === '') {
-            $raw = match ($product) {
-                'cigarettes' => $company->msaLicenseNumber('cigarettes'),
-                'otp' => $company->msaLicenseNumber('otp'),
-                default => $company->msaLicenseNumber('otp') ?: $company->msaLicenseNumber('cigarettes'),
-            };
-        }
+        $digits = preg_replace('/\D+/', '', (string) ($raw ?: '')) ?: '';
 
-        $digits = preg_replace('/\D+/', '', (string) ($raw ?: '0')) ?: '0';
+        if ($digits === '') {
+            throw new \InvalidArgumentException(
+                'Company MSA ID (distributor DID) is required for the MSA sales file HID/TOT records.'
+            );
+        }
 
         return $this->numDigits($digits, 8);
     }
@@ -496,9 +494,7 @@ class TobaccoProductSalesFileService
         return $this->fields([
             ['HID', 3],
             [$license, 8, '0', STR_PAD_LEFT],
-            ['TOB', 4],
-            [' ', 1],
-            ['W', 1],
+            ['TOB TW', 6],
             [$periodYmd, 8],
             [$this->upperAscii($loc['name']), self::NAME_LEN],
             [$this->upperAscii($loc['address']), self::ADDR_LEN],

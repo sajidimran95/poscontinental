@@ -90,7 +90,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'fein_no' => ['required', 'string', 'max:32', 'regex:/^[0-9\-]+$/'],
             'secondary_tob_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
             'secondary_cig_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
-            'msa_distributor_id' => ['nullable', 'string', 'max:20', 'regex:/^[0-9]*$/'],
+            'msa_distributor_id' => ['required', 'string', 'min:8', 'max:20', 'regex:/^[0-9]+$/'],
             'transmitter_account_number' => ['nullable', 'string', 'max:20', 'regex:/^[0-9]*$/'],
             'is_active' => ['boolean'],
         ], [
@@ -100,7 +100,9 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'secondary_tob_number.regex' => 'Secondary Tob Number must be numeric.',
             'secondary_cig_number.required' => 'Secondary Cig Number is required (cigarette MSA reports).',
             'secondary_cig_number.regex' => 'Secondary Cig Number must be numeric.',
+            'msa_distributor_id.required' => 'MSA ID (distributor DID) is required for HID/TOT on the MSA sales file.',
             'msa_distributor_id.regex' => 'MSA ID must be numeric.',
+            'msa_distributor_id.min' => 'MSA ID must be at least 8 digits (e.g. 17000299).',
             'transmitter_account_number.regex' => 'Transmitter must be numeric (State Employer Account Number).',
         ]);
 
@@ -250,9 +252,9 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
                 </label>
             </div>
             <label class="stamp-inv-field">
-                <span>MSA ID</span>
-                <input type="text" wire:model="msa_distributor_id" class="desk-input" placeholder="8-digit MSAi distributor ID" maxlength="20" />
-                <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">Saved on this company and written into the MSA Report TXT (HID/TOT) when you download.</small>
+                <span>MSA ID <em>*</em></span>
+                <input type="text" wire:model="msa_distributor_id" class="desk-input" placeholder="17000299" maxlength="20" />
+                <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">MSAi distributor DID — written into HID/TOT on the MSA Report TXT (not Secondary Tob/Cig #).</small>
             </label>
             <label class="stamp-inv-field">
                 <span>Transmitter <small>(State Employer Account #)</small></span>

@@ -55,7 +55,8 @@ class Company extends Model
     }
 
     /**
-     * MSAi MULTICAT Distributor ID (HID/TOT columns 4–11). Whatever is saved in Company Settings.
+     * MSAi MULTICAT Distributor ID / DID (HID/TOT columns 4–11).
+     * Distinct from Secondary Tob/Cig license numbers.
      */
     public function msaDistributorId(): string
     {

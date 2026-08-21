@@ -27,7 +27,8 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $this->assertSame(TobaccoProductSalesFileService::HID_LEN, strlen($hid));
         $this->assertSame('HID', substr($hid, 0, 3));
         $this->assertSame('17000299', substr($hid, 3, 8));
-        $this->assertSame('TOB  W', substr($hid, 11, 6));
+        $this->assertSame('TOB TW', substr($hid, 11, 6));
+        $this->assertStringNotContainsString('66666666', substr($hid, 0, 20));
         $this->assertStringContainsString('CONTINENTAL WHOLESALE', substr($hid, 25, 32));
         $this->assertSame('3802 TRADE CENTER DR', trim(substr($hid, 57, 90)));
         $this->assertSame('7345550100', substr($hid, 231, 10));
@@ -40,6 +41,43 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $company = $this->company(['msa_distributor_id' => '55112233']);
 
         $this->assertSame('55112233', substr($this->hidLine($company), 3, 8));
+    }
+
+    public function test_tot_uses_msa_distributor_id_not_secondary_tob(): void
+    {
+        $company = $this->company([
+            'msa_distributor_id' => '17000299',
+            'secondary_tob_number' => '666666666',
+        ]);
+
+        $file = app(TobaccoProductSalesFileService::class)->build(
+            $company,
+            '2026-08-09',
+            '2026-08-15',
+            collect(),
+            'all'
+        );
+        $tot = collect(explode("\r\n", $file))->first(fn (string $line) => str_starts_with($line, 'TOT'));
+
+        $this->assertNotNull($tot);
+        $this->assertSame('TOT17000299', substr($tot, 0, 11));
+        $this->assertStringNotContainsString('666666666', substr($tot, 0, 20));
+    }
+
+    public function test_build_requires_msa_distributor_id(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        app(TobaccoProductSalesFileService::class)->build(
+            $this->company([
+                'msa_distributor_id' => null,
+                'secondary_tob_number' => '666666666',
+            ]),
+            '2026-08-09',
+            '2026-08-15',
+            collect(),
+            'all'
+        );
     }
 
     public function test_filename_uses_msa_distributor_id(): void

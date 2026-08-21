@@ -16,6 +16,11 @@ class MsaSalesFileController extends Controller
 
         $company = $user->company;
         abort_unless($company, 422, 'Company settings are required before downloading the MSA report.');
+        abort_unless(
+            $company->msaDistributorId() !== '',
+            422,
+            'Set MSA ID (distributor DID, e.g. 17000299) in Company Settings before downloading the MSA report.'
+        );
 
         $start = (string) $request->query('from', now()->startOfMonth()->toDateString());
         $end = (string) $request->query('to', now()->toDateString());

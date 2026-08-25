@@ -322,7 +322,6 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         $url = route('sales.invoices.pick-list', $invoice);
         $this->dispatch('open-invoice-pdf', url: $url);
-        $this->js('window.open('.json_encode($url).', "_blank", "noopener")');
     }
 
     public function viewInvoice(int $id): void
@@ -344,7 +343,6 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
 
         $this->dispatch('open-invoice-pdf', url: route('sales.invoices.pdf', $invoice));
-        $this->js('window.open('.json_encode(route('sales.invoices.pdf', $invoice)).', "_blank", "noopener")');
     }
 
     public function editSelected(): void
@@ -898,8 +896,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     protected function openPdfInBrowser(string $url): void
     {
+        // Open once only (dispatch listener already window.open's — do not also call js open).
         $this->dispatch('open-invoice-pdf', url: $url);
-        $this->js('window.open('.json_encode($url).', "_blank", "noopener")');
     }
 
     public function savePayments(): void

@@ -38,10 +38,85 @@ class Code128Barcode
     private const STOP = 106;
 
     /**
+     * Render Code 128B as a single PNG data-URI (fast for DomPDF vs hundreds of spans).
+     */
+    public static function dataUri(string $text, int $moduleWidth = 2, int $height = 44): string
+    {
+        if (! function_exists('imagecreatetruecolor')) {
+            return '';
+        }
+
+        $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
+        $codes = [self::START_B];
+        $checksum = self::START_B;
+
+        $len = strlen($text);
+        for ($i = 0; $i < $len; $i++) {
+            $value = ord($text[$i]) - 32;
+            $codes[] = $value;
+            $checksum += $value * ($i + 1);
+        }
+
+        $codes[] = $checksum % 103;
+        $codes[] = self::STOP;
+
+        $totalModules = 0;
+        $segments = [];
+        foreach ($codes as $code) {
+            $pattern = self::PATTERNS[$code] ?? self::PATTERNS[0];
+            $black = true;
+            foreach (str_split($pattern) as $digit) {
+                $w = ((int) $digit) * $moduleWidth;
+                $segments[] = [$black, $w];
+                $totalModules += $w;
+                $black = ! $black;
+            }
+        }
+
+        $width = max(1, $totalModules);
+        $img = imagecreatetruecolor($width, $height);
+        if ($img === false) {
+            return '';
+        }
+
+        $white = imagecolorallocate($img, 255, 255, 255);
+        $blackColor = imagecolorallocate($img, 0, 0, 0);
+        imagefilledrectangle($img, 0, 0, $width, $height, $white);
+
+        $x = 0;
+        foreach ($segments as [$isBlack, $w]) {
+            if ($isBlack) {
+                imagefilledrectangle($img, $x, 0, $x + $w - 1, $height - 1, $blackColor);
+            }
+            $x += $w;
+        }
+
+        ob_start();
+        imagepng($img);
+        $png = ob_get_clean();
+        imagedestroy($img);
+
+        if ($png === false || $png === '') {
+            return '';
+        }
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
+    /**
      * Render Code 128B as DomPDF-safe inline HTML bars.
      */
     public static function html(string $text, int $moduleWidth = 1, int $height = 38, string $align = 'right'): string
     {
+        $uri = self::dataUri($text, max(1, $moduleWidth), $height);
+        if ($uri !== '') {
+            $alignCss = in_array($align, ['left', 'center', 'right'], true) ? $align : 'right';
+
+            return '<div style="text-align:'.$alignCss.';line-height:0;font-size:0;">'
+                .'<img src="'.$uri.'" alt="" height="'.$height.'" style="height:'.$height.'px;" />'
+                .'</div>';
+        }
+
         $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
         $codes = [self::START_B];
         $checksum = self::START_B;

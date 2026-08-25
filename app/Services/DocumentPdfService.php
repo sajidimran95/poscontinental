@@ -36,18 +36,17 @@ class DocumentPdfService
     {
         $invoice->loadMissing([
             'customer',
-            'salesOrder.lines',
+            'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
             'salesOrder.route',
-            'salesOrder.invoice',
             'payments',
             'credits.creditMemo',
         ]);
 
         $order = $invoice->salesOrder;
-            if (! $order) {
+        if (! $order) {
             return Pdf::loadView('pdf.invoice', [
                 'invoice' => $invoice,
                 'company' => $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company,
@@ -89,7 +88,7 @@ class DocumentPdfService
                 ['label' => 'Order No:', 'value' => $order->order_number],
                 ['label' => 'Order Status:', 'value' => $invoice->status],
             ],
-        ])->setPaper('letter');
+        ])->setPaper('letter')->setOption('defaultFont', 'Helvetica');
     }
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)

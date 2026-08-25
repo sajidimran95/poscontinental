@@ -43,7 +43,7 @@ class DocumentPdfService
             'salesOrder.route',
             'salesOrder.invoice',
             'payments',
-            'credits',
+            'credits.creditMemo',
         ]);
 
         $order = $invoice->salesOrder;

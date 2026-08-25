@@ -120,21 +120,59 @@
 <table class="footer-grid">
     <tr>
         <td class="notes">
-            <div class="card-title">Notes</div>
-            <div>Thank you for your business.</div>
-            @if ($invoice->payments->count())
-                <div style="margin-top:8px">
-                    Payments received: {{ $invoice->payments->count() }}
-                    ({{ $invoice->payments->pluck('payment_method')->unique()->filter()->implode(', ') }})
-                    @php $checkNos = $invoice->payments->pluck('check_number')->filter()->unique(); @endphp
-                    @if ($checkNos->isNotEmpty())
-                        · Check # {{ $checkNos->implode(', ') }}
-                    @endif
-                </div>
+            <div class="card-title">Payment Method</div>
+            @php
+                $paymentRows = $invoice->payments ?? collect();
+                $creditRows = $invoice->credits ?? collect();
+            @endphp
+            @if ($paymentRows->isEmpty() && $creditRows->isEmpty())
+                <div class="muted">No payments recorded yet.</div>
+            @else
+                <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:11px">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:2px 4px 4px 0;border-bottom:1px solid #cbd5e1">Method</th>
+                            <th style="text-align:left;padding:2px 4px 4px 0;border-bottom:1px solid #cbd5e1">Date / Ref</th>
+                            <th style="text-align:right;padding:2px 0 4px 4px;border-bottom:1px solid #cbd5e1">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($paymentRows as $p)
+                            <tr>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top">
+                                    <strong>{{ $p->payment_method ?: 'Payment' }}</strong>
+                                </td>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top" class="muted">
+                                    {{ optional($p->payment_date)?->format('n/j/Y') ?: '—' }}
+                                    @if (filled($p->check_number))
+                                        · Check #{{ $p->check_number }}
+                                    @endif
+                                </td>
+                                <td style="padding:3px 0 3px 4px;text-align:right;vertical-align:top">
+                                    ${{ number_format((float) $p->amount, 2) }}
+                                </td>
+                            </tr>
+                        @endforeach
+                        @foreach ($creditRows as $c)
+                            <tr>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top">
+                                    <strong>Credit Memo</strong>
+                                </td>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top" class="muted">
+                                    #{{ $c->creditMemo?->memo_number ?: '—' }}
+                                    @if ($c->creditMemo?->memo_date)
+                                        · {{ $c->creditMemo->memo_date->format('n/j/Y') }}
+                                    @endif
+                                </td>
+                                <td style="padding:3px 0 3px 4px;text-align:right;vertical-align:top">
+                                    ${{ number_format((float) $c->amount, 2) }}
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
             @endif
-            @if ($invoice->credits->count())
-                <div>Credits applied: {{ $invoice->credits->count() }}</div>
-            @endif
+            <div style="margin-top:10px" class="muted">Thank you for your business.</div>
         </td>
         <td class="totals-wrap">
             <table class="totals">

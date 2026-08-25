@@ -119,9 +119,53 @@
         }
         .right { text-align: right; }
         .center { text-align: center; }
+        .footer-pay {
+            width: 100%;
+            margin-top: 10px;
+            border-collapse: collapse;
+        }
+        .footer-pay td {
+            vertical-align: top;
+        }
+        .pay-box {
+            width: 58%;
+            padding-right: 12px;
+        }
+        .pay-box .pay-title {
+            font-size: 10px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .pay-lines {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+        }
+        .pay-lines th {
+            text-align: left;
+            padding: 2px 4px 3px 0;
+            border-bottom: 1px solid #999;
+            font-size: 9px;
+        }
+        .pay-lines th.amt,
+        .pay-lines td.amt {
+            text-align: right;
+            white-space: nowrap;
+            padding-right: 0;
+        }
+        .pay-lines td {
+            padding: 3px 4px 2px 0;
+            vertical-align: top;
+        }
+        .pay-empty {
+            font-size: 10px;
+            color: #666;
+        }
         .totals {
             width: 280px;
-            margin-top: 10px;
+            margin-top: 0;
             margin-left: auto;
             border-collapse: collapse;
         }
@@ -315,30 +359,101 @@
     </tbody>
 </table>
 
-<table class="totals">
+@php
+    $invoiceDoc = $order->invoice;
+    $payRows = $invoiceDoc?->payments ?? collect();
+    $creditRows = $invoiceDoc?->credits ?? collect();
+    $isInvoiceDoc = ($docTitle ?? 'Sales Order') === 'Invoice';
+@endphp
+
+<table class="footer-pay">
     <tr>
-        <td class="right">Subtotal</td>
-        <td class="right" style="width:90px">{{ number_format((float) ($order->subtotal ?? 0), 2) }}</td>
-    </tr>
-    <tr>
-        <td class="right">Trade Discount</td>
-        <td class="right">{{ number_format((float) ($order->trade_discount ?? 0), 2) }}</td>
-    </tr>
-    <tr>
-        <td class="right">Freight</td>
-        <td class="right">{{ number_format((float) ($order->freight ?? 0), 2) }}</td>
-    </tr>
-    <tr>
-        <td class="right">Miscellaneous</td>
-        <td class="right">{{ number_format((float) ($order->miscellaneous ?? 0), 2) }}</td>
-    </tr>
-    <tr>
-        <td class="right">Tax</td>
-        <td class="right">{{ number_format((float) ($order->tax ?? 0), 2) }}</td>
-    </tr>
-    <tr class="grand">
-        <td class="right">{{ ($docTitle ?? 'Sales Order') === 'Invoice' ? 'Invoice Total' : 'Order Total' }}</td>
-        <td class="right">{{ number_format((float) ($order->total ?? 0), 2) }}</td>
+        <td class="pay-box">
+            @if ($isInvoiceDoc)
+                <div class="pay-title">Payment Method</div>
+                @if ($payRows->isEmpty() && $creditRows->isEmpty())
+                    <div class="pay-empty">No payments recorded yet.</div>
+                @else
+                    <table class="pay-lines">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Date / Ref</th>
+                                <th class="amt">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($payRows as $p)
+                                <tr>
+                                    <td><strong>{{ $p->payment_method ?: 'Payment' }}</strong></td>
+                                    <td>
+                                        {{ optional($p->payment_date)?->format('m/d/Y') ?: '—' }}
+                                        @if (filled($p->check_number))
+                                            · Check #{{ $p->check_number }}
+                                        @endif
+                                    </td>
+                                    <td class="amt">{{ number_format((float) $p->amount, 2) }}</td>
+                                </tr>
+                            @endforeach
+                            @foreach ($creditRows as $c)
+                                <tr>
+                                    <td><strong>Credit Memo</strong></td>
+                                    <td>
+                                        #{{ $c->creditMemo?->memo_number ?: '—' }}
+                                        @if ($c->creditMemo?->memo_date)
+                                            · {{ $c->creditMemo->memo_date->format('m/d/Y') }}
+                                        @endif
+                                    </td>
+                                    <td class="amt">{{ number_format((float) $c->amount, 2) }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @endif
+            @endif
+        </td>
+        <td style="width:42%">
+            <table class="totals">
+                <tr>
+                    <td class="right">Subtotal</td>
+                    <td class="right" style="width:90px">{{ number_format((float) ($order->subtotal ?? 0), 2) }}</td>
+                </tr>
+                <tr>
+                    <td class="right">Trade Discount</td>
+                    <td class="right">{{ number_format((float) ($order->trade_discount ?? 0), 2) }}</td>
+                </tr>
+                <tr>
+                    <td class="right">Freight</td>
+                    <td class="right">{{ number_format((float) ($order->freight ?? 0), 2) }}</td>
+                </tr>
+                <tr>
+                    <td class="right">Miscellaneous</td>
+                    <td class="right">{{ number_format((float) ($order->miscellaneous ?? 0), 2) }}</td>
+                </tr>
+                <tr>
+                    <td class="right">Tax</td>
+                    <td class="right">{{ number_format((float) ($order->tax ?? 0), 2) }}</td>
+                </tr>
+                <tr class="grand">
+                    <td class="right">{{ $isInvoiceDoc ? 'Invoice Total' : 'Order Total' }}</td>
+                    <td class="right">{{ number_format((float) ($order->total ?? 0), 2) }}</td>
+                </tr>
+                @if ($isInvoiceDoc && $invoiceDoc)
+                    <tr>
+                        <td class="right">Payments</td>
+                        <td class="right">{{ number_format((float) $invoiceDoc->total_payments, 2) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="right">Credits</td>
+                        <td class="right">{{ number_format((float) $invoiceDoc->total_credits, 2) }}</td>
+                    </tr>
+                    <tr class="grand">
+                        <td class="right">Balance Due</td>
+                        <td class="right">{{ number_format((float) $invoiceDoc->invoice_balance, 2) }}</td>
+                    </tr>
+                @endif
+            </table>
+        </td>
     </tr>
 </table>
 </body>

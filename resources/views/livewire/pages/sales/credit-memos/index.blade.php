@@ -1,5 +1,6 @@
-<?php
+﻿<?php
 
+use App\Livewire\Concerns\BrowsesItemsForDocument;
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Item;
@@ -18,6 +19,10 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 {
     use WithPagination;
+    use BrowsesItemsForDocument {
+        openItemBrowse as openDocumentItemBrowse;
+        closeItemBrowse as closeDocumentItemBrowse;
+    }
 
     #[Url]
     public string $search = '';
@@ -50,8 +55,14 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     /** Flat credit amount when no item lines are used. */
     public string $credit_amount = '';
 
-    /** @var array<int, array{item_code:string,description:string,uom:string,qty:string,price:string}> */
+    /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty:string,price:string}> */
     public array $lines = [];
+
+    public string $itemLookup = '';
+
+    public bool $scanModeActive = false;
+
+    public string $lookupMessage = '';
 
     public ?int $emailMemoId = null;
 
@@ -67,7 +78,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public string $orderBrowseSearch = '';
 
-    public bool $showItemBrowse = false;
+    /** Order-line picker (optional: items from selected invoice/order). */
+    public bool $showOrderItemBrowse = false;
 
     public string $itemBrowseSearch = '';
 
@@ -122,7 +134,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 return ((float) ($l['qty'] ?? 0)) * ((float) ($l['price'] ?? 0));
             });
 
-        return [
+        $data = [
             'memos' => $query->paginate(50),
             'listTitle' => match (true) {
                 $this->statusFilter === 'Open', $this->favorite === 'open' => 'Credit Memos (Open)',
@@ -168,7 +180,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     ->limit(100)
                     ->get(['id', 'order_number', 'order_date', 'customer_po_no', 'reference_no', 'status', 'total'])
                 : collect(),
-            'browseOrderLines' => ($this->showItemBrowse && $this->sales_order_id)
+            'browseOrderLines' => ($this->showOrderItemBrowse && $this->sales_order_id)
                 ? SalesOrderLine::query()
                     ->where('sales_order_id', $this->sales_order_id)
                     ->when(filled($this->itemBrowseSearch), function ($q) {
@@ -192,7 +204,10 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 : null,
             'lineTotal' => $lineTotal,
             'creditPreview' => $lineTotal > 0 ? $lineTotal : (float) str_replace(',', '', (string) $this->credit_amount),
+            'browseItems' => collect($this->browseRows),
         ];
+
+        return array_merge($this->documentBrowseViewData(), $data);
     }
 
     /** @return list<string> */
@@ -362,11 +377,15 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->reason = '';
         $this->restock_inventory = true;
         $this->credit_amount = '';
+        $this->itemLookup = '';
+        $this->lookupMessage = '';
+        $this->scanModeActive = false;
         $this->showCustomerBrowse = false;
         $this->showOrderBrowse = false;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
+        $this->closeDocumentItemBrowse();
         $this->lines = [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
     }
 
@@ -394,20 +413,23 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->showForm = false;
         $this->showCustomerBrowse = false;
         $this->showOrderBrowse = false;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
+        $this->closeDocumentItemBrowse();
+        $this->itemLookup = '';
+        $this->lookupMessage = '';
         $this->resetErrorBag();
     }
 
     public function addLine(): void
     {
-        $this->lines[] = ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''];
+        $this->lines[] = $this->emptyCreditLine();
     }
 
     public function removeLine(int $index): void
     {
         unset($this->lines[$index]);
         $this->lines = array_values($this->lines) ?: [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
     }
 
@@ -428,7 +450,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
-        // Prefer exact order-line code; also allow UPC/alias → item_id on this order.
+        // Prefer exact order-line code; also allow UPC/alias -> item_id on this order.
         $orderLine = SalesOrderLine::query()
             ->where('sales_order_id', $this->sales_order_id)
             ->where(function ($q) use ($resolved) {
@@ -471,12 +493,6 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function lookupOrBrowseItem(int $index, ?string $code = null): void
     {
-        if (! $this->sales_order_id) {
-            $this->addError('sales_order_id', 'Select Order / Invoice No. first.');
-
-            return;
-        }
-
         if ($code !== null) {
             $lines = $this->lines;
             $lines[$index]['item_code'] = trim($code);
@@ -490,11 +506,26 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
-        $this->lookupLineItem($index, $resolved);
-        if (trim((string) ($this->lines[$index]['description'] ?? '')) === '') {
-            $this->itemBrowseSearch = $resolved;
-            $this->openItemBrowse($index);
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
+        if ($item) {
+            $this->browseLineIndex = $index;
+            $this->fillLineFromItem($index, $item);
+            if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
+                $this->lines[$index]['qty'] = '1';
+            }
+            $this->playPosSound('success');
+
+            return;
         }
+
+        if ($this->sales_order_id) {
+            $this->lookupLineItem($index, $resolved);
+            if (trim((string) ($this->lines[$index]['description'] ?? '')) !== '') {
+                return;
+            }
+        }
+
+        $this->openItemBrowse($index, $resolved);
     }
 
     public function updatedLines($value, string $key): void
@@ -531,7 +562,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->showCustomerBrowse = true;
         $this->customerSearch = '';
         $this->showOrderBrowse = false;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
     }
 
     public function closeCustomerBrowse(): void
@@ -551,7 +582,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->customer_id = $customerId;
         $this->sales_order_id = null;
         $this->lines = [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
         $this->showCustomerBrowse = false;
         $this->resetErrorBag('customer_id');
@@ -564,9 +595,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->customer_id = null;
         $this->sales_order_id = null;
         $this->showOrderBrowse = false;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
         $this->lines = [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
     }
 
@@ -580,7 +611,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->showOrderBrowse = true;
         $this->orderBrowseSearch = '';
         $this->showCustomerBrowse = false;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
     }
 
     public function closeOrderBrowse(): void
@@ -606,7 +637,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 ?: '';
         }
         $this->lines = [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
         $this->showOrderBrowse = false;
         $this->resetErrorBag('sales_order_id');
@@ -615,16 +646,16 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     public function clearOrder(): void
     {
         $this->sales_order_id = null;
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
         $this->lines = [
-            ['item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''],
+            $this->emptyCreditLine(),
         ];
     }
 
-    public function openItemBrowse(?int $index = null): void
+    public function openOrderItemBrowse(?int $index = null): void
     {
         if (! $this->sales_order_id) {
-            $this->addError('sales_order_id', 'Select Order / Invoice No. first, then use Item List.');
+            $this->addError('sales_order_id', 'Select Order / Invoice No. first, then use Order Items.');
 
             return;
         }
@@ -635,16 +666,262 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $this->itemBrowseLineIndex = count($this->lines) - 1;
         }
         $this->itemBrowseSearch = trim((string) ($this->lines[$this->itemBrowseLineIndex]['item_code'] ?? ''));
-        $this->showItemBrowse = true;
+        $this->showOrderItemBrowse = true;
         $this->showCustomerBrowse = false;
         $this->showOrderBrowse = false;
         $this->resetErrorBag('sales_order_id');
     }
 
+    public function closeOrderItemBrowse(): void
+    {
+        $this->showOrderItemBrowse = false;
+        $this->itemBrowseLineIndex = null;
+    }
+
+    public function openItemBrowse(?int $lineIndex = null, ?string $search = null): void
+    {
+        if (! $this->showForm) {
+            return;
+        }
+        if (($search === null || $search === '') && $lineIndex === null) {
+            $search = trim($this->itemLookup);
+        }
+        $this->showOrderItemBrowse = false;
+        $this->openDocumentItemBrowse($lineIndex, $search);
+    }
+
     public function closeItemBrowse(): void
     {
-        $this->showItemBrowse = false;
-        $this->itemBrowseLineIndex = null;
+        $this->closeDocumentItemBrowse();
+    }
+
+    public function pickBrowseItem(int $itemId): void
+    {
+        if (! $this->showForm) {
+            return;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->find($itemId);
+
+        if (! $item) {
+            $this->playPosSound('error');
+
+            return;
+        }
+
+        $this->applyItemToCredit($item);
+        $this->lookupMessage = '';
+        $this->lineWarning = '';
+        $this->playPosSound('success');
+        $this->browseLineIndex = $this->firstEmptyLineIndex();
+        $this->focusBrowseSearch();
+    }
+
+    public function addItemFromEntry(?string $code = null): void
+    {
+        if (! $this->showForm) {
+            return;
+        }
+
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
+        $this->itemLookup = $code;
+
+        if ($code === '') {
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'any');
+        if ($item) {
+            $this->itemLookup = '';
+            $this->browseLineIndex = null;
+            $this->applyItemToCredit($item);
+            $this->scanModeActive = true;
+            $this->playPosSound('success');
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        $this->playPosSound('error');
+        $this->lookupMessage = 'Item '.$code.' was not found.';
+        $this->openItemBrowse(null, $code);
+    }
+
+    public function autoAddEntryIfExactMatch(?string $code = null): void
+    {
+        if (! $this->showForm) {
+            return;
+        }
+
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
+        if ($code === '' || mb_strlen($code) < 2) {
+            return;
+        }
+
+        $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'any');
+        if (! $item || $this->codeIsPrefixOfLongerItemCode($code)) {
+            return;
+        }
+
+        $this->itemLookup = '';
+        $this->lookupMessage = '';
+        $this->browseLineIndex = null;
+        $this->applyItemToCredit($item);
+        $this->scanModeActive = true;
+        $this->playPosSound('success');
+        $this->clearAndFocusEntry();
+    }
+
+    public function focusScanAndAdd(): void
+    {
+        if (! $this->showForm) {
+            return;
+        }
+
+        $this->scanModeActive = true;
+        $this->lookupMessage = '';
+
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('cm-item-entry');
+                if (!el) return;
+                el.focus();
+                const v = (el.value || '').trim();
+                if (v.length >= 2) {
+                    $wire.addItemFromEntry(v);
+                } else {
+                    el.select();
+                }
+            });
+        JS);
+    }
+
+    public function clearItemLookup(): void
+    {
+        $this->itemLookup = '';
+        $this->lookupMessage = '';
+        $this->clearAndFocusEntry();
+    }
+
+    protected function clearAndFocusEntry(): void
+    {
+        $this->itemLookup = '';
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('cm-item-entry');
+                if (el) { el.focus(); el.select(); }
+            });
+        JS);
+    }
+
+    protected function applyItemToCredit(Item $item): void
+    {
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id
+                || strcasecmp((string) ($line['item_code'] ?? ''), (string) $item->item_code) === 0) {
+                $qty = (float) ($line['qty'] ?? 0);
+                $this->lines[$i]['qty'] = (string) max(1, $qty + 1);
+                $this->fillLineFromItem($i, $item, bumpQty: false);
+
+                return;
+            }
+        }
+
+        $index = $this->resolveCreditTargetIndex();
+        $this->fillLineFromItem($index, $item);
+        if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
+            $this->lines[$index]['qty'] = '1';
+        }
+
+        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
+    }
+
+    protected function fillLineFromItem(int $index, Item $item, bool $bumpQty = true): void
+    {
+        $this->lines[$index]['item_id'] = (int) $item->id;
+        $this->lines[$index]['item_code'] = (string) $item->item_code;
+        $this->lines[$index]['description'] = (string) ($item->description ?? '');
+        $this->lines[$index]['uom'] = (string) ($item->unit_of_measure ?? '');
+        $this->lines[$index]['price'] = $this->resolveCreditPrice($item);
+        if ($bumpQty && (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0)) {
+            $this->lines[$index]['qty'] = '1';
+        }
+    }
+
+    protected function resolveCreditPrice(Item $item): string
+    {
+        if ($this->sales_order_id) {
+            $orderLine = SalesOrderLine::query()
+                ->where('sales_order_id', $this->sales_order_id)
+                ->where(function ($q) use ($item) {
+                    $q->where('item_id', $item->id)
+                        ->orWhereRaw('LOWER(item_code) = ?', [mb_strtolower((string) $item->item_code)]);
+                })
+                ->orderBy('line_no')
+                ->first();
+            if ($orderLine && (float) $orderLine->price > 0) {
+                return number_format((float) $orderLine->price, 4, '.', '');
+            }
+        }
+
+        return number_format((float) ($item->list_price ?? 0), 4, '.', '');
+    }
+
+    protected function resolveCreditTargetIndex(): int
+    {
+        if ($this->browseLineIndex !== null && isset($this->lines[$this->browseLineIndex])
+            && ! filled($this->lines[$this->browseLineIndex]['item_code'] ?? null)) {
+            return (int) $this->browseLineIndex;
+        }
+
+        foreach ($this->lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                return (int) $i;
+            }
+        }
+
+        $this->addLine();
+
+        return count($this->lines) - 1;
+    }
+
+    protected function firstEmptyLineIndex(): ?int
+    {
+        foreach ($this->lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                return (int) $i;
+            }
+        }
+
+        return null;
+    }
+
+    protected function codeIsPrefixOfLongerItemCode(string $code): bool
+    {
+        $code = mb_strtolower(trim($code));
+        if ($code === '') {
+            return false;
+        }
+
+        return Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->whereRaw('LOWER(item_code) LIKE ?', [$code.'%'])
+            ->whereRaw('LOWER(item_code) <> ?', [$code])
+            ->exists();
+    }
+
+    public function emptyCreditLine(): array
+    {
+        return ['item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''];
     }
 
     public function pickOrderLine(int $lineId): void
@@ -666,16 +943,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $index = count($this->lines) - 1;
         }
 
+        $this->lines[$index]['item_id'] = $orderLine->item_id ? (int) $orderLine->item_id : null;
         $this->lines[$index]['item_code'] = (string) $orderLine->item_code;
         $this->lines[$index]['description'] = (string) ($orderLine->description ?? '');
         $this->lines[$index]['uom'] = (string) ($orderLine->uom ?? '');
         $price = (string) $orderLine->price;
         $this->lines[$index]['price'] = ($price === '0' || $price === '0.0' || $price === '0.00') ? '' : $price;
-        if (($this->lines[$index]['qty'] ?? '') === '') {
-            $this->lines[$index]['qty'] = '';
+        if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
+            $this->lines[$index]['qty'] = '1';
         }
 
-        $this->showItemBrowse = false;
+        $this->showOrderItemBrowse = false;
         $this->itemBrowseLineIndex = null;
     }
 
@@ -723,8 +1001,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             ->filter(fn ($l) => trim((string) ($l['item_code'] ?? '')) !== '')
             ->values();
 
-        if ($filledLines->isNotEmpty() && ! $this->sales_order_id) {
-            $this->addError('sales_order_id', 'Select Order / Invoice before adding item lines.');
+        if ($filledLines->isNotEmpty() && ! $this->customer_id) {
+            $this->addError('customer_id', 'Select a customer before adding item lines.');
 
             return;
         }
@@ -736,12 +1014,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 return;
             }
 
-            $onOrder = SalesOrderLine::query()
-                ->where('sales_order_id', $this->sales_order_id)
+            $exists = Item::query()
+                ->where('company_id', auth()->user()->company_id)
                 ->where('item_code', $line['item_code'])
                 ->exists();
-            if (! $onOrder) {
-                $this->addError('lines.'.$i.'.item_code', 'Item is not on the selected order.');
+            if (! $exists) {
+                $this->addError('lines.'.$i.'.item_code', 'Unknown item code.');
 
                 return;
             }
@@ -971,19 +1249,88 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 </div>
 
                 <div class="entity-section cm-lines-section">
-                    <div class="entity-section-head">
+                    <div class="entity-section-head cm-lines-head">
                         <h3 class="entity-section-title">Credit Lines</h3>
                         <div class="cm-lines-actions">
-                            <span class="item-hint" style="margin:0">
-                                @if (! $sales_order_id)
-                                    Select Order / Invoice, then use List.
-                                @else
-                                    List shows items from order {{ $selectedOrder?->order_number }} only.
+                            <span class="item-hint cm-lines-hint">
+                                Scan / Browse full catalog (same as Purchase Orders).
+                                @if ($sales_order_id)
+                                    Order price used when item is on {{ $selectedOrder?->order_number }}.
                                 @endif
                             </span>
-                            <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm" @disabled(! $sales_order_id)>Add Line</button>
+                            <div class="cm-lines-btns">
+                                @if ($sales_order_id)
+                                    <button type="button" wire:click="openOrderItemBrowse" class="desk-btn desk-btn-sm">From Order</button>
+                                @endif
+                                <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items (F2)</button>
+                                <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                            </div>
                         </div>
                     </div>
+
+                    <div class="so-entry cm-entry">
+                        <span class="so-entry-label">Add item — scan or type code</span>
+                        <div class="so-scan-bar cm-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive])>
+                            <button type="button" wire:click="focusScanAndAdd" class="so-scan-btn" title="Scan: focus entry, or add code in the box">
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                id="cm-item-entry"
+                                type="text"
+                                wire:model="itemLookup"
+                                class="so-input so-entry-input font-mono"
+                                placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
+                                autocomplete="off"
+                                x-data="{
+                                    timer: null,
+                                    rapid: false,
+                                    scheduleAuto() {
+                                        clearTimeout(this.timer);
+                                        const scanOn = !!$wire.scanModeActive;
+                                        if (!scanOn && !this.rapid) return;
+                                        const delay = this.rapid ? 100 : 750;
+                                        this.timer = setTimeout(() => {
+                                            const v = ($el.value || '').trim();
+                                            if (v.length < 2) { this.rapid = false; return; }
+                                            $wire.autoAddEntryIfExactMatch(v);
+                                            this.rapid = false;
+                                        }, delay);
+                                    },
+                                    onKey(e) {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            clearTimeout(this.timer);
+                                            $wire.addItemFromEntry(($el.value || '').trim());
+                                            this.rapid = false;
+                                            return;
+                                        }
+                                        if (e.key === 'F2') {
+                                            e.preventDefault();
+                                            $wire.openItemBrowse();
+                                            return;
+                                        }
+                                        const now = Date.now();
+                                        if (this._last && (now - this._last) < 45) this.rapid = true;
+                                        this._last = now;
+                                        this.scheduleAuto();
+                                    }
+                                }"
+                                x-on:keydown="onKey($event)"
+                            />
+                            <button type="button" class="so-icon-btn so-entry-clear-btn" wire:click="clearItemLookup" title="Clear">×</button>
+                            <button type="button" class="so-icon-btn so-entry-add-btn" x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('cm-item-entry')?.value || '')" title="Add">
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                            </button>
+                        </div>
+                        <button type="button" wire:click="openItemBrowse" class="so-browse-btn cm-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                        @if ($lookupMessage !== '')
+                            <span class="item-hint cm-lookup-msg">{{ $lookupMessage }}</span>
+                        @endif
+                    </div>
+
                     <div class="desk-grid cm-lines-wrap">
                         <table class="desk-table cm-lines-table">
                             <colgroup>
@@ -1012,42 +1359,29 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                 @foreach ($lines as $i => $line)
                                     @php $lineUoms = $this->uomOptionsForLine($i, $uomOptions); @endphp
                                     <tr wire:key="cm-line-{{ $i }}">
-                                        <td class="col-code po-line-code-cell">
-                                            <div class="so-scan-bar po-line-scan-bar" role="search">
-                                                <button
-                                                    type="button"
-                                                    class="so-scan-btn"
-                                                    title="Scan barcode"
-                                                    wire:click="$js('document.getElementById(\'cm-line-code-{{ $i }}\')?.focus()')"
-                                                    @disabled(! $sales_order_id)
-                                                >
-                                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                                    </svg>
-                                                    <span>Scan</span>
-                                                </button>
-                                                <input
-                                                    id="cm-line-code-{{ $i }}"
-                                                    wire:model="lines.{{ $i }}.item_code"
-                                                    wire:keydown.enter.prevent="lookupOrBrowseItem({{ $i }}, $event.target.value)"
-                                                    class="so-input font-mono item-cell-ctl"
-                                                    placeholder="Scan or type code…"
-                                                    aria-label="Item code line {{ $i + 1 }}"
-                                                    autocomplete="off"
-                                                    @disabled(! $sales_order_id)
-                                                />
-                                                <button type="button" wire:click.prevent="lookupOrBrowseItem({{ $i }})" class="so-icon-btn so-entry-add-btn" title="Add" @disabled(! $sales_order_id)>
-                                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                                                </button>
+                                        <td class="col-code" data-label="Item Code">
+                                            <input
+                                                id="cm-line-code-{{ $i }}"
+                                                wire:model="lines.{{ $i }}.item_code"
+                                                wire:keydown.enter.prevent="lookupOrBrowseItem({{ $i }}, $event.target.value)"
+                                                class="so-input font-mono cm-cell"
+                                                placeholder="Code"
+                                                aria-label="Item code line {{ $i + 1 }}"
+                                                autocomplete="off"
+                                            />
+                                        </td>
+                                        <td class="col-find" data-label="">
+                                            <div class="cm-find-btns">
+                                                <button type="button" class="desk-btn desk-btn-sm" wire:click="openItemBrowse({{ $i }})" title="Browse catalog">Browse</button>
+                                                @if ($sales_order_id)
+                                                    <button type="button" class="desk-btn desk-btn-sm" wire:click="openOrderItemBrowse({{ $i }})" title="Items from selected order">Order</button>
+                                                @endif
                                             </div>
                                         </td>
-                                        <td class="col-find">
-                                            <button type="button" class="desk-btn desk-btn-sm" wire:click="openItemBrowse({{ $i }})" title="Order item list" @disabled(! $sales_order_id)>List</button>
-                                        </td>
-                                        <td class="col-desc">
+                                        <td class="col-desc" data-label="Description">
                                             <input wire:model="lines.{{ $i }}.description" class="so-input cm-cell" aria-label="Description line {{ $i + 1 }}" />
                                         </td>
-                                        <td class="col-uom">
+                                        <td class="col-uom" data-label="UOM">
                                             <select wire:model.live="lines.{{ $i }}.uom" class="so-input cm-cell" aria-label="UOM line {{ $i + 1 }}">
                                                 <option value="">—</option>
                                                 @foreach ($lineUoms as $uomOpt)
@@ -1055,14 +1389,14 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                                 @endforeach
                                             </select>
                                         </td>
-                                        <td class="col-qty">
+                                        <td class="col-qty" data-label="Qty">
                                             <input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right cm-cell" placeholder="0" aria-label="Qty line {{ $i + 1 }}" />
                                         </td>
-                                        <td class="col-price">
+                                        <td class="col-price" data-label="Price">
                                             <input wire:model.live="lines.{{ $i }}.price" class="so-input text-right cm-cell" placeholder="0" aria-label="Price line {{ $i + 1 }}" />
                                         </td>
-                                        <td class="col-total desk-money">${{ number_format(((float) ($line['qty'] ?: 0) * (float) ($line['price'] ?: 0)), 2) }}</td>
-                                        <td class="col-action">
+                                        <td class="col-total desk-money" data-label="Total">${{ number_format(((float) ($line['qty'] ?: 0) * (float) ($line['price'] ?: 0)), 2) }}</td>
+                                        <td class="col-action" data-label="">
                                             <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm" aria-label="Remove line">×</button>
                                         </td>
                                     </tr>
@@ -1070,7 +1404,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             </tbody>
                         </table>
                     </div>
-                    @error('lines') <p class="cm-field-error" style="padding:0.5rem 0.85rem" role="alert">{{ $message }}</p> @enderror
+                    @error('lines') <p class="cm-field-error cm-lines-error" role="alert">{{ $message }}</p> @enderror
                 </div>
 
                 <div class="entity-footer-actions cm-form-footer">
@@ -1085,7 +1419,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         <div class="desk-flash" role="status">{{ session('status') }}</div>
                     @endif
 
-                    <div class="desk-toolbar orders-toolbar">
+                    <div class="desk-toolbar orders-toolbar cm-list-toolbar">
                         <label class="desk-toolbar-label" for="cm-search">Search Credit Memos:</label>
                         <input
                             id="cm-search" data-pos-search
@@ -1115,8 +1449,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         <span class="desk-title-meta">{{ number_format($memos->total()) }} records</span>
                     </div>
 
-                    <div class="desk-grid">
-                        <table class="desk-table">
+                    <div class="desk-grid cm-list-grid">
+                        <table class="desk-table desk-table-fit">
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
@@ -1352,8 +1686,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         </div>
     @endif
 
-    @if ($showItemBrowse)
-        <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeItemBrowse" role="dialog" aria-modal="true" aria-label="Order item list">
+    @if ($showOrderItemBrowse)
+        <div class="desk-modal-backdrop so-item-browse-backdrop" wire:click.self="closeOrderItemBrowse" role="dialog" aria-modal="true" aria-label="Order item list">
             <div class="desk-modal desk-modal-lg so-item-browse-modal">
                 <div class="desk-modal-head">
                     <span>
@@ -1365,14 +1699,14 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             @endif
                         @endif
                     </span>
-                    <button type="button" wire:click="closeItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
+                    <button type="button" wire:click="closeOrderItemBrowse" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-item-browse-toolbar">
                     <input
                         type="search"
                         wire:model.live.debounce.200ms="itemBrowseSearch"
                         class="so-input so-item-browse-search"
-                        placeholder="Search this order’s items…"
+                        placeholder="Search this order's items…"
                         autofocus
                     />
                     <span class="so-item-browse-count">{{ $browseOrderLines->count() }} shown</span>
@@ -1412,9 +1746,25 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 </div>
                 <div class="so-item-browse-foot">
                     <span>Only items from the selected order · Click a row to fill</span>
-                    <button type="button" wire:click="closeItemBrowse" class="desk-btn">Close</button>
+                    <button type="button" wire:click="closeOrderItemBrowse" class="desk-btn">Close</button>
                 </div>
             </div>
         </div>
     @endif
+
+    @include('livewire.pages.sales.orders.partials.item-browse-panel')
+
+@script
+<script>
+    $wire.on('open-item-record', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (!url) return;
+        window.open(url, '_blank');
+    });
+    $wire.on('pos-alert', (e) => {
+        const kind = e?.kind ?? e?.[0]?.kind ?? 'error';
+        window.playPosAlert && window.playPosAlert(kind);
+    });
+</script>
+@endscript
 </div>

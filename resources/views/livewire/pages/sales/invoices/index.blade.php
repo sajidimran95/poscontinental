@@ -954,10 +954,28 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 </div>
 
                 <div class="desk-grid">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-fit">
+                        <colgroup>
+                            <col style="width:2.1rem" />
+                            <col style="width:8%" />
+                            <col style="width:7%" />
+                            <col style="width:7%" />
+                            <col style="width:7%" />
+                            <col style="width:14%" />
+                            <col style="width:7%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                            <col style="width:5%" />
+                            <col style="width:5%" />
+                            <col style="width:8%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                        </colgroup>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
+                                <th class="text-center"></th>
                                 <th>Invoice No</th>
                                 <th>Invoice Date</th>
                                 <th>Order No</th>
@@ -1004,7 +1022,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
                                     <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
-                                    <td>{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
+                                    <td title="{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
                                     <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
                                     <td class="desk-money">${{ number_format($inv->total_discount, 2) }}</td>
                                     <td class="desk-money">${{ number_format($inv->trade_discount, 2) }}</td>

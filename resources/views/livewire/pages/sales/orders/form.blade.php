@@ -513,13 +513,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->persistCreateWindowDraft();
         $windows = app(SalesOrderWindowManager::class);
-        if ($windows->count() >= SalesOrderWindowManager::MAX_WINDOWS) {
-            $this->notifyAlert('Maximum of '.SalesOrderWindowManager::MAX_WINDOWS.' new sales order windows.', 'error');
+        if ($windows->count() >= SalesOrderWindowManager::MAX_WINDOWS
+            || ($windows->count() + app(\App\Services\DocumentTabManager::class)->count()) >= \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS) {
+            $this->notifyAlert('Maximum of '.\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.', 'error');
 
             return;
         }
 
         $id = $windows->open();
+        if ($id === '') {
+            $this->notifyAlert('Maximum of '.\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.', 'error');
+
+            return;
+        }
         $this->redirect(route('sales.orders.create', ['w' => $id]), navigate: false);
     }
 

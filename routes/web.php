@@ -27,6 +27,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::redirect('dashboard', '/home')->name('dashboard');
 
     Route::get('pos/tabs/open', [DocumentTabController::class, 'open'])->name('pos.tabs.open');
+    Route::post('pos/tabs/close-all', [DocumentTabController::class, 'closeAll'])->name('pos.tabs.close-all');
     Route::post('pos/tabs/{tab}/close', [DocumentTabController::class, 'close'])
         ->where('tab', '[0-9a-fA-F\-]{36}')
         ->name('pos.tabs.close');

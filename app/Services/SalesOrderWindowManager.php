@@ -9,7 +9,7 @@ class SalesOrderWindowManager
 {
     public const SESSION_KEY = 'so_create_windows';
 
-    public const MAX_WINDOWS = 8;
+    public const MAX_WINDOWS = 9;
 
     /** Keep unsaved SO tab drafts for 12 hours. */
     public const DRAFT_TTL_SECONDS = 43200;
@@ -97,11 +97,28 @@ class SalesOrderWindowManager
     public function open(): string
     {
         $state = $this->state();
-        if (count($state['windows']) >= self::MAX_WINDOWS) {
-            $id = $state['active'] ?? $state['windows'][0]['id'];
-            $this->setActive($id);
+        $docs = app(DocumentTabManager::class);
+        $docCount = $docs->count();
+        $atLimit = count($state['windows']) >= self::MAX_WINDOWS
+            || (count($state['windows']) + $docCount) >= DocumentTabManager::MAX_OPEN_WINDOWS;
 
-            return $id;
+        if ($atLimit) {
+            if ($state['windows'] !== []) {
+                $id = $state['active'] ?? $state['windows'][0]['id'];
+                $this->setActive($id);
+
+                return $id;
+            }
+
+            // Need a first SO window — free one document slot if full.
+            while ($docs->count() >= DocumentTabManager::MAX_OPEN_WINDOWS) {
+                $list = $docs->list();
+                if ($list === []) {
+                    break;
+                }
+                $docs->close($list[0]['id']);
+            }
+            $state = $this->state();
         }
 
         $id = (string) Str::uuid();
@@ -149,6 +166,19 @@ class SalesOrderWindowManager
         $this->put($state);
 
         return $state['active'];
+    }
+
+    /**
+     * Close every New Sales Order window and clear drafts.
+     */
+    public function closeAll(): void
+    {
+        $state = $this->state();
+        foreach ($state['windows'] as $window) {
+            $this->clearDraft($window['id']);
+        }
+        $this->put(['windows' => [], 'active' => null]);
+        $this->forgetCache();
     }
 
     public function setActive(string $id): void

@@ -1518,8 +1518,11 @@
     .so-item-browse-modal {
         max-width: min(72rem, 98vw);
         height: min(48rem, 92vh);
+        width: min(72rem, 98vw);
         display: flex;
         flex-direction: column;
+        margin: 0.5rem;
+        box-sizing: border-box;
     }
 
     .so-item-browse-modal .desk-modal-head {
@@ -1990,27 +1993,144 @@
         white-space: nowrap;
     }
 
-    @media (max-width: 800px) {
-        .so-item-browse-body {
-            flex-direction: column;
+    /* Same layout on all screens: shrink + scroll, never restack into a different UI */
+    @media (max-width: 1100px) {
+        .so-browse-lists-stack {
+            width: 11.5rem;
+            min-width: 11.5rem;
         }
 
-        .so-browse-filter-panel {
-            width: 100%;
-            max-height: 12rem;
-            border-left: 0;
-            border-top: 1px solid #e2e8f0;
+        .so-item-browse-table {
+            font-size: 12px;
+        }
+
+        .so-item-browse-table thead th,
+        .so-item-browse-table td {
+            padding: 0.35rem 0.45rem;
+        }
+    }
+
+    @media (max-width: 900px) {
+        .so-item-browse-modal {
+            max-width: calc(100vw - 0.75rem);
+            width: calc(100vw - 0.75rem);
+            height: min(48rem, calc(100dvh - 0.75rem));
+            max-height: calc(100dvh - 0.75rem);
+            margin: 0.35rem;
         }
 
         .so-browse-lists-stack {
-            width: 100%;
+            width: 9.75rem;
+            min-width: 9.75rem;
+        }
+
+        .so-browse-listbox-caption {
+            font-size: 10px;
+            padding: 0.3rem 0.4rem;
+        }
+
+        .so-browse-list-item {
+            font-size: 11px;
+            padding: 0.28rem 0.4rem;
+        }
+
+        .so-item-browse-toolbar {
+            gap: 0.4rem 0.55rem;
+            padding: 0.35rem 0.55rem;
+        }
+
+        .so-item-browse-search {
+            flex: 1 1 10rem;
+            min-width: 8rem;
+        }
+
+        .so-item-browse-table {
+            min-width: 36rem;
+            font-size: 11.5px;
+        }
+
+        .so-item-browse-foot {
+            gap: 0.4rem 0.55rem;
+            padding: 0.4rem 0.55rem;
+        }
+
+        .so-item-browse-foot-actions .desk-btn {
+            height: 2.1rem;
+            font-size: 11px;
+            padding: 0 0.55rem;
+        }
+
+        .so-browse-tool-btn {
+            width: 1.55rem;
+            height: 1.55rem;
+        }
+
+        .so-browse-tool-btn.is-primary {
+            width: 1.75rem;
+            height: 1.75rem;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .so-item-browse-modal {
+            max-width: 100vw;
+            width: 100vw;
+            height: 100dvh;
+            max-height: 100dvh;
+            margin: 0;
+            border-radius: 0;
+        }
+
+        .so-browse-lists-stack {
+            width: 8.25rem;
+            min-width: 8.25rem;
+        }
+
+        .so-item-browse-body {
+            flex-direction: row; /* keep desktop columns */
             min-width: 0;
         }
 
-        .so-browse-side-tools {
+        .so-browse-filter-panel {
             flex-direction: row;
-            border-left: 0;
-            border-top: 1px solid #e2e8f0;
+            border-left: 1px solid #e2e8f0;
+            border-top: 0;
+            max-height: none;
+            width: auto;
+        }
+
+        .so-browse-side-tools {
+            flex-direction: column;
+            border-left: 1px solid #e2e8f0;
+            border-top: 0;
+        }
+
+        .so-item-browse-table {
+            min-width: 34rem;
+            font-size: 11px;
+        }
+
+        .so-item-browse-table col.col-code { width: 6.25rem; }
+        .so-item-browse-table col.col-uom { width: 3.5rem; }
+        .so-item-browse-table col.col-stock { width: 4.75rem; }
+        .so-item-browse-table col.col-price { width: 4.75rem; }
+        .so-item-browse-table col.col-new { width: 2.75rem; }
+
+        .so-item-browse-scroll {
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .so-item-browse-foot-chief {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .so-item-browse-foot-actions {
+            flex-wrap: nowrap;
+            width: auto;
+            justify-content: flex-start;
         }
     }
 
@@ -3467,7 +3587,7 @@
     }
 
     .desk-sidebar {
-        width: 14.5rem;
+        width: 12.5rem;
         flex-shrink: 0;
         background: #ffffff;
         border: 1px solid #d5dbe3;
@@ -3802,7 +3922,7 @@
         align-items: center;
         gap: 0.45rem;
         flex: 1 1 20rem;
-        min-width: 16rem;
+        min-width: 0;
         max-width: 36rem;
     }
 
@@ -4132,8 +4252,70 @@
     .desk-grid {
         flex: 1 1 auto;
         min-height: 0;
-        overflow: auto;
+        overflow-x: hidden; /* fit columns to screen — no horizontal crop/scroll */
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+        width: 100%;
         background: #fff;
+    }
+
+    /* List tables: stretch to viewport, truncate long cells (Orders / Items / Invoices / etc.) */
+    .desk-grid > .desk-table {
+        table-layout: fixed;
+        width: 100%;
+        min-width: 0 !important;
+        max-width: 100%;
+    }
+
+    .desk-grid > .desk-table thead th,
+    .desk-grid > .desk-table tbody td {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0.42rem 0.4rem;
+        font-size: 12px;
+        box-sizing: border-box;
+    }
+
+    .desk-grid > .desk-table thead th {
+        padding: 0.45rem 0.4rem;
+        font-size: 11px;
+    }
+
+    .desk-grid > .desk-table tbody td .desk-pill {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .desk-grid > .desk-table tbody td a {
+        display: inline-block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+    }
+
+    /* Keep select radio / action icon columns from eating space */
+    .desk-grid > .desk-table thead th.text-center:first-child,
+    .desk-grid > .desk-table tbody td.text-center:first-child {
+        width: 2rem;
+        max-width: 2rem;
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+    }
+
+    .desk-grid > .desk-table .is-empty td {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        padding: 2.5rem 0.75rem;
+    }
+
+    .desk-grid > .desk-table tbody td.desk-money,
+    .desk-grid > .desk-table thead th.desk-money {
+        font-variant-numeric: tabular-nums;
     }
 
     .desk-table {
@@ -7131,6 +7313,9 @@
 
     .cm-form {
         padding-bottom: 1.25rem;
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .cm-steps {
@@ -7142,6 +7327,8 @@
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         background: #fff;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .cm-step {
@@ -7152,6 +7339,7 @@
         font-size: 12px;
         font-weight: 600;
         white-space: nowrap;
+        flex: 0 0 auto;
     }
 
     .cm-step-num {
@@ -7164,6 +7352,7 @@
         justify-content: center;
         font-size: 11px;
         background: #f8fafc;
+        flex-shrink: 0;
     }
 
     .cm-step.is-active {
@@ -7198,10 +7387,17 @@
         grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(220px, 0.85fr);
         gap: 0.75rem;
         margin-bottom: 0.85rem;
+        align-items: start;
     }
 
     .cm-card {
         background: #fff;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .cm-card .so-form-row-side {
+        min-width: 0;
     }
 
     .cm-summary-card {
@@ -7229,10 +7425,11 @@
     }
 
     .cm-summary-amount strong {
-        font-size: 1.45rem;
+        font-size: clamp(1.2rem, 2.2vw, 1.45rem);
         font-variant-numeric: tabular-nums;
         color: #7f1d1d;
         line-height: 1.1;
+        word-break: break-word;
     }
 
     .cm-restock {
@@ -7251,35 +7448,108 @@
         color: #b91c1c;
     }
 
-    .cm-lines-section .entity-section-head {
-        align-items: center;
+    .cm-lines-error {
+        padding: 0.5rem 0.85rem;
+    }
+
+    .cm-lines-section {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .cm-lines-section .entity-section-head,
+    .cm-lines-head {
+        align-items: flex-start;
+        gap: 0.65rem;
+        flex-wrap: wrap;
     }
 
     .cm-lines-actions {
         display: flex;
         align-items: center;
-        gap: 0.65rem;
+        gap: 0.55rem 0.75rem;
         flex-wrap: wrap;
         justify-content: flex-end;
+        flex: 1 1 16rem;
+        min-width: 0;
+    }
+
+    .cm-lines-hint {
+        margin: 0;
+        flex: 1 1 12rem;
+        min-width: 0;
+        text-align: left;
+        line-height: 1.35;
+    }
+
+    .cm-lines-btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        justify-content: flex-end;
+    }
+
+    .cm-entry {
+        padding: 0.65rem 0.75rem 0.55rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+        gap: 0.5rem 0.65rem;
+        align-items: center;
+    }
+
+    .cm-entry .so-entry-label {
+        flex: 0 1 auto;
+        white-space: nowrap;
+    }
+
+    .cm-scan-bar,
+    .cm-entry .so-scan-bar.cm-scan-bar {
+        flex: 1 1 14rem;
+        min-width: 0;
+        max-width: 28rem;
+        height: 2.15rem;
+        width: auto;
+    }
+
+    .cm-entry .so-entry-input,
+    .cm-entry .so-scan-bar .so-entry-input {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: none !important;
+        width: auto;
+    }
+
+    .cm-browse-btn {
+        flex: 0 0 auto;
+        margin-left: 0;
+    }
+
+    .cm-lookup-msg {
+        flex: 1 1 100%;
+        margin: 0;
     }
 
     .cm-form-footer {
         margin-top: 1rem;
         justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .cm-lines-wrap {
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
     }
 
     .cm-lines-table {
         table-layout: fixed;
         width: 100%;
-        min-width: 720px;
+        min-width: 44rem;
     }
 
     .cm-lines-table col.col-code { width: 7.5rem; }
-    .cm-lines-table col.col-find { width: 3.5rem; }
+    .cm-lines-table col.col-find { width: 7.25rem; }
     .cm-lines-table col.col-desc { width: auto; }
     .cm-lines-table col.col-uom { width: 5.5rem; }
     .cm-lines-table col.col-qty { width: 5.5rem; }
@@ -7293,11 +7563,24 @@
         align-items: center;
         min-width: 0;
         flex: 1;
+        flex-wrap: wrap;
     }
 
     .cm-pick-row .so-input {
-        flex: 1 1 auto;
+        flex: 1 1 10rem;
         min-width: 0;
+    }
+
+    .cm-pick-row .desk-btn {
+        flex: 0 0 auto;
+    }
+
+    .cm-find-btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        align-items: center;
+        justify-content: flex-start;
     }
 
     .cm-lines-table th,
@@ -7326,6 +7609,35 @@
         box-sizing: border-box;
     }
 
+    .cm-list-toolbar {
+        gap: 0.5rem 0.75rem;
+    }
+
+    .cm-list-grid {
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+    }
+
+    .cm-list-grid .desk-table {
+        min-width: 0;
+        width: 100%;
+        table-layout: fixed;
+    }
+
+    /* Credit memo — responsive breakpoints (same layout, no overflow) */
+    @media (max-width: 1280px) {
+        .cm-form-top {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(200px, 0.9fr);
+            gap: 0.65rem;
+        }
+
+        .cm-card .so-form-row-side {
+            grid-template-columns: 5.25rem minmax(0, 1fr);
+        }
+    }
+
     @media (max-width: 1100px) {
         .cm-form-top {
             grid-template-columns: 1fr 1fr;
@@ -7333,6 +7645,91 @@
 
         .cm-summary-card {
             grid-column: 1 / -1;
+        }
+
+        .cm-card .so-form-row-side {
+            grid-template-columns: 6rem minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 900px) {
+        .cm-form {
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .cm-card .so-form-row-side {
+            grid-template-columns: 1fr;
+            row-gap: 0.25rem;
+        }
+
+        .cm-card .so-form-lbl {
+            text-align: left;
+            white-space: normal;
+        }
+
+        .cm-lines-head {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .cm-lines-actions {
+            justify-content: flex-start;
+            flex: 1 1 auto;
+        }
+
+        .cm-lines-btns {
+            justify-content: flex-start;
+            width: 100%;
+        }
+
+        .cm-entry {
+            align-items: stretch;
+        }
+
+        .cm-entry .so-entry-label {
+            width: 100%;
+            white-space: normal;
+        }
+
+        .cm-scan-bar,
+        .cm-entry .so-scan-bar.cm-scan-bar {
+            flex: 1 1 100%;
+            max-width: none;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .cm-browse-btn {
+            width: auto;
+        }
+
+        .cm-form-footer {
+            justify-content: stretch;
+        }
+
+        .cm-form-footer .desk-btn {
+            flex: 1 1 auto;
+            min-width: 8rem;
+        }
+
+        .cm-list-toolbar {
+            flex-wrap: wrap;
+        }
+
+        .cm-list-toolbar .orders-search-input,
+        .cm-list-toolbar .desk-search {
+            flex: 1 1 100%;
+            min-width: 0;
+            max-width: none;
+        }
+
+        .cm-list-toolbar .orders-toolbar-right {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            justify-content: flex-start;
         }
     }
 
@@ -7343,10 +7740,102 @@
 
         .cm-steps {
             flex-wrap: wrap;
+            gap: 0.4rem 0.55rem;
+            padding: 0.55rem 0.65rem;
         }
 
         .cm-step-line {
             display: none;
+        }
+
+        .cm-step-label {
+            font-size: 11px;
+        }
+
+        .cm-summary-amount {
+            text-align: left;
+        }
+
+        /* Keep same table layout as desktop — scroll horizontally when needed */
+        .cm-lines-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .cm-lines-table {
+            min-width: 40rem;
+            table-layout: fixed;
+            font-size: 12px;
+        }
+
+        .cm-lines-table thead {
+            display: table-header-group;
+        }
+
+        .cm-lines-table,
+        .cm-lines-table tbody,
+        .cm-lines-table tr,
+        .cm-lines-table td,
+        .cm-lines-table th {
+            display: revert;
+            width: auto;
+        }
+
+        .cm-lines-table tr {
+            border: 0;
+            border-radius: 0;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        .cm-lines-table td {
+            display: table-cell;
+            padding: 0.3rem 0.35rem;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: inherit;
+        }
+
+        .cm-lines-table td::before {
+            content: none;
+        }
+
+        .cm-lines-table col.col-code { width: 6.5rem; }
+        .cm-lines-table col.col-find { width: 6.5rem; }
+        .cm-lines-table col.col-uom { width: 4.5rem; }
+        .cm-lines-table col.col-qty { width: 4.5rem; }
+        .cm-lines-table col.col-price { width: 5.25rem; }
+        .cm-lines-table col.col-total { width: 4.75rem; }
+        .cm-lines-table col.col-action { width: 2.5rem; }
+
+        .cm-find-btns {
+            flex-wrap: nowrap;
+        }
+
+        .cm-find-btns .desk-btn {
+            flex: 0 0 auto;
+            padding: 0.15rem 0.35rem;
+            font-size: 11px;
+        }
+    }
+
+    @media (max-width: 520px) {
+        .cm-steps {
+            gap: 0.35rem;
+        }
+
+        .cm-step-label {
+            max-width: 5.5rem;
+            white-space: normal;
+            line-height: 1.2;
+        }
+
+        .cm-entry .so-scan-btn span {
+            display: none;
+        }
+
+        .cm-form-footer .desk-btn {
+            flex: 1 1 100%;
         }
     }
 
@@ -8153,12 +8642,17 @@
         }
 
         .desk-grid {
-            overflow-x: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
             -webkit-overflow-scrolling: touch;
         }
 
         .desk-table {
-            min-width: 720px;
+            min-width: 0;
+        }
+
+        .desk-grid > .desk-table {
+            min-width: 0 !important;
         }
 
         .entity-page .desk-main,

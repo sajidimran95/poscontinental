@@ -447,18 +447,65 @@
                 align-items: center;
                 justify-content: center;
             }
-            @media (max-width: 800px) {
+            @media (max-width: 1100px) {
                 .so-browse-dock.so-browse-popup {
-                    top: 3.75rem;
-                    right: .5rem;
-                    width: calc(100vw - 1rem);
+                    width: min(56rem, calc(100vw - 1.5rem));
                     height: min(36rem, calc(100vh - 5rem));
+                }
+            }
+            @media (max-width: 900px) {
+                .so-browse-dock.so-browse-popup {
+                    top: 3.85rem;
+                    right: .4rem;
+                    left: auto;
+                    width: calc(100vw - .8rem);
+                    height: min(34rem, calc(100dvh - 4.75rem));
+                    max-height: calc(100dvh - 4.75rem);
                 }
                 .so-cat-popup {
                     width: min(17.5rem, 92vw);
                 }
-                .so-item-browse-body { flex-direction: column; }
-                .so-browse-side-tools { flex-direction: row; border-left: 0; border-top: 1px solid #e2e8f0; }
+                .so-browse-dock .so-browse-lists-stack {
+                    width: 9.75rem !important;
+                    min-width: 9.75rem !important;
+                }
+                .so-item-browse-body {
+                    flex-direction: row !important; /* same as desktop */
+                }
+                .so-browse-side-tools {
+                    flex-direction: column !important;
+                    border-left: 1px solid #e2e8f0 !important;
+                    border-top: 0 !important;
+                }
+                .so-item-browse-table {
+                    min-width: 34rem;
+                    font-size: 11.5px;
+                }
+            }
+            @media (max-width: 640px) {
+                .so-browse-dock.so-browse-popup {
+                    top: 3.5rem;
+                    right: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: calc(100dvh - 3.5rem);
+                    max-height: calc(100dvh - 3.5rem);
+                    border-radius: 0;
+                    border-left: 0;
+                    border-right: 0;
+                }
+                .so-browse-dock .so-browse-lists-stack {
+                    width: 8rem !important;
+                    min-width: 8rem !important;
+                }
+                .so-item-browse-table {
+                    min-width: 32rem;
+                    font-size: 11px;
+                }
+                .so-item-browse-table thead th,
+                .so-item-browse-table td {
+                    padding: .32rem .4rem;
+                }
             }
         </style>
         <aside

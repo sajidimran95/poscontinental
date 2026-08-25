@@ -1496,7 +1496,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </div>
 
                 <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-fit">
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>

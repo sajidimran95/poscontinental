@@ -501,10 +501,29 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 </div>
 
                 <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-fit">
+                        <colgroup>
+                            <col style="width:2.1rem" />
+                            <col style="width:7%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                            <col style="width:6.5%" />
+                            <col style="width:6.5%" />
+                            <col style="width:6%" />
+                            <col style="width:6%" />
+                            <col style="width:8%" />
+                            <col style="width:10%" />
+                            <col style="width:9%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                            <col style="width:7%" />
+                            <col style="width:6%" />
+                            <col style="width:6%" />
+                            <col style="width:4.5rem" />
+                        </colgroup>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
+                                <th class="text-center"></th>
                                 <th>Order #</th>
                                 <th>Invoice #</th>
                                 <th>Type</th>
@@ -568,11 +587,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         ])>{{ $order->status }}</span>
                                     </td>
                                     <td class="desk-num">{{ $order->customer?->customer_id }}</td>
-                                    <td>{{ $order->customer?->contact }}</td>
-                                    <td>{{ $order->customer?->company_name }}</td>
-                                    <td class="max-w-[10rem] truncate" title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
-                                    <td>{{ $order->customer?->telephone }}</td>
-                                    <td>{{ $order->createdBy?->name }}</td>
+                                    <td title="{{ $order->customer?->contact }}">{{ $order->customer?->contact }}</td>
+                                    <td title="{{ $order->customer?->company_name }}">{{ $order->customer?->company_name }}</td>
+                                    <td title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
+                                    <td title="{{ $order->customer?->telephone }}">{{ $order->customer?->telephone }}</td>
+                                    <td title="{{ $order->createdBy?->name }}">{{ $order->createdBy?->name }}</td>
                                     <td>{{ optional($order->updated_at)?->format('n/j/Y g:i A') }}</td>
                                     <td>{{ optional($order->required_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-money">${{ number_format($order->total, 2) }}</td>

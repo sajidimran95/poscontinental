@@ -10,9 +10,14 @@ class DocumentTabManager
 {
     public const SESSION_KEY = 'pos_document_tabs';
 
-    public const MAX_TABS = 20;
+    public const MAX_TABS = 9;
 
     public const DRAFT_TTL_SECONDS = 43200;
+
+    /**
+     * Total open windows (document tabs + New Sales Order windows).
+     */
+    public const MAX_OPEN_WINDOWS = 9;
 
     /**
      * Routes that only keep one tab (re-click focuses existing).
@@ -122,7 +127,11 @@ class DocumentTabManager
             }
         }
 
-        if (count($state['tabs']) >= self::MAX_TABS) {
+        if (count($state['tabs']) >= self::MAX_TABS
+            || (count($state['tabs']) + app(SalesOrderWindowManager::class)->count()) >= self::MAX_OPEN_WINDOWS) {
+            if ($state['tabs'] === []) {
+                return '';
+            }
             array_shift($state['tabs']);
         }
 
@@ -207,6 +216,15 @@ class DocumentTabManager
         $this->put($state);
 
         return '__back__';
+    }
+
+    /**
+     * Close every document tab (not SO create windows).
+     */
+    public function closeAll(): void
+    {
+        $this->put(['tabs' => [], 'active' => null]);
+        $this->forgetCache();
     }
 
     public function find(string $id): ?array

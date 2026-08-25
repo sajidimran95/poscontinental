@@ -156,6 +156,88 @@
                         </div>
                     @endforeach
 
+                    {{-- Window: open list + Close All (max 9) --}}
+                    @php
+                        $windowMenuSo = app(\App\Services\SalesOrderWindowManager::class);
+                        $windowMenuDocs = app(\App\Services\DocumentTabManager::class);
+                        $windowMenuItems = [];
+                        foreach ($windowMenuSo->list() as $win) {
+                            $windowMenuItems[] = [
+                                'label' => $win['label'],
+                                'url' => $win['url'],
+                                'active' => (request()->route()?->getName() === 'sales.orders.create')
+                                    && (request()->query('w') ?: $windowMenuSo->activeId()) === $win['id'],
+                                'kind' => 'so',
+                            ];
+                        }
+                        foreach ($windowMenuDocs->list() as $tab) {
+                            $windowMenuItems[] = [
+                                'label' => $tab['label'],
+                                'url' => $tab['url'],
+                                'active' => (request()->route()?->getName() === ($tab['route'] ?? '')),
+                                'kind' => 'doc',
+                            ];
+                        }
+                        $windowOpenCount = count($windowMenuItems);
+                        $windowMax = \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS;
+                        $windowHomeActive = (request()->route()?->getName() ?? 'home') === 'home';
+                    @endphp
+                    <div class="relative group">
+                        <button
+                            type="button"
+                            class="px-2 py-1 rounded-sm hover:bg-slate-200"
+                            aria-haspopup="true"
+                            aria-label="Window menu"
+                        >Window</button>
+                        <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-60 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
+                            <a
+                                href="{{ route('home') }}"
+                                wire:navigate
+                                @class([
+                                    'block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap',
+                                    'font-semibold bg-sky-50' => $windowHomeActive,
+                                ])
+                                role="menuitem"
+                            >{{ $windowHomeActive ? '✓ ' : '' }}Home</a>
+
+                            @if ($windowMenuItems !== [])
+                                <div class="my-1 border-t border-slate-200" role="separator"></div>
+                                @foreach ($windowMenuItems as $wi => $wItem)
+                                    <a
+                                        href="{{ $wItem['url'] }}"
+                                        @class([
+                                            'block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap',
+                                            'font-semibold bg-sky-50' => $wItem['active'],
+                                        ])
+                                        role="menuitem"
+                                    >{{ $wItem['active'] ? '✓ ' : '' }}{{ $wi + 1 }}. {{ $wItem['label'] }}</a>
+                                @endforeach
+                            @endif
+
+                            <div class="my-1 border-t border-slate-200" role="separator"></div>
+                            @if ($windowOpenCount > 0)
+                                <form method="POST" action="{{ route('pos.tabs.close-all') }}" class="m-0" onsubmit="return confirm('Close all open windows and return to Home?');">
+                                    @csrf
+                                    <button
+                                        type="submit"
+                                        class="block w-full text-left px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
+                                        role="menuitem"
+                                    >Close All</button>
+                                </form>
+                            @else
+                                <button
+                                    type="button"
+                                    class="chief-menu-item-disabled block w-full text-left"
+                                    role="menuitem"
+                                    disabled
+                                >Close All</button>
+                            @endif
+                            <div class="px-3 py-1 text-[11px] text-slate-500 select-none" aria-hidden="true">
+                                {{ $windowOpenCount }}/{{ $windowMax }} windows
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="ms-auto flex items-center gap-3 pe-2">
                         @if ($routeExists('lookups.index'))
                             <a
@@ -277,6 +359,9 @@
 
                 $soWindowAdd = $soWindows->count() > 0 || $routeName === 'sales.orders.create';
                 $homeIsActive = $routeName === 'home';
+                $openWindowCount = count($builtTabs);
+                $windowsAtMax = $openWindowCount >= \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS
+                    || $soWindows->count() >= \App\Services\SalesOrderWindowManager::MAX_WINDOWS;
             @endphp
             <div class="chief-tabs">
                 <div @class(['chief-tab', 'chief-tab-active' => $homeIsActive])>
@@ -286,10 +371,10 @@
                 <button
                     type="button"
                     class="chief-tab-add"
-                    title="New Sales Order"
+                    title="{{ $windowsAtMax ? 'Maximum '.(\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS).' windows open' : 'New Sales Order' }}"
                     aria-label="Open another New Sales Order"
                     style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:3.5rem;padding:0 1.35rem;margin:0;border:none;border-right:1px solid #15803d;border-radius:0;background:#22c55e;color:#fff;font-size:1.4rem;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;"
-                    @disabled($soWindows->count() >= \App\Services\SalesOrderWindowManager::MAX_WINDOWS)
+                    @disabled($windowsAtMax)
                     onclick="if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-open'); } else { window.location.href = {{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }}; }"
                 >+</button>
 
@@ -330,6 +415,25 @@
                         @endif
                     </div>
                 @endforeach
+
+                @if ($openWindowCount > 0)
+                    <form
+                        method="POST"
+                        action="{{ route('pos.tabs.close-all') }}"
+                        class="chief-tab-close-all-form"
+                        style="display:inline-flex;align-self:stretch;margin:0;margin-left:auto;height:100%;"
+                        onsubmit="return confirm('Close all open windows and return to Home?');"
+                    >
+                        @csrf
+                        <button
+                            type="submit"
+                            class="chief-tab-close-all"
+                            title="Close all windows"
+                            aria-label="Close all windows"
+                            style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:auto;padding:0 0.85rem;margin:0;border:none;border-left:1px solid #94a3b8;border-radius:0;background:#f1f5f9;color:#334155;font-size:12px;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;white-space:nowrap;"
+                        >Close all</button>
+                    </form>
+                @endif
             </div>
 
             <main class="chief-main flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" role="main" id="main-content" aria-label="Document content">

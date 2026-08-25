@@ -360,7 +360,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 <div class="desk-toolbar orders-toolbar">
                     <label class="desk-toolbar-label" for="po-search">Search Purchase Orders:</label>
                     <input
-                        id="po-search"
+                        id="po-search" data-pos-search
                         type="search"
                         wire:model.live.debounce.300ms="search"
                         placeholder="PO #, supplier, reference…"

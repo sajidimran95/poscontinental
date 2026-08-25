@@ -92,13 +92,21 @@
         overflow: visible;
     }
 
+    .chief-tab-link {
+        color: inherit;
+        text-decoration: none;
+        font: inherit;
+        white-space: nowrap;
+    }
+
     .chief-tab:hover {
         background: #e4e4e4;
     }
 
     /* Active doc tab = full yellow fill (New Sales Order) */
     .chief-tab-active,
-    a.chief-tab.chief-tab-active {
+    a.chief-tab.chief-tab-active,
+    div.chief-tab.chief-tab-active {
         background: var(--chief-orange-tab) !important;
         color: #111827 !important;
         font-weight: 600;
@@ -119,10 +127,52 @@
         line-height: 1;
         font-size: 14px;
         font-weight: 600;
+        background: transparent;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+    }
+
+    .chief-tab-close-form {
+        display: inline-flex;
+        margin: 0;
+        padding: 0;
     }
 
     .chief-tab-active .chief-tab-close {
         color: #1f2937;
+    }
+
+    .chief-tab-add {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        align-self: stretch;
+        box-sizing: border-box;
+        height: 100%;
+        min-width: 3.25rem;
+        padding: 0 1.25rem !important;
+        margin: 0;
+        border: none !important;
+        border-right: 1px solid #1f3d2a !important;
+        border-radius: 0;
+        background: #22c55e !important;
+        color: #fff !important;
+        font-size: 1.35rem;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        flex: 0 0 auto;
+    }
+
+    .chief-tab-add:hover:not(:disabled) {
+        background: #16a34a !important;
+        color: #fff !important;
+    }
+
+    .chief-tab-add:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
     }
 
     /* Field validation — show under each invalid field */

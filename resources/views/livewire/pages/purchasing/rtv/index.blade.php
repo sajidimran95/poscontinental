@@ -1374,7 +1374,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     <div class="desk-toolbar orders-toolbar">
                         <label class="desk-toolbar-label" for="rtv-search">Search RTVs:</label>
                         <input
-                            id="rtv-search"
+                            id="rtv-search" data-pos-search
                             type="search"
                             wire:model.live.debounce.300ms="search"
                             placeholder="RTV #, supplier, reference…"

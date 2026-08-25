@@ -329,7 +329,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                 <div class="desk-toolbar orders-toolbar">
                     <label class="desk-toolbar-label" for="rcv-search">Search Inventory Receipts:</label>
                     <input
-                        id="rcv-search"
+                        id="rcv-search" data-pos-search
                         type="search"
                         wire:model.live.debounce.300ms="search"
                         placeholder="Receipt #, PO #, supplier…"

@@ -125,7 +125,7 @@
                             @php $allowed = $can($feature, $action); @endphp
                             <li>
                                 @if ($allowed)
-                                    <a href="{{ route($route) }}" wire:navigate>
+                                    <a href="{{ route('pos.tabs.open', ['route' => $route, 'label' => $label]) }}">
                                         <span class="home-chief-link-dot" aria-hidden="true"></span>
                                         <span class="home-chief-link-text">{{ $label }}</span>
                                     </a>

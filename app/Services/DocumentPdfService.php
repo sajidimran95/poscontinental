@@ -473,6 +473,38 @@ class DocumentPdfService
         ]);
     }
 
+    public function emailSalesOrderInvoiceStyle(SalesOrder $order, string $recipient, User $user, ?string $subject = null): void
+    {
+        CompanyMailConfig::apply($user->company);
+        $order->loadMissing(['invoice', 'customer']);
+        $label = $order->invoice?->invoice_number ?: ('SO-'.$order->order_number);
+        $subject = $subject ?: 'Invoice '.$label;
+        $pdf = $this->salesOrderInvoiceStylePdf($order, $user);
+        $filename = $order->invoice
+            ? 'invoice-'.$order->invoice->invoice_number.'.pdf'
+            : 'invoice-so-'.$order->order_number.'.pdf';
+
+        Mail::html(
+            '<p>Please find attached invoice <strong>'.$label.'</strong>.</p>',
+            function ($message) use ($recipient, $subject, $pdf, $filename) {
+                $message->to($recipient)
+                    ->subject($subject)
+                    ->attachData($pdf->output(), $filename, [
+                        'mime' => 'application/pdf',
+                    ]);
+            }
+        );
+
+        DocumentEmailLog::query()->create([
+            'company_id' => $user->company_id,
+            'document_type' => $order->invoice ? 'invoice' : 'sales_order',
+            'document_id' => $order->invoice?->id ?? $order->id,
+            'recipient' => $recipient,
+            'subject' => $subject,
+            'user_id' => $user->id,
+        ]);
+    }
+
     public function emailCreditMemo(CreditMemo $memo, string $recipient, User $user, ?string $subject = null): void
     {
         CompanyMailConfig::apply($user->company);

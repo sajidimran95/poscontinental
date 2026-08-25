@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\DocumentPdfController;
+use App\Http\Controllers\DocumentTabController;
 use App\Http\Controllers\MsaSalesFileController;
 use App\Http\Controllers\ItemMediaController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\PublicMediaController;
+use App\Http\Controllers\SalesOrderWindowController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -23,6 +25,11 @@ Route::get('media/{path}', [PublicMediaController::class, 'show'])
 Route::middleware(['auth', 'feature'])->group(function () {
     Route::view('home', 'home')->name('home');
     Route::redirect('dashboard', '/home')->name('dashboard');
+
+    Route::get('pos/tabs/open', [DocumentTabController::class, 'open'])->name('pos.tabs.open');
+    Route::post('pos/tabs/{tab}/close', [DocumentTabController::class, 'close'])
+        ->where('tab', '[0-9a-fA-F\-]{36}')
+        ->name('pos.tabs.close');
 
     Volt::route('profile', 'pages.profile')->name('profile');
 
@@ -80,6 +87,11 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('sales/customers/{customer}/edit', 'pages.sales.customers.form')->name('sales.customers.edit');
     Volt::route('sales/customers/{customer}', 'pages.sales.customers.form')->name('sales.customers.show');
     Volt::route('sales/orders', 'pages.sales.orders.index')->name('sales.orders.index');
+    Route::post('sales/orders/create/windows', [SalesOrderWindowController::class, 'open'])
+        ->name('sales.orders.windows.open');
+    Route::post('sales/orders/create/windows/{window}/close', [SalesOrderWindowController::class, 'close'])
+        ->where('window', '[0-9a-fA-F\-]{36}')
+        ->name('sales.orders.windows.close');
     Volt::route('sales/orders/create', 'pages.sales.orders.form')->name('sales.orders.create');
     Route::get('sales/orders/{salesOrder}/print', [DocumentPdfController::class, 'salesOrder'])
         ->name('sales.orders.print');

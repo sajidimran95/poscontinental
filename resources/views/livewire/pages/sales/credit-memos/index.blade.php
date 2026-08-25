@@ -1088,7 +1088,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     <div class="desk-toolbar orders-toolbar">
                         <label class="desk-toolbar-label" for="cm-search">Search Credit Memos:</label>
                         <input
-                            id="cm-search"
+                            id="cm-search" data-pos-search
                             type="search"
                             wire:model.live.debounce.300ms="search"
                             placeholder="Memo #, customer, order #, invoice #…"

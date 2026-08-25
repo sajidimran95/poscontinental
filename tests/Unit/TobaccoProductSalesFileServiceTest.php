@@ -171,6 +171,32 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $this->assertStringNotContainsString('00000033490', $bid);
     }
 
+    public function test_bid_description_is_capped_at_50_chars_for_msa(): void
+    {
+        $long = 'BREEZE PRIME 6000 PUFF HONEYDEW PINEAPPLE 5CT (NO RETURN ALLOWED)';
+        $this->assertGreaterThan(50, strlen($long));
+
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'BRZ1',
+            'primary_upc' => '012345678901',
+            'description' => $long,
+            'tobacco_product_type' => 'otp',
+            'list_price' => 10,
+            'quantity_in_stock' => 1,
+        ]));
+
+        $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
+        $this->assertNotEmpty($bid);
+
+        $descSlot = substr($bid, TobaccoProductSalesFileService::BID_DESC_AT, TobaccoProductSalesFileService::BID_DESC_LEN);
+        $this->assertSame(TobaccoProductSalesFileService::BID_DESC_LEN, strlen($descSlot));
+        $this->assertLessThanOrEqual(50, strlen(rtrim($descSlot)));
+        $this->assertSame(strtoupper(substr($long, 0, 50)), substr($descSlot, 0, 50));
+        // Chars 51–100 of the description slot must be blank (no spill into promo area).
+        $this->assertSame(str_repeat(' ', 50), substr($descSlot, 50, 50));
+        $this->assertStringNotContainsString('RETURN ALLOWED', substr($bid, 81, 50));
+    }
+
     public function test_pur_puts_dollars_in_002_not_004(): void
     {
         $file = $this->sampleFile(new Item([

@@ -269,7 +269,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                 <div class="desk-toolbar orders-toolbar">
                     <label class="desk-toolbar-label" for="stock-counts-search">Search Stock Counts:</label>
                     <input
-                        id="stock-counts-search"
+                        id="stock-counts-search" data-pos-search
                         type="search"
                         wire:model.live.debounce.300ms="search"
                         placeholder="Count #, site, description, processed by…"

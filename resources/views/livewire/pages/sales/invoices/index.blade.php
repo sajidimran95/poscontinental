@@ -6,6 +6,7 @@ use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
@@ -48,6 +49,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public string $emailSubject = '';
 
     public bool $showEmailForm = false;
+
+    public bool $showInvoiceDeliveryDialog = false;
+
+    public string $invoiceDeliveryMode = 'print';
 
     public function with(): array
     {
@@ -204,7 +209,90 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function printSelected(): void
     {
-        $this->viewSelected();
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->with('customer')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $invoice) {
+            session()->flash('status', 'Invoice not found.');
+
+            return;
+        }
+
+        $this->emailTo = (string) ($invoice->customer?->email ?? '');
+        $this->emailSubject = 'Invoice '.$invoice->invoice_number;
+        $this->invoiceDeliveryMode = filled($this->emailTo) ? 'both' : 'print';
+        $this->showInvoiceDeliveryDialog = true;
+    }
+
+    #[On('pos-shortcut-print')]
+    public function shortcutPrint(): void
+    {
+        $this->printSelected();
+    }
+
+    public function cancelInvoiceDeliveryDialog(): void
+    {
+        $this->showInvoiceDeliveryDialog = false;
+    }
+
+    public function confirmInvoiceDeliveryDialog(): void
+    {
+        if (! $this->selectedId) {
+            $this->showInvoiceDeliveryDialog = false;
+
+            return;
+        }
+
+        $mode = $this->invoiceDeliveryMode;
+        $print = in_array($mode, ['print', 'both'], true);
+        $email = in_array($mode, ['email', 'both'], true);
+
+        if ($email) {
+            $to = trim($this->emailTo);
+            if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                session()->flash('status', 'Enter a valid customer email address.');
+
+                return;
+            }
+
+            $invoice = Invoice::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->find($this->selectedId);
+
+            if (! $invoice) {
+                session()->flash('status', 'Invoice not found.');
+
+                return;
+            }
+
+            try {
+                app(\App\Services\DocumentPdfService::class)->emailInvoice(
+                    $invoice,
+                    $to,
+                    auth()->user(),
+                    $this->emailSubject !== '' ? $this->emailSubject : null
+                );
+                session()->flash('status', 'Invoice emailed to '.$to);
+            } catch (\Throwable $e) {
+                session()->flash('status', 'Could not email invoice: '.$e->getMessage());
+
+                return;
+            }
+        }
+
+        $this->showInvoiceDeliveryDialog = false;
+
+        if ($print) {
+            $this->openInvoicePdf($this->selectedId);
+        }
     }
 
     public function printPickListSelected(): void
@@ -764,7 +852,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 <div class="desk-toolbar orders-toolbar">
                     <label class="desk-toolbar-label" for="invoices-search">Search Invoices:</label>
                     <input
-                        id="invoices-search"
+                        id="invoices-search" data-pos-search
                         type="search"
                         wire:model.live.debounce.300ms="search"
                         placeholder="Invoice #, order #, customer, check #…"
@@ -881,7 +969,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice" aria-label="Print invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice (F10)" aria-label="Print invoice" data-pos-print @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
@@ -1189,6 +1277,46 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <button type="submit" class="desk-btn desk-btn-primary">Send Email</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($showInvoiceDeliveryDialog)
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="inv-delivery-title">
+            <div class="desk-modal desk-modal-sm">
+                <div class="desk-modal-head">
+                    <span id="inv-delivery-title">Invoice delivery</span>
+                    <button type="button" wire:click="cancelInvoiceDeliveryDialog" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body space-y-3">
+                    <p class="inv-email-note" style="margin:0">Print the invoice, email it to the customer, or both.</p>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="print" />
+                        <span>Print only</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="email" />
+                        <span>Email only</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="both" />
+                        <span>Print &amp; email</span>
+                    </label>
+                    @if (in_array($invoiceDeliveryMode, ['email', 'both'], true))
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="inv-delivery-email">To</label>
+                            <input id="inv-delivery-email" type="email" wire:model="emailTo" class="so-input" placeholder="customer@email.com" />
+                        </div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="inv-delivery-subject">Subject</label>
+                            <input id="inv-delivery-subject" type="text" wire:model="emailSubject" class="so-input" />
+                        </div>
+                    @endif
+                    <div class="entity-footer-actions" style="justify-content:flex-end;gap:0.5rem">
+                        <button type="button" wire:click="cancelInvoiceDeliveryDialog" class="desk-btn">Cancel</button>
+                        <button type="button" wire:click="confirmInvoiceDeliveryDialog" class="desk-btn desk-btn-primary">OK</button>
+                    </div>
+                </div>
             </div>
         </div>
     @endif

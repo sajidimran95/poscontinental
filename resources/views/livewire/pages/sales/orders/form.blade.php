@@ -14,12 +14,14 @@ use App\Models\Site;
 use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\SalesOrderWindowManager;
 use App\Support\ItemPricing;
 use App\Support\SalesOrderLinePresentation;
 use App\Support\StockPolicy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -30,6 +32,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** View-only (same layout as edit, locked). */
     public bool $viewMode = false;
 
+    /** Create-mode multi-window id (?w=). */
+    public ?string $createWindowId = null;
+
     public bool $showPrintDialog = false;
 
     public bool $optCreateInvoicePayment = false;
@@ -39,6 +44,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public bool $optCreatePrintInvoice = false;
 
     public bool $optPrintPickList = false;
+
+    /** Print / email choice after Print Invoice. */
+    public bool $showInvoiceDeliveryDialog = false;
+
+    public string $invoiceDeliveryMode = 'print'; // print | email | both
+
+    public string $invoiceEmailTo = '';
+
+    public string $invoiceEmailSubject = '';
 
     public string $activeTab = 'general';
 
@@ -387,19 +401,36 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->refreshCreditWarning();
             $this->confirmedCustomerId = $this->customer_id ? (int) $this->customer_id : null;
         } else {
-            $this->order_number = SalesOrder::nextNumber($companyId);
-            $this->order_date = now()->toDateString();
-            $this->required_date = now()->toDateString();
-            $this->ship_date = now()->toDateString();
-            $this->sales_rep_id = auth()->id();
-            $this->ship_from_site_id = auth()->user()->site_id;
-            // Default customer: Walk-in (cash / counter) — no confirm dialog on open
-            $walkIn = $this->resolveWalkInCustomer($companyId);
-            $this->suppressCustomerConfirm = true;
-            $this->customer_id = $walkIn->id;
-            $this->updatedCustomerId($walkIn->id);
-            $this->suppressCustomerConfirm = false;
-            $this->confirmedCustomerId = (int) $walkIn->id;
+            $windows = app(SalesOrderWindowManager::class);
+            $requested = request()->query('w');
+            if (! is_string($requested) || $requested === '' || ! $windows->has($requested)) {
+                $id = $windows->ensureOne();
+                $this->redirect(route('sales.orders.create', ['w' => $id]), navigate: false);
+
+                return;
+            }
+            $this->createWindowId = $requested;
+            $windows->setActive($requested);
+
+            $draft = $windows->loadDraft($requested);
+            if (is_array($draft) && $draft !== []) {
+                $this->applyCreateWindowDraft($draft);
+            } else {
+                $this->order_number = SalesOrder::nextNumber($companyId);
+                $this->order_date = now()->toDateString();
+                $this->required_date = now()->toDateString();
+                $this->ship_date = now()->toDateString();
+                $this->sales_rep_id = auth()->id();
+                $this->ship_from_site_id = auth()->user()->site_id;
+                // Default customer: Walk-in (cash / counter) — no confirm dialog on open
+                $walkIn = $this->resolveWalkInCustomer($companyId);
+                $this->suppressCustomerConfirm = true;
+                $this->customer_id = $walkIn->id;
+                $this->updatedCustomerId($walkIn->id);
+                $this->suppressCustomerConfirm = false;
+                $this->confirmedCustomerId = (int) $walkIn->id;
+                $this->persistCreateWindowDraft();
+            }
         }
 
         if ($this->boxes === []) {
@@ -464,6 +495,166 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->order_number = (string) $n;
+    }
+
+    public function dehydrate(): void
+    {
+        if ($this->createWindowId && ! $this->salesOrder?->exists) {
+            $this->persistCreateWindowDraft();
+        }
+    }
+
+    #[On('so-windows-open')]
+    public function openAnotherCreateWindow(): void
+    {
+        if ($this->salesOrder?->exists || ! $this->createWindowId) {
+            return;
+        }
+
+        $this->persistCreateWindowDraft();
+        $windows = app(SalesOrderWindowManager::class);
+        if ($windows->count() >= SalesOrderWindowManager::MAX_WINDOWS) {
+            $this->notifyAlert('Maximum of '.SalesOrderWindowManager::MAX_WINDOWS.' new sales order windows.', 'error');
+
+            return;
+        }
+
+        $id = $windows->open();
+        $this->redirect(route('sales.orders.create', ['w' => $id]), navigate: false);
+    }
+
+    #[On('so-windows-switch')]
+    public function switchCreateWindow(string $id): void
+    {
+        if ($this->salesOrder?->exists || ! $this->createWindowId) {
+            return;
+        }
+
+        if ($id === $this->createWindowId) {
+            return;
+        }
+
+        $windows = app(SalesOrderWindowManager::class);
+        if (! $windows->has($id)) {
+            return;
+        }
+
+        $this->persistCreateWindowDraft();
+        $windows->setActive($id);
+        $this->redirect(route('sales.orders.create', ['w' => $id]), navigate: false);
+    }
+
+    #[On('so-windows-close')]
+    public function closeCreateWindow(string $id): void
+    {
+        if ($this->salesOrder?->exists && ! $this->createWindowId) {
+            $this->redirect(route('home'), navigate: true);
+
+            return;
+        }
+
+        $windows = app(SalesOrderWindowManager::class);
+        if ($this->createWindowId && $this->createWindowId !== $id && ! $this->salesOrder?->exists) {
+            $this->persistCreateWindowDraft();
+        }
+
+        $next = $windows->close($id);
+        if ($next === null) {
+            $this->createWindowId = null;
+            $this->redirect(route('home'), navigate: true);
+
+            return;
+        }
+
+        $stay = ($this->createWindowId && $this->createWindowId !== $id)
+            ? $this->createWindowId
+            : $next;
+
+        $this->redirect(route('sales.orders.create', ['w' => $stay]), navigate: false);
+    }
+
+    public function updated($name = null, $value = null): void
+    {
+        if ($this->createWindowId && ! $this->salesOrder?->exists) {
+            $this->persistCreateWindowDraft();
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function createWindowDraftKeys(): array
+    {
+        return [
+            'activeTab', 'addressTab',
+            'order_number', 'order_type', 'status', 'priority',
+            'customer_id', 'ship_to_address_id', 'confirmedCustomerId',
+            'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
+            'ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip',
+            'order_date', 'required_date', 'customer_po_no', 'reference_no',
+            'sales_rep_id', 'payment_term_id', 'route_id', 'ship_via_id', 'ship_from_site_id', 'ship_date',
+            'no_of_boxes', 'no_of_pallets',
+            'custom_field_1', 'custom_field_2', 'custom_field_3', 'custom_field_4', 'custom_field_5',
+            'comments', 'freight', 'trade_discount', 'miscellaneous', 'tax', 'taxManual',
+            'lines', 'boxes', 'customerAlert', 'creditWarning', 'taxExemptWarning',
+        ];
+    }
+
+    protected function persistCreateWindowDraft(): void
+    {
+        if (! $this->createWindowId) {
+            return;
+        }
+
+        $draft = [];
+        foreach ($this->createWindowDraftKeys() as $key) {
+            $draft[$key] = $this->{$key};
+        }
+
+        app(SalesOrderWindowManager::class)->saveDraft($this->createWindowId, $draft);
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     */
+    protected function applyCreateWindowDraft(array $draft): void
+    {
+        $this->suppressCustomerConfirm = true;
+        $this->suppressPriceNotice = true;
+
+        foreach ($this->createWindowDraftKeys() as $key) {
+            if (! array_key_exists($key, $draft)) {
+                continue;
+            }
+            $this->{$key} = $draft[$key];
+        }
+
+        if ($this->boxes === []) {
+            $this->boxes[] = ['box_number' => '', 'tracking_number' => ''];
+        }
+
+        $this->suppressCustomerConfirm = false;
+        $this->suppressPriceNotice = false;
+        $this->refreshCreditWarning();
+    }
+
+    protected function finishCreateWindowAndRedirect(?string $fallbackRoute = 'sales.orders.index'): void
+    {
+        $windows = app(SalesOrderWindowManager::class);
+        if ($this->createWindowId && $windows->has($this->createWindowId)) {
+            $next = $windows->close($this->createWindowId);
+            $this->createWindowId = null;
+            if ($next !== null) {
+                $this->redirect(route('sales.orders.create', ['w' => $next]), navigate: false);
+
+                return;
+            }
+            $this->redirect(route('home'), navigate: true);
+
+            return;
+        }
+
+        $this->redirect(route($fallbackRoute), navigate: true);
     }
 
     protected function emptyLine(): array
@@ -2486,7 +2677,106 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->lineWarning = '';
-        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder));
+        $this->salesOrder->loadMissing('customer', 'invoice');
+        $this->invoiceEmailTo = (string) ($this->salesOrder->customer?->email ?? '');
+        $label = $this->salesOrder->invoice?->invoice_number ?: ('SO-'.$this->salesOrder->order_number);
+        $this->invoiceEmailSubject = 'Invoice '.$label;
+        $this->invoiceDeliveryMode = filled($this->invoiceEmailTo) ? 'both' : 'print';
+        $this->showInvoiceDeliveryDialog = true;
+    }
+
+    public function cancelInvoiceDeliveryDialog(): void
+    {
+        $this->showInvoiceDeliveryDialog = false;
+    }
+
+    public function confirmInvoiceDeliveryDialog(): void
+    {
+        if (! $this->salesOrder?->exists) {
+            $this->showInvoiceDeliveryDialog = false;
+
+            return;
+        }
+
+        $mode = $this->invoiceDeliveryMode;
+        $print = in_array($mode, ['print', 'both'], true);
+        $email = in_array($mode, ['email', 'both'], true);
+
+        if ($email) {
+            $to = trim($this->invoiceEmailTo);
+            if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                $this->addError('invoiceEmailTo', 'Enter a valid customer email address.');
+
+                return;
+            }
+
+            try {
+                app(\App\Services\DocumentPdfService::class)->emailSalesOrderInvoiceStyle(
+                    $this->salesOrder->fresh(['customer', 'invoice', 'lines']),
+                    $to,
+                    auth()->user(),
+                    $this->invoiceEmailSubject !== '' ? $this->invoiceEmailSubject : null
+                );
+                $this->notifyAlert('Invoice emailed to '.$to, 'success');
+            } catch (\Throwable $e) {
+                $this->notifyAlert('Could not email invoice: '.$e->getMessage(), 'error');
+
+                return;
+            }
+        }
+
+        $this->showInvoiceDeliveryDialog = false;
+        $this->resetErrorBag('invoiceEmailTo');
+
+        if ($print) {
+            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder));
+        }
+    }
+
+    #[On('pos-shortcut-f2')]
+    public function shortcutFocusItemEntry(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        $this->activeTab = 'items';
+        $this->focusItemEntry(true);
+    }
+
+    #[On('pos-shortcut-f3')]
+    public function shortcutBrowseItems(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        $this->openBrowseForSearch();
+    }
+
+    #[On('pos-shortcut-f4')]
+    public function shortcutFocusSearch(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        if (! $this->showBrowse) {
+            $this->openBrowseForSearch();
+        }
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-browse-search"); if (el) { el.focus(); el.select?.(); } });');
+    }
+
+    #[On('pos-shortcut-save')]
+    public function shortcutSave(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        $this->save();
+    }
+
+    #[On('pos-shortcut-print')]
+    public function shortcutPrint(): void
+    {
+        $this->printInvoiceStyle();
     }
 
     public function printPickList(): void
@@ -3202,7 +3492,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         if (! $this->salesOrder?->exists) {
             $this->showPrintDialog = false;
-            $this->redirect(route('sales.orders.index'), navigate: true);
+            $this->finishCreateWindowAndRedirect();
 
             return;
         }
@@ -3252,8 +3542,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($this->optCreateInvoicePayment && $invoice) {
             session()->flash('status', 'Invoice '.$invoice->invoice_number.' created. Open Payments to collect.');
-
-            $this->redirect(route('sales.orders.index'), navigate: true);
+            $this->finishCreateWindowAndRedirect();
 
             return;
         }
@@ -3264,7 +3553,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             session()->flash('status', 'Order '.$order->order_number.' saved.');
         }
 
-        $this->redirect(route('sales.orders.index'), navigate: true);
+        $this->finishCreateWindowAndRedirect();
     }
 
     public function cancelPrintDialog(): void
@@ -3272,7 +3561,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showPrintDialog = false;
         $number = $this->salesOrder?->order_number;
         session()->flash('status', $number !== '' && $number !== null ? 'Order '.$number.' saved.' : 'Order saved.');
-        $this->redirect(route('sales.orders.index'), navigate: true);
+        $this->finishCreateWindowAndRedirect();
     }
 
     protected function createInvoiceForOrder(SalesOrder $order): Invoice
@@ -3325,7 +3614,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 }; ?>
 
-<div class="so-page">
+<div class="so-page" wire:key="so-create-{{ $createWindowId ?? ($salesOrder?->id ?? 'edit') }}">
     <x-action-bar :title="$pageTitle" class="so-action-full" />
 
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
@@ -3823,7 +4112,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         @endunless
                     </div>
                     <div class="so-entry">
-                        <span class="so-entry-label">Item code / barcode (F2)</span>
+                        <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
                         <div
                             class="so-scan-bar"
                             role="search"
@@ -3846,6 +4135,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 type="text"
                                 class="so-input so-entry-input"
                                 id="so-item-entry"
+                                data-pos-item-entry
                                 name="so_item_entry"
                                 placeholder="Scan or type full code — adds when it matches"
                                 autocomplete="off"
@@ -3885,6 +4175,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             return;
                                         }
                                         if (e.key === 'F2') {
+                                            e.preventDefault();
+                                            clearTimeout(this.timer);
+                                            $el.focus();
+                                            $el.select?.();
+                                            return;
+                                        }
+                                        if (e.key === 'F3') {
                                             e.preventDefault();
                                             clearTimeout(this.timer);
                                             $wire.openBrowseForSearch(($el.value || '').trim());
@@ -3942,7 +4239,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </div>
                         @unless ($viewMode)
                             <div class="so-entry-tools">
-                            <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice" tabindex="-1" aria-label="Print invoice">
+                            <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice (F10)" tabindex="-1" aria-label="Print invoice" data-pos-print>
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
                             </button>
                             <button type="button" wire:click="printPickList" class="so-icon-btn" title="Print pick list" tabindex="-1" aria-label="Print pick list">
@@ -3954,7 +4251,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                             </button>
-                            <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                            <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F3)" data-pos-browse>Browse (F3)</button>
                             </div>
                         @endunless
                     </div>
@@ -4134,10 +4431,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 @if ($salesOrder->status !== 'Invoiced' && ! $salesOrder->invoice)
                     <a href="{{ route('sales.orders.edit', $salesOrder) }}" wire:navigate class="so-btn-save">Edit Order</a>
                 @endif
-                <button type="button" wire:click="printInvoiceStyle" class="so-btn-save">Print Invoice</button>
+                <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)
-                <button type="submit" form="so-form" class="so-btn-save">Save Changes</button>
+                <button type="submit" form="so-form" class="so-btn-save" data-pos-save>Save Changes</button>
             @endif
         </div>
     </div>
@@ -4605,6 +4902,47 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     <div class="so-print-dialog-actions">
                         <button type="button" wire:click="confirmPrintDialog" class="desk-btn desk-btn-primary">OK</button>
                         <button type="button" wire:click="cancelPrintDialog" class="desk-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showInvoiceDeliveryDialog)
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="so-inv-delivery-title">
+            <div class="desk-modal desk-modal-sm">
+                <div class="desk-modal-head">
+                    <span id="so-inv-delivery-title">Invoice delivery</span>
+                    <button type="button" wire:click="cancelInvoiceDeliveryDialog" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body space-y-3">
+                    <p class="inv-email-note" style="margin:0">Print the invoice, email it to the customer, or both.</p>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="print" />
+                        <span>Print only</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="email" />
+                        <span>Email only</span>
+                    </label>
+                    <label class="so-print-opt">
+                        <input type="radio" wire:model.live="invoiceDeliveryMode" value="both" />
+                        <span>Print &amp; email</span>
+                    </label>
+                    @if (in_array($invoiceDeliveryMode, ['email', 'both'], true))
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="so-inv-email">To</label>
+                            <input id="so-inv-email" type="email" wire:model="invoiceEmailTo" class="so-input @error('invoiceEmailTo') is-invalid @enderror" placeholder="customer@email.com" />
+                        </div>
+                        @error('invoiceEmailTo') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="so-inv-subject">Subject</label>
+                            <input id="so-inv-subject" type="text" wire:model="invoiceEmailSubject" class="so-input" />
+                        </div>
+                    @endif
+                    <div class="entity-footer-actions" style="justify-content:flex-end;gap:0.5rem">
+                        <button type="button" wire:click="cancelInvoiceDeliveryDialog" class="desk-btn">Cancel</button>
+                        <button type="button" wire:click="confirmInvoiceDeliveryDialog" class="desk-btn desk-btn-primary">OK</button>
                     </div>
                 </div>
             </div>

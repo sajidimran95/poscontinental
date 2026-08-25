@@ -786,6 +786,7 @@
                                 placeholder="{{ $browseSearchPlaceholder ?? 'Type or scan code — matching item adds to cart' }}"
                                 aria-label="Scan or search items"
                                 id="so-browse-search"
+                                data-pos-search
                                 autocomplete="off"
                             />
                         </div>

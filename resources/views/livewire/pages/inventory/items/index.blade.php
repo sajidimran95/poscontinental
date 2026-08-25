@@ -1416,7 +1416,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 Search
                             </span>
                             <input
-                                id="items-search"
+                                id="items-search" data-pos-search
                                 type="text"
                                 wire:model.live.debounce.300ms="search"
                                 wire:keydown.enter.prevent="scanFindItem($event.target.value)"

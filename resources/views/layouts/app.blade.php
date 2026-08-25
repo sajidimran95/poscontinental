@@ -10,6 +10,37 @@
         <link href="https://fonts.bunny.net/css?family=ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500&display=swap" rel="stylesheet" />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
+        <style>
+            .chief-tabs .chief-tab-add {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                align-self: stretch !important;
+                box-sizing: border-box !important;
+                height: 100% !important;
+                min-width: 3.5rem !important;
+                padding: 0 1.35rem !important;
+                margin: 0 !important;
+                border: none !important;
+                border-right: 1px solid #15803d !important;
+                border-radius: 0 !important;
+                background: #22c55e !important;
+                color: #fff !important;
+                font-size: 1.4rem !important;
+                font-weight: 700 !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                flex: 0 0 auto !important;
+            }
+            .chief-tabs .chief-tab-add:hover:not(:disabled) {
+                background: #16a34a !important;
+                color: #fff !important;
+            }
+            .chief-tabs .chief-tab-add:disabled {
+                opacity: 0.45 !important;
+                cursor: not-allowed !important;
+            }
+        </style>
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
         <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -105,7 +136,11 @@
                             <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
                                 @foreach ($menuItems as [$label, $route, $allowed])
                                     @if ($allowed)
-                                        <a href="{{ route($route) }}" wire:navigate class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap" role="menuitem">{{ $label }}</a>
+                                        <a
+                                            href="{{ route('pos.tabs.open', ['route' => $route, 'label' => $label]) }}"
+                                            class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
+                                            role="menuitem"
+                                        >{{ $label }}</a>
                                     @else
                                         <button
                                             type="button"
@@ -123,7 +158,10 @@
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
                         @if ($routeExists('lookups.index'))
-                            <a href="{{ route('lookups.index') }}" wire:navigate class="text-sm font-medium text-slate-700 hover:text-slate-900">Lookups</a>
+                            <a
+                                href="{{ route('pos.tabs.open', ['route' => 'lookups.index', 'label' => 'Lookups']) }}"
+                                class="text-sm font-medium text-slate-700 hover:text-slate-900"
+                            >Lookups</a>
                         @endif
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
@@ -133,7 +171,7 @@
                 </div>
             </nav>
 
-            {{-- Document tabs: active doc first (yellow), then Home — matches Chief --}}
+            {{-- Document tabs: Home | + (SO) | open docs — menu clicks stay open until × --}}
             @php
                 $routeName = request()->route()?->getName() ?? 'home';
                 $docLabelMap = [
@@ -185,41 +223,112 @@
                     'admin.company-settings' => 'Company Settings',
                     'admin.overselling-settings' => 'Overselling Settings',
                     'admin.japsai' => 'POS AI Settings',
+                    'admin.users.index' => 'Users & Roles',
+                    'admin.email-setup' => 'Email Setup',
+                    'admin.email-logs' => 'Email Send Log',
                 ];
-                $homeTab = ['label' => 'Home', 'route' => 'home', 'url' => route('home')];
-                if (isset($documentTabs)) {
-                    $builtTabs = $documentTabs;
-                    $activeRoute = $activeTabRoute ?? $routeName;
-                } elseif ($routeName === 'home' || ! isset($docLabelMap[$routeName])) {
-                    $builtTabs = [$homeTab];
-                    $activeRoute = 'home';
-                } else {
-                    $label = $docLabelMap[$routeName];
-                    if ($routeName === 'sales.orders.edit') {
+
+                $soWindows = app(\App\Services\SalesOrderWindowManager::class);
+                $docTabs = app(\App\Services\DocumentTabManager::class);
+                $activeWindowId = null;
+                $activeDocTabId = null;
+
+                if ($routeName === 'sales.orders.create') {
+                    $soWindows->ensureOne();
+                    $activeWindowId = request()->query('w') ?: $soWindows->activeId();
+                    if (is_string($activeWindowId) && $soWindows->has($activeWindowId)) {
+                        $soWindows->setActive($activeWindowId);
+                    } else {
+                        $activeWindowId = $soWindows->ensureOne();
+                    }
+                } elseif ($routeName !== 'home' && $routeName !== 'pos.tabs.open') {
+                    $label = $docLabelMap[$routeName]
+                        ?? str($routeName)->afterLast('.')->headline()->toString();
+                    if (in_array($routeName, ['sales.orders.edit', 'sales.orders.show'], true)) {
                         $label = 'Order';
                     }
-                    $builtTabs = [
-                        ['label' => $label, 'route' => $routeName, 'url' => url()->current()],
-                        $homeTab,
-                    ];
-                    $activeRoute = $routeName;
+                    $docTabs->syncCurrent($routeName, $label, url()->current());
+                    $activeDocTabId = $docTabs->activeId();
                 }
+
+                $builtTabs = [];
+                foreach ($soWindows->list() as $win) {
+                    $builtTabs[] = [
+                        'kind' => 'so',
+                        'label' => $win['label'],
+                        'route' => 'sales.orders.create',
+                        'url' => $win['url'],
+                        'window_id' => $win['id'],
+                        'tab_id' => null,
+                        'close_url' => route('sales.orders.windows.close', $win['id']),
+                    ];
+                }
+                foreach ($docTabs->list() as $tab) {
+                    $builtTabs[] = [
+                        'kind' => 'doc',
+                        'label' => $tab['label'],
+                        'route' => $tab['route'],
+                        'url' => $tab['url'],
+                        'window_id' => null,
+                        'tab_id' => $tab['id'],
+                        'close_url' => route('pos.tabs.close', $tab['id']),
+                    ];
+                }
+
+                $soWindowAdd = $soWindows->count() > 0 || $routeName === 'sales.orders.create';
+                $homeIsActive = $routeName === 'home';
             @endphp
             <div class="chief-tabs">
+                <div @class(['chief-tab', 'chief-tab-active' => $homeIsActive])>
+                    <a href="{{ route('home') }}" wire:navigate class="chief-tab-link">Home</a>
+                </div>
+
+                <button
+                    type="button"
+                    class="chief-tab-add"
+                    title="New Sales Order"
+                    aria-label="Open another New Sales Order"
+                    style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:3.5rem;padding:0 1.35rem;margin:0;border:none;border-right:1px solid #15803d;border-radius:0;background:#22c55e;color:#fff;font-size:1.4rem;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;"
+                    @disabled($soWindows->count() >= \App\Services\SalesOrderWindowManager::MAX_WINDOWS)
+                    onclick="if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-open'); } else { window.location.href = {{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }}; }"
+                >+</button>
+
                 @foreach ($builtTabs as $tab)
-                    <a
-                        href="{{ $tab['url'] }}"
-                        wire:navigate
-                        @class([
-                            'chief-tab',
-                            'chief-tab-active' => ($activeRoute ?? 'home') === $tab['route'],
-                        ])
-                    >
-                        {{ $tab['label'] }}
-                        @if ($tab['route'] !== 'home')
-                            <span class="chief-tab-close" aria-hidden="true">×</span>
+                    @php
+                        $isSo = ($tab['kind'] ?? '') === 'so';
+                        $isActive = $isSo
+                            ? ($routeName === 'sales.orders.create' && ($tab['window_id'] ?? null) === $activeWindowId)
+                            : ($routeName === ($tab['route'] ?? '') && (
+                                $activeDocTabId === null || ($tab['tab_id'] ?? null) === $activeDocTabId || $routeName !== 'home'
+                            ) && $routeName === ($tab['route'] ?? ''));
+                        // Active when current route matches this tab's route (singleton docs)
+                        if (! $isSo) {
+                            $isActive = $routeName === ($tab['route'] ?? '');
+                        }
+                    @endphp
+                    <div @class(['chief-tab', 'chief-tab-active' => $isActive])>
+                        <a
+                            href="{{ $tab['url'] }}"
+                            @if ($isSo)
+                                onclick="event.preventDefault(); if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-switch', { id: {{ json_encode($tab['window_id']) }} }); } else { window.location.href = {{ json_encode($tab['url']) }}; }"
+                            @endif
+                            class="chief-tab-link"
+                        >{{ $tab['label'] }}</a>
+                        @if ($isSo)
+                            <button
+                                type="button"
+                                class="chief-tab-close"
+                                title="Close"
+                                aria-label="Close {{ $tab['label'] }}"
+                                onclick="if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-close', { id: {{ json_encode($tab['window_id']) }} }); } else { const f=document.createElement('form'); f.method='POST'; f.action={{ json_encode($tab['close_url']) }}; const t=document.createElement('input'); t.type='hidden'; t.name='_token'; t.value={{ json_encode(csrf_token()) }}; f.appendChild(t); document.body.appendChild(f); f.submit(); }"
+                            >×</button>
+                        @else
+                            <form method="POST" action="{{ $tab['close_url'] }}" class="chief-tab-close-form">
+                                @csrf
+                                <button type="submit" class="chief-tab-close" title="Close" aria-label="Close {{ $tab['label'] }}">×</button>
+                            </form>
                         @endif
-                    </a>
+                    </div>
                 @endforeach
             </div>
 
@@ -550,6 +659,205 @@
                 document.addEventListener('livewire:init', bindLivewire);
                 queueMicrotask(bindLivewire);
                 setTimeout(bindLivewire, 400);
+            })();
+
+            (function () {
+                const routes = {
+                    newOrder: @json(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])),
+                    newPo: @json(Route::has('purchasing.orders.create') ? route('pos.tabs.open', ['route' => 'purchasing.orders.create', 'label' => 'New Purchase Order']) : null),
+                    newItem: @json(Route::has('inventory.items.create') ? route('pos.tabs.open', ['route' => 'inventory.items.create', 'label' => 'New Item']) : null),
+                    reports: @json(Route::has('reports.sales-by-customer') ? route('pos.tabs.open', ['route' => 'reports.sales-by-customer', 'label' => 'Sales Report By Customer']) : null),
+                };
+
+                function typingInField(el) {
+                    if (! el || el === document.body) return false;
+                    const tag = (el.tagName || '').toLowerCase();
+                    if (tag === 'textarea' || tag === 'select' || el.isContentEditable) return true;
+                    if (tag === 'input') {
+                        const type = (el.getAttribute('type') || 'text').toLowerCase();
+                        return ! ['button', 'submit', 'checkbox', 'radio', 'file', 'reset', 'hidden'].includes(type);
+                    }
+                    return false;
+                }
+
+                function go(url) {
+                    if (! url) return;
+                    if (window.Livewire && typeof Livewire.navigate === 'function') {
+                        Livewire.navigate(url);
+                    } else {
+                        window.location.href = url;
+                    }
+                }
+
+                function dispatchShortcut(name, detail) {
+                    if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                        Livewire.dispatch(name, detail || {});
+                        return true;
+                    }
+                    return false;
+                }
+
+                function isVisible(el) {
+                    if (! el || el.disabled) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                }
+
+                function clickFirst(selector) {
+                    const nodes = document.querySelectorAll(selector);
+                    for (const el of nodes) {
+                        if (! isVisible(el) || el.disabled) continue;
+                        el.click();
+                        return true;
+                    }
+                    return false;
+                }
+
+                function focusFirst(selectors) {
+                    for (const sel of selectors) {
+                        const nodes = document.querySelectorAll(sel);
+                        for (const el of nodes) {
+                            if (! isVisible(el)) continue;
+                            el.focus();
+                            if (typeof el.select === 'function') el.select();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function onNewOrder() {
+                    const onCreate = window.location.pathname.indexOf('/sales/orders/create') !== -1;
+                    if (onCreate && dispatchShortcut('so-windows-open')) {
+                        return;
+                    }
+                    go(routes.newOrder);
+                }
+
+                function onSave() {
+                    if (clickFirst('[data-pos-save]')) return;
+                    dispatchShortcut('pos-shortcut-save');
+                    const form = document.querySelector('form#so-form');
+                    if (form) {
+                        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                        else form.submit();
+                    }
+                }
+
+                function onPrint() {
+                    // Prefer the on-page Print Invoice control (SO / invoices / rails).
+                    if (clickFirst('[data-pos-print]:not([disabled])')) return;
+                    if (clickFirst('button.so-btn-save[wire\\:click="printInvoiceStyle"], button[title*="Print invoice" i]:not([disabled])')) return;
+                    dispatchShortcut('pos-shortcut-print');
+                }
+
+                function onF2() {
+                    if (focusFirst(['#so-item-entry', '[data-pos-item-entry]', 'input.so-entry-input'])) {
+                        dispatchShortcut('pos-shortcut-f2');
+                        return;
+                    }
+                    dispatchShortcut('pos-shortcut-f2');
+                    setTimeout(function () {
+                        focusFirst(['#so-item-entry', '[data-pos-item-entry]', 'input.so-entry-input']);
+                    }, 80);
+                    focusFirst(['input[placeholder*="item code" i]', 'input[placeholder*="barcode" i]', 'input[placeholder*="Scan" i]']);
+                }
+
+                function onF3() {
+                    if (clickFirst('[data-pos-browse], button.so-browse-btn, button[title*="Browse" i]')) return;
+                    dispatchShortcut('pos-shortcut-f3');
+                }
+
+                function onF4() {
+                    // List / browse search anywhere in the program
+                    if (focusFirst([
+                        '[data-pos-search]',
+                        '#so-browse-search',
+                        '#orders-search',
+                        '#invoices-search',
+                        '#customers-search',
+                        '#po-search',
+                        '#suppliers-search',
+                        '#rcv-search',
+                        '#rtv-search',
+                        '#cm-search',
+                        '#stock-counts-search',
+                        '#users-search',
+                        'input[type="search"]',
+                        'input[placeholder*="Search" i]',
+                        'input[placeholder*="search" i]',
+                        '.desk-toolbar input[type="text"]',
+                    ])) return;
+
+                    // Sales order: open browse then focus its search
+                    dispatchShortcut('pos-shortcut-f4');
+                    setTimeout(function () {
+                        focusFirst(['#so-browse-search', '[data-pos-search]']);
+                    }, 120);
+                }
+
+                document.addEventListener('keydown', function (e) {
+                    if (e.defaultPrevented) return;
+                    if (e.altKey) return;
+
+                    const key = e.key;
+                    const ctrl = e.ctrlKey || e.metaKey;
+                    const typing = typingInField(e.target);
+
+                    // Function keys always (except when a native browser dialog owns focus)
+                    if (key === 'F2') {
+                        e.preventDefault();
+                        onF2();
+                        return;
+                    }
+                    if (key === 'F3') {
+                        e.preventDefault();
+                        onF3();
+                        return;
+                    }
+                    if (key === 'F4') {
+                        e.preventDefault();
+                        onF4();
+                        return;
+                    }
+                    if (key === 'F10') {
+                        e.preventDefault();
+                        onPrint();
+                        return;
+                    }
+
+                    if (! ctrl) return;
+
+                    const k = key.toLowerCase();
+                    // Allow Ctrl+S / Ctrl+O etc. even while typing
+                    if (k === 'o') {
+                        e.preventDefault();
+                        onNewOrder();
+                        return;
+                    }
+                    if (k === 's') {
+                        e.preventDefault();
+                        onSave();
+                        return;
+                    }
+                    if (k === 'p') {
+                        e.preventDefault();
+                        go(routes.newPo);
+                        return;
+                    }
+                    if (k === 'i') {
+                        e.preventDefault();
+                        go(routes.newItem);
+                        return;
+                    }
+                    if (k === 'r') {
+                        e.preventDefault();
+                        go(routes.reports);
+                        return;
+                    }
+                }, true);
             })();
         </script>
     </body>

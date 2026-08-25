@@ -43,7 +43,15 @@ class TobaccoProductSalesFileService
     /** BID description starts after BID(3)+UPC14+SKU14. */
     public const BID_DESC_AT = 31;
 
+    /**
+     * Fixed-width BID description slot (keeps NACS/promo columns aligned).
+     * MSA importer treats the visible description as max 50 chars — longer text
+     * spills into Promo Descriptions. We only write ≤50 chars into this slot.
+     */
     public const BID_DESC_LEN = 100;
+
+    /** Max meaningful description chars for MSA (rest of BID_DESC_LEN is spaces). */
+    public const BID_DESC_MAX = 50;
 
     public const BID_SIZE_AT = 131;
 
@@ -522,7 +530,11 @@ class TobaccoProductSalesFileService
      */
     protected function bid(string $code14, Item $item, string $companyState, int $onHand = 0): string
     {
+        // MSA: description must be ≤50 chars or it overflows into Promo Descriptions.
         $desc = $this->upperAscii((string) ($item->description ?: $item->item_code));
+        if (strlen($desc) > self::BID_DESC_MAX) {
+            $desc = substr($desc, 0, self::BID_DESC_MAX);
+        }
         $unitSize = $this->itemsPerSellingUnit($item);
         $promo = $this->isPromoItem($item);
         $state = $this->upperAscii(substr($companyState ?: 'MI', 0, 2));

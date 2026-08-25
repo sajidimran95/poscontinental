@@ -3,6 +3,7 @@
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -26,6 +27,9 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     public string $checkSearch = '';
 
+    /** When true, open credit memos are applied to selected invoices before cash. */
+    public bool $apply_open_credits = true;
+
     public function mount(): void
     {
         $this->pay_date = now()->toDateString();
@@ -36,6 +40,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $companyId = auth()->user()->company_id;
         $invoices = collect();
         $openCredits = collect();
+        $openCreditTotal = 0.0;
         if ($this->customer_id) {
             $invoices = Invoice::query()
                 ->with(['payments', 'credits', 'salesOrder'])
@@ -51,37 +56,59 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
-                ->orderByDesc('memo_date')
-                ->orderByDesc('id')
+                ->orderBy('memo_date')
+                ->orderBy('id')
                 ->get()
                 ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
                 ->values();
+
+            $openCreditTotal = round((float) $openCredits->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
 
-        $checkedTotal = $invoices
+        $checkedTotal = round((float) $invoices
             ->filter(fn ($inv) => ! empty($this->selected[$inv->id]))
-            ->sum(fn ($inv) => $inv->invoice_balance);
+            ->sum(fn ($inv) => $inv->invoice_balance), 2);
+
+        $creditTowardChecked = $this->apply_open_credits
+            ? round(min($openCreditTotal, $checkedTotal), 2)
+            : 0.0;
+        $cashNeeded = round(max(0, $checkedTotal - $creditTowardChecked), 2);
 
         $payAmount = max(0, (float) $this->pay_amount);
         $allocationHint = null;
-        if ($checkedTotal > 0.0001 && $payAmount > 0) {
-            if ($payAmount + 0.0001 < $checkedTotal) {
+        if ($checkedTotal > 0.0001) {
+            if ($creditTowardChecked > 0.0001 && $payAmount <= 0.0001 && $cashNeeded <= 0.0001) {
                 $allocationHint = [
-                    'type' => 'partial',
-                    'applied' => $payAmount,
-                    'left' => round($checkedTotal - $payAmount, 2),
+                    'type' => 'credit_only',
+                    'credit' => $creditTowardChecked,
+                    'credit_left' => round($openCreditTotal - $creditTowardChecked, 2),
                 ];
-            } elseif ($payAmount > $checkedTotal + 0.0001) {
-                $allocationHint = [
-                    'type' => 'overpay',
-                    'applied' => $checkedTotal,
-                    'credit' => round($payAmount - $checkedTotal, 2),
-                ];
-            } else {
-                $allocationHint = [
-                    'type' => 'exact',
-                    'applied' => $checkedTotal,
-                ];
+            } elseif ($creditTowardChecked > 0.0001 || $payAmount > 0) {
+                $coversDue = round($creditTowardChecked + min($payAmount, $cashNeeded), 2);
+                $overpay = round(max(0, $payAmount - $cashNeeded), 2);
+                $left = round(max(0, $checkedTotal - $coversDue), 2);
+
+                if ($left > 0.0001) {
+                    $allocationHint = [
+                        'type' => 'partial',
+                        'credit' => $creditTowardChecked,
+                        'applied' => $coversDue,
+                        'left' => $left,
+                    ];
+                } elseif ($overpay > 0.0001) {
+                    $allocationHint = [
+                        'type' => 'overpay',
+                        'credit' => $creditTowardChecked,
+                        'applied' => $checkedTotal,
+                        'credit_new' => $overpay,
+                    ];
+                } else {
+                    $allocationHint = [
+                        'type' => 'exact',
+                        'credit' => $creditTowardChecked,
+                        'applied' => $checkedTotal,
+                    ];
+                }
             }
         }
 
@@ -109,7 +136,10 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'customers' => Customer::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('company_name')->get(['id', 'customer_id', 'company_name']),
             'openInvoices' => $invoices,
             'openCredits' => $openCredits,
+            'openCreditTotal' => $openCreditTotal,
             'checkedTotal' => $checkedTotal,
+            'creditTowardChecked' => $creditTowardChecked,
+            'cashNeeded' => $cashNeeded,
             'allocationHint' => $allocationHint,
             'checkHits' => $checkHits,
             'isCheckMethod' => InvoicePayment::isCheckMethod($this->pay_method),
@@ -122,21 +152,46 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $this->selected = [];
         $this->pay_amount = '0';
         $this->pay_check_number = '';
+        $this->apply_open_credits = true;
     }
 
     public function updatedSelected(): void
     {
-        $total = 0;
+        $this->syncPayAmountToCashNeeded();
+    }
+
+    public function updatedApplyOpenCredits(): void
+    {
+        $this->syncPayAmountToCashNeeded();
+    }
+
+    private function syncPayAmountToCashNeeded(): void
+    {
+        $companyId = auth()->user()->company_id;
+        $checked = 0.0;
         foreach ($this->selected as $id => $on) {
             if (! $on) {
                 continue;
             }
-            $inv = Invoice::query()->find($id);
+            $inv = Invoice::query()->with(['payments', 'credits'])->find($id);
             if ($inv) {
-                $total += $inv->invoice_balance;
+                $checked += (float) $inv->invoice_balance;
             }
         }
-        $this->pay_amount = number_format($total, 2, '.', '');
+        $checked = round($checked, 2);
+
+        $creditAvail = 0.0;
+        if ($this->apply_open_credits && $this->customer_id) {
+            $creditAvail = round((float) CreditMemo::query()
+                ->where('company_id', $companyId)
+                ->where('customer_id', $this->customer_id)
+                ->where('status', 'Open')
+                ->get()
+                ->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
+        }
+
+        $cashNeeded = round(max(0, $checked - min($creditAvail, $checked)), 2);
+        $this->pay_amount = number_format($cashNeeded, 2, '.', '');
     }
 
     public function selectAllOpen(): void
@@ -158,7 +213,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         foreach ($ids as $id) {
             $this->selected[(int) $id] = true;
         }
-        $this->updatedSelected();
+        $this->syncPayAmountToCashNeeded();
     }
 
     public function clearSelected(): void
@@ -196,17 +251,6 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
-        $this->validate([
-            'customer_id' => 'required',
-            'pay_amount' => 'required|numeric|min:0.01',
-            'pay_method' => 'required',
-            'pay_check_number' => InvoicePayment::isCheckMethod($this->pay_method)
-                ? 'required|string|max:64'
-                : 'nullable|string|max:64',
-        ], [
-            'pay_check_number.required' => 'Enter the check number.',
-        ]);
-
         $ids = collect($this->selected)->filter()->keys()->map(fn ($id) => (int) $id)->all();
         if ($ids === []) {
             session()->flash('status', 'Select at least one unpaid invoice.');
@@ -214,13 +258,37 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
-        $checkNumber = InvoicePayment::isCheckMethod($this->pay_method)
+        $payTotal = round((float) $this->pay_amount, 2);
+        if ($payTotal < 0) {
+            session()->flash('status', 'Payment amount cannot be negative.');
+
+            return;
+        }
+
+        if ($payTotal < 0.01 && ! $this->apply_open_credits) {
+            session()->flash('status', 'Enter a payment amount, or enable Apply open credits.');
+
+            return;
+        }
+
+        $rules = [
+            'customer_id' => 'required',
+            'pay_method' => 'required',
+            'pay_check_number' => InvoicePayment::isCheckMethod($this->pay_method) && $payTotal >= 0.01
+                ? 'required|string|max:64'
+                : 'nullable|string|max:64',
+        ];
+        $this->validate($rules, [
+            'pay_check_number.required' => 'Enter the check number.',
+        ]);
+
+        $checkNumber = InvoicePayment::isCheckMethod($this->pay_method) && $payTotal >= 0.01
             ? trim($this->pay_check_number)
             : null;
 
-        $payTotal = round((float) $this->pay_amount, 2);
         $companyId = (int) auth()->user()->company_id;
-        $appliedTotal = 0.0;
+        $appliedCash = 0.0;
+        $appliedCredit = 0.0;
         $creditAmount = 0.0;
         $creditNumber = null;
         $paidCount = 0;
@@ -232,13 +300,13 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 $payTotal,
                 $checkNumber,
                 $companyId,
-                &$appliedTotal,
+                &$appliedCash,
+                &$appliedCredit,
                 &$creditAmount,
                 &$creditNumber,
                 &$paidCount,
                 &$partialCount
             ) {
-                $remaining = $payTotal;
                 $invoices = Invoice::query()
                     ->with(['payments', 'credits', 'customer'])
                     ->where('company_id', $companyId)
@@ -246,8 +314,77 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     ->whereIn('id', $ids)
                     ->orderBy('invoice_date')
                     ->orderBy('id')
+                    ->lockForUpdate()
                     ->get();
 
+                // 1) Apply existing open credit memos to selected invoices (oldest first).
+                if ($this->apply_open_credits) {
+                    $memos = CreditMemo::query()
+                        ->where('company_id', $companyId)
+                        ->where('customer_id', $this->customer_id)
+                        ->where('status', 'Open')
+                        ->orderBy('memo_date')
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get()
+                        ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
+                        ->values();
+
+                    foreach ($invoices as $invoice) {
+                        $due = round((float) $invoice->invoice_balance, 2);
+                        if ($due <= 0.0001) {
+                            continue;
+                        }
+
+                        foreach ($memos as $memo) {
+                            if ($due <= 0.0001) {
+                                break;
+                            }
+                            $memoLeft = round((float) $memo->remaining_amount, 2);
+                            if ($memoLeft <= 0.0001) {
+                                continue;
+                            }
+                            $apply = round(min($due, $memoLeft), 2);
+                            if ($apply <= 0.0001) {
+                                continue;
+                            }
+
+                            InvoiceCredit::query()->create([
+                                'invoice_id' => $invoice->id,
+                                'credit_memo_id' => $memo->id,
+                                'amount' => $apply,
+                            ]);
+
+                            $memo->unsetRelation('applications');
+                            $memo->refresh();
+                            $memo->update([
+                                'status' => round((float) $memo->remaining_amount, 2) <= 0.0001 ? 'Applied' : 'Open',
+                            ]);
+
+                            $appliedCredit += $apply;
+                            $due = round($due - $apply, 2);
+                        }
+
+                        $invoice->unsetRelation('payments');
+                        $invoice->unsetRelation('credits');
+                        $invoice->refresh();
+                        $invoice->load(['payments', 'credits']);
+                        $newBal = round((float) $invoice->invoice_balance, 2);
+                        $invoice->update(['status' => $newBal <= 0.0001 ? 'PAID' : 'NOT PAID']);
+                    }
+
+                    // Refresh invoice collection balances after credits.
+                    $invoices = Invoice::query()
+                        ->with(['payments', 'credits', 'customer'])
+                        ->whereIn('id', $invoices->pluck('id'))
+                        ->orderBy('invoice_date')
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get();
+                }
+
+                // 2) Apply cash / check payment to remaining balances.
+                $remaining = $payTotal;
                 foreach ($invoices as $invoice) {
                     if ($remaining <= 0.0001) {
                         break;
@@ -278,9 +415,23 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     $newBal = round((float) $invoice->invoice_balance, 2);
                     $invoice->update(['status' => $newBal <= 0.0001 ? 'PAID' : 'NOT PAID']);
 
-                    $appliedTotal += $apply;
+                    $appliedCash += $apply;
                     $remaining = round($remaining - $apply, 2);
                     if ($newBal <= 0.0001) {
+                        $paidCount++;
+                    } else {
+                        $partialCount++;
+                    }
+                }
+
+                // Finalize paid / partial counts for selected invoices.
+                $paidCount = 0;
+                $partialCount = 0;
+                foreach ($invoices as $invoice) {
+                    $invoice->refresh();
+                    $invoice->load(['payments', 'credits']);
+                    $bal = round((float) $invoice->invoice_balance, 2);
+                    if ($bal <= 0.0001) {
                         $paidCount++;
                     } else {
                         $partialCount++;
@@ -310,17 +461,18 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         'sales_order_id' => null,
                         'amount' => $creditAmount,
                         'status' => 'Open',
-                        'comments' => 'Auto credit from customer payment overage ($'.number_format($payTotal, 2).' paid on $'.number_format($appliedTotal, 2).' invoice balance).',
+                        'comments' => 'Auto credit from customer payment overage ($'.number_format($payTotal, 2).' paid on $'.number_format($appliedCash, 2).' remaining invoice balance).',
                         'restock_inventory' => false,
                     ]);
                 }
 
+                $customerDebit = round($appliedCash + $appliedCredit, 2);
                 $customer = Customer::query()
                     ->where('company_id', $companyId)
                     ->find($this->customer_id);
-                if ($customer && $appliedTotal > 0) {
+                if ($customer && $customerDebit > 0) {
                     $customer->update([
-                        'balance' => max(0, round((float) $customer->balance - $appliedTotal, 2)),
+                        'balance' => max(0, round((float) $customer->balance - $customerDebit, 2)),
                     ]);
                 }
             });
@@ -330,16 +482,33 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
+        if ($appliedCash <= 0.0001 && $appliedCredit <= 0.0001 && $creditAmount <= 0.0001) {
+            session()->flash('status', 'Nothing applied. Select invoices with a balance, or enter a payment amount.');
+
+            return;
+        }
+
         $this->selected = [];
         $this->pay_amount = '0';
         $this->pay_check_number = '';
 
-        $msg = 'Applied $'.number_format($appliedTotal, 2).' across selected invoices (oldest first)';
+        $parts = [];
+        if ($appliedCredit > 0.0001) {
+            $parts[] = 'Applied $'.number_format($appliedCredit, 2).' from open credit';
+        }
+        if ($appliedCash > 0.0001) {
+            $parts[] = 'cash/check $'.number_format($appliedCash, 2);
+        }
+        $msg = implode(' + ', $parts);
+        if ($msg === '') {
+            $msg = 'Payment saved';
+        }
+        $msg .= ' across selected invoices';
         if ($paidCount || $partialCount) {
             $msg .= ' — '.$paidCount.' paid, '.$partialCount.' partial';
         }
         if ($creditAmount > 0.0001) {
-            $msg .= '. Overpay $'.number_format($creditAmount, 2).' saved as open credit memo #'.$creditNumber.' for the next invoice.';
+            $msg .= '. Overpay $'.number_format($creditAmount, 2).' saved as open credit memo #'.$creditNumber.'.';
         } else {
             $msg .= '.';
         }
@@ -467,7 +636,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     <div class="entity-section" style="margin-top:1rem">
                         <div class="entity-section-head">
                             <h3 class="entity-section-title">Open Credits</h3>
-                            <span class="desk-title-meta">Available for next invoices (apply from Invoices screen)</span>
+                            <span class="desk-title-meta">Total ${{ number_format($openCreditTotal, 2) }} — applied first when you pay (unless unchecked)</span>
                         </div>
                         <div class="desk-grid" style="max-height:12rem">
                             <table class="desk-table">
@@ -491,6 +660,10 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                 </tbody>
                             </table>
                         </div>
+                        <label class="entity-check" style="margin-top:0.5rem;display:inline-flex;align-items:center;gap:0.4rem">
+                            <input type="checkbox" wire:model.live="apply_open_credits" @disabled(! $canEnterPayments) />
+                            Apply open credits to selected invoices first
+                        </label>
                     </div>
                 @endif
 
@@ -530,31 +703,44 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                             </div>
                         @endif
                         <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="pay_amount_cf">Amount paid</label>
+                            <label class="so-form-lbl" for="pay_amount_cf">Cash / check</label>
                             <input id="pay_amount_cf" wire:model.live="pay_amount" class="so-input text-right" @disabled(! $canEnterPayments) />
                         </div>
                     </div>
 
                     <div style="margin-top:0.75rem;padding:0.65rem 0.75rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:0.25rem">
                         <div class="entity-value">Checked invoice total: <strong>${{ number_format($checkedTotal, 2) }}</strong></div>
+                        @if ($creditTowardChecked > 0.0001)
+                            <div style="margin-top:0.25rem;color:#166534">
+                                Open credit to apply: <strong>${{ number_format($creditTowardChecked, 2) }}</strong>
+                                → cash still needed: <strong>${{ number_format($cashNeeded, 2) }}</strong>
+                            </div>
+                        @endif
                         @if ($allocationHint)
-                            @if ($allocationHint['type'] === 'partial')
+                            @if ($allocationHint['type'] === 'credit_only')
+                                <p class="item-hint" style="margin:0.35rem 0 0;color:#166534">
+                                    Open credit covers these invoices (${{ number_format($allocationHint['credit'], 2) }}).
+                                    Credit left after: <strong>${{ number_format($allocationHint['credit_left'], 2) }}</strong>. Cash can stay $0.
+                                </p>
+                            @elseif ($allocationHint['type'] === 'partial')
                                 <p class="item-hint" style="margin:0.35rem 0 0;color:#b45309">
-                                    Pays <strong>${{ number_format($allocationHint['applied'], 2) }}</strong> oldest-first.
-                                    Remaining balance on selected invoices: <strong>${{ number_format($allocationHint['left'], 2) }}</strong>.
+                                    Covers <strong>${{ number_format($allocationHint['applied'], 2) }}</strong>
+                                    @if (($allocationHint['credit'] ?? 0) > 0) (incl. ${{ number_format($allocationHint['credit'], 2) }} credit) @endif.
+                                    Remaining on selected: <strong>${{ number_format($allocationHint['left'], 2) }}</strong>.
                                 </p>
                             @elseif ($allocationHint['type'] === 'overpay')
                                 <p class="item-hint" style="margin:0.35rem 0 0;color:#166534">
                                     Pays all <strong>${{ number_format($allocationHint['applied'], 2) }}</strong> due.
-                                    Extra <strong>${{ number_format($allocationHint['credit'], 2) }}</strong> becomes an open credit for the next invoice.
+                                    Extra <strong>${{ number_format($allocationHint['credit_new'], 2) }}</strong> becomes a new open credit.
                                 </p>
                             @else
                                 <p class="item-hint" style="margin:0.35rem 0 0;color:#166534">
-                                    Exact match — all selected invoices will be paid in full.
+                                    Exact match — selected invoices paid in full
+                                    @if (($allocationHint['credit'] ?? 0) > 0) (using ${{ number_format($allocationHint['credit'], 2) }} open credit) @endif.
                                 </p>
                             @endif
                         @else
-                            <p class="item-hint" style="margin:0.35rem 0 0">Select invoices, then enter what the customer paid (can be less or more than the total).</p>
+                            <p class="item-hint" style="margin:0.35rem 0 0">Select invoices. Open credits apply first; enter only any remaining cash/check.</p>
                         @endif
                     </div>
 

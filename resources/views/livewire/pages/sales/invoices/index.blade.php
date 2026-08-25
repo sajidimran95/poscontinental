@@ -390,6 +390,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->emailTo = $invoice?->customer?->email ?? '';
         $this->emailSubject = $invoice ? 'Invoice '.$invoice->invoice_number : '';
 
+        // Same as before: open with normal Cash payment row.
         if ($invoice && $invoice->invoice_balance > 0.0001) {
             $this->addPaymentRow();
         }
@@ -490,6 +491,40 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         return max(0, round((float) $invoice->invoice_balance - $draftPay - $draftCredit, 2));
     }
 
+    /**
+     * After credit amounts change, drop or shrink cash drafts so payment is credit — not cash.
+     */
+    protected function syncCashDraftsAfterCredits(): void
+    {
+        $invoice = Invoice::query()->find($this->modalInvoiceId);
+        if (! $invoice) {
+            return;
+        }
+
+        $creditTotal = round((float) collect($this->draftCredits)->sum(
+            fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))
+        ), 2);
+        $invoiceDue = round((float) $invoice->invoice_balance, 2);
+        $cashAllowed = round(max(0, $invoiceDue - $creditTotal), 2);
+
+        if ($cashAllowed <= 0.0001) {
+            $this->draftPayments = [];
+            $this->selectedPaymentIndex = -1;
+
+            return;
+        }
+
+        if ($this->draftPayments === []) {
+            return;
+        }
+
+        // Keep a single cash row for leftover only.
+        $first = $this->draftPayments[0];
+        $first['amount'] = number_format($cashAllowed, 2, '.', '');
+        $this->draftPayments = [$first];
+        $this->selectedPaymentIndex = 0;
+    }
+
     public function removePaymentRow(): void
     {
         if ($this->selectedPaymentIndex < 0 || ! isset($this->draftPayments[$this->selectedPaymentIndex])) {
@@ -524,14 +559,17 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
-        $hasOpen = CreditMemo::query()
+        $openMemos = CreditMemo::query()
             ->where('company_id', auth()->user()->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')
+            ->orderBy('memo_date')
+            ->orderBy('id')
             ->get()
-            ->contains(fn (CreditMemo $m) => $m->remaining_amount > 0.0001);
+            ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
+            ->values();
 
-        if (! $hasOpen) {
+        if ($openMemos->isEmpty()) {
             $this->redirect(route('sales.credit-memos.index', [
                 'new' => 1,
                 'customer_id' => $invoice->customer_id,
@@ -540,12 +578,41 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
+        $usedIds = collect($this->draftCredits)
+            ->map(fn ($r) => (int) ($r['credit_memo_id'] ?? 0))
+            ->filter()
+            ->all();
+
+        $memo = $openMemos->first(fn (CreditMemo $m) => ! in_array((int) $m->id, $usedIds, true))
+            ?? $openMemos->first();
+
+        $usedOfMemo = collect($this->draftCredits)
+            ->filter(fn ($r) => (int) ($r['credit_memo_id'] ?? 0) === (int) $memo->id)
+            ->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0)));
+
+        $memoLeft = max(0, round((float) $memo->remaining_amount - $usedOfMemo, 2));
+        // Amount against invoice due ignoring cash (credit pays first).
+        $invoiceLeft = max(0, round(
+            (float) $invoice->invoice_balance
+            - collect($this->draftCredits)->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))),
+            2
+        ));
+        $apply = round(min($memoLeft, $invoiceLeft), 2);
+
+        if ($apply <= 0.0001) {
+            session()->flash('status', 'Invoice is already covered by selected credits. No cash needed.');
+            $this->syncCashDraftsAfterCredits();
+
+            return;
+        }
+
         $this->draftCredits[] = [
             'key' => uniqid('cr_', true),
-            'credit_memo_id' => '',
-            'amount' => '',
+            'credit_memo_id' => (string) $memo->id,
+            'amount' => number_format($apply, 2, '.', ''),
         ];
         $this->selectedCreditIndex = count($this->draftCredits) - 1;
+        $this->syncCashDraftsAfterCredits();
     }
 
     public function removeCreditRow(): void
@@ -562,6 +629,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->selectedCreditIndex = count($this->draftCredits) > 0
             ? min($this->selectedCreditIndex, count($this->draftCredits) - 1)
             : -1;
+        $this->syncCashDraftsAfterCredits();
     }
 
     public function selectCreditRow(int $index): void
@@ -571,38 +639,46 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function updatedDraftCredits($value, string $key): void
     {
-        // When a credit memo is selected, default amount to min(remaining, balance).
-        if (! str_ends_with($key, '.credit_memo_id')) {
+        // When a credit memo is selected, default amount to min(remaining, invoice balance) — credit first, not cash.
+        if (str_ends_with($key, '.credit_memo_id')) {
+            $parts = explode('.', $key);
+            $index = (int) ($parts[0] ?? -1);
+            if ($index < 0 || ! isset($this->draftCredits[$index])) {
+                return;
+            }
+
+            $memoId = (int) ($this->draftCredits[$index]['credit_memo_id'] ?? 0);
+            if ($memoId <= 0) {
+                $this->syncCashDraftsAfterCredits();
+
+                return;
+            }
+
+            $memo = CreditMemo::query()->find($memoId);
+            $invoice = Invoice::query()->find($this->modalInvoiceId);
+            if (! $memo || ! $invoice) {
+                return;
+            }
+
+            $usedElsewhere = collect($this->draftCredits)
+                ->filter(fn ($r, $i) => $i !== $index && (int) ($r['credit_memo_id'] ?? 0) === $memoId)
+                ->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0)));
+
+            $remaining = max(0, (float) $memo->remaining_amount - $usedElsewhere);
+            $balance = max(0, (float) $invoice->invoice_balance
+                - collect($this->draftCredits)->filter(fn ($r, $i) => $i !== $index)->sum(
+                    fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))
+                ));
+
+            $this->draftCredits[$index]['amount'] = number_format(min($remaining, $balance), 2, '.', '');
+            $this->syncCashDraftsAfterCredits();
+
             return;
         }
 
-        $parts = explode('.', $key);
-        $index = (int) ($parts[0] ?? -1);
-        if ($index < 0 || ! isset($this->draftCredits[$index])) {
-            return;
+        if (str_ends_with($key, '.amount')) {
+            $this->syncCashDraftsAfterCredits();
         }
-
-        $memoId = (int) ($this->draftCredits[$index]['credit_memo_id'] ?? 0);
-        if ($memoId <= 0) {
-            return;
-        }
-
-        $memo = CreditMemo::query()->find($memoId);
-        $invoice = Invoice::query()->find($this->modalInvoiceId);
-        if (! $memo || ! $invoice) {
-            return;
-        }
-
-        $usedElsewhere = collect($this->draftCredits)
-            ->filter(fn ($r, $i) => $i !== $index && (int) ($r['credit_memo_id'] ?? 0) === $memoId)
-            ->sum(fn ($r) => (float) ($r['amount'] ?? 0));
-
-        $remaining = max(0, (float) $memo->remaining_amount - $usedElsewhere);
-        $balance = max(0, (float) $invoice->invoice_balance
-            - collect($this->draftPayments)->sum(fn ($r) => (float) ($r['amount'] ?? 0))
-            - collect($this->draftCredits)->filter(fn ($r, $i) => $i !== $index)->sum(fn ($r) => (float) ($r['amount'] ?? 0)));
-
-        $this->draftCredits[$index]['amount'] = number_format(min($remaining, $balance), 2, '.', '');
     }
 
     public function saveAll(bool $print = false): void

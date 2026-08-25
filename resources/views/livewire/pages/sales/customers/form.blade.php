@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\CigaretteTaxClass;
+use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\CustomerLookupOption;
 use App\Models\CustomerShippingAddress;
@@ -227,6 +228,16 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     {
         $companyId = auth()->user()->company_id;
 
+        $openCreditBalance = 0.0;
+        if ($this->customer?->exists) {
+            $openCreditBalance = (float) CreditMemo::query()
+                ->where('company_id', $companyId)
+                ->where('customer_id', $this->customer->id)
+                ->where('status', 'Open')
+                ->get()
+                ->sum(fn (CreditMemo $m) => $m->remaining_amount);
+        }
+
         return [
             'priceLevels' => PriceLevel::query()->where('company_id', $companyId)->orderBy('name')->get(),
             'cigaretteTaxes' => CigaretteTaxClass::query()->where('company_id', $companyId)->orderBy('name')->get(),
@@ -246,6 +257,7 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 'other' => 'Other Information',
             ],
             'availableCredit' => (float) $this->credit_limit - (float) $this->balance,
+            'openCreditBalance' => round($openCreditBalance, 2),
         ];
     }
 
@@ -465,7 +477,14 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 </div>
                 @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                 @if ($activeTab === 'account')
-                    <div class="entity-balance">Balance: <strong>${{ number_format((float) $balance, 2) }}</strong></div>
+                    <div class="entity-balance" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.5rem;align-items:baseline">
+                        <span>Balance owed: <strong>${{ number_format((float) $balance, 2) }}</strong></span>
+                        @if ($openCreditBalance > 0.0001)
+                            <span>Open credit: <strong style="color:#0a7a32">${{ number_format($openCreditBalance, 2) }}</strong>
+                                <a href="{{ route('sales.credit-memos.index') }}" class="desk-link" style="font-size:0.85em;margin-left:0.35rem">View credit memos</a>
+                            </span>
+                        @endif
+                    </div>
                 @endif
             </div>
 
@@ -655,6 +674,21 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                         <div class="so-form-row"><label class="so-form-lbl" for="total_sales">Total Sales</label><input id="total_sales" wire:model="total_sales" class="so-input text-right" readonly /></div>
                         <div class="so-form-row"><label class="so-form-lbl" for="credit_limit">Credit Limit</label><input id="credit_limit" wire:model.live="credit_limit" class="so-input text-right" /></div>
                         <div class="so-form-row"><span class="so-form-lbl">Available Credit</span><span class="entity-value">${{ number_format($availableCredit, 2) }}</span></div>
+                        <div class="so-form-row">
+                            <span class="so-form-lbl">Open Credit</span>
+                            <span class="entity-value" @if ($openCreditBalance > 0.0001) style="color:#0a7a32;font-weight:600" @endif>
+                                ${{ number_format($openCreditBalance, 2) }}
+                            </span>
+                        </div>
+                        @if ($openCreditBalance > 0.0001)
+                            <p class="desk-muted" style="margin:0 0 0.75rem;font-size:0.875rem;max-width:28rem">
+                                Extra payments / credit memos not yet applied to an invoice. Apply them from
+                                <a href="{{ route('sales.invoices.index') }}" class="desk-link">Invoices</a>
+                                or review under
+                                <a href="{{ route('sales.credit-memos.index') }}" class="desk-link">Credit Memos</a>
+                                (Open).
+                            </p>
+                        @endif
                         <fieldset class="entity-fieldset">
                             <legend>Negative Points</legend>
                             <div class="so-form-row"><label class="so-form-lbl" for="bad_checks_count">Bad Checks</label><input id="bad_checks_count" wire:model="bad_checks_count" class="so-input text-right" style="max-width:5rem" /></div>

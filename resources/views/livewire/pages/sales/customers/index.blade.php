@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
@@ -61,8 +62,31 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             $listTitle = 'Customers List (Inactive)';
         }
 
+        $customers = $query->paginate(25);
+
+        $openCreditsByCustomer = [];
+        $pageIds = $customers->getCollection()->pluck('id')->all();
+        if ($pageIds !== []) {
+            $memos = CreditMemo::query()
+                ->where('company_id', $companyId)
+                ->whereIn('customer_id', $pageIds)
+                ->where('status', 'Open')
+                ->withSum('applications as applied_total', 'amount')
+                ->get(['id', 'customer_id', 'amount']);
+
+            foreach ($memos as $memo) {
+                $remaining = max(0, (float) $memo->amount - (float) ($memo->applied_total ?? 0));
+                if ($remaining <= 0.0001) {
+                    continue;
+                }
+                $cid = (int) $memo->customer_id;
+                $openCreditsByCustomer[$cid] = round(($openCreditsByCustomer[$cid] ?? 0) + $remaining, 2);
+            }
+        }
+
         return [
-            'customers' => $query->paginate(25),
+            'customers' => $customers,
+            'openCreditsByCustomer' => $openCreditsByCustomer,
             'salesReps' => User::assignableSalesRepsQuery($companyId)->get(['id', 'name', 'is_active', 'role_id']),
             'canEditCustomers' => auth()->user()?->canAccessFeature('sales.customers', 'edit') ?? false,
             'favorites' => [
@@ -384,7 +408,8 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                 <th>Telephone</th>
                                 <th>Email</th>
                                 <th>Sales Rep <span class="text-xs font-normal text-slate-500">(click to change)</span></th>
-                                <th class="text-right">Balance</th>
+                                <th class="text-right" title="Amount the customer still owes on invoices">Balance Owed</th>
+                                <th class="text-right" title="Unapplied open credit memos (e.g. overpayments)">Open Credit</th>
                                 <th class="text-center">Don't Call</th>
                                 <th class="text-center">Don't Email</th>
                                 <th>Comments</th>
@@ -448,7 +473,15 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                             {{ $customer->salesRep?->name ?: '—' }}
                                         @endif
                                     </td>
-                                    <td class="desk-money">${{ number_format($customer->balance, 2) }}</td>
+                                    <td class="desk-money">${{ number_format((float) $customer->balance, 2) }}</td>
+                                    <td class="desk-money" @if (($openCreditsByCustomer[$customer->id] ?? 0) > 0.0001) style="color:#0a7a32;font-weight:600" @endif>
+                                        @php $oc = (float) ($openCreditsByCustomer[$customer->id] ?? 0); @endphp
+                                        @if ($oc > 0.0001)
+                                            ${{ number_format($oc, 2) }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
                                     <td class="text-center" wire:click.stop>
                                         <input
                                             type="checkbox"
@@ -480,7 +513,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="13">No customers found.</td>
+                                    <td colspan="14">No customers found.</td>
                                 </tr>
                             @endforelse
                         </tbody>

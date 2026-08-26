@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
@@ -15,6 +16,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -113,7 +115,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             : 0;
 
         return [
-            'invoices' => $query->orderByDesc('id')->paginate(50),
+            'invoices' => $this->applyDeskSort($query)->paginate(50),
             'favorites' => [
                 'all' => 'All Invoices',
                 'not_paid' => 'NOT PAID',
@@ -144,6 +146,27 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
             'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'invoice_number' => 'invoice_number',
+            'invoice_date' => 'invoice_date',
+            'order_number' => ['relation' => 'salesOrder', 'column' => 'order_number'],
+            'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
+            'bill_to' => ['relation' => 'salesOrder', 'column' => 'bill_to_name'],
+            'subtotal' => 'subtotal',
+            'total_discount' => 'total_discount',
+            'trade_discount' => 'trade_discount',
+            'freight' => 'freight',
+            'miscellaneous' => 'miscellaneous',
+            'invoice_total' => 'invoice_total',
+            'payments' => ['raw' => 'COALESCE(payments_sum_amount, 0)'],
+            'credits' => ['raw' => 'COALESCE(credits_sum_amount, 0)'],
+            'balance' => ['raw' => '(invoices.invoice_total - COALESCE(payments_sum_amount, 0) - COALESCE(credits_sum_amount, 0))'],
+            'status' => 'status',
         ];
     }
 
@@ -976,21 +999,21 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center"></th>
-                                <th>Invoice No</th>
-                                <th>Invoice Date</th>
-                                <th>Order No</th>
-                                <th>Customer ID</th>
-                                <th>Bill to</th>
-                                <th class="desk-money">Subtotal</th>
-                                <th class="desk-money">Total Discount</th>
-                                <th class="desk-money">Trade Discount</th>
-                                <th class="desk-money">Freight</th>
-                                <th class="desk-money">Misc</th>
-                                <th class="desk-money">Invoice Total</th>
-                                <th class="desk-money">Payments</th>
-                                <th class="desk-money">Credits</th>
-                                <th class="desk-money">Balance</th>
-                                <th class="text-center">Status</th>
+                                <x-desk-sort-th field="invoice_number" label="Invoice No" />
+                                <x-desk-sort-th field="invoice_date" label="Invoice Date" />
+                                <x-desk-sort-th field="order_number" label="Order No" />
+                                <x-desk-sort-th field="customer_code" label="Customer ID" />
+                                <x-desk-sort-th field="bill_to" label="Bill to" />
+                                <x-desk-sort-th field="subtotal" label="Subtotal" align="money" />
+                                <x-desk-sort-th field="total_discount" label="Total Discount" align="money" />
+                                <x-desk-sort-th field="trade_discount" label="Trade Discount" align="money" />
+                                <x-desk-sort-th field="freight" label="Freight" align="money" />
+                                <x-desk-sort-th field="miscellaneous" label="Misc" align="money" />
+                                <x-desk-sort-th field="invoice_total" label="Invoice Total" align="money" />
+                                <x-desk-sort-th field="payments" label="Payments" align="money" />
+                                <x-desk-sort-th field="credits" label="Credits" align="money" />
+                                <x-desk-sort-th field="balance" label="Balance" align="money" />
+                                <x-desk-sort-th field="status" label="Status" align="center" />
                             </tr>
                         </thead>
                         <tbody>

@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -14,6 +15,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 {
     use WithPagination;
     use InteractsWithDeskQuery;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -60,8 +62,9 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('requisition_date', '>=', $this->dateFrom))
             ->when($this->dateTo !== '', fn ($q) => $q->whereDate('requisition_date', '<=', $this->dateTo))
             ->when($this->supplierId !== '' && ctype_digit((string) $this->supplierId), fn ($q) => $q->where('supplier_id', (int) $this->supplierId))
-            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
-            ->orderByDesc('id');
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
+
+        $query = $this->applyDeskSort($query);
 
         $listTitle = match (true) {
             $this->statusFilter === 'pending', $this->favorite === 'pending' => 'Purchase Orders List (Pending)',
@@ -123,6 +126,24 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             'comments' => ['label' => 'Comments', 'column' => 'comments'],
             'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
             'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'po_number' => 'po_number',
+            'requisition_date' => 'requisition_date',
+            'status' => 'status',
+            'required_date' => 'required_date',
+            'reference_no' => 'reference_no',
+            'supplier_code' => ['relation' => 'supplier', 'column' => 'supplier_id'],
+            'supplier_name' => ['relation' => 'supplier', 'column' => 'name'],
+            'buyer' => ['relation' => 'buyer', 'column' => 'name'],
+            'subtotal' => 'subtotal',
+            'trade_discount' => 'trade_discount',
+            'freight' => 'freight',
+            'total' => 'total',
         ];
     }
 
@@ -407,18 +428,18 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Order Number</th>
-                                <th>Requisition Date</th>
-                                <th class="text-center">Status</th>
-                                <th>Required Date</th>
-                                <th>Reference No.</th>
-                                <th>Supplier ID</th>
-                                <th>Supplier</th>
-                                <th>Buyer / Requester</th>
-                                <th class="desk-money">Order Subtotal</th>
-                                <th class="desk-money">Discount</th>
-                                <th class="desk-money">Freight</th>
-                                <th class="desk-money">Order Total</th>
+                                <x-desk-sort-th field="po_number" label="Order Number" />
+                                <x-desk-sort-th field="requisition_date" label="Requisition Date" />
+                                <x-desk-sort-th field="status" label="Status" align="center" />
+                                <x-desk-sort-th field="required_date" label="Required Date" />
+                                <x-desk-sort-th field="reference_no" label="Reference No." />
+                                <x-desk-sort-th field="supplier_code" label="Supplier ID" />
+                                <x-desk-sort-th field="supplier_name" label="Supplier" />
+                                <x-desk-sort-th field="buyer" label="Buyer / Requester" />
+                                <x-desk-sort-th field="subtotal" label="Order Subtotal" align="money" />
+                                <x-desk-sort-th field="trade_discount" label="Discount" align="money" />
+                                <x-desk-sort-th field="freight" label="Freight" align="money" />
+                                <x-desk-sort-th field="total" label="Order Total" align="money" />
                             </tr>
                         </thead>
                         <tbody>

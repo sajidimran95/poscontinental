@@ -4337,20 +4337,54 @@
         table-layout: auto;
     }
 
-    .desk-table thead th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        text-align: left;
-        font-size: 12px;
+    .desk-table thead th.desk-sort-th {
+        padding: 0;
+    }
+
+    .desk-sort-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        width: 100%;
+        margin: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
         font-weight: 700;
-        color: #475569;
-        background: #f1f5f9;
-        border-bottom: 1px solid #e2e8f0;
+        letter-spacing: inherit;
+        cursor: pointer;
         padding: 0.6rem 0.75rem;
+        text-align: inherit;
         white-space: nowrap;
-        letter-spacing: 0.01em;
-        vertical-align: middle;
+    }
+
+    .desk-sort-th.text-right .desk-sort-btn,
+    .desk-sort-th.desk-money .desk-sort-btn {
+        justify-content: flex-end;
+    }
+
+    .desk-sort-th.text-center .desk-sort-btn {
+        justify-content: center;
+    }
+
+    .desk-sort-btn:hover {
+        color: #0f766e;
+        background: #e2e8f0;
+    }
+
+    .desk-sort-th.is-sorted .desk-sort-btn {
+        color: #0f766e;
+    }
+
+    .desk-sort-ico {
+        font-size: 10px;
+        opacity: 0.45;
+        line-height: 1;
+    }
+
+    .desk-sort-th.is-sorted .desk-sort-ico {
+        opacity: 1;
     }
 
     .desk-table thead th.text-right,

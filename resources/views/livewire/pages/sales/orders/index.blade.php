@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
@@ -16,6 +17,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 {
     use WithPagination;
     use InteractsWithDeskQuery;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -301,8 +303,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('order_date', '>=', $this->dateFrom))
             ->when($this->dateTo !== '', fn ($q) => $q->whereDate('order_date', '<=', $this->dateTo))
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
-            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
-            ->orderByDesc('id');
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
+        $this->applyDeskSort($query, 'id', 'desc');
 
         $listTitle = match ($this->favorite) {
             'new' => 'Orders List (New)',
@@ -379,6 +381,27 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'created_by_name' => ['label' => 'User Name', 'has' => 'createdBy', 'column' => 'name'],
             'customer_city' => ['label' => 'Customer City', 'has' => 'customer', 'column' => 'city'],
             'customer_state' => ['label' => 'Customer State', 'has' => 'customer', 'column' => 'state'],
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'order_number' => 'order_number',
+            'invoice_number' => ['relation' => 'invoice', 'column' => 'invoice_number'],
+            'order_type' => 'order_type',
+            'order_date' => 'order_date',
+            'ship_date' => 'ship_date',
+            'status' => 'status',
+            'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
+            'customer_contact' => ['relation' => 'customer', 'column' => 'contact'],
+            'customer_company' => ['relation' => 'customer', 'column' => 'company_name'],
+            'customer_address' => ['relation' => 'customer', 'column' => 'address'],
+            'customer_phone' => ['relation' => 'customer', 'column' => 'telephone'],
+            'user_name' => ['relation' => 'createdBy', 'column' => 'name'],
+            'updated_at' => 'updated_at',
+            'required_date' => 'required_date',
+            'total' => 'total',
         ];
     }
 
@@ -524,21 +547,21 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center"></th>
-                                <th>Order #</th>
-                                <th>Invoice #</th>
-                                <th>Type</th>
-                                <th>Order Date</th>
-                                <th>Ship Date</th>
-                                <th>Status</th>
-                                <th>Customer ID</th>
-                                <th>Name</th>
-                                <th>Company</th>
-                                <th>Address</th>
-                                <th>Telephone</th>
-                                <th>User Name</th>
-                                <th>Last Updated</th>
-                                <th>Req. Delivery</th>
-                                <th class="text-right">Total</th>
+                                <x-desk-sort-th field="order_number" label="Order #" />
+                                <x-desk-sort-th field="invoice_number" label="Invoice #" />
+                                <x-desk-sort-th field="order_type" label="Type" />
+                                <x-desk-sort-th field="order_date" label="Order Date" />
+                                <x-desk-sort-th field="ship_date" label="Ship Date" />
+                                <x-desk-sort-th field="status" label="Status" />
+                                <x-desk-sort-th field="customer_code" label="Customer ID" />
+                                <x-desk-sort-th field="customer_contact" label="Name" />
+                                <x-desk-sort-th field="customer_company" label="Company" />
+                                <x-desk-sort-th field="customer_address" label="Address" />
+                                <x-desk-sort-th field="customer_phone" label="Telephone" />
+                                <x-desk-sort-th field="user_name" label="User Name" />
+                                <x-desk-sort-th field="updated_at" label="Last Updated" />
+                                <x-desk-sort-th field="required_date" label="Req. Delivery" />
+                                <x-desk-sort-th field="total" label="Total" align="right" />
                                 <th></th>
                             </tr>
                         </thead>

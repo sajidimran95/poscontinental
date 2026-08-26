@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\DocumentEmailLog;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -10,6 +11,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -20,19 +22,31 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
     {
         $companyId = auth()->user()->company_id;
 
+        $logsQuery = DocumentEmailLog::query()
+            ->with('user')
+            ->where('company_id', $companyId)
+            ->when($this->search !== '', function ($q) {
+                $term = '%'.$this->search.'%';
+                $q->where(fn ($i) => $i->where('recipient', 'like', $term)
+                    ->orWhere('subject', 'like', $term)
+                    ->orWhere('document_type', 'like', $term));
+            });
+
         return [
-            'logs' => DocumentEmailLog::query()
-                ->with('user')
-                ->where('company_id', $companyId)
-                ->when($this->search !== '', function ($q) {
-                    $term = '%'.$this->search.'%';
-                    $q->where(fn ($i) => $i->where('recipient', 'like', $term)
-                        ->orWhere('subject', 'like', $term)
-                        ->orWhere('document_type', 'like', $term));
-                })
-                ->orderByDesc('id')
-                ->paginate(50),
+            'logs' => $this->applyDeskSort($logsQuery)->paginate(50),
             'favorites' => ['all' => 'All Sends'],
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'created_at' => 'created_at',
+            'document_type' => 'document_type',
+            'document_id' => 'document_id',
+            'recipient' => 'recipient',
+            'subject' => 'subject',
+            'user_name' => ['relation' => 'user', 'column' => 'name'],
         ];
     }
 }; ?>
@@ -44,15 +58,15 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
         <x-list-chrome label="Search Email Log:" model="search" />
         <div class="px-2 py-1 font-semibold border-b border-slate-300">Document Email Send Log</div>
         <div class="chief-grid flex-1 overflow-auto">
-            <table>
+            <table class="desk-table">
                 <thead>
                     <tr>
-                        <th>When</th>
-                        <th>Type</th>
-                        <th>Doc #</th>
-                        <th>Recipient</th>
-                        <th>Subject</th>
-                        <th>User</th>
+                        <x-desk-sort-th field="created_at" label="When" />
+                        <x-desk-sort-th field="document_type" label="Type" />
+                        <x-desk-sort-th field="document_id" label="Doc #" />
+                        <x-desk-sort-th field="recipient" label="Recipient" />
+                        <x-desk-sort-th field="subject" label="Subject" />
+                        <x-desk-sort-th field="user_name" label="User" />
                     </tr>
                 </thead>
                 <tbody>

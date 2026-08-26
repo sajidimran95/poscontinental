@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
 use App\Services\InventoryService;
@@ -12,6 +13,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -52,8 +54,9 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
-            ->when($this->statusFilter === 'Processed', fn ($q) => $q->where('status', 'Processed'))
-            ->orderByDesc('id');
+            ->when($this->statusFilter === 'Processed', fn ($q) => $q->where('status', 'Processed'));
+
+        $query = $this->applyDeskSort($query);
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
             $receivings = $query->limit(10)->get();
@@ -90,6 +93,25 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                 'processed' => 'Processed',
             ],
             'listTitle' => $listTitle,
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'receipt_number' => 'receipt_number',
+            'receipt_date' => 'receipt_date',
+            'po_number' => ['relation' => 'purchaseOrder', 'column' => 'po_number'],
+            'reference_no' => 'reference_no',
+            'status' => 'status',
+            'requisition_date' => ['relation' => 'purchaseOrder', 'column' => 'requisition_date'],
+            'required_date' => ['relation' => 'purchaseOrder', 'column' => 'required_date'],
+            'supplier_name' => ['relation' => 'supplier', 'column' => 'name'],
+            'buyer' => ['relation' => 'buyer', 'column' => 'name'],
+            'site' => ['relation' => 'site', 'column' => 'code'],
+            'received_by' => 'received_by',
+            'shipping_carrier' => 'shipping_carrier',
+            'comments' => 'comments',
         ];
     }
 
@@ -391,19 +413,19 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Receipt No.</th>
-                                <th>Receipt Date</th>
-                                <th>Purchase Ord. #</th>
-                                <th>Reference No.</th>
-                                <th class="text-center">Status</th>
-                                <th>Requisition Date</th>
-                                <th>Required Date</th>
-                                <th>Supplier</th>
-                                <th>Buyer / Requester</th>
-                                <th>Site</th>
-                                <th>Received By</th>
-                                <th>Shipping Carrier</th>
-                                <th>Comments</th>
+                                <x-desk-sort-th field="receipt_number" label="Receipt No." />
+                                <x-desk-sort-th field="receipt_date" label="Receipt Date" />
+                                <x-desk-sort-th field="po_number" label="Purchase Ord. #" />
+                                <x-desk-sort-th field="reference_no" label="Reference No." />
+                                <x-desk-sort-th field="status" label="Status" align="center" />
+                                <x-desk-sort-th field="requisition_date" label="Requisition Date" />
+                                <x-desk-sort-th field="required_date" label="Required Date" />
+                                <x-desk-sort-th field="supplier_name" label="Supplier" />
+                                <x-desk-sort-th field="buyer" label="Buyer / Requester" />
+                                <x-desk-sort-th field="site" label="Site" />
+                                <x-desk-sort-th field="received_by" label="Received By" />
+                                <x-desk-sort-th field="shipping_carrier" label="Shipping Carrier" />
+                                <x-desk-sort-th field="comments" label="Comments" />
                             </tr>
                         </thead>
                         <tbody>

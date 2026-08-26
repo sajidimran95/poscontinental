@@ -1,6 +1,7 @@
 ﻿<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Item;
@@ -19,6 +20,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
         closeItemBrowse as closeDocumentItemBrowse;
@@ -118,7 +120,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $query->where('status', 'Applied');
         }
 
-        $query->orderByDesc('id');
+        $query = $this->applyDeskSort($query);
 
         $selectedOrder = null;
         if ($this->sales_order_id) {
@@ -208,6 +210,22 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         ];
 
         return array_merge($this->documentBrowseViewData(), $data);
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'memo_number' => 'memo_number',
+            'memo_date' => 'memo_date',
+            'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
+            'customer_name' => ['relation' => 'customer', 'column' => 'company_name'],
+            'order_number' => ['relation' => 'salesOrder', 'column' => 'order_number'],
+            'invoice_number' => ['raw' => '(select invoice_number from invoices where invoices.sales_order_id = credit_memos.sales_order_id limit 1)'],
+            'reason' => 'reason',
+            'amount' => 'amount',
+            'remaining' => ['raw' => '(credit_memos.amount - COALESCE(applied_sum, 0))'],
+            'status' => 'status',
+        ];
     }
 
     /** @return list<string> */
@@ -1454,16 +1472,16 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
-                                    <th>Memo No.</th>
-                                    <th>Date</th>
-                                    <th>Customer ID</th>
-                                    <th>Customer</th>
-                                    <th>Order No.</th>
-                                    <th>Invoice No.</th>
-                                    <th>Reason</th>
-                                    <th class="desk-money">Amount</th>
-                                    <th class="desk-money">Remaining</th>
-                                    <th class="text-center">Status</th>
+                                    <x-desk-sort-th field="memo_number" label="Memo No." />
+                                    <x-desk-sort-th field="memo_date" label="Date" />
+                                    <x-desk-sort-th field="customer_code" label="Customer ID" />
+                                    <x-desk-sort-th field="customer_name" label="Customer" />
+                                    <x-desk-sort-th field="order_number" label="Order No." />
+                                    <x-desk-sort-th field="invoice_number" label="Invoice No." />
+                                    <x-desk-sort-th field="reason" label="Reason" />
+                                    <x-desk-sort-th field="amount" label="Amount" align="money" />
+                                    <x-desk-sort-th field="remaining" label="Remaining" align="money" />
+                                    <x-desk-sort-th field="status" label="Status" align="center" />
                                 </tr>
                             </thead>
                             <tbody>

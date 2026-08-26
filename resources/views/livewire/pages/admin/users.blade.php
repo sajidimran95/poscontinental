@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Department;
 use App\Models\Role;
 use App\Models\Site;
@@ -15,6 +16,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -90,8 +92,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 });
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_active', true))
-            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_active', false))
-            ->orderByDesc('id');
+            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_active', false));
 
         $listTitle = match (true) {
             $this->favorite === 'roles' => 'Roles List',
@@ -107,8 +108,14 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                 $q->where(function ($inner) use ($term) {
                     $inner->where('name', 'like', $term)->orWhere('label', 'like', $term);
                 });
-            })
-            ->orderBy('label');
+            });
+
+        if ($this->favorite === 'roles') {
+            $rolesQuery = $this->applyDeskSort($rolesQuery, 'label', 'asc');
+        } else {
+            $usersQuery = $this->applyDeskSort($usersQuery);
+            $rolesQuery = $rolesQuery->orderBy('label');
+        }
 
         return [
             'users' => $usersQuery->paginate(40),
@@ -134,6 +141,27 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'selectedRoleName' => $this->role_id
                 ? (Role::query()->whereKey($this->role_id)->value('name') ?? '')
                 : '',
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        if ($this->favorite === 'roles') {
+            return [
+                'role_code' => 'name',
+                'role_label' => 'label',
+                'users_count' => 'users_count',
+            ];
+        }
+
+        return [
+            'user_name' => 'name',
+            'email' => 'email',
+            'role' => ['relation' => 'role', 'column' => 'label'],
+            'department' => ['relation' => 'department', 'column' => 'name'],
+            'job_title' => 'job_title',
+            'site' => ['relation' => 'site', 'column' => 'code'],
+            'is_active' => 'is_active',
         ];
     }
 
@@ -1180,13 +1208,13 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
-                                    <th>Name</th>
-                                    <th>User ID (Email)</th>
-                                    <th>Role</th>
-                                    <th>Department</th>
-                                    <th>Job Title</th>
-                                    <th>Site</th>
-                                    <th class="text-center">Active</th>
+                                    <x-desk-sort-th field="user_name" label="Name" />
+                                    <x-desk-sort-th field="email" label="User ID (Email)" />
+                                    <x-desk-sort-th field="role" label="Role" />
+                                    <x-desk-sort-th field="department" label="Department" />
+                                    <x-desk-sort-th field="job_title" label="Job Title" />
+                                    <x-desk-sort-th field="site" label="Site" />
+                                    <x-desk-sort-th field="is_active" label="Active" align="center" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -1339,9 +1367,9 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
-                                    <th>Code</th>
-                                    <th>Label</th>
-                                    <th class="desk-money">Users</th>
+                                    <x-desk-sort-th field="role_code" label="Code" />
+                                    <x-desk-sort-th field="role_label" label="Label" />
+                                    <x-desk-sort-th field="users_count" label="Users" align="money" />
                                 </tr>
                             </thead>
                             <tbody>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\TobaccoStampInventory;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -7,6 +8,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Stamp Inventory')] class extends Component
 {
+    use SortsDeskList;
+
     public string $period_start = '';
 
     public string $period_end = '';
@@ -45,11 +48,16 @@ new #[Layout('layouts.app'), Title('Stamp Inventory')] class extends Component
                 'r5' => 'R5 — Tribal 20 (1,500)',
                 'r6' => 'R6 — Tribal 25 (1,500)',
             ],
-            'rows' => TobaccoStampInventory::query()
-                ->where('company_id', auth()->user()->company_id)
-                ->orderByDesc('id')
-                ->limit(50)
-                ->get(),
+            'rows' => $this->applyDeskSort(
+                TobaccoStampInventory::query()->where('company_id', auth()->user()->company_id)
+            )->limit(50)->get(),
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'period_start' => 'period_start',
         ];
     }
 
@@ -206,7 +214,7 @@ new #[Layout('layouts.app'), Title('Stamp Inventory')] class extends Component
                 <table class="stamp-inv-saved-table">
                     <thead>
                         <tr>
-                            <th>Period</th>
+                            <x-desk-sort-th field="period_start" label="Period" />
                             <th>Begin Unaffixed R1–R6</th>
                             <th>End Unaffixed R1–R6</th>
                             <th>Begin Affixed R1–R6</th>

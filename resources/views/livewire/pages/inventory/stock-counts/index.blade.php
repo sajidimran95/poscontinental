@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\StockCount;
 use App\Services\InventoryService;
 use Livewire\Attributes\Layout;
@@ -13,6 +14,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 {
     use WithPagination;
     use InteractsWithDeskQuery;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -44,8 +46,9 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
-            ->when($hasQuery, fn ($q) => $this->applyQueryCriteria($q))
-            ->orderByDesc('id');
+            ->when($hasQuery, fn ($q) => $this->applyQueryCriteria($q));
+
+        $query = $this->applyDeskSort($query);
 
         // Chief: with no search criteria, show 10 most recently updated
         if (! $hasSearch && ! $hasQuery && $this->favorite === 'all') {
@@ -106,6 +109,21 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             'processed_by_name' => ['label' => 'Processed By', 'has' => 'processedByUser', 'column' => 'name'],
             'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
             'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'stock_count_no' => 'stock_count_no',
+            'status' => 'status',
+            'description' => 'description',
+            'date_created' => 'date_created',
+            'last_count_date' => 'last_count_date',
+            'date_entered' => 'date_entered',
+            'date_processed' => 'date_processed',
+            'site' => ['relation' => 'site', 'column' => 'code'],
+            'processed_by' => ['relation' => 'processedByUser', 'column' => 'name'],
         ];
     }
 
@@ -316,15 +334,15 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Stock Count #</th>
-                                <th class="text-center">Status</th>
-                                <th>Description</th>
-                                <th>Date Created</th>
-                                <th>Last Count Date</th>
-                                <th>Date Entered</th>
-                                <th>Date Processed</th>
-                                <th>Site</th>
-                                <th>Processed By</th>
+                                <x-desk-sort-th field="stock_count_no" label="Stock Count #" />
+                                <x-desk-sort-th field="status" label="Status" align="center" />
+                                <x-desk-sort-th field="description" label="Description" />
+                                <x-desk-sort-th field="date_created" label="Date Created" />
+                                <x-desk-sort-th field="last_count_date" label="Last Count Date" />
+                                <x-desk-sort-th field="date_entered" label="Date Entered" />
+                                <x-desk-sort-th field="date_processed" label="Date Processed" />
+                                <x-desk-sort-th field="site" label="Site" />
+                                <x-desk-sort-th field="processed_by" label="Processed By" />
                             </tr>
                         </thead>
                         <tbody>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
 use App\Models\Department;
 use App\Models\InventoryJournalEntry;
@@ -20,6 +21,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Items')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -137,9 +139,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             })
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q))
-            ->when($this->favorite === 'new', fn ($q) => $q->orderByDesc('created_at')->orderByDesc('id'))
-            ->when($this->favorite !== 'new', fn ($q) => $q->orderByDesc('id'));
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
+
+        $query = $this->applyDeskSort($query, $this->favorite === 'new' ? 'created_at' : 'id', 'desc');
 
         $favorites = [
             'all' => 'All Items',
@@ -686,6 +688,22 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'last_sold_at' => ['label' => 'Last Sold', 'type' => 'date'],
             'last_count_date' => ['label' => 'Last Count Date', 'type' => 'date'],
         ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        $map = [];
+        foreach (array_keys($this->itemListColumnCatalog()) as $key) {
+            $map[$key] = match ($key) {
+                'is_new' => 'created_at',
+                'department' => ['relation' => 'department', 'column' => 'name'],
+                'category' => ['relation' => 'category', 'column' => 'name'],
+                'subcategory' => ['relation' => 'subcategory', 'column' => 'name'],
+                default => $key,
+            };
+        }
+
+        return $map;
     }
 
     /** @return list<string> */
@@ -1502,10 +1520,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 <th class="text-center" style="width:2rem"></th>
                                 @foreach ($visibleColumnKeys as $colKey)
                                     @php $col = $itemColumnCatalog[$colKey]; @endphp
-                                    <th @class([
-                                        'text-center' => in_array($col['type'], ['new', 'bool', 'can_sell', 'inactive'], true),
-                                        'desk-money' => in_array($col['type'], ['money', 'qty'], true),
-                                    ])>{{ $col['label'] }}</th>
+                                    <x-desk-sort-th
+                                        :field="$colKey"
+                                        :label="$col['label']"
+                                        :align="in_array($col['type'], ['money', 'qty'], true) ? 'money' : (in_array($col['type'], ['new', 'bool', 'can_sell', 'inactive'], true) ? 'center' : 'left')"
+                                    />
                                 @endforeach
                             </tr>
                         </thead>

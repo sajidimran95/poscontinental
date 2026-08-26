@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use Livewire\Attributes\Layout;
@@ -11,6 +12,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -48,13 +50,12 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->when($this->favorite === 'tobacco', fn ($q) => $q->where('is_tobacco_supplier', true))
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
-            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderByDesc('id');
+            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true));
+
+        $query = $this->applyDeskSort($query);
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
-            $suppliers = Supplier::query()
-                ->where('company_id', $companyId)
-                ->orderByDesc('id')
+            $suppliers = (clone $query)
                 ->limit(10)
                 ->get();
             $total = $suppliers->count();
@@ -86,6 +87,18 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                 'tobacco' => 'Tobacco Suppliers',
             ],
             'listTitle' => $listTitle,
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'supplier_id' => 'supplier_id',
+            'name' => 'name',
+            'address' => 'address',
+            'phone1' => 'phone1',
+            'email' => 'email',
+            'web_page' => 'web_page',
         ];
     }
 
@@ -295,12 +308,12 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Supplier ID</th>
-                                <th>Company Name</th>
-                                <th>Address</th>
-                                <th>Telephone</th>
-                                <th>Email Address</th>
-                                <th>Web Site</th>
+                                <x-desk-sort-th field="supplier_id" label="Supplier ID" />
+                                <x-desk-sort-th field="name" label="Company Name" />
+                                <x-desk-sort-th field="address" label="Address" />
+                                <x-desk-sort-th field="phone1" label="Telephone" />
+                                <x-desk-sort-th field="email" label="Email Address" />
+                                <x-desk-sort-th field="web_page" label="Web Site" />
                             </tr>
                         </thead>
                         <tbody>

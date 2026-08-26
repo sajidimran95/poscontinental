@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\InventoryReceivingLine;
 use App\Models\ReturnToVendor;
@@ -17,6 +18,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -94,8 +96,9 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'returned', fn ($q) => $q->where('status', 'Returned'))
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
-            ->when($this->statusFilter === 'Returned', fn ($q) => $q->where('status', 'Returned'))
-            ->orderByDesc('id');
+            ->when($this->statusFilter === 'Returned', fn ($q) => $q->where('status', 'Returned'));
+
+        $query = $this->applyDeskSort($query);
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '' && ! $this->showForm) {
             $records = $query->limit(10)->get();
@@ -186,6 +189,23 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'isReturned' => $this->status === 'Returned',
             'isReadonly' => $this->viewMode || $this->status === 'Returned',
             'browseLines' => $browseLines,
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'rtv_number' => 'rtv_number',
+            'rtv_date' => 'rtv_date',
+            'status' => 'status',
+            'reference_no' => 'reference_no',
+            'supplier_code' => ['relation' => 'supplier', 'column' => 'supplier_id'],
+            'supplier_name' => ['relation' => 'supplier', 'column' => 'name'],
+            'requested_by' => ['relation' => 'requestedBy', 'column' => 'name'],
+            'subtotal' => 'subtotal',
+            'discount' => 'discount',
+            'freight' => 'freight',
+            'total' => 'total',
         ];
     }
 
@@ -1424,17 +1444,17 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2rem"></th>
-                                    <th>RTV Number</th>
-                                    <th>RTV Date</th>
-                                    <th class="text-center">Status</th>
-                                    <th>Reference No.</th>
-                                    <th>Supplier ID</th>
-                                    <th>Supplier</th>
-                                    <th>Requested By</th>
-                                    <th class="desk-money">RTV Subtotal</th>
-                                    <th class="desk-money">Discount</th>
-                                    <th class="desk-money">Freight</th>
-                                    <th class="desk-money">RTV Total</th>
+                                    <x-desk-sort-th field="rtv_number" label="RTV Number" />
+                                    <x-desk-sort-th field="rtv_date" label="RTV Date" />
+                                    <x-desk-sort-th field="status" label="Status" align="center" />
+                                    <x-desk-sort-th field="reference_no" label="Reference No." />
+                                    <x-desk-sort-th field="supplier_code" label="Supplier ID" />
+                                    <x-desk-sort-th field="supplier_name" label="Supplier" />
+                                    <x-desk-sort-th field="requested_by" label="Requested By" />
+                                    <x-desk-sort-th field="subtotal" label="RTV Subtotal" align="money" />
+                                    <x-desk-sort-th field="discount" label="Discount" align="money" />
+                                    <x-desk-sort-th field="freight" label="Freight" align="money" />
+                                    <x-desk-sort-th field="total" label="RTV Total" align="money" />
                                 </tr>
                             </thead>
                             <tbody>

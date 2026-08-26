@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -12,7 +13,12 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Payments')] class extends Component
 {
+    use SortsDeskList;
     public ?int $customer_id = null;
+
+    public string $customerSearch = '';
+
+    public bool $showCustomerBrowse = false;
 
     /** @var array<int, bool> */
     public array $selected = [];
@@ -51,6 +57,13 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->get()
                 ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
                 ->values();
+            $invoices = $this->sortCollection($invoices, [
+                'inv_number' => 'invoice_number',
+                'inv_date' => fn ($inv) => optional($inv->invoice_date)?->format('Y-m-d') ?? '',
+                'inv_order' => fn ($inv) => (string) ($inv->salesOrder?->order_number ?? ''),
+                'inv_total' => fn ($inv) => (float) $inv->invoice_total,
+                'inv_balance' => fn ($inv) => (float) $inv->invoice_balance,
+            ], 'inv_date', 'asc');
 
             $openCredits = CreditMemo::query()
                 ->where('company_id', $companyId)
@@ -61,6 +74,12 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->get()
                 ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
                 ->values();
+            $openCredits = $this->sortCollection($openCredits, [
+                'cr_number' => 'memo_number',
+                'cr_date' => fn ($m) => optional($m->memo_date)?->format('Y-m-d') ?? '',
+                'cr_reason' => 'reason',
+                'cr_remaining' => fn ($m) => (float) $m->remaining_amount,
+            ], 'cr_date', 'asc');
 
             $openCreditTotal = round((float) $openCredits->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
@@ -126,14 +145,32 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         });
                 })
                 ->with(['invoice.customer', 'invoice.salesOrder'])
-                ->orderByDesc('payment_date')
-                ->orderByDesc('id')
                 ->limit(50)
                 ->get();
+            $checkHits = $this->sortCollection($checkHits, [
+                'chk_number' => 'check_number',
+                'chk_date' => fn ($hit) => optional($hit->payment_date)?->format('Y-m-d') ?? '',
+                'chk_customer' => fn ($hit) => mb_strtolower((string) ($hit->invoice?->customer?->company_name ?? '')),
+                'chk_invoice' => fn ($hit) => (string) ($hit->invoice?->invoice_number ?? ''),
+                'chk_amount' => fn ($hit) => (float) $hit->amount,
+            ], 'chk_date', 'desc');
         }
 
+        $term = trim($this->customerSearch);
+        $loadCustomers = $this->showCustomerBrowse || ($term !== '' && ! $this->customer_id);
+        $browseCustomers = $loadCustomers
+            ? $this->customerLookupQuery($companyId, $term, $this->showCustomerBrowse ? 60 : 20)
+            : collect();
+
+        $selectedCustomer = $this->customer_id
+            ? Customer::query()
+                ->where('company_id', $companyId)
+                ->find($this->customer_id, ['id', 'customer_id', 'company_name', 'contact'])
+            : null;
+
         return [
-            'customers' => Customer::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('company_name')->get(['id', 'customer_id', 'company_name']),
+            'selectedCustomer' => $selectedCustomer,
+            'browseCustomers' => $browseCustomers,
             'openInvoices' => $invoices,
             'openCredits' => $openCredits,
             'openCreditTotal' => $openCreditTotal,
@@ -145,6 +182,85 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'isCheckMethod' => InvoicePayment::isCheckMethod($this->pay_method),
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
         ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'chk_number' => 'check_number',
+            'chk_date' => 'payment_date',
+            'chk_customer' => 'id',
+            'chk_invoice' => 'id',
+            'chk_amount' => 'amount',
+            'inv_number' => 'invoice_number',
+            'inv_date' => 'invoice_date',
+            'inv_order' => 'id',
+            'inv_total' => 'invoice_total',
+            'inv_balance' => 'id',
+            'cr_number' => 'memo_number',
+            'cr_date' => 'memo_date',
+            'cr_reason' => 'reason',
+            'cr_remaining' => 'amount',
+        ];
+    }
+
+    public function openCustomerBrowse(): void
+    {
+        $this->showCustomerBrowse = true;
+    }
+
+    public function updatedCustomerSearch(): void
+    {
+        if ($this->customer_id) {
+            $this->customer_id = null;
+            $this->updatedCustomerId();
+        }
+    }
+
+    private function customerLookupQuery(int $companyId, string $term, int $limit)
+    {
+        return Customer::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->when($term !== '', function ($q) use ($term) {
+                $like = '%'.$term.'%';
+                $q->where(function ($inner) use ($like) {
+                    $inner->where('customer_id', 'like', $like)
+                        ->orWhere('company_name', 'like', $like)
+                        ->orWhere('contact', 'like', $like)
+                        ->orWhere('telephone', 'like', $like)
+                        ->orWhere('mobile', 'like', $like)
+                        ->orWhere('city', 'like', $like);
+                });
+            })
+            ->orderBy('company_name')
+            ->limit($limit)
+            ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'mobile', 'city', 'state']);
+    }
+
+    public function closeCustomerBrowse(): void
+    {
+        $this->showCustomerBrowse = false;
+    }
+
+    public function pickCustomer(int $customerId): void
+    {
+        $this->customer_id = $customerId;
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($customerId, ['id', 'customer_id', 'company_name', 'contact']);
+        $this->customerSearch = $customer
+            ? trim(($customer->customer_id ? $customer->customer_id.' — ' : '').($customer->company_name ?: $customer->contact))
+            : '';
+        $this->showCustomerBrowse = false;
+        $this->updatedCustomerId();
+    }
+
+    public function clearCustomer(): void
+    {
+        $this->customer_id = null;
+        $this->customerSearch = '';
+        $this->updatedCustomerId();
     }
 
     public function updatedCustomerId(): void
@@ -538,13 +654,46 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     />
                 </div>
                 <div class="so-form-row">
-                    <label class="so-form-lbl" for="payment_customer_id">Customer</label>
-                    <select id="payment_customer_id" wire:model.live="customer_id" class="so-input">
-                        <option value="">— Select customer —</option>
-                        @foreach ($customers as $c)
-                            <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
-                        @endforeach
-                    </select>
+                    <label class="so-form-lbl" for="payment_customer_search">Customer</label>
+                    <div class="so-form-ctl" style="position:relative">
+                        <div class="so-lookup-row">
+                            <input
+                                id="payment_customer_search"
+                                type="search"
+                                class="so-input"
+                                placeholder="Search customer…"
+                                wire:model.live.debounce.200ms="customerSearch"
+                                autocomplete="off"
+                                aria-label="Search customer"
+                                aria-autocomplete="list"
+                            />
+                            @if ($customer_id)
+                                <button type="button" wire:click="clearCustomer" class="so-icon-btn" title="Clear customer" aria-label="Clear customer">×</button>
+                            @endif
+                            <button type="button" wire:click="openCustomerBrowse" class="so-icon-btn" title="Browse" aria-label="Browse customers">
+                                <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
+                            </button>
+                        </div>
+                        @if (! $showCustomerBrowse && ! $customer_id && trim($customerSearch) !== '')
+                            <div class="so-lookup-panel" role="listbox" aria-label="Customer suggestions" style="position:absolute;left:0;right:0;z-index:30;max-height:16rem;margin-top:0.2rem">
+                                @forelse ($browseCustomers as $bc)
+                                    <button
+                                        type="button"
+                                        wire:key="pay-suggest-{{ $bc->id }}"
+                                        wire:click="pickCustomer({{ $bc->id }})"
+                                        class="so-lookup-row-pick"
+                                        role="option"
+                                        style="display:block;width:100%;text-align:left;border:0;background:transparent;padding:0.45rem 0.6rem;cursor:pointer"
+                                    >
+                                        <div style="font-weight:700;font-size:13px">{{ $bc->customer_id }} — {{ $bc->company_name ?: $bc->contact }}</div>
+                                        <div style="font-size:11px;color:#64748b">{{ collect([$bc->contact, $bc->mobile ?: $bc->telephone, $bc->city])->filter()->implode(' · ') }}</div>
+                                    </button>
+                                @empty
+                                    <div class="text-slate-500" style="padding:0.5rem 0.6rem;font-size:12px">No customers found.</div>
+                                @endforelse
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
 
@@ -558,11 +707,11 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         <table class="desk-table">
                             <thead>
                                 <tr>
-                                    <th>Check #</th>
-                                    <th>Date</th>
-                                    <th>Customer</th>
-                                    <th>Invoice</th>
-                                    <th class="text-right">Amount</th>
+                                    <x-desk-sort-th field="chk_number" label="Check #" />
+                                    <x-desk-sort-th field="chk_date" label="Date" />
+                                    <x-desk-sort-th field="chk_customer" label="Customer" />
+                                    <x-desk-sort-th field="chk_invoice" label="Invoice" />
+                                    <x-desk-sort-th field="chk_amount" label="Amount" align="right" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -605,11 +754,11 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                             <thead>
                                 <tr>
                                     <th class="text-center" style="width:2.5rem"></th>
-                                    <th>Invoice No.</th>
-                                    <th>Invoice Date</th>
-                                    <th>Order No.</th>
-                                    <th class="text-right">Invoice Total</th>
-                                    <th class="text-right">Balance Due</th>
+                                    <x-desk-sort-th field="inv_number" label="Invoice No." />
+                                    <x-desk-sort-th field="inv_date" label="Invoice Date" />
+                                    <x-desk-sort-th field="inv_order" label="Order No." />
+                                    <x-desk-sort-th field="inv_total" label="Invoice Total" align="right" />
+                                    <x-desk-sort-th field="inv_balance" label="Balance Due" align="right" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -642,10 +791,10 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                             <table class="desk-table">
                                 <thead>
                                     <tr>
-                                        <th>Memo #</th>
-                                        <th>Date</th>
-                                        <th>Reason</th>
-                                        <th class="text-right">Remaining</th>
+                                        <x-desk-sort-th field="cr_number" label="Memo #" />
+                                        <x-desk-sort-th field="cr_date" label="Date" />
+                                        <x-desk-sort-th field="cr_reason" label="Reason" />
+                                        <x-desk-sort-th field="cr_remaining" label="Remaining" align="right" />
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -755,4 +904,62 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             @endif
         </div>
     </div>
+
+    @if ($showCustomerBrowse)
+        <div
+            class="desk-modal-backdrop desk-modal-top"
+            wire:click.self="closeCustomerBrowse"
+            wire:keydown.escape.window="closeCustomerBrowse"
+            role="presentation"
+        >
+            <div class="desk-modal desk-modal-lg" role="dialog" aria-modal="true" aria-labelledby="pay-cust-title" wire:click.stop>
+                <div class="desk-modal-head">
+                    <span id="pay-cust-title">Select Customer</span>
+                    <button type="button" wire:click="closeCustomerBrowse" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="padding:0.75rem">
+                    <input
+                        type="search"
+                        wire:model.live.debounce.200ms="customerSearch"
+                        class="so-input"
+                        placeholder="Search customer ID, name, phone…"
+                        autocomplete="off"
+                        style="margin-bottom:0.65rem"
+                    />
+                    <div class="desk-grid" style="max-height:22rem">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Company</th>
+                                    <th>Contact</th>
+                                    <th>Phone</th>
+                                    <th>City</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($browseCustomers as $bc)
+                                    <tr
+                                        wire:key="pay-cust-{{ $bc->id }}"
+                                        wire:click="pickCustomer({{ $bc->id }})"
+                                        class="cursor-pointer so-lookup-row-pick"
+                                    >
+                                        <td class="font-mono">{{ $bc->customer_id }}</td>
+                                        <td>{{ $bc->company_name }}</td>
+                                        <td>{{ $bc->contact }}</td>
+                                        <td>{{ $bc->mobile ?: $bc->telephone }}</td>
+                                        <td>{{ collect([$bc->city, $bc->state])->filter()->implode(', ') }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" class="text-slate-500 px-2 py-2">No customers found.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

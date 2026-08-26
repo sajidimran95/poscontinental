@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -14,6 +15,7 @@ use Livewire\WithPagination;
 new #[Layout('layouts.app'), Title('Customers')] class extends Component
 {
     use WithPagination;
+    use SortsDeskList;
 
     #[Url]
     public string $search = '';
@@ -47,8 +49,9 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
-            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->orderByDesc('id');
+            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true));
+
+        $query = $this->applyDeskSort($query);
 
         $listTitle = match ($this->favorite) {
             'active' => 'Customers List (Active)',
@@ -95,6 +98,24 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                 'inactive' => 'Inactive Customers',
             ],
             'listTitle' => $listTitle,
+        ];
+    }
+
+    protected function deskSortMap(): array
+    {
+        return [
+            'customer_id' => 'customer_id',
+            'contact' => 'contact',
+            'company_name' => 'company_name',
+            'address' => 'address',
+            'telephone' => 'telephone',
+            'email' => 'email',
+            'sales_rep' => ['relation' => 'salesRep', 'column' => 'name'],
+            'balance' => 'balance',
+            'opt_out_telemarketing' => 'opt_out_telemarketing',
+            'opt_out_email' => 'opt_out_email',
+            'comments' => 'comments',
+            'is_inactive' => 'is_inactive',
         ];
     }
 
@@ -401,19 +422,19 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                         <thead>
                             <tr>
                                 <th class="text-center" style="width:2rem"></th>
-                                <th>Customer ID</th>
-                                <th>Name</th>
-                                <th>Company</th>
-                                <th>Address</th>
-                                <th>Telephone</th>
-                                <th>Email</th>
-                                <th>Sales Rep <span class="text-xs font-normal text-slate-500">(click to change)</span></th>
-                                <th class="text-right" title="Amount the customer still owes on invoices">Balance Owed</th>
+                                <x-desk-sort-th field="customer_id" label="Customer ID" />
+                                <x-desk-sort-th field="contact" label="Name" />
+                                <x-desk-sort-th field="company_name" label="Company" />
+                                <x-desk-sort-th field="address" label="Address" />
+                                <x-desk-sort-th field="telephone" label="Telephone" />
+                                <x-desk-sort-th field="email" label="Email" />
+                                <x-desk-sort-th field="sales_rep" label="Sales Rep" />
+                                <x-desk-sort-th field="balance" label="Balance Owed" align="right" />
                                 <th class="text-right" title="Unapplied open credit memos (e.g. overpayments)">Open Credit</th>
-                                <th class="text-center">Don't Call</th>
-                                <th class="text-center">Don't Email</th>
-                                <th>Comments</th>
-                                <th class="text-center">Status</th>
+                                <x-desk-sort-th field="opt_out_telemarketing" label="Don't Call" align="center" />
+                                <x-desk-sort-th field="opt_out_email" label="Don't Email" align="center" />
+                                <x-desk-sort-th field="comments" label="Comments" />
+                                <x-desk-sort-th field="is_inactive" label="Status" align="center" />
                             </tr>
                         </thead>
                         <tbody>

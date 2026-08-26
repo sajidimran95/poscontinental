@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
 use App\Models\CigaretteTaxClass;
 use App\Models\CustomerLookupOption;
@@ -22,6 +23,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 {
+    use SortsDeskList;
+
     #[Url]
     public string $activeLookup = 'departments';
 
@@ -111,8 +114,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             $type = $this->customerLookupTypes()[$this->activeLookup];
             $rows = CustomerLookupOption::query()
                 ->where('company_id', $companyId)
-                ->where('type', $type)
-                ->orderBy('code')
+                ->where('type', $type);
+            $rows = $this->applyDeskSort($rows, 'code', 'asc')
                 ->limit(300)
                 ->get();
         } else {
@@ -120,8 +123,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             $rows = $model::query()
                 ->where('company_id', $companyId)
                 ->when($this->activeLookup === 'categories', fn ($q) => $q->with('department'))
-                ->when($this->activeLookup === 'subcategories', fn ($q) => $q->with('category.department'))
-                ->orderBy('code')
+                ->when($this->activeLookup === 'subcategories', fn ($q) => $q->with('category.department'));
+            $rows = $this->applyDeskSort($rows, 'code', 'asc')
                 ->limit(300)
                 ->get();
         }
@@ -147,12 +150,26 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         ];
     }
 
+    protected function deskSortMap(): array
+    {
+        return [
+            'code' => 'code',
+            'name' => 'name',
+            'is_active' => 'is_active',
+            'base_uom' => 'base_uom',
+            'department' => ['relation' => 'department', 'column' => 'name'],
+            'category' => ['relation' => 'category', 'column' => 'name'],
+        ];
+    }
+
     public function selectLookup(string $key): void
     {
         if (! $this->isValidLookup($key)) {
             return;
         }
         $this->activeLookup = $key;
+        $this->sortField = '';
+        $this->sortDir = 'asc';
         $this->reset('code', 'name', 'base_uom', 'parent_id');
         $this->resetErrorBag();
     }
@@ -346,18 +363,18 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             <table class="desk-table">
                 <thead>
                     <tr>
-                        <th>Code</th>
-                        <th>Name</th>
+                        <x-desk-sort-th field="code" label="Code" />
+                        <x-desk-sort-th field="name" label="Name" />
                         @if ($activeLookup === 'uom_schedules')
-                            <th>Base U of M</th>
+                            <x-desk-sort-th field="base_uom" label="Base U of M" />
                         @endif
                         @if ($activeLookup === 'categories')
-                            <th>Department</th>
+                            <x-desk-sort-th field="department" label="Department" />
                         @endif
                         @if ($activeLookup === 'subcategories')
-                            <th>Category</th>
+                            <x-desk-sort-th field="category" label="Category" />
                         @endif
-                        <th class="text-center">Active</th>
+                        <x-desk-sort-th field="is_active" label="Active" align="center" />
                     </tr>
                 </thead>
                 <tbody>

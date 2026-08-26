@@ -7,6 +7,10 @@ use App\Http\Controllers\ItemMediaController;
 use App\Http\Controllers\LogoutController;
 use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\PublicMediaController;
+use App\Http\Controllers\Sale\SaleAuthController;
+use App\Http\Controllers\Sale\SaleChatController;
+use App\Http\Controllers\Sale\SalePortalController;
+use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SalesOrderWindowController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -31,6 +35,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::post('pos/tabs/{tab}/close', [DocumentTabController::class, 'close'])
         ->where('tab', '[0-9a-fA-F\-]{36}')
         ->name('pos.tabs.close');
+
+    Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
 
     Volt::route('profile', 'pages.profile')->name('profile');
 
@@ -146,3 +152,43 @@ Route::middleware(['auth', 'feature'])->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+Route::prefix('sale')->name('sale.')->group(function () {
+    Route::get('/pwa/manifest.webmanifest', [SalePwaController::class, 'manifest'])->name('pwa.manifest');
+    Route::get('/pwa/sw.js', [SalePwaController::class, 'serviceWorker'])->name('pwa.sw');
+    Route::get('/pwa/offline', [SalePwaController::class, 'offline'])->name('pwa.offline');
+
+    Route::get('/login', [SaleAuthController::class, 'showLoginForm'])->name('login');
+    Route::post('/login', [SaleAuthController::class, 'login'])->name('login.post');
+    Route::post('/logout', [SaleAuthController::class, 'logout'])->name('logout')->middleware('auth:sale');
+
+    Route::middleware(['auth:sale', 'sale.app'])->group(function () {
+        Route::get('/', [SalePortalController::class, 'home'])->name('home');
+        Route::get('/orders', [SalePortalController::class, 'orders'])->name('orders');
+        Route::get('/orders/create', [SalePortalController::class, 'create'])->name('orders.create');
+        Route::post('/orders', [SalePortalController::class, 'store'])->name('orders.store');
+        Route::get('/orders/{salesOrder}/edit', [SalePortalController::class, 'edit'])->name('orders.edit');
+        Route::put('/orders/{salesOrder}', [SalePortalController::class, 'update'])->name('orders.update');
+        Route::get('/orders/{salesOrder}/invoice', [SalePortalController::class, 'downloadInvoice'])->name('orders.invoice');
+        Route::delete('/orders/{salesOrder}', [SalePortalController::class, 'destroy'])->name('orders.destroy');
+        Route::get('/orders/{salesOrder}', [SalePortalController::class, 'show'])->name('orders.show');
+        Route::get('/account', [SalePortalController::class, 'account'])->name('account');
+        Route::post('/account/location', [SalePortalController::class, 'updateLocation'])->name('account.location');
+        Route::post('/chat/dm', [SaleChatController::class, 'dm'])->name('chat.dm');
+        Route::post('/chat/{channel}/messages', [SaleChatController::class, 'send'])->name('chat.send')->whereNumber('channel');
+        Route::get('/chat/{channel}/poll', [SaleChatController::class, 'poll'])->name('chat.poll')->whereNumber('channel');
+        Route::get('/chat/{channel}/older', [SaleChatController::class, 'older'])->name('chat.older')->whereNumber('channel');
+        Route::get('/chat/{channel?}', [SaleChatController::class, 'index'])->name('chat')->whereNumber('channel');
+        Route::get('/delivery', [SalePortalController::class, 'delivery'])->name('delivery');
+        Route::get('/products', [SalePortalController::class, 'products'])->name('products');
+        Route::get('/customers', [SalePortalController::class, 'customers'])->name('customers');
+        Route::get('/customers/create', [SalePortalController::class, 'createCustomer'])->name('customers.create');
+        Route::post('/customers', [SalePortalController::class, 'storeCustomer'])->name('customers.store');
+        Route::get('/api/customers', [SalePortalController::class, 'searchCustomers'])->name('api.customers');
+        Route::get('/api/customers/{customer}/shipping', [SalePortalController::class, 'customerShipping'])->name('api.customer_shipping');
+        Route::get('/api/products', [SalePortalController::class, 'searchProducts'])->name('api.products');
+        Route::get('/api/categories', [SalePortalController::class, 'categoriesTree'])->name('api.categories');
+        Route::get('/api/last-purchases', [SalePortalController::class, 'lastPurchases'])->name('api.last_purchases');
+        Route::get('/api/items', [SalePortalController::class, 'searchItems'])->name('api.items');
+    });
+});

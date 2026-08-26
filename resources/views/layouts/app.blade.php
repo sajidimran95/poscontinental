@@ -239,7 +239,13 @@
                     </div>
 
                     <div class="ms-auto flex items-center gap-3 pe-2">
-                        @if ($routeExists('lookups.index'))
+                        @if ($routeExists('team-chat.index') && ($menuUser?->canAccessFeature('team.chat', 'view') ?? false))
+                            <a
+                                href="{{ route('pos.tabs.open', ['route' => 'team-chat.index', 'label' => 'Team chat']) }}"
+                                class="text-sm font-medium text-slate-700 hover:text-slate-900"
+                            >Team chat</a>
+                        @endif
+                        @if ($routeExists('lookups.index') && ($menuUser?->canAccessFeature('lookups', 'view') ?? false))
                             <a
                                 href="{{ route('pos.tabs.open', ['route' => 'lookups.index', 'label' => 'Lookups']) }}"
                                 class="text-sm font-medium text-slate-700 hover:text-slate-900"
@@ -286,6 +292,7 @@
                     'purchasing.receivings.edit' => 'Receiving',
                     'purchasing.rtv.index' => 'RTV',
                     'lookups.index' => 'Lookups',
+                    'team-chat.index' => 'Team chat',
                     'reports.sales' => 'Sales Report By Customer',
                     'reports.sales-by-customer' => 'Sales Report By Customer',
                     'reports.sales-by-item' => 'Sales Report By Item',

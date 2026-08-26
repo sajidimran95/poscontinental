@@ -3573,7 +3573,17 @@
         top: 0.5rem;
     }
 
-    /* Shared modern desktop list pages */
+    .desk-page.tc-page {
+        display: block;
+        width: 100%;
+        max-width: none;
+        height: 100%;
+        min-height: 0;
+        padding: 0;
+        gap: 0;
+        background: #fbfbfa;
+    }
+
     .desk-page {
         display: flex;
         align-items: stretch;
@@ -9217,5 +9227,348 @@
 
     .sbr-customer {
         page-break-inside: avoid;
+    }
+}
+
+/* Team chat — Slack-lite, AJAX poll, no full reload */
+.tc-page {
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.tc-shell {
+    display: grid;
+    grid-template-columns: 18rem minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    width: 100%;
+    background: #fbfbfa;
+}
+
+.tc-sidebar {
+    padding: 1rem 0.85rem 1.1rem;
+    border-right: 1px solid #e5e2da;
+    overflow: auto;
+    background: #f7f6f2;
+}
+
+.tc-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+}
+
+.tc-brand-mark {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 10px;
+    background: #2f5fa8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tc-brand-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #2f5fa8;
+}
+
+.tc-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin: 0.85rem 0 0.35rem;
+}
+
+.tc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    padding: 0.42rem 0.6rem;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #475569;
+    cursor: pointer;
+}
+
+.tc-row:hover {
+    background: #eef3fb;
+}
+
+.tc-row.is-active {
+    background: #eef3fb;
+    color: #1a3a66;
+    font-weight: 600;
+}
+
+.tc-hash {
+    color: #2f5fa8;
+    font-weight: 700;
+}
+
+.tc-row-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tc-badge {
+    font-size: 11px;
+    background: #c23b3b;
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-weight: 700;
+}
+
+.tc-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9c8a3f;
+    flex-shrink: 0;
+}
+
+.tc-dot.is-on {
+    background: #4f8f5e;
+}
+
+.tc-add {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: #2f5fa8;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0.35rem 0.6rem;
+    cursor: pointer;
+}
+
+.tc-inline-form,
+.tc-dm-pick {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.35rem 0.4rem 0.55rem;
+}
+
+.tc-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: #fff;
+    margin: 0.5rem 0.5rem 0.5rem 0;
+    border: 1px solid #e5e2da;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.tc-thread-head {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.7rem 1.25rem;
+    border-bottom: 1px solid #e5e2da;
+    flex-shrink: 0;
+}
+
+.tc-people {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid #e5e2da;
+    background: #f8fafc;
+    max-height: 14rem;
+    overflow: auto;
+}
+
+.tc-people-col {
+    min-width: 0;
+}
+
+.tc-people-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.3rem 0.4rem;
+    font-size: 13px;
+    color: #334155;
+}
+
+.tc-people-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.tc-people-status {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.tc-thread-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.tc-thread-meta {
+    margin-left: auto;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.tc-error {
+    margin: 0;
+    padding: 0.4rem 1.1rem;
+    font-size: 12px;
+    color: #b91c1c;
+    background: #fef2f2;
+    border-bottom: 1px solid #fecaca;
+}
+
+.tc-thread {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.tc-empty {
+    color: #64748b;
+    font-size: 14px;
+    margin: auto;
+}
+
+.tc-msg {
+    display: flex;
+    gap: 0.65rem;
+}
+
+.tc-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: #4f8f5e;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.tc-msg:nth-child(even) .tc-avatar {
+    background: #9c8a3f;
+}
+
+.tc-msg-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 13px;
+}
+
+.tc-msg-meta time,
+.tc-edited {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.tc-msg-del {
+    margin-left: auto;
+    border: 0;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.tc-msg-del:hover {
+    color: #b91c1c;
+}
+
+.tc-msg-text {
+    margin: 0.15rem 0 0;
+    font-size: 14px;
+    color: #1e293b;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.tc-mention {
+    color: #1e40af;
+    font-weight: 700;
+    background: #dbeafe;
+    border-radius: 4px;
+    padding: 0 0.2rem;
+}
+
+.tc-composer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.1rem;
+    border-top: 1px solid #e5e2da;
+    flex-shrink: 0;
+}
+
+.tc-composer .so-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 2.35rem;
+}
+
+.tc-send {
+    width: 2.35rem;
+    height: 2.35rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #2f5fa8;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.tc-send:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+@media (max-width: 800px) {
+    .tc-shell {
+        grid-template-columns: 11.5rem minmax(0, 1fr);
+    }
+
+    .tc-people {
+        grid-template-columns: 1fr;
+        max-height: 11rem;
     }
 }

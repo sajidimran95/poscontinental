@@ -130,6 +130,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'lookupKeys' => $labels,
             'rows' => $rows,
             'listTitle' => $labels[$this->activeLookup] ?? 'Lookups',
+            'canEdit' => auth()->user()->canAccessFeature('lookups', 'edit'),
             'departments' => Department::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(),
             'categories' => Category::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get(),
             'helpText' => match ($this->activeLookup) {
@@ -158,6 +159,11 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public function save(): void
     {
+        if (! auth()->user()->canAccessFeature('lookups', 'edit')) {
+            $this->addError('code', 'Your role does not have edit access to Lookups.');
+
+            return;
+        }
         $rules = [
             'code' => 'required|string|max:32',
             'name' => 'required|string|max:255',
@@ -279,6 +285,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
         <div class="cm-help" style="margin:0.65rem 0.85rem 0">{{ $helpText }}</div>
 
+        @if ($canEdit)
         <form wire:submit="save" class="desk-toolbar" style="align-items:flex-end">
             @if ($activeLookup === 'categories')
                 <div>
@@ -333,6 +340,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
             <button type="submit" class="desk-btn desk-btn-primary">Add {{ $listTitle === 'Sub Categories' ? 'Sub Category' : (str_ends_with($listTitle, 's') ? rtrim($listTitle, 's') : $listTitle) }}</button>
         </form>
+        @endif
 
         <div class="desk-grid">
             <table class="desk-table">

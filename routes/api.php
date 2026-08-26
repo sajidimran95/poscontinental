@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\TeamChatController;
 use App\Http\Controllers\Api\Rep\AuthController;
 use App\Http\Controllers\Api\Rep\CatalogController;
 use App\Http\Controllers\Api\Rep\CustomerController;
@@ -257,4 +258,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
         return $rows;
     });
+
+    Route::get('/channels', [TeamChatController::class, 'index']);
+    Route::post('/channels', [TeamChatController::class, 'store']);
+    Route::get('/channels/{channel}/messages', [TeamChatController::class, 'messages']);
+    Route::post('/channels/{channel}/messages', [TeamChatController::class, 'send']);
+    Route::patch('/messages/{message}', [TeamChatController::class, 'updateMessage']);
+    Route::delete('/messages/{message}', [TeamChatController::class, 'destroyMessage']);
+    Route::post('/channels/{channel}/members', [TeamChatController::class, 'addMember']);
+    Route::delete('/channels/{channel}/members/{userId}', [TeamChatController::class, 'removeMember']);
+    Route::post('/channels/dm', [TeamChatController::class, 'dm']);
+    Route::post('/channels/{channel}/read', [TeamChatController::class, 'read']);
 });

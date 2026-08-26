@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TeamChatService;
 use App\Support\AppFeatures;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -50,6 +51,17 @@ class User extends Authenticatable
 
     /** @var array<string, bool> */
     private array $featureAccessCache = [];
+
+    protected static function booted(): void
+    {
+        static::saved(function (User $user): void {
+            if ((int) $user->company_id <= 0) {
+                return;
+            }
+
+            app(TeamChatService::class)->provisionForUser($user);
+        });
+    }
 
     public function avatarUrl(): ?string
     {
@@ -143,9 +155,7 @@ class User extends Authenticatable
 
         // Per-user permissions override the role when saved on the user.
         if (is_array($this->permissions)) {
-            $map = AppFeatures::expand($this->permissions) ?? [];
-
-            return in_array($action, $map[$feature] ?? [], true);
+            return AppFeatures::grants($this->permissions, $feature, $action);
         }
 
         if (! $this->role) {
@@ -166,5 +176,11 @@ class User extends Authenticatable
     public function canManagePosAiSettings(): bool
     {
         return $this->canAccessFeature('admin.japsai', 'edit');
+    }
+
+    /** Create channels and add/remove members. Admins always can. */
+    public function canManageTeamChatChannels(): bool
+    {
+        return $this->isAdmin() || $this->canAccessFeature('team.chat_manage', 'edit');
     }
 }

@@ -19,6 +19,22 @@ class SalesRepScope
             ->where('sales_rep_id', $user->id);
     }
 
+    /** Sales PWA create-order picker — same as mastergpos: all company customers. */
+    public static function companyCustomersQuery(User $user): Builder
+    {
+        return Customer::query()
+            ->where('company_id', $user->company_id);
+    }
+
+    public static function assertCompanyCustomer(User $user, Customer $customer): void
+    {
+        abort_unless(
+            (int) $customer->company_id === (int) $user->company_id,
+            403,
+            'Customer is not in your company.'
+        );
+    }
+
     public static function assertCustomerAccess(User $user, Customer $customer): void
     {
         abort_unless(

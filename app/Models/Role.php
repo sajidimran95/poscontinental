@@ -34,13 +34,7 @@ class Role extends Model
             return true;
         }
 
-        if ($map === []) {
-            return false;
-        }
-
-        $actions = $map[$feature] ?? [];
-
-        return in_array($action, $actions, true);
+        return AppFeatures::grants($this->permissions, $feature, $action);
     }
 
     /** Whether the role can see the feature menu at all (any action). */
@@ -55,6 +49,12 @@ class Role extends Model
             return true;
         }
 
-        return ($map[$feature] ?? []) !== [];
+        foreach (AppFeatures::ACTIONS as $action) {
+            if (AppFeatures::grants($this->permissions, $feature, $action)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

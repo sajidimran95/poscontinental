@@ -14,12 +14,20 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(function (Request $request) {
+            if ($request->is('sale') || $request->is('sale/*')) {
+                return route('sale.login');
+            }
+
+            return route('login');
+        });
         $middleware->web(append: [
             \App\Http\Middleware\CaptureUserTimezone::class,
             \App\Http\Middleware\EagerLoadAuthenticatedUser::class,
         ]);
         $middleware->alias([
             'feature' => \App\Http\Middleware\EnsureFeatureAccess::class,
+            'sale.app' => \App\Http\Middleware\EnsureSaleApp::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

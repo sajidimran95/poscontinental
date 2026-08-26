@@ -1242,7 +1242,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                         <option value="{{ $pt->id }}">{{ $pt->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'payment_terms']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'payment_terms']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side sc-field">
@@ -1254,7 +1256,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                         <option value="{{ $sv->id }}">{{ $sv->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'ship_vias']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'ship_vias']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side so-form-row-top sc-field">

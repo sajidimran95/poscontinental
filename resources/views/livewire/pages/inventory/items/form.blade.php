@@ -1316,7 +1316,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <option value="{{ $type->name }}">{{ $type->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'item_types']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create item types in Lookups">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'item_types']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create item types in Lookups">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1345,7 +1347,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <option value="{{ $d->id }}">{{ $d->code }} — {{ $d->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'departments']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create departments in Lookups">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'departments']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create departments in Lookups">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1357,7 +1361,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <option value="{{ $c->id }}">{{ $c->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'categories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create categories in Lookups">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'categories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create categories in Lookups">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1369,7 +1375,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <option value="{{ $s->id }}">{{ $s->name }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'subcategories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create sub categories in Lookups">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'subcategories']) }}" wire:navigate class="desk-btn desk-btn-sm" title="Create sub categories in Lookups">+</a>
+                                @endif
                             </div>
                         </div>
                     </div>
@@ -1483,7 +1491,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                         <option value="{{ $u->id }}">{{ $u->name }}{{ $u->base_uom ? ' ('.$u->base_uom.')' : '' }}</option>
                                     @endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'uom_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'uom_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1619,7 +1629,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                     <option value="">—</option>
                                     @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }}</option>@endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'tax_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'tax_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1629,7 +1641,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                     <option value="">—</option>
                                     @foreach ($promotionSchedules as $p)<option value="{{ $p->id }}">{{ $p->name }}</option>@endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'discount_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'discount_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                         <div class="so-form-row so-form-row-side">
@@ -1639,7 +1653,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                     <option value="">—</option>
                                     @foreach ($pricingMethods as $m)<option value="{{ $m->id }}">{{ $m->name }}</option>@endforeach
                                 </select>
-                                <a href="{{ route('lookups.index', ['activeLookup' => 'pricing_methods']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
+                                    <a href="{{ route('lookups.index', ['activeLookup' => 'pricing_methods']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>
+                                @endif
                             </div>
                         </div>
                     </div>

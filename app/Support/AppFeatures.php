@@ -195,6 +195,21 @@ class AppFeatures
                 'group' => 'Reports',
                 'routes' => ['reports.msa', 'reports.msa.file'],
             ],
+            'team.chat' => [
+                'label' => 'Team Chat',
+                'group' => 'Team chat',
+                'routes' => ['team-chat.index'],
+            ],
+            'team.chat_manage' => [
+                'label' => 'Create channels & add members',
+                'group' => 'Team chat',
+                'routes' => [],
+            ],
+            'lookups' => [
+                'label' => 'Lookups',
+                'group' => 'Lookups',
+                'routes' => ['lookups.index'],
+            ],
         ];
     }
 
@@ -454,6 +469,13 @@ class AppFeatures
                 ['label' => 'Suppliers', 'feature' => 'purchasing.suppliers'],
                 ['label' => 'New Supplier', 'feature' => 'purchasing.suppliers'],
             ],
+            'Team chat' => [
+                ['label' => 'Team Chat', 'feature' => 'team.chat'],
+                ['label' => 'Create channels & add members', 'feature' => 'team.chat_manage'],
+            ],
+            'Lookups' => [
+                ['label' => 'Lookups', 'feature' => 'lookups'],
+            ],
             'Reports' => [
                 ['label' => 'Sales Report By Customer', 'feature' => 'reports.sales'],
                 ['label' => 'Sales Report By Item', 'feature' => 'reports.sales'],
@@ -485,6 +507,130 @@ class AppFeatures
     }
 
     /**
+     * On by default for everyone. Uncheck View in Users & Roles to hide.
+     * Manual off is stored as "feature.off".
+     *
+     * @return list<string>
+     */
+    public static function implicitOnFeatures(): array
+    {
+        return [
+            'team.chat',
+            'lookups',
+        ];
+    }
+
+    public static function offToken(string $feature): string
+    {
+        return $feature.'.off';
+    }
+
+    public static function isImplicitlyOn(string $feature): bool
+    {
+        return in_array($feature, self::implicitOnFeatures(), true);
+    }
+
+    /**
+     * Whether stored permissions grant an action.
+     * Implicit features are allowed until "feature.off" is saved.
+     *
+     * @param  list<string>|null  $raw
+     */
+    public static function grants(?array $raw, string $feature, string $action = 'view'): bool
+    {
+        if ($raw === null) {
+            return true;
+        }
+
+        if (in_array(self::offToken($feature), $raw, true)) {
+            return false;
+        }
+
+        $map = self::expand($raw) ?? [];
+        if (in_array($action, $map[$feature] ?? [], true)) {
+            return true;
+        }
+
+        if (self::isImplicitlyOn($feature) && ! isset($map[$feature])) {
+            return in_array($action, self::ACTIONS, true);
+        }
+
+        return false;
+    }
+
+    /**
+     * Checkbox list: implicit features appear checked unless turned off.
+     *
+     * @param  list<string>|null  $raw
+     * @return list<string>
+     */
+    public static function checkboxTokens(?array $raw): array
+    {
+        if ($raw === null) {
+            return self::defaultRolePermissionTokens();
+        }
+
+        $off = [];
+        $kept = [];
+        foreach ($raw as $token) {
+            if (! is_string($token) || $token === '') {
+                continue;
+            }
+            if (str_ends_with($token, '.off')) {
+                $off[] = substr($token, 0, -4);
+                continue;
+            }
+            $kept[] = $token;
+        }
+
+        foreach (self::implicitOnFeatures() as $feature) {
+            if (in_array($feature, $off, true)) {
+                continue;
+            }
+            $hasAny = false;
+            foreach (self::ACTIONS as $action) {
+                if (in_array(self::token($feature, $action), $kept, true)) {
+                    $hasAny = true;
+                    break;
+                }
+            }
+            if (! $hasAny) {
+                foreach (self::ACTIONS as $action) {
+                    $kept[] = self::token($feature, $action);
+                }
+            }
+        }
+
+        return array_values(array_unique(array_intersect($kept, self::permissionTokens())));
+    }
+
+    /**
+     * Persist checkboxes. Unchecked implicit features are stored as "feature.off".
+     *
+     * @param  list<string>  $checked
+     * @return list<string>
+     */
+    public static function persistTokens(array $checked): array
+    {
+        $tokens = array_values(array_unique(array_intersect($checked, self::permissionTokens())));
+
+        foreach (self::implicitOnFeatures() as $feature) {
+            $hasAny = false;
+            foreach (self::ACTIONS as $action) {
+                if (in_array(self::token($feature, $action), $tokens, true)) {
+                    $hasAny = true;
+                    break;
+                }
+            }
+            if (! $hasAny) {
+                $tokens[] = self::offToken($feature);
+            }
+        }
+
+        return $tokens;
+    }
+
+    /**
      * File-menu admin features — off by default; enable only when needed.
      *
      * @return list<string>
@@ -511,6 +657,7 @@ class AppFeatures
         return [
             'sales.price_override',
             'admin.japsai_chat',
+            'team.chat_manage',
         ];
     }
 

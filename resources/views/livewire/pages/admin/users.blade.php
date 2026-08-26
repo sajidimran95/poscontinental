@@ -53,7 +53,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public string $job_title = '';
 
-    public bool $is_active = false;
+    public bool $is_active = true;
 
     /** @var array<int, string> Per-user menu permissions (does not change the role). */
     public array $user_permissions = [];
@@ -190,7 +190,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             return AppFeatures::defaultRolePermissionTokens();
         }
 
-        return AppFeatures::flatten($map);
+        return AppFeatures::checkboxTokens($role->permissions);
     }
 
     public function updatedRoleId(mixed $value): void
@@ -454,7 +454,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->site_id = auth()->user()->site_id;
         $this->department_id = null;
         $this->job_title = 'Sales Representative';
-        $this->is_active = false;
+        $this->is_active = true;
         $this->user_permissions = $this->permissionsFromRole($this->role_id);
         $this->resetErrorBag();
     }
@@ -495,7 +495,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->job_title = (string) ($user->job_title ?? '');
         $this->is_active = (bool) $user->is_active;
         $this->user_permissions = is_array($user->permissions)
-            ? AppFeatures::flatten(AppFeatures::expand($user->permissions) ?? [])
+            ? AppFeatures::checkboxTokens($user->permissions)
             : $this->permissionsFromRole($user->role_id);
         $this->resetErrorBag();
     }
@@ -561,7 +561,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             'department_id' => $this->department_id ?: null,
             'job_title' => $this->job_title !== '' ? $this->job_title : null,
             'is_active' => $this->is_active,
-            'permissions' => array_values(array_unique(array_intersect($this->user_permissions, $allowed))),
+            'permissions' => AppFeatures::persistTokens(array_values(array_intersect($this->user_permissions, $allowed))),
         ];
 
         if ($needsPassword && $this->password !== '') {
@@ -634,7 +634,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         } elseif ($map === null) {
             $this->role_permissions = AppFeatures::defaultRolePermissionTokens();
         } else {
-            $this->role_permissions = AppFeatures::flatten($map);
+            $this->role_permissions = AppFeatures::checkboxTokens($role->permissions);
         }
         $this->resetErrorBag();
     }
@@ -765,7 +765,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $payload = [
             'name' => strtolower($this->role_name),
             'label' => $this->role_label,
-            'permissions' => array_values(array_unique(array_intersect($this->role_permissions, $allowed))),
+            'permissions' => AppFeatures::persistTokens(array_values(array_intersect($this->role_permissions, $allowed))),
         ];
 
         if ($this->editingRoleId) {
@@ -918,6 +918,8 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     Change features for this user only — the role itself is not updated.
                                     Change Order Price stays off unless you turn on <strong>Edit</strong> for this user.
                                     POS AI Chat stays off unless you turn on <strong>View</strong> — that user can chat only, not change AI settings.
+                                    Lookups and Team Chat stay on by default. Uncheck <strong>View</strong> to hide them for this user.
+                                    Create channels &amp; add members stays off unless you turn on <strong>Edit</strong>.
                                 @endif
                             </p>
 
@@ -1039,7 +1041,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                     <button type="button" wire:click="clearAllPermissions" class="desk-btn desk-btn-sm">None</button>
                                 </span>
                             </div>
-                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Overselling Settings, Email, Users &amp; Roles, POS AI Settings) stay off by default. POS AI Chat is also off by default — turn on <strong>View</strong> for a user so they can use the chat widget only (they cannot change AI settings). Change Order Price stays off unless you enable Edit for that user. Lookups are always available.</p>
+                            <p class="item-hint" style="padding:0 0 0.65rem">Each card is a top menu. Under it, every submenu has View / Edit / Delete. File items (Company Settings, Overselling Settings, Email, Users &amp; Roles, POS AI Settings) stay off by default. POS AI Chat is also off by default — turn on <strong>View</strong> for a user so they can use the chat widget only (they cannot change AI settings). Change Order Price stays off unless you enable Edit for that user. Team Chat and Lookups are on by default — uncheck <strong>View</strong> to hide them. Create channels &amp; add members stays off unless you enable <strong>Edit</strong>.</p>
 
                             <div class="role-menu-grid">
                                 @foreach ($menuCards as $menu => $submenus)

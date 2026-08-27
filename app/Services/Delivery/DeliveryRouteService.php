@@ -41,15 +41,25 @@ class DeliveryRouteService
             throw ValidationException::withMessages(['orders' => 'One or more orders were not found.']);
         }
 
-        $outside = [];
+        $blocked = [];
         foreach ($orders as $order) {
-            if (! $this->areas->isDeliverable($order, $companyId)) {
-                $outside[] = $order->order_number ?: ('#'.$order->id);
+            $check = $this->areas->evaluate($order, $companyId);
+            if ($check['ok']) {
+                continue;
             }
+            if (($check['code'] ?? '') === 'outside') {
+                $this->areas->saveFromOrder($order, $companyId);
+                $check = $this->areas->evaluate($order, $companyId);
+                if ($check['ok']) {
+                    continue;
+                }
+            }
+            $label = $order->order_number ?: ('#'.$order->id);
+            $blocked[] = $label.($check['message'] ? ' — '.$check['message'] : '');
         }
-        if ($outside !== []) {
+        if ($blocked !== []) {
             throw ValidationException::withMessages([
-                'orders' => 'This address is outside the current delivery area: '.implode(', ', $outside),
+                'orders' => implode(' ', $blocked),
             ]);
         }
 
@@ -528,8 +538,8 @@ class DeliveryRouteService
             throw ValidationException::withMessages(['driver' => 'Select a delivery driver.']);
         }
 
-        if ($user->role?->name !== 'delivery' && ! $user->canAccessFeature('delivery.driver', 'view')) {
-            throw ValidationException::withMessages(['driver' => 'Select a Delivery user.']);
+        if ($user->role?->name !== 'delivery') {
+            throw ValidationException::withMessages(['driver' => 'Select a user with the Delivery role.']);
         }
 
         return $user;

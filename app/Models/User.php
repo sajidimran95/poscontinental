@@ -120,24 +120,20 @@ class User extends Authenticatable
         return $this->role?->name === 'delivery';
     }
 
-    public function isAssignableDeliveryDriver(): bool
-    {
-        return $this->isDelivery() || $this->canAccessFeature('delivery.driver', 'view');
-    }
-
     /**
-     * Active users who can be assigned driver routes (delivery role or driver feature).
+     * Active users with the delivery role only (assign / generate / men / history).
      */
     public static function assignableDeliveryDrivers(int $companyId, array $columns = ['id', 'name'])
     {
+        $roleId = Role::query()->where('name', 'delivery')->value('id');
+
         return static::query()
             ->with('role:id,name,label')
             ->where('company_id', $companyId)
             ->where('is_active', true)
+            ->when($roleId, fn ($q) => $q->where('role_id', $roleId), fn ($q) => $q->whereRaw('0 = 1'))
             ->orderBy('name')
-            ->get($columns)
-            ->filter(fn (self $u) => $u->isAssignableDeliveryDriver())
-            ->values();
+            ->get($columns);
     }
 
     public function deliveryRoutes(): HasMany

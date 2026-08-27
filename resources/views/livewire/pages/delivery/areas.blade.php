@@ -72,20 +72,16 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
             'zip_code' => 'nullable|string|max:16',
         ]);
 
-        DeliveryArea::query()->firstOrCreate(
-            [
-                'company_id' => auth()->user()->company_id,
-                'state_code' => strtoupper($this->state_code),
-                'city' => $this->city !== '' ? $this->city : '',
-                'zip_code' => $this->zip_code !== '' ? $this->zip_code : '',
-            ],
-            [
-                'state' => $this->state,
-                'is_active' => true,
-                'country' => 'USA',
-            ]
+        $area = app(DeliveryAreaService::class)->savePlace(
+            (int) auth()->user()->company_id,
+            $this->state,
+            $this->state_code,
+            $this->city,
+            $this->zip_code
         );
-
+        $this->statusMessage = $area->wasRecentlyCreated
+            ? 'Saved new area '.$area->label().'.'
+            : 'Updated and activated '.$area->label().'.';
         $this->reset('state', 'state_code', 'city', 'zip_code');
     }
 
@@ -112,7 +108,7 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
     <div class="desk-main desk-main-rail-layout">
         <div class="desk-titlebar">
             <h2 class="desk-title">Delivery Areas</h2>
-            <span class="desk-title-meta">Import city/ZIP CSV. Do not invent locations — use your dataset.</span>
+            <span class="desk-title-meta">Inactive areas cannot be assigned new invoices. ZIP beats city beats statewide.</span>
         </div>
 
         @if ($statusMessage !== '')

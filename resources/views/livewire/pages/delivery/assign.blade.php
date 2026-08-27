@@ -95,7 +95,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         $this->selected = [];
     }
 
-    public function with(): array
+    public function with(\App\Services\Delivery\DeliveryAreaService $areas): array
     {
         $companyId = (int) auth()->user()->company_id;
         $term = trim($this->search);
@@ -103,7 +103,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         $invoicesQuery = Invoice::query()
             ->with([
                 'customer:id,customer_id,company_name,telephone',
-                'salesOrder:id,delivery_status,delivery_user_id,ship_to_city,ship_to_state,ship_to_zip,ship_to_address,bill_to_name',
+                'salesOrder:id,order_number,delivery_status,delivery_user_id,ship_to_city,ship_to_state,ship_to_zip,ship_to_address,bill_to_name',
                 'salesOrder.deliveryUser:id,name',
             ])
             ->where('company_id', $companyId)
@@ -145,12 +145,27 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                 ->get(['id', 'customer_id', 'company_name', 'city'])
             : collect();
 
+        $areaByInvoice = [];
+        foreach ($invoices as $invoice) {
+            $order = $invoice->salesOrder;
+            if (! $order) {
+                continue;
+            }
+            $check = $areas->evaluate($order, $companyId);
+            $areaByInvoice[$invoice->id] = [
+                'ok' => $check['ok'],
+                'code' => $check['code'],
+                'message' => $check['message'],
+            ];
+        }
+
         return [
             'invoices' => $invoices,
             'customerSuggestions' => $customerSuggestions,
             'selectedCount' => collect($this->selected)->filter()->count(),
             'visibleIds' => $invoices->pluck('id')->all(),
             'drivers' => User::assignableDeliveryDrivers($companyId),
+            'areaByInvoice' => $areaByInvoice,
         ];
     }
 
@@ -187,6 +202,29 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             $this->selected = [];
         } catch (\Illuminate\Validation\ValidationException $e) {
             $this->errorMessage = collect($e->errors())->flatten()->first() ?: 'Could not assign invoices.';
+        }
+    }
+
+    public function saveAreaFromInvoice(int $invoiceId, \App\Services\Delivery\DeliveryAreaService $areas): void
+    {
+        abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'edit'), 403);
+        $this->errorMessage = '';
+        $this->statusMessage = '';
+        $invoice = Invoice::query()
+            ->with('salesOrder')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($invoiceId);
+        $order = $invoice?->salesOrder;
+        if (! $order) {
+            $this->errorMessage = 'Invoice not found.';
+
+            return;
+        }
+        try {
+            $area = $areas->saveFromOrder($order, (int) auth()->user()->company_id);
+            $this->statusMessage = 'Saved delivery area '.$area->label().'.';
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->errorMessage = collect($e->errors())->flatten()->first() ?: 'Could not save area.';
         }
     }
 
@@ -270,7 +308,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
         <div class="desk-titlebar">
             <h2 class="desk-title">Delivery Management</h2>
-            <span class="desk-title-meta">{{ number_format($invoices->total()) }} invoices</span>
+            <span class="desk-title-meta">{{ number_format($invoices->total()) }} invoices · Inactive or unmatched areas cannot be assigned</span>
             <div class="desk-footer-actions">
                 <button type="button" class="desk-btn desk-btn-sm" wire:click="selectVisible({{ \Illuminate\Support\Js::from($visibleIds) }})">Select page</button>
                 <button type="button" class="desk-btn desk-btn-sm" wire:click="clearSelected" @disabled($selectedCount === 0)>Clear</button>
@@ -323,6 +361,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                                     if ($ship === '' && $order?->ship_to_address) {
                                         $ship = $order->ship_to_address;
                                     }
+                                    $areaInfo = $areaByInvoice[$invoice->id] ?? ['ok' => true, 'code' => 'ok', 'message' => null];
                                 @endphp
                                 <tr>
                                     <td class="text-center">
@@ -341,6 +380,19 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                                         <span class="dlv-pill is-{{ $pill }}">
                                             {{ $statusLabel }}
                                         </span>
+                                        @if (! ($areaInfo['ok'] ?? true))
+                                            <span class="dlv-pill is-failed" title="{{ $areaInfo['message'] }}">
+                                                {{ ($areaInfo['code'] ?? '') === 'inactive' ? 'Area inactive' : 'Outside area' }}
+                                            </span>
+                                            @if (auth()->user()->canAccessFeature('delivery.manage', 'edit'))
+                                                <button
+                                                    type="button"
+                                                    class="desk-btn desk-btn-sm"
+                                                    wire:click="saveAreaFromInvoice({{ $invoice->id }})"
+                                                    title="Save this ship-to as an active delivery area"
+                                                >Save area</button>
+                                            @endif
+                                        @endif
                                     </td>
                                 </tr>
                             @empty

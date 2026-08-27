@@ -10,48 +10,160 @@ use Illuminate\Support\Facades\DB;
 class DeliveryAreaService
 {
     /**
-     * Match order shipping snapshot (not the customer's current address).
+     * Most specific area for this order's shipping snapshot wins.
+     * Inactive area → not deliverable. No areas configured → no restriction.
+     *
+     * @return array{ok: bool, code: string, message: ?string, area: ?DeliveryArea}
      */
-    public function isDeliverable(SalesOrder $order, int $companyId): bool
+    public function evaluate(SalesOrder $order, int $companyId): array
     {
-        $areas = DeliveryArea::query()
-            ->where('company_id', $companyId)
-            ->where('is_active', true)
-            ->get();
-
+        $areas = DeliveryArea::query()->where('company_id', $companyId)->get();
         if ($areas->isEmpty()) {
-            return true;
+            return ['ok' => true, 'code' => 'open', 'message' => null, 'area' => null];
         }
 
+        $match = $this->bestMatch($order, $areas);
+        if (! $match) {
+            $where = trim(collect([$order->ship_to_city, $order->ship_to_state, $order->ship_to_zip])->filter()->implode(', '));
+
+            return [
+                'ok' => false,
+                'code' => 'outside',
+                'message' => 'This address is outside the current delivery area'.($where !== '' ? ' ('.$where.')' : '').'.',
+                'area' => null,
+            ];
+        }
+
+        if (! $match->is_active) {
+            return [
+                'ok' => false,
+                'code' => 'inactive',
+                'message' => 'Delivery area is not active: '.$match->label().'.',
+                'area' => $match,
+            ];
+        }
+
+        return ['ok' => true, 'code' => 'ok', 'message' => null, 'area' => $match];
+    }
+
+    public function isDeliverable(SalesOrder $order, int $companyId): bool
+    {
+        return $this->evaluate($order, $companyId)['ok'];
+    }
+
+    /**
+     * ZIP (3) beats city (2) beats statewide (1). Same score: inactive wins so a turned-off row blocks delivery.
+     *
+     * @param  \Illuminate\Support\Collection<int, DeliveryArea>  $areas
+     */
+    protected function bestMatch(SalesOrder $order, $areas): ?DeliveryArea
+    {
         $state = strtoupper(trim((string) $order->ship_to_state));
         $city = strtoupper(trim((string) $order->ship_to_city));
-        $zip = preg_replace('/\D+/', '', (string) $order->ship_to_zip);
-        $zip = substr((string) $zip, 0, 5);
+        $zip = substr((string) preg_replace('/\D+/', '', (string) $order->ship_to_zip), 0, 5);
+
+        $best = null;
+        $bestScore = 0;
 
         foreach ($areas as $area) {
             $areaState = strtoupper(trim((string) $area->state_code));
             $areaCity = strtoupper(trim((string) $area->city));
-            $areaZip = preg_replace('/\D+/', '', (string) $area->zip_code);
-            $areaZip = substr((string) $areaZip, 0, 5);
+            $areaZip = substr((string) preg_replace('/\D+/', '', (string) $area->zip_code), 0, 5);
 
             if ($areaState !== '' && $state !== '' && $areaState !== $state) {
                 continue;
             }
 
+            $score = 0;
             if ($areaZip !== '' && $zip !== '' && $areaZip === $zip) {
-                return true;
+                $score = 3;
+            } elseif ($areaZip === '' && $areaCity !== '' && $city !== '' && $areaCity === $city) {
+                $score = 2;
+            } elseif ($areaZip === '' && $areaCity === '' && $areaState !== '' && $areaState === $state) {
+                $score = 1;
             }
 
-            if ($areaZip === '' && $areaCity !== '' && $city !== '' && $areaCity === $city) {
-                return true;
+            if ($score === 0) {
+                continue;
             }
 
-            if ($areaZip === '' && $areaCity === '' && $areaState !== '' && $areaState === $state) {
-                return true;
+            if ($score > $bestScore) {
+                $best = $area;
+                $bestScore = $score;
+
+                continue;
+            }
+
+            if ($score === $bestScore && $best && ! $area->is_active && $best->is_active) {
+                $best = $area;
             }
         }
 
-        return false;
+        return $best;
+    }
+
+    /**
+     * Create or reactivate the area for this ship-to (city + ZIP + state).
+     */
+    public function saveFromOrder(SalesOrder $order, int $companyId): DeliveryArea
+    {
+        $city = trim((string) $order->ship_to_city);
+        $zip = substr((string) preg_replace('/\D+/', '', (string) $order->ship_to_zip), 0, 5);
+        $rawState = trim((string) $order->ship_to_state);
+        if ($city === '' && $zip === '' && $rawState === '') {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'orders' => 'Cannot save a delivery area: this invoice has no city, state, or ZIP.',
+            ]);
+        }
+
+        $code = strtoupper($rawState);
+        $name = $rawState !== '' ? $rawState : $code;
+        if (strlen($code) !== 2) {
+            $known = DeliveryArea::query()
+                ->where('company_id', $companyId)
+                ->where(function ($q) use ($rawState) {
+                    $q->where('state', $rawState)->orWhere('state_code', strtoupper($rawState));
+                })
+                ->first();
+            if ($known) {
+                $code = strtoupper((string) $known->state_code);
+                $name = (string) $known->state;
+            } else {
+                $letters = strtoupper((string) preg_replace('/[^A-Za-z]/', '', $rawState));
+                $code = substr($letters !== '' ? $letters : 'XX', 0, 2);
+            }
+        } else {
+            $knownName = DeliveryArea::query()
+                ->where('company_id', $companyId)
+                ->where('state_code', $code)
+                ->value('state');
+            if ($knownName) {
+                $name = (string) $knownName;
+            }
+        }
+
+        return $this->savePlace($companyId, $name, $code, $city, $zip);
+    }
+
+    public function savePlace(int $companyId, string $state, string $stateCode, string $city, string $zip): DeliveryArea
+    {
+        $stateCode = strtoupper(trim($stateCode));
+        $city = trim($city);
+        $zip = trim($zip);
+        $area = DeliveryArea::query()->firstOrNew([
+            'company_id' => $companyId,
+            'state_code' => $stateCode,
+            'city' => $city,
+            'zip_code' => $zip,
+        ]);
+        $area->state = $state !== '' ? $state : $stateCode;
+        if (! $area->country) {
+            $area->country = 'USA';
+        }
+        $area->is_active = true;
+        $area->save();
+
+        return $area;
     }
 
     /**

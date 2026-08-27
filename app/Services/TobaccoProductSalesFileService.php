@@ -483,9 +483,72 @@ class TobaccoProductSalesFileService
 
     protected function isPromoItem(Item $item): bool
     {
-        return filled($item->manu_promotion_item)
-            || filled($item->manu_promotion_code)
-            || filled($item->manu_promotion_description);
+        return $this->promoDetails($item)['flag'];
+    }
+
+    /**
+     * MSA BID promo flag / code / description.
+     * Also treats item descriptions with 2-for / multipack deal text as promoted
+     * (e.g. 2/$1.99, 30/2 FOR $1.39) when manufacturer promo fields are empty.
+     *
+     * @return array{flag: bool, code: string, description: string}
+     */
+    protected function promoDetails(Item $item): array
+    {
+        $code = $this->upperAscii(trim((string) ($item->manu_promotion_code ?? '')));
+        $desc = $this->upperAscii(trim((string) ($item->manu_promotion_description ?? '')));
+        $flag = filled($item->manu_promotion_item)
+            || filled($item->promotion_schedule_id)
+            || $code !== ''
+            || $desc !== '';
+
+        $fromName = $this->promoTextFromDescription((string) ($item->description ?? ''));
+        if ($fromName !== '') {
+            $flag = true;
+            if ($desc === '') {
+                $desc = $fromName;
+            }
+            if ($code === '') {
+                $code = 'PROMO';
+            }
+        }
+
+        if ($flag && $desc === '') {
+            $desc = $code !== '' ? $code : 'PROMO';
+        }
+        if ($flag && $code === '') {
+            $code = 'PROMO';
+        }
+
+        return [
+            'flag' => $flag,
+            'code' => $code,
+            'description' => $desc,
+        ];
+    }
+
+    /**
+     * Pull visible deal text from an item description (Swisher / Havana style).
+     */
+    protected function promoTextFromDescription(string $description): string
+    {
+        $text = $this->upperAscii($description);
+        if ($text === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\d+(?:\s*\/\s*\d+)?\s+FOR\s+\$?\d+(?:\.\d{1,2})/',
+            '/\d+\s*\/\s*\$\s*\d+(?:\.\d{1,2})/',
+            '/\d+(?:\s*\/\s*\d+){1,2}\s*\/\s*\$?\d+(?:\.\d{1,2})\$?/',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text, $m)) {
+                return trim(preg_replace('/\s+/', ' ', $m[0]) ?? $m[0]);
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -536,7 +599,7 @@ class TobaccoProductSalesFileService
             $desc = substr($desc, 0, self::BID_DESC_MAX);
         }
         $unitSize = $this->itemsPerSellingUnit($item);
-        $promo = $this->isPromoItem($item);
+        $promo = $this->promoDetails($item);
         $state = $this->upperAscii(substr($companyState ?: 'MI', 0, 2));
 
         return $this->fields([
@@ -545,12 +608,12 @@ class TobaccoProductSalesFileService
             [$code14, 14, '0', STR_PAD_LEFT],
             [$desc, self::BID_DESC_LEN],
             [$this->num($unitSize, 6), 6, '0', STR_PAD_LEFT],
-            [$promo ? 'Y' : 'N', 1],
-            ['', 6],
+            [$promo['flag'] ? 'Y' : 'N', 1],
+            [$promo['flag'] ? $promo['code'] : '', 6],
             [$this->nacsCode($item), 6],
             ['', 10],
             ['0', 6, '0', STR_PAD_LEFT],
-            [$promo ? str_repeat(' ', 11).'PROMO'.str_repeat(' ', 25) : '', 41],
+            [$promo['flag'] ? $promo['description'] : '', 41],
             [$state, 2],
             ['0', 32, '0', STR_PAD_LEFT],
             ['', 6],

@@ -197,6 +197,50 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $this->assertStringNotContainsString('RETURN ALLOWED', substr($bid, 81, 50));
     }
 
+    public function test_deal_text_in_item_description_sets_msa_promo_flag_and_fields(): void
+    {
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'HAV1',
+            'primary_upc' => '012345678901',
+            'description' => 'HAVANA 2/$1.99 MILK N COOKIE 20CT',
+            'tobacco_product_type' => 'otp',
+            'list_price' => 1.99,
+            'quantity_in_stock' => 20,
+        ]));
+
+        $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
+        $this->assertSame('Y', substr($bid, 137, 1));
+        $this->assertSame('PROMO', rtrim(substr($bid, 138, 6)));
+        $this->assertSame('2/$1.99', rtrim(substr($bid, TobaccoProductSalesFileService::BID_PROMO_AT, 41)));
+
+        $swisher = $this->sampleFile(new Item([
+            'item_code' => 'SW1',
+            'primary_upc' => '012345678902',
+            'description' => 'SWISHER CIG SWEET 30/2 FOR $1.39',
+            'tobacco_product_type' => 'otp',
+            'list_price' => 1.39,
+        ]));
+        $bid2 = collect(preg_split("/\r\n|\n/", $swisher))->first(fn ($line) => str_starts_with($line, 'BID'));
+        $this->assertSame('Y', substr($bid2, 137, 1));
+        $this->assertStringContainsString('30/2 FOR $1.39', substr($bid2, TobaccoProductSalesFileService::BID_PROMO_AT, 41));
+    }
+
+    public function test_non_promo_item_keeps_n_flag_and_blank_promo_fields(): void
+    {
+        $file = $this->sampleFile(new Item([
+            'item_code' => 'MARL',
+            'primary_upc' => '28200135704',
+            'description' => 'MARLBORO BOX KING',
+            'tobacco_product_type' => 'cigarettes',
+            'list_price' => 10,
+        ]));
+
+        $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
+        $this->assertSame('N', substr($bid, 137, 1));
+        $this->assertSame(str_repeat(' ', 6), substr($bid, 138, 6));
+        $this->assertSame(str_repeat(' ', 41), substr($bid, TobaccoProductSalesFileService::BID_PROMO_AT, 41));
+    }
+
     public function test_pur_puts_dollars_in_002_not_004(): void
     {
         $file = $this->sampleFile(new Item([

@@ -10,6 +10,7 @@ use App\Models\SalesOrder;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class DeliveryRouteService
@@ -509,11 +510,33 @@ class DeliveryRouteService
             ]);
         }
 
+        if (Schema::hasColumn('companies', 'shipping_latitude')
+            && $company->shipping_latitude
+            && $company->shipping_longitude) {
+            return [
+                'lat' => (float) $company->shipping_latitude,
+                'lng' => (float) $company->shipping_longitude,
+            ];
+        }
+
         $geo = $this->optimizer->geocode($company->formattedAddress());
         if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
+            $cityLine = trim(collect([$company->city, $company->state, $company->zip_code, 'USA'])->filter()->implode(', '));
+            if ($cityLine !== '' && $cityLine !== 'USA') {
+                $geo = $this->optimizer->geocode($cityLine);
+            }
+        }
+        if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
             throw ValidationException::withMessages([
-                'company' => 'Could not locate the company address for routing. Check File → Company Settings.',
+                'company' => 'Could not locate the company address for routing. The live server could not reach the map service. Check File → Company Settings, then try Generate route again.',
             ]);
+        }
+
+        if (Schema::hasColumn('companies', 'shipping_latitude')) {
+            $company->forceFill([
+                'shipping_latitude' => $geo['lat'],
+                'shipping_longitude' => $geo['lng'],
+            ])->save();
         }
 
         return [

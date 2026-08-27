@@ -21,6 +21,7 @@ class Company extends Model
         'mail_encryption', 'mail_from_address', 'mail_from_name',
         'allow_negative_stock',
         'japs_ai_enabled', 'japs_ai_api_key', 'japs_ai_model', 'japs_ai_widget_enabled',
+        'shipping_latitude', 'shipping_longitude',
     ];
 
     protected function casts(): array

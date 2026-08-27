@@ -144,7 +144,23 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         ]);
 
         session(['company_name' => $company->name]);
+        $this->refreshCompanyCoordinates($company);
         $this->statusMessage = 'Company settings saved. Address & contact now print on invoices, sales orders, and other PDFs.';
+    }
+
+    protected function refreshCompanyCoordinates(\App\Models\Company $company): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('companies', 'shipping_latitude')) {
+            return;
+        }
+        $geo = app(\App\Services\Delivery\RouteOptimizationService::class)->geocode($company->fresh()->formattedAddress());
+        if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
+            return;
+        }
+        $company->forceFill([
+            'shipping_latitude' => $geo['lat'],
+            'shipping_longitude' => $geo['lng'],
+        ])->save();
     }
 }; ?>
 

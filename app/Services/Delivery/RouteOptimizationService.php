@@ -314,14 +314,63 @@ class RouteOptimizationService
 
     public function geocode(string $query): ?array
     {
-        $query = trim($query);
+        $query = trim(preg_replace('/\s+/', ' ', $query) ?? '');
         if ($query === '') {
             return null;
         }
 
+        $cacheKey = 'delivery_geo_'.md5(mb_strtolower($query));
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['lat'], $cached['lng'])) {
+            return $cached;
+        }
+
+        $variants = $this->geocodeQueryVariants($query);
+        foreach ($variants as $variant) {
+            $hit = $this->geocodeGoogle($variant)
+                ?? $this->geocodeNominatim($variant)
+                ?? $this->geocodePhoton($variant);
+            if ($hit) {
+                \Illuminate\Support\Facades\Cache::put($cacheKey, $hit, now()->addDays(30));
+
+                return $hit;
+            }
+        }
+
+        Log::warning('Delivery geocode failed for all providers.', ['query' => $query]);
+
+        return null;
+    }
+
+    /** @return list<string> */
+    protected function geocodeQueryVariants(string $query): array
+    {
+        $variants = [$query];
+        if (preg_match('/\b(\d{5})(?:-\d{4})?\b/', $query, $m)) {
+            $zip = $m[1];
+            if (preg_match('/\b([A-Z]{2})\b/', strtoupper($query), $st)) {
+                $city = '';
+                if (preg_match('/,\s*([^,]+?)\s+[A-Z]{2}\s+\d{5}/i', $query, $cm)) {
+                    $city = trim($cm[1]);
+                }
+                $variants[] = trim($city.' '.$st[1].' '.$zip.', USA');
+                $variants[] = $st[1].' '.$zip.', USA';
+            }
+            $variants[] = $zip.', USA';
+        }
+
+        return array_values(array_unique(array_filter($variants)));
+    }
+
+    protected function geocodeGoogle(string $query): ?array
+    {
         $googleKey = (string) config('delivery.google.key');
-        if ($googleKey !== '') {
-            $response = Http::timeout(15)->get('https://maps.googleapis.com/maps/api/geocode/json', [
+        if ($googleKey === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(12)->get('https://maps.googleapis.com/maps/api/geocode/json', [
                 'address' => $query,
                 'key' => $googleKey,
             ]);
@@ -329,23 +378,68 @@ class RouteOptimizationService
             if (is_array($loc) && isset($loc['lat'], $loc['lng'])) {
                 return ['lat' => (float) $loc['lat'], 'lng' => (float) $loc['lng']];
             }
+        } catch (\Throwable $e) {
+            Log::notice('Google geocode failed.', ['error' => $e->getMessage()]);
         }
 
+        return null;
+    }
+
+    protected function geocodeNominatim(string $query): ?array
+    {
         $base = rtrim((string) config('delivery.nominatim.base_url'), '/');
-        $response = Http::timeout(15)
-            ->withHeaders(['User-Agent' => 'JAPS-POS-Delivery/1.0'])
-            ->get($base.'/search', [
-                'q' => $query,
-                'format' => 'json',
-                'limit' => 1,
-                'countrycodes' => 'us',
-            ]);
+        $ua = 'JAPS-POS-Delivery/1.0 ('.rtrim((string) config('app.url'), '/').'; '.((string) config('mail.from.address') ?: 'support@localhost').')';
 
-        $first = $response->json('0');
-        if (! is_array($first) || ! isset($first['lat'], $first['lon'])) {
-            return null;
+        try {
+            $response = Http::timeout(12)
+                ->withUserAgent($ua)
+                ->withHeaders([
+                    'Accept' => 'application/json',
+                    'Referer' => (string) config('app.url'),
+                ])
+                ->get($base.'/search', [
+                    'q' => $query,
+                    'format' => 'json',
+                    'limit' => 1,
+                    'addressdetails' => 0,
+                ]);
+
+            if (! $response->successful()) {
+                Log::notice('Nominatim geocode HTTP '.$response->status(), ['query' => $query]);
+
+                return null;
+            }
+
+            $first = $response->json('0');
+            if (is_array($first) && isset($first['lat'], $first['lon'])) {
+                return ['lat' => (float) $first['lat'], 'lng' => (float) $first['lon']];
+            }
+        } catch (\Throwable $e) {
+            Log::notice('Nominatim geocode failed.', ['error' => $e->getMessage()]);
         }
 
-        return ['lat' => (float) $first['lat'], 'lng' => (float) $first['lon']];
+        return null;
+    }
+
+    protected function geocodePhoton(string $query): ?array
+    {
+        try {
+            $response = Http::timeout(12)
+                ->withUserAgent('JAPS-POS-Delivery/1.0')
+                ->acceptJson()
+                ->get('https://photon.komoot.io/api/', [
+                    'q' => $query,
+                    'limit' => 1,
+                    'lang' => 'en',
+                ]);
+            $coords = $response->json('features.0.geometry.coordinates');
+            if (is_array($coords) && isset($coords[0], $coords[1])) {
+                return ['lat' => (float) $coords[1], 'lng' => (float) $coords[0]];
+            }
+        } catch (\Throwable $e) {
+            Log::notice('Photon geocode failed.', ['error' => $e->getMessage()]);
+        }
+
+        return null;
     }
 }

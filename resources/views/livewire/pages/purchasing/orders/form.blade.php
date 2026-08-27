@@ -74,6 +74,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public bool $browseSavedSearchOpen = false;
 
+    public bool $browseQtyLtZero = false;
+
     /** @var array<int, array{id:int,item_code:string,description:?string,unit_of_measure:?string,list_price:float|string|null,on_hand:float,available:float,is_new:bool}> */
     public array $browseRows = [];
 
@@ -317,6 +319,18 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     {
         $this->browseCategoryId = $categoryId;
         $this->browseSubcategoryId = null;
+        if ($categoryId === null) {
+            $this->browseQtyLtZero = false;
+        }
+        $this->browseSavedSearchOpen = true;
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function setBrowseQtyLtZero(bool $on = true): void
+    {
+        $this->browseQtyLtZero = $on;
         $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
@@ -339,6 +353,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->browseNewOnly = false;
         $this->browseCategoryId = null;
         $this->browseSubcategoryId = null;
+        $this->browseQtyLtZero = false;
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
         if ($this->showBrowse) {
@@ -517,6 +532,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->browseLoadingMore = false;
         $this->browseCategoryId = null;
         $this->browseSubcategoryId = null;
+        $this->browseQtyLtZero = false;
         $this->browseSavedSearchOpen = false;
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
@@ -589,6 +605,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ->where('is_inactive', false)
             ->where('can_order', true)
             ->when($this->browseNewOnly, fn ($q) => $q->where('created_at', '>=', $newSince))
+            ->when($this->browseQtyLtZero, fn ($q) => $q->where('quantity_in_stock', '<', 0))
             ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
             ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
             ->when(filled($this->browseSearch), function ($q) {

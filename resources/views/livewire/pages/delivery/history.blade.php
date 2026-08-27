@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Role;
 use App\Models\User;
 use App\Services\Delivery\DeliveryRouteService;
 use Livewire\Attributes\Layout;
@@ -25,16 +24,10 @@ new #[Layout('layouts.app'), Title('Route History')] class extends Component
     public function with(DeliveryRouteService $service): array
     {
         $companyId = (int) auth()->user()->company_id;
-        $deliveryRoleId = Role::query()->where('name', 'delivery')->value('id');
 
         return [
             'routes' => $service->routesHistory($companyId, $this->driver_id, $this->from, $this->to),
-            'drivers' => User::query()
-                ->where('company_id', $companyId)
-                ->where('is_active', true)
-                ->when($deliveryRoleId, fn ($q) => $q->where('role_id', $deliveryRoleId))
-                ->orderBy('name')
-                ->get(['id', 'name']),
+            'drivers' => User::assignableDeliveryDrivers($companyId),
         ];
     }
 }; ?>

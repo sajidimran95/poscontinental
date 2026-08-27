@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\DeliveryRoute;
-use App\Models\Role;
 use App\Models\User;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -19,25 +18,18 @@ new #[Layout('layouts.app'), Title('Delivery Men')] class extends Component
     public function with(): array
     {
         $companyId = (int) auth()->user()->company_id;
-        $deliveryRoleId = Role::query()->where('name', 'delivery')->value('id');
         $today = now()->toDateString();
         $term = trim($this->search);
 
-        $drivers = User::query()
-            ->with('role:id,name,label')
-            ->where('company_id', $companyId)
-            ->where('is_active', true)
-            ->when($deliveryRoleId, fn ($q) => $q->where('role_id', $deliveryRoleId))
-            ->when($term !== '', function ($q) use ($term) {
-                $like = '%'.$term.'%';
-                $q->where(function ($inner) use ($like) {
-                    $inner->where('name', 'like', $like)
-                        ->orWhere('username', 'like', $like)
-                        ->orWhere('email', 'like', $like);
-                });
-            })
-            ->orderBy('name')
-            ->get(['id', 'name', 'username', 'email', 'role_id']);
+        $drivers = User::assignableDeliveryDrivers($companyId, ['id', 'name', 'username', 'email', 'role_id']);
+        if ($term !== '') {
+            $needle = mb_strtolower($term);
+            $drivers = $drivers->filter(function ($d) use ($needle) {
+                return str_contains(mb_strtolower((string) $d->name), $needle)
+                    || str_contains(mb_strtolower((string) $d->username), $needle)
+                    || str_contains(mb_strtolower((string) $d->email), $needle);
+            })->values();
+        }
 
         $routes = DeliveryRoute::query()
             ->with('stops')

@@ -3,7 +3,6 @@
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\User;
 use App\Services\Delivery\DeliveryRouteService;
 use Livewire\Attributes\Layout;
@@ -146,19 +145,12 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                 ->get(['id', 'customer_id', 'company_name', 'city'])
             : collect();
 
-        $deliveryRoleId = Role::query()->where('name', 'delivery')->value('id');
-
         return [
             'invoices' => $invoices,
             'customerSuggestions' => $customerSuggestions,
             'selectedCount' => collect($this->selected)->filter()->count(),
             'visibleIds' => $invoices->pluck('id')->all(),
-            'drivers' => User::query()
-                ->where('company_id', $companyId)
-                ->where('is_active', true)
-                ->when($deliveryRoleId, fn ($q) => $q->where('role_id', $deliveryRoleId))
-                ->orderBy('name')
-                ->get(['id', 'name']),
+            'drivers' => User::assignableDeliveryDrivers($companyId),
         ];
     }
 

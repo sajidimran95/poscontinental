@@ -20,9 +20,15 @@ new #[Layout('layouts.app'), Title("Today's Deliveries")] class extends Componen
 
     public string $delivery_notes = '';
 
-    public function mount(): void
+    public function mount(DeliveryRouteService $service): void
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.driver', 'view'), 403);
+        $route = $service->driverRouteForDate(auth()->user(), now()->toDateString());
+        $suggested = $route?->currentStop();
+        if ($suggested) {
+            $this->openStopId = $suggested->id;
+            $this->delivery_notes = (string) ($suggested->delivery_notes ?? '');
+        }
     }
 
     public function with(DeliveryRouteService $service): array
@@ -35,10 +41,6 @@ new #[Layout('layouts.app'), Title("Today's Deliveries")] class extends Componen
 
         $suggested = $route?->currentStop();
         $active = $route?->stops->firstWhere('id', $this->openStopId) ?? $suggested;
-        if ($active && ! $this->openStopId) {
-            $this->openStopId = $active->id;
-            $this->delivery_notes = (string) ($active->delivery_notes ?? '');
-        }
         $delivered = $route ? $route->stops->where('status', 'delivered')->count() : 0;
         $mapStops = $route ? $route->stops->map(fn ($s) => [
             'id' => $s->id,

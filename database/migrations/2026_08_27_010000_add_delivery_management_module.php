@@ -118,7 +118,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('delivery_route_orders');
-        Schema::dropIfExists('delivery_routes');
+        Schema::dropIfExists('driver_delivery_routes');
         Schema::dropIfExists('delivery_areas');
         Schema::dropIfExists('company_locations');
 

@@ -45,24 +45,27 @@ class DeliveryRouteService
         foreach ($orders as $order) {
             if (! $this->areas->isDeliverable($order, $companyId)) {
                 $outside[] = $order->order_number ?: ('#'.$order->id);
-                continue;
             }
-            $this->ensureCoordinates($order);
-            $order->delivery_user_id = $driver->id;
-            $order->delivery_date = $date;
-            if (! in_array($order->delivery_status, ['delivered', 'failed'], true)) {
-                $order->delivery_status = 'assigned';
-            }
-            $order->save();
         }
-
         if ($outside !== []) {
             throw ValidationException::withMessages([
                 'orders' => 'This address is outside the current delivery area: '.implode(', ', $outside),
             ]);
         }
 
-        return $orders->count();
+        return DB::transaction(function () use ($orders, $driver, $date) {
+            foreach ($orders as $order) {
+                $this->ensureCoordinates($order);
+                $order->delivery_user_id = $driver->id;
+                $order->delivery_date = $date;
+                if (! in_array($order->delivery_status, ['delivered', 'failed'], true)) {
+                    $order->delivery_status = 'assigned';
+                }
+                $order->save();
+            }
+
+            return $orders->count();
+        });
     }
 
     public function generateRoute(User $actor, int $driverId, string $date): DeliveryRoute
@@ -119,9 +122,21 @@ class DeliveryRouteService
                 ->where('company_id', $companyId)
                 ->where('delivery_user_id', $driver->id)
                 ->whereDate('route_date', $date)
-                ->whereIn('status', [DeliveryRoute::STATUS_PLANNED, DeliveryRoute::STATUS_STARTED])
+                ->where('status', DeliveryRoute::STATUS_PLANNED)
                 ->latest('id')
                 ->first();
+
+            $started = DeliveryRoute::query()
+                ->where('company_id', $companyId)
+                ->where('delivery_user_id', $driver->id)
+                ->whereDate('route_date', $date)
+                ->where('status', DeliveryRoute::STATUS_STARTED)
+                ->exists();
+            if ($started) {
+                throw ValidationException::withMessages([
+                    'orders' => 'This driver already has a started route for that date. Finish or cancel it before generating a new one.',
+                ]);
+            }
 
             $route = $existing ?? new DeliveryRoute;
             $route->fill([
@@ -484,21 +499,34 @@ class DeliveryRouteService
             ]);
         }
 
-        $geo = $this->optimizer->geocode($company->formattedAddress()) ?? [];
+        $geo = $this->optimizer->geocode($company->formattedAddress());
+        if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
+            throw ValidationException::withMessages([
+                'company' => 'Could not locate the company address for routing. Check File → Company Settings.',
+            ]);
+        }
 
         return [
-            'lat' => (float) ($geo['lat'] ?? 42.3314),
-            'lng' => (float) ($geo['lng'] ?? -83.0458),
+            'lat' => (float) $geo['lat'],
+            'lng' => (float) $geo['lng'],
         ];
     }
 
     protected function deliveryDriver(int $companyId, int $driverId): User
     {
+        if ($driverId <= 0) {
+            throw ValidationException::withMessages(['driver' => 'Select a delivery driver.']);
+        }
+
         $user = User::query()
             ->with('role')
             ->where('company_id', $companyId)
             ->whereKey($driverId)
-            ->firstOrFail();
+            ->first();
+
+        if (! $user) {
+            throw ValidationException::withMessages(['driver' => 'Select a delivery driver.']);
+        }
 
         if ($user->role?->name !== 'delivery' && ! $user->canAccessFeature('delivery.driver', 'view')) {
             throw ValidationException::withMessages(['driver' => 'Select a Delivery user.']);

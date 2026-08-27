@@ -25,6 +25,8 @@ trait BrowsesItemsForInquiry
 
     public bool $browseSavedSearchOpen = false;
 
+    public bool $browseQtyLtZero = false;
+
     public ?int $browseSelectedId = null;
 
     /** @var list<string> */
@@ -98,6 +100,9 @@ trait BrowsesItemsForInquiry
     {
         $this->browseCategoryId = $categoryId;
         $this->browseSubcategoryId = null;
+        if ($categoryId === null) {
+            $this->browseQtyLtZero = false;
+        }
         $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
@@ -119,8 +124,18 @@ trait BrowsesItemsForInquiry
         $this->browseNewOnly = false;
         $this->browseCategoryId = null;
         $this->browseSubcategoryId = null;
+        $this->browseQtyLtZero = false;
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+        }
+    }
+
+    public function setBrowseQtyLtZero(bool $on = true): void
+    {
+        $this->browseQtyLtZero = $on;
+        $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
         }
@@ -336,6 +351,7 @@ trait BrowsesItemsForInquiry
         $this->browseLoadingMore = false;
         $this->browseCategoryId = null;
         $this->browseSubcategoryId = null;
+        $this->browseQtyLtZero = false;
         $this->browseSavedSearchOpen = false;
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
@@ -404,6 +420,7 @@ trait BrowsesItemsForInquiry
             ->where('company_id', $companyId)
             ->where('is_inactive', false)
             ->when($this->browseNewOnly, fn ($q) => $q->where('created_at', '>=', $newSince))
+            ->when($this->browseQtyLtZero, fn ($q) => $q->where('quantity_in_stock', '<', 0))
             ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
             ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
             ->when(filled($this->browseSearch), function ($q) {

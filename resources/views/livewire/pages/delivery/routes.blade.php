@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Role;
 use App\Models\User;
 use App\Services\Delivery\DeliveryRouteService;
 use Livewire\Attributes\Layout;
@@ -30,7 +29,6 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
     {
         $companyId = (int) auth()->user()->company_id;
         $routes = $service->routesForDate($companyId, $this->date);
-        $deliveryRoleId = Role::query()->where('name', 'delivery')->value('id');
 
         $orders = $routes->sum(fn ($r) => (int) $r->total_orders);
         $delivered = $routes->sum(fn ($r) => $r->stops->where('status', 'delivered')->count());
@@ -41,12 +39,7 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
         return [
             'routes' => $routes,
             'totals' => compact('orders', 'delivered', 'failed', 'remaining', 'miles'),
-            'drivers' => User::query()
-                ->where('company_id', $companyId)
-                ->where('is_active', true)
-                ->when($deliveryRoleId, fn ($q) => $q->where('role_id', $deliveryRoleId))
-                ->orderBy('name')
-                ->get(['id', 'name']),
+            'drivers' => User::assignableDeliveryDrivers($companyId),
         ];
     }
 

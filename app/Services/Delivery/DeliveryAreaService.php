@@ -28,14 +28,6 @@ class DeliveryAreaService
         $zip = preg_replace('/\D+/', '', (string) $order->ship_to_zip);
         $zip = substr((string) $zip, 0, 5);
 
-        $hasDetail = $areas->contains(function (DeliveryArea $area) use ($state) {
-            $sameState = strtoupper(trim((string) $area->state_code)) === $state || $state === '';
-            $hasCity = trim((string) $area->city) !== '';
-            $hasZip = trim((string) $area->zip_code) !== '';
-
-            return $sameState && ($hasCity || $hasZip);
-        });
-
         foreach ($areas as $area) {
             $areaState = strtoupper(trim((string) $area->state_code));
             $areaCity = strtoupper(trim((string) $area->city));
@@ -54,7 +46,7 @@ class DeliveryAreaService
                 return true;
             }
 
-            if (! $hasDetail && $areaZip === '' && $areaCity === '' && $areaState !== '' && $areaState === $state) {
+            if ($areaZip === '' && $areaCity === '' && $areaState !== '' && $areaState === $state) {
                 return true;
             }
         }
@@ -83,14 +75,17 @@ class DeliveryAreaService
 
         while (($row = fgetcsv($handle)) !== false) {
             $stats['total']++;
-            $state = trim((string) ($row[$map['state'] ?? -1] ?? ''));
-            $code = strtoupper(trim((string) ($row[$map['state_code'] ?? -1] ?? '')));
-            $city = trim((string) ($row[$map['city'] ?? -1] ?? ''));
-            $zip = trim((string) ($row[$map['zip_code'] ?? -1] ?? ''));
+            $state = $this->csvCell($row, $map, 'state');
+            $code = strtoupper($this->csvCell($row, $map, 'state_code'));
+            $city = $this->csvCell($row, $map, 'city');
+            $zip = $this->csvCell($row, $map, 'zip_code');
             if ($state === '' || $code === '') {
                 $stats['invalid']++;
                 continue;
             }
+
+            $latRaw = $this->csvCell($row, $map, 'latitude');
+            $lngRaw = $this->csvCell($row, $map, 'longitude');
 
             $chunk[] = [
                 'company_id' => $companyId,
@@ -98,10 +93,10 @@ class DeliveryAreaService
                 'state_code' => mb_substr($code, 0, 8),
                 'city' => mb_substr($city, 0, 80),
                 'zip_code' => mb_substr($zip, 0, 16),
-                'country' => mb_substr(trim((string) ($row[$map['country'] ?? -1] ?? 'USA')) ?: 'USA', 0, 80),
-                'county' => mb_substr(trim((string) ($row[$map['county'] ?? -1] ?? '')), 0, 80) ?: null,
-                'latitude' => is_numeric($row[$map['latitude'] ?? -1] ?? null) ? (float) $row[$map['latitude']] : null,
-                'longitude' => is_numeric($row[$map['longitude'] ?? -1] ?? null) ? (float) $row[$map['longitude']] : null,
+                'country' => mb_substr($this->csvCell($row, $map, 'country') ?: 'USA', 0, 80),
+                'county' => mb_substr($this->csvCell($row, $map, 'county'), 0, 80) ?: null,
+                'latitude' => is_numeric($latRaw) ? (float) $latRaw : null,
+                'longitude' => is_numeric($lngRaw) ? (float) $lngRaw : null,
                 'is_active' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -150,5 +145,18 @@ class DeliveryAreaService
             DB::table('delivery_areas')->insert($insert);
             $stats['imported'] += count($insert);
         }
+    }
+
+    /**
+     * @param  array<int, mixed>  $row
+     * @param  array<string, int>  $map
+     */
+    protected function csvCell(array $row, array $map, string $key): string
+    {
+        if (! isset($map[$key])) {
+            return '';
+        }
+
+        return trim((string) ($row[$map[$key]] ?? ''));
     }
 }

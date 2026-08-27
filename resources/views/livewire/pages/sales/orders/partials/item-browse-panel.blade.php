@@ -381,6 +381,16 @@
                 color: #94a3b8;
                 font-style: italic;
             }
+            .so-saved-search-heading {
+                padding: .4rem .55rem .2rem;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+                color: #64748b;
+                background: #f8fafc;
+                border-bottom: 1px solid #e2e8f0;
+            }
             .so-item-browse-foot-chief {
                 display: flex;
                 flex-wrap: nowrap;
@@ -793,21 +803,26 @@
                     </div>
                 </div>
                 @php
+                    $qtyLtZero = (bool) ($browseQtyLtZero ?? false);
                     $savedSearchLabel = 'Saved Search';
                     $selectedCat = $browseCategoryId
                         ? $browseCategories->firstWhere('id', (int) $browseCategoryId)
                         : null;
+                    if ($qtyLtZero) {
+                        $savedSearchLabel = 'Qty < 0';
+                    }
                     if ($selectedCat) {
                         $savedCode = strtoupper(trim((string) ($selectedCat->code ?? '')));
                         $savedName = trim((string) ($selectedCat->name ?? ''));
-                        $savedSearchLabel = $savedCode !== '' ? $savedCode : ($savedName !== '' ? $savedName : 'Saved Search');
+                        $catBit = $savedCode !== '' ? $savedCode : ($savedName !== '' ? $savedName : 'Category');
                         if ($browseSubcategoryId) {
                             $selectedSub = $browseSubcategories->firstWhere('id', (int) $browseSubcategoryId);
                             if ($selectedSub) {
                                 $subCode = strtoupper(trim((string) ($selectedSub->code ?? '')));
-                                $savedSearchLabel .= ' / '.($subCode !== '' ? $subCode : trim((string) ($selectedSub->name ?? '')));
+                                $catBit .= ' / '.($subCode !== '' ? $subCode : trim((string) ($selectedSub->name ?? '')));
                             }
                         }
+                        $savedSearchLabel = $qtyLtZero ? 'Qty < 0 · '.$catBit : $catBit;
                     }
                 @endphp
                 <div class="so-item-browse-foot so-item-browse-foot-chief">
@@ -917,10 +932,10 @@
             @mouseup.window="stop()"
         >
             <div class="desk-modal-head" @mousedown="start($event)">
-                <span id="so-cat-popup-title">Category</span>
+                <span id="so-cat-popup-title">Saved Search</span>
                 <button type="button" class="desk-modal-close" wire:click.stop="closeBrowseSavedSearch" aria-label="Close">×</button>
             </div>
-            <div class="so-saved-search-menu" role="listbox" aria-label="Categories">
+            <div class="so-saved-search-menu" role="listbox" aria-label="Saved searches">
                 <div class="so-saved-search-list">
                     <button
                         type="button"
@@ -931,9 +946,17 @@
                     <button
                         type="button"
                         role="option"
-                        class="so-saved-search-item{{ $browseCategoryId === null ? ' is-selected' : '' }}"
+                        class="so-saved-search-item{{ ($browseCategoryId === null && ! ($browseQtyLtZero ?? false)) ? ' is-selected' : '' }}"
                         wire:click.stop="setBrowseCategory(null)"
                     >All Items</button>
+                    <div class="so-saved-search-heading">Queries</div>
+                    <button
+                        type="button"
+                        role="option"
+                        class="so-saved-search-item{{ ($browseQtyLtZero ?? false) ? ' is-selected' : '' }}"
+                        wire:click.stop="setBrowseQtyLtZero({{ ($browseQtyLtZero ?? false) ? 'false' : 'true' }})"
+                    >Quantity less than zero</button>
+                    <div class="so-saved-search-heading">Categories</div>
                     @foreach ($browseCategories as $cat)
                         @php
                             $catCode = trim((string) ($cat->code ?? ''));

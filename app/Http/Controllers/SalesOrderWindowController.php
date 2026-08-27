@@ -11,8 +11,9 @@ class SalesOrderWindowController extends Controller
     {
         $id = $windows->open();
         if ($id === '') {
-            return redirect()->route('home')
-                ->with('status', 'Maximum of '.\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS.' windows open. Close one first.');
+            return redirect()->back()
+                ->with('pos_permission', \App\Services\DocumentTabManager::tabLimitMessage())
+                ->with('status', \App\Services\DocumentTabManager::tabLimitMessage());
         }
 
         return redirect()->route('sales.orders.create', ['w' => $id]);

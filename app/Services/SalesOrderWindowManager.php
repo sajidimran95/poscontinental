@@ -103,22 +103,7 @@ class SalesOrderWindowManager
             || (count($state['windows']) + $docCount) >= DocumentTabManager::MAX_OPEN_WINDOWS;
 
         if ($atLimit) {
-            if ($state['windows'] !== []) {
-                $id = $state['active'] ?? $state['windows'][0]['id'];
-                $this->setActive($id);
-
-                return $id;
-            }
-
-            // Need a first SO window — free one document slot if full.
-            while ($docs->count() >= DocumentTabManager::MAX_OPEN_WINDOWS) {
-                $list = $docs->list();
-                if ($list === []) {
-                    break;
-                }
-                $docs->close($list[0]['id']);
-            }
-            $state = $this->state();
+            return '';
         }
 
         $id = (string) Str::uuid();

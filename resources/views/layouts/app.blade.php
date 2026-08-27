@@ -589,11 +589,10 @@
                 <button
                     type="button"
                     class="chief-tab-add"
-                    title="{{ $windowsAtMax ? 'Maximum '.(\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS).' windows open' : 'New Sales Order' }}"
+                    title="{{ $windowsAtMax ? \App\Services\DocumentTabManager::tabLimitMessage() : 'New Sales Order' }}"
                     aria-label="Open another New Sales Order"
                     style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:3.5rem;padding:0 1.35rem;margin:0;border:none;border-right:1px solid #15803d;border-radius:0;background:#22c55e;color:#fff;font-size:1.4rem;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;"
-                    @disabled($windowsAtMax)
-                    onclick="if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-open'); } else { window.location.href = {{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }}; }"
+                    onclick="if ({{ $windowsAtMax ? 'true' : 'false' }}) { window.showPosTabLimit && window.showPosTabLimit(); return false; } if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-open'); } else { window.location.href = {{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }}; }"
                 >+</button>
 
                 @foreach ($builtTabs as $tab)
@@ -836,6 +835,11 @@
                         el.hidden = true;
                     }, 4500);
                 }
+
+                window.showPosTabLimit = function () {
+                    showPermissionToast(@json(\App\Services\DocumentTabManager::tabLimitMessage()));
+                    window.playPosAlert && window.playPosAlert('error');
+                };
 
                 window.posPermissionDenied = function (label) {
                     const name = String(label || '').trim();

@@ -22,32 +22,28 @@ class DocumentTabController extends Controller
             return redirect()->route('home');
         }
 
+        $limit = fn () => redirect()->back()
+            ->with('pos_permission', DocumentTabManager::tabLimitMessage())
+            ->with('status', DocumentTabManager::tabLimitMessage());
+
         if ($routeName === 'sales.orders.create') {
             $openTotal = $soWindows->count() + $tabs->count();
             if ($soWindows->count() >= SalesOrderWindowManager::MAX_WINDOWS
-                || ($soWindows->count() === 0 && $openTotal >= DocumentTabManager::MAX_OPEN_WINDOWS)) {
+                || $openTotal >= DocumentTabManager::MAX_OPEN_WINDOWS) {
                 if ($soWindows->count() > 0) {
                     $id = $soWindows->activeId() ?? $soWindows->list()[0]['id'];
 
                     return redirect()->route('sales.orders.create', ['w' => $id])
-                        ->with('status', 'Maximum of '.DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.');
+                        ->with('pos_permission', DocumentTabManager::tabLimitMessage())
+                        ->with('status', DocumentTabManager::tabLimitMessage());
                 }
 
-                return redirect()->route('home')
-                    ->with('status', 'Maximum of '.DocumentTabManager::MAX_OPEN_WINDOWS.' windows open. Close one first.');
-            }
-
-            if ($soWindows->count() > 0 && $openTotal >= DocumentTabManager::MAX_OPEN_WINDOWS) {
-                $id = $soWindows->activeId() ?? $soWindows->list()[0]['id'];
-
-                return redirect()->route('sales.orders.create', ['w' => $id])
-                    ->with('status', 'Maximum of '.DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.');
+                return $limit();
             }
 
             $id = $soWindows->open();
             if ($id === '') {
-                return redirect()->route('home')
-                    ->with('status', 'Maximum of '.DocumentTabManager::MAX_OPEN_WINDOWS.' windows open. Close one first.');
+                return $limit();
             }
 
             return redirect()->route('sales.orders.create', ['w' => $id]);
@@ -65,11 +61,13 @@ class DocumentTabController extends Controller
 
         $already = collect($tabs->list())->first(fn (array $t) => $t['route'] === $routeName);
         if (! $already && ($soWindows->count() + $tabs->count()) >= DocumentTabManager::MAX_OPEN_WINDOWS) {
-            return redirect()->back()
-                ->with('status', 'Maximum of '.DocumentTabManager::MAX_OPEN_WINDOWS.' windows open. Close one first.');
+            return $limit();
         }
 
-        $tabs->openOrFocus($label, $routeName, $url);
+        $opened = $tabs->openOrFocus($label, $routeName, $url);
+        if ($opened === '' && ! $already) {
+            return $limit();
+        }
 
         return redirect()->to($url);
     }

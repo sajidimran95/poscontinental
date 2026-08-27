@@ -19,6 +19,11 @@ class DocumentTabManager
      */
     public const MAX_OPEN_WINDOWS = 9;
 
+    public static function tabLimitMessage(): string
+    {
+        return self::MAX_OPEN_WINDOWS.' tabs are already open. Close 1 tab, then open this.';
+    }
+
     /**
      * Routes that only keep one tab (re-click focuses existing).
      * sales.orders.create is handled by SalesOrderWindowManager instead.
@@ -129,10 +134,7 @@ class DocumentTabManager
 
         if (count($state['tabs']) >= self::MAX_TABS
             || (count($state['tabs']) + app(SalesOrderWindowManager::class)->count()) >= self::MAX_OPEN_WINDOWS) {
-            if ($state['tabs'] === []) {
-                return '';
-            }
-            array_shift($state['tabs']);
+            return '';
         }
 
         $id = (string) Str::uuid();

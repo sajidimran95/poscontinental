@@ -517,14 +517,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $windows = app(SalesOrderWindowManager::class);
         if ($windows->count() >= SalesOrderWindowManager::MAX_WINDOWS
             || ($windows->count() + app(\App\Services\DocumentTabManager::class)->count()) >= \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS) {
-            $this->notifyAlert('Maximum of '.\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.', 'error');
+            $this->notifyAlert(\App\Services\DocumentTabManager::tabLimitMessage(), 'error');
 
             return;
         }
 
         $id = $windows->open();
         if ($id === '') {
-            $this->notifyAlert('Maximum of '.\App\Services\DocumentTabManager::MAX_OPEN_WINDOWS.' windows open.', 'error');
+            $this->notifyAlert(\App\Services\DocumentTabManager::tabLimitMessage(), 'error');
 
             return;
         }

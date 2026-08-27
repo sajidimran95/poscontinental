@@ -245,10 +245,10 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 <div class="desk-page dlv-page">
     <div class="desk-main desk-main-rail-layout">
         @if ($statusMessage !== '')
-            <div class="dlv-banner is-ok">{{ $statusMessage }}</div>
+            <div class="dlv-banner is-ok" wire:key="dlv-ok-{{ md5($statusMessage) }}" x-data x-init="setTimeout(() => $wire.set('statusMessage', ''), 2000)">{{ $statusMessage }}</div>
         @endif
         @if ($errorMessage !== '')
-            <div class="dlv-banner is-err">{{ $errorMessage }}</div>
+            <div class="dlv-banner is-err" wire:key="dlv-err-{{ md5($errorMessage) }}" x-data x-init="setTimeout(() => $wire.set('errorMessage', ''), 2000)">{{ $errorMessage }}</div>
         @endif
 
         <div class="desk-toolbar orders-toolbar">

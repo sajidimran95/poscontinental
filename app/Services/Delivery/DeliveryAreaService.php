@@ -22,9 +22,13 @@ class DeliveryAreaService
             return ['ok' => true, 'code' => 'open', 'message' => null, 'area' => null];
         }
 
+        $place = $this->shippingPlace($order);
         $match = $this->bestMatch($order, $areas);
         if (! $match) {
-            $where = trim(collect([$order->ship_to_city, $order->ship_to_state, $order->ship_to_zip])->filter()->implode(', '));
+            $where = trim(collect([$place['city'], $place['state'], $place['zip']])->filter()->implode(', '));
+            if ($where === '') {
+                $where = trim((string) $order->ship_to_address);
+            }
 
             return [
                 'ok' => false,
@@ -58,9 +62,10 @@ class DeliveryAreaService
      */
     protected function bestMatch(SalesOrder $order, $areas): ?DeliveryArea
     {
-        $state = strtoupper(trim((string) $order->ship_to_state));
-        $city = strtoupper(trim((string) $order->ship_to_city));
-        $zip = substr((string) preg_replace('/\D+/', '', (string) $order->ship_to_zip), 0, 5);
+        $place = $this->shippingPlace($order);
+        $state = strtoupper($place['state']);
+        $city = strtoupper($place['city']);
+        $zip = $place['zip'];
 
         $best = null;
         $bestScore = 0;
@@ -103,17 +108,73 @@ class DeliveryAreaService
     }
 
     /**
+     * City / state / ZIP from order columns, or parsed from a one-line street address
+     * like "3650 SOUTH ST. STREET, ANN ARBOR MI 48108".
+     *
+     * @return array{city: string, state: string, zip: string}
+     */
+    public function shippingPlace(SalesOrder $order): array
+    {
+        $city = trim((string) $order->ship_to_city);
+        $state = trim((string) $order->ship_to_state);
+        $zip = substr((string) preg_replace('/\D+/', '', (string) $order->ship_to_zip), 0, 5);
+
+        $blob = trim(implode(' ', array_filter([
+            (string) $order->ship_to_address,
+            $city,
+            $state,
+            (string) $order->ship_to_zip,
+        ], fn ($v) => trim((string) $v) !== '')));
+
+        if (($city === '' || $state === '' || $zip === '') && $blob !== '') {
+            if (preg_match('/,\s*([^,]+?)\s+([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\s*$/', $blob, $m)) {
+                $city = $city !== '' ? $city : trim($m[1]);
+                $state = $state !== '' ? $state : strtoupper(trim($m[2]));
+                $zip = $zip !== '' ? $zip : $m[3];
+            } elseif (preg_match('/\b([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\s*$/', $blob, $m)) {
+                $state = $state !== '' ? $state : strtoupper($m[1]);
+                $zip = $zip !== '' ? $zip : $m[2];
+                if ($city === '' && preg_match('/,\s*([^,]+)\s+'.preg_quote($m[1], '/').'\s+'.$m[2].'\s*$/i', $blob, $cm)) {
+                    $city = trim($cm[1]);
+                }
+            } elseif (preg_match('/\b(\d{5})(?:-\d{4})?\s*$/', $blob, $m)) {
+                $zip = $zip !== '' ? $zip : $m[1];
+            }
+        }
+
+        return ['city' => $city, 'state' => $state, 'zip' => $zip];
+    }
+
+    /**
      * Create or reactivate the area for this ship-to (city + ZIP + state).
      */
     public function saveFromOrder(SalesOrder $order, int $companyId): DeliveryArea
     {
-        $city = trim((string) $order->ship_to_city);
-        $zip = substr((string) preg_replace('/\D+/', '', (string) $order->ship_to_zip), 0, 5);
-        $rawState = trim((string) $order->ship_to_state);
+        $place = $this->shippingPlace($order);
+        $city = $place['city'];
+        $zip = $place['zip'];
+        $rawState = $place['state'];
         if ($city === '' && $zip === '' && $rawState === '') {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'orders' => 'Cannot save a delivery area: this invoice has no city, state, or ZIP.',
             ]);
+        }
+
+        $dirty = false;
+        if (trim((string) $order->ship_to_city) === '' && $city !== '') {
+            $order->ship_to_city = $city;
+            $dirty = true;
+        }
+        if (trim((string) $order->ship_to_state) === '' && $rawState !== '') {
+            $order->ship_to_state = $rawState;
+            $dirty = true;
+        }
+        if (trim((string) $order->ship_to_zip) === '' && $zip !== '') {
+            $order->ship_to_zip = $zip;
+            $dirty = true;
+        }
+        if ($dirty) {
+            $order->save();
         }
 
         $code = strtoupper($rawState);

@@ -242,17 +242,54 @@
                 font-size: 13px;
             }
             .so-item-browse-table thead th {
-                position: sticky;
-                top: 0;
-                z-index: 2;
-                background: #e8eef6;
-                border-bottom: 1px solid #c5cad3;
-                padding: .42rem .55rem;
-                font-size: 12px;
-                font-weight: 700;
-                color: #1e293b;
-                text-align: left;
-                white-space: nowrap;
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 2 !important;
+                background: #e8eef6 !important;
+                border-bottom: 1px solid #c5cad3 !important;
+                padding: .42rem .45rem !important;
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                color: #1e293b !important;
+                text-align: left !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+            }
+            .so-item-browse-table thead th .so-browse-sort-btn {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: .28rem !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: 0 !important;
+                background: transparent !important;
+                color: #1e293b !important;
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                line-height: 1.2 !important;
+                cursor: pointer !important;
+                text-align: inherit !important;
+                white-space: nowrap !important;
+            }
+            .so-item-browse-table thead th.is-num .so-browse-sort-btn {
+                justify-content: flex-end !important;
+            }
+            .so-item-browse-table thead th .so-browse-sort-ico {
+                display: inline-flex !important;
+                flex-shrink: 0 !important;
+                width: 10px !important;
+                height: 12px !important;
+                color: #334155 !important;
+            }
+            .so-item-browse-table thead th .so-browse-sort-ico svg {
+                width: 10px !important;
+                height: 12px !important;
+                display: block !important;
+            }
+            .so-item-browse-table thead th.is-sorted .so-browse-sort-btn,
+            .so-item-browse-table thead th.is-sorted .so-browse-sort-ico {
+                color: #0f766e !important;
             }
             .so-item-browse-table thead th.is-num,
             .so-item-browse-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -619,7 +656,7 @@
                         <input type="checkbox" wire:model.live="browseNewOnly" />
                         New only ({{ $itemNewDays }} days)
                     </label>
-                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible">Loading…</span>
+                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible,sortBrowseBy">Loading…</span>
                 </div>
                 @if (filled($lineWarning))
                     <div
@@ -663,14 +700,52 @@
                                 <col style="width:5.5rem" />
                             </colgroup>
                             <thead>
+                                @php
+                                    $bsField = $browseSortField ?? 'quantity_in_stock';
+                                    $bsDir = $browseSortDir ?? 'desc';
+                                    $bsSvgBoth = '<svg viewBox="0 0 10 12" aria-hidden="true"><path fill="currentColor" d="M5 0l3.2 3.6H1.8L5 0zm0 12L1.8 8.4h6.4L5 12z"/></svg>';
+                                    $bsSvgUp = '<svg viewBox="0 0 10 12" aria-hidden="true"><path fill="currentColor" d="M5 1l4 5H1l4-5z"/></svg>';
+                                    $bsSvgDown = '<svg viewBox="0 0 10 12" aria-hidden="true"><path fill="currentColor" d="M5 11L1 6h8l-4 5z"/></svg>';
+                                    $bsIco = function (string $field) use ($bsField, $bsDir, $bsSvgBoth, $bsSvgUp, $bsSvgDown) {
+                                        if ($bsField !== $field) {
+                                            return $bsSvgBoth;
+                                        }
+
+                                        return $bsDir === 'desc' ? $bsSvgDown : $bsSvgUp;
+                                    };
+                                @endphp
                                 <tr>
                                     <th scope="col" class="is-check" aria-label="Check"></th>
-                                    <th scope="col">Item Code</th>
-                                    <th scope="col">Item Description</th>
-                                    <th scope="col">U of M</th>
-                                    <th scope="col" class="is-num">Price</th>
-                                    <th scope="col" class="is-num">Available Qty</th>
-                                    <th scope="col" class="is-num">Qty in Stock</th>
+                                    <th scope="col" @class(['is-sorted' => $bsField === 'item_code'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('item_code')" title="Sort by Item Code">
+                                            <span>Item Code</span><span class="so-browse-sort-ico">{!! $bsIco('item_code') !!}</span>
+                                        </button>
+                                    </th>
+                                    <th scope="col" @class(['is-sorted' => $bsField === 'description'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('description')" title="Sort by Item Description">
+                                            <span>Item Description</span><span class="so-browse-sort-ico">{!! $bsIco('description') !!}</span>
+                                        </button>
+                                    </th>
+                                    <th scope="col" @class(['is-sorted' => $bsField === 'unit_of_measure'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('unit_of_measure')" title="Sort by U of M">
+                                            <span>U of M</span><span class="so-browse-sort-ico">{!! $bsIco('unit_of_measure') !!}</span>
+                                        </button>
+                                    </th>
+                                    <th scope="col" @class(['is-num', 'is-sorted' => $bsField === 'list_price'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('list_price')" title="Sort by Price">
+                                            <span>Price</span><span class="so-browse-sort-ico">{!! $bsIco('list_price') !!}</span>
+                                        </button>
+                                    </th>
+                                    <th scope="col" @class(['is-num', 'is-sorted' => $bsField === 'available'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('available')" title="Sort by Available Qty">
+                                            <span>Available Qty</span><span class="so-browse-sort-ico">{!! $bsIco('available') !!}</span>
+                                        </button>
+                                    </th>
+                                    <th scope="col" @class(['is-num', 'is-sorted' => $bsField === 'quantity_in_stock'])>
+                                        <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('quantity_in_stock')" title="Sort by Qty in Stock">
+                                            <span>Qty in Stock</span><span class="so-browse-sort-ico">{!! $bsIco('quantity_in_stock') !!}</span>
+                                        </button>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>

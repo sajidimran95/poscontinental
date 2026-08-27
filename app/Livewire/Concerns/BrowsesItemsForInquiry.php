@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
  */
 trait BrowsesItemsForInquiry
 {
+    use SortsItemBrowse;
     public bool $showBrowse = false;
 
     public string $browseSearch = '';
@@ -373,12 +374,7 @@ trait BrowsesItemsForInquiry
         $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
         $newSince = now()->subDays($newDays);
 
-        $rows = $this->browseBaseQuery($companyId)
-            ->when(
-                $this->browseNewOnly,
-                fn ($q) => $q->orderByDesc('created_at')->orderBy('item_code'),
-                fn ($q) => $q->orderByDesc('quantity_in_stock')->orderBy('item_code')
-            )
+        $rows = $this->applyBrowseOrder($this->browseBaseQuery($companyId))
             ->offset($offset)
             ->limit(self::BROWSE_PAGE_SIZE)
             ->get([

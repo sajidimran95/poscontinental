@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsItemBrowse;
 use App\Models\Category;
 use App\Models\Item;
 use App\Models\PaymentTerm;
@@ -17,6 +18,7 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 {
+    use SortsItemBrowse;
     public ?PurchaseOrder $purchaseOrder = null;
 
     /** View-only (same layout as edit, locked). */
@@ -554,12 +556,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
         $newSince = now()->subDays($newDays);
 
-        $rows = $this->browseBaseQuery($companyId)
-            ->when(
-                $this->browseNewOnly,
-                fn ($q) => $q->orderByDesc('created_at')->orderBy('item_code'),
-                fn ($q) => $q->orderByDesc('quantity_in_stock')->orderBy('item_code')
-            )
+        $rows = $this->applyBrowseOrder($this->browseBaseQuery($companyId))
             ->offset($offset)
             ->limit(self::BROWSE_PAGE_SIZE)
             ->get([

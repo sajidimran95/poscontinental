@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\DeliveryRoute;
+use App\Policies\DeliveryRoutePolicy;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -27,6 +30,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(DeliveryRoute::class, DeliveryRoutePolicy::class);
+
         Blade::directive('userTime', function ($expression) {
             return "<?php echo user_time($expression); ?>";
         });

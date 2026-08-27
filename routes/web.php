@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\DeliveryApp\DeliveryAppController;
+use App\Http\Controllers\DeliveryApp\DeliveryAuthController;
+use App\Http\Controllers\DeliveryApp\DeliveryPwaController;
 use App\Http\Controllers\DocumentPdfController;
 use App\Http\Controllers\DocumentTabController;
 use App\Http\Controllers\MsaSalesFileController;
@@ -149,6 +152,16 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::get('reports/msa/file', MsaSalesFileController::class)->name('reports.msa.file');
     Route::get('reports/price-list/print', [DocumentPdfController::class, 'priceList'])
         ->name('reports.price-list.print');
+
+    // Delivery management (add-on; does not replace /sale/delivery)
+    Volt::route('deliveries', 'pages.delivery.driver')->name('deliveries.driver');
+    Volt::route('deliveries/assign', 'pages.delivery.assign')->name('deliveries.assign');
+    Volt::route('deliveries/routes', 'pages.delivery.routes')->name('deliveries.routes');
+    Volt::route('deliveries/routes/{deliveryRoute}', 'pages.delivery.route-show')->name('deliveries.routes.show');
+    Volt::route('deliveries/history', 'pages.delivery.history')->name('deliveries.history');
+    Volt::route('deliveries/men', 'pages.delivery.men')->name('deliveries.men');
+    Route::redirect('deliveries/locations', '/admin/company-settings')->name('deliveries.locations');
+    Volt::route('deliveries/areas', 'pages.delivery.areas')->name('deliveries.areas');
 });
 
 require __DIR__.'/auth.php';
@@ -190,5 +203,28 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::get('/api/categories', [SalePortalController::class, 'categoriesTree'])->name('api.categories');
         Route::get('/api/last-purchases', [SalePortalController::class, 'lastPurchases'])->name('api.last_purchases');
         Route::get('/api/items', [SalePortalController::class, 'searchItems'])->name('api.items');
+    });
+});
+
+Route::prefix('delivery')->name('delivery.app.')->group(function () {
+    Route::get('/pwa/manifest.webmanifest', [DeliveryPwaController::class, 'manifest'])->name('pwa.manifest');
+    Route::get('/pwa/sw.js', [DeliveryPwaController::class, 'serviceWorker'])->name('pwa.sw');
+    Route::get('/pwa/offline', [DeliveryPwaController::class, 'offline'])->name('pwa.offline');
+
+    Route::get('/login', [DeliveryAuthController::class, 'showLoginForm'])->name('login');
+    Route::post('/login', [DeliveryAuthController::class, 'login'])->name('login.post');
+    Route::post('/logout', [DeliveryAuthController::class, 'logout'])->name('logout')->middleware('auth:delivery');
+
+    Route::middleware(['auth:delivery', 'delivery.app'])->group(function () {
+        Route::get('/', [DeliveryAppController::class, 'home'])->name('home');
+        Route::get('/route', [DeliveryAppController::class, 'route'])->name('route');
+        Route::get('/assigned', [DeliveryAppController::class, 'assigned'])->name('assigned');
+        Route::get('/all', [DeliveryAppController::class, 'all'])->name('all');
+        Route::get('/delivered', [DeliveryAppController::class, 'history'])->name('history');
+        Route::post('/start', [DeliveryAppController::class, 'start'])->name('start');
+        Route::post('/stops/{stop}/arrived', [DeliveryAppController::class, 'arrived'])->name('arrived')->whereNumber('stop');
+        Route::post('/stops/{stop}/delivered', [DeliveryAppController::class, 'delivered'])->name('delivered')->whereNumber('stop');
+        Route::post('/stops/{stop}/failed', [DeliveryAppController::class, 'failed'])->name('failed')->whereNumber('stop');
+        Route::post('/stops/{stop}/notes', [DeliveryAppController::class, 'notes'])->name('notes')->whereNumber('stop');
     });
 });

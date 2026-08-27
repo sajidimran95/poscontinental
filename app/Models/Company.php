@@ -80,6 +80,14 @@ class Company extends Model
         return $this->hasMany(User::class);
     }
 
+    /** Full street address for delivery routing (Company Settings). */
+    public function formattedAddress(): string
+    {
+        return collect([$this->address, $this->city, $this->state, $this->zip_code, 'USA'])
+            ->filter(fn ($part) => trim((string) $part) !== '')
+            ->implode(', ');
+    }
+
     /** Street line for invoices / sales order letterhead. */
     public function letterheadAddress(): string
     {

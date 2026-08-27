@@ -63,7 +63,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $query = Invoice::query()
             ->with([
                 'customer:id,customer_id,company_name',
-                'salesOrder:id,order_number,bill_to_name',
+                'salesOrder:id,order_number,bill_to_name,delivery_status',
             ])
             ->withSum('payments', 'amount')
             ->withSum('credits', 'amount')
@@ -1062,6 +1062,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                             'desk-pill-invoiced' => $inv->status === 'PAID',
                                             'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
                                         ])>{{ $inv->status }}</span>
+                                        @if ($inv->salesOrder?->delivery_status === 'delivered')
+                                            <div style="margin-top:0.2rem"><span class="dlv-pill is-delivered">Delivered</span></div>
+                                        @elseif (in_array($inv->salesOrder?->delivery_status, ['failed', 'en_route', 'arrived', 'assigned'], true))
+                                            <div class="dlv-muted" style="margin-top:0.2rem">{{ ucfirst(str_replace('_', ' ', (string) $inv->salesOrder->delivery_status)) }}</div>
+                                        @endif
                                     </td>
                                 </tr>
                             @empty
@@ -1142,7 +1147,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <div class="pc-kv"><label>Order No.</label><div class="pc-val desk-num">{{ $modalInvoice->salesOrder?->order_number ?: '—' }}</div></div>
                             <div class="pc-kv"><label>Order Date</label><div class="pc-val">{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</div></div>
                             <div class="pc-kv"><label>Sales Rep.</label><div class="pc-val">{{ $modalInvoice->salesOrder?->salesRep?->name ?: '' }}</div></div>
-                            <div class="pc-kv"><label>Status</label><div class="pc-val">{{ $modalInvoice->salesOrder?->status ?: 'Invoiced' }}</div></div>
+                            <div class="pc-kv"><label>Status</label><div class="pc-val">{{ $modalInvoice->salesOrder?->status ?: 'Invoiced' }}{{ $modalInvoice->salesOrder?->delivery_status ? ' · '.ucfirst(str_replace('_', ' ', $modalInvoice->salesOrder->delivery_status)) : '' }}</div></div>
                             <div class="pc-kv"><label>Invoice No.</label><div class="pc-val desk-num">{{ $modalInvoice->invoice_number }}</div></div>
                             <div class="pc-kv"><label>Invoice Date</label><div class="pc-val">{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</div></div>
                         </div>

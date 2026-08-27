@@ -154,7 +154,12 @@ trait InteractsWithDeskQuery
 
             return;
         }
-        $saved = $this->loadSavedDeskQueries();
+        if (isset($this->builtInDeskQueries()[$name])) {
+            $this->queryStatus = '“'.$name.'” is a built-in search. Choose a different name.';
+
+            return;
+        }
+        $saved = $this->userSavedDeskQueries();
         $saved[$name] = $this->queryCriteria;
         $this->storeSavedDeskQueries($saved);
         $this->queryLoadedName = $name;
@@ -188,7 +193,12 @@ trait InteractsWithDeskQuery
 
             return;
         }
-        $saved = $this->loadSavedDeskQueries();
+        if (isset($this->builtInDeskQueries()[$name])) {
+            $this->queryStatus = '“'.$name.'” is a built-in search and cannot be deleted.';
+
+            return;
+        }
+        $saved = $this->userSavedDeskQueries();
         unset($saved[$name]);
         $this->storeSavedDeskQueries($saved);
         $this->queryLoadedName = '';
@@ -395,7 +405,19 @@ trait InteractsWithDeskQuery
     }
 
     /** @return array<string, list<array<string, mixed>>> */
+    protected function builtInDeskQueries(): array
+    {
+        return [];
+    }
+
+    /** @return array<string, list<array<string, mixed>>> */
     protected function loadSavedDeskQueries(): array
+    {
+        return array_merge($this->builtInDeskQueries(), $this->userSavedDeskQueries());
+    }
+
+    /** @return array<string, list<array<string, mixed>>> */
+    protected function userSavedDeskQueries(): array
     {
         $data = Session::get($this->deskQuerySessionKey(), []);
 

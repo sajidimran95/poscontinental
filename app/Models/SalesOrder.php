@@ -19,6 +19,7 @@ class SalesOrder extends Model
         'no_of_boxes', 'no_of_pallets', 'custom_field_1', 'custom_field_2', 'custom_field_3',
         'custom_field_4', 'custom_field_5', 'comments',
         'subtotal', 'trade_discount', 'freight', 'miscellaneous', 'tax', 'total', 'created_by',
+        'delivery_user_id', 'delivery_date', 'delivery_status', 'shipping_latitude', 'shipping_longitude',
     ];
 
     protected function casts(): array
@@ -27,6 +28,9 @@ class SalesOrder extends Model
             'order_date' => 'date',
             'required_date' => 'date',
             'ship_date' => 'date',
+            'delivery_date' => 'date',
+            'shipping_latitude' => 'float',
+            'shipping_longitude' => 'float',
             'subtotal' => 'decimal:4',
             'trade_discount' => 'decimal:4',
             'freight' => 'decimal:4',
@@ -84,6 +88,11 @@ class SalesOrder extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function deliveryUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delivery_user_id');
     }
 
     public function invoice(): HasOne

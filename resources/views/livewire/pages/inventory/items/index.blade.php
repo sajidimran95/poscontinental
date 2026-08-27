@@ -577,13 +577,18 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
             return;
         }
+        if (isset($this->builtInItemQueries()[$name])) {
+            $this->queryStatus = '"'.$name.'" is a built-in search. Choose a different name.';
+
+            return;
+        }
         if ($this->queryCriteria === []) {
             $this->queryStatus = 'Add criteria before saving.';
 
             return;
         }
 
-        $saved = $this->loadSavedItemQueries();
+        $saved = $this->userSavedItemQueries();
         $saved[$name] = $this->queryCriteria;
         $this->storeSavedItemQueries($saved);
         $this->queryLoadedName = $name;
@@ -622,7 +627,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
             return;
         }
-        $saved = $this->loadSavedItemQueries();
+        if (isset($this->builtInItemQueries()[$name])) {
+            $this->queryStatus = '"'.$name.'" is a built-in search and cannot be deleted.';
+
+            return;
+        }
+        $saved = $this->userSavedItemQueries();
         if (! isset($saved[$name])) {
             $this->queryStatus = 'Saved search not found.';
 
@@ -1379,8 +1389,32 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         };
     }
 
+    /** Always listed under Load saved search. */
+    protected function builtInItemQueries(): array
+    {
+        return [
+            'Quantity less than zero' => [
+                [
+                    'field' => 'quantity_in_stock',
+                    'operator' => 'lt',
+                    'value' => '0',
+                    'value_mode' => 'value',
+                    'compare_field' => 'reorder_point',
+                    'join' => 'and',
+                    'label' => '( Quantity In Stock | Less than | 0 )',
+                ],
+            ],
+        ];
+    }
+
     /** @return array<string, array<int, array<string, mixed>>> */
     protected function loadSavedItemQueries(): array
+    {
+        return array_merge($this->builtInItemQueries(), $this->userSavedItemQueries());
+    }
+
+    /** @return array<string, array<int, array<string, mixed>>> */
+    protected function userSavedItemQueries(): array
     {
         $key = $this->savedItemQueriesSessionKey();
         $data = Session::get($key, []);

@@ -38,12 +38,17 @@ class DatabaseSeeder extends Seeder
             ['name' => 'sales_rep', 'label' => 'Sales Rep'],
             ['name' => 'buyer', 'label' => 'Buyer'],
             ['name' => 'warehouse', 'label' => 'Warehouse'],
+            ['name' => 'delivery', 'label' => 'Delivery'],
         ] as $role) {
             Role::query()->firstOrCreate(
                 ['name' => $role['name']],
                 [
                     'label' => $role['label'],
-                    'permissions' => $role['name'] === 'admin' ? null : [],
+                    'permissions' => match ($role['name']) {
+                        'admin' => null,
+                        'delivery' => ['delivery.driver.view', 'delivery.driver.edit'],
+                        default => [],
+                    },
                 ]
             );
         }

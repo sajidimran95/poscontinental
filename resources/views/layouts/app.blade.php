@@ -40,6 +40,199 @@
                 opacity: 0.45 !important;
                 cursor: not-allowed !important;
             }
+            .dlv-route-split {
+                display: flex !important;
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                align-items: stretch !important;
+            }
+            .dlv-route-stops {
+                flex: 0 0 28rem !important;
+                width: 28rem !important;
+                max-width: 40% !important;
+                overflow: auto !important;
+                border-right: 1px solid #e2e8f0 !important;
+                background: #fff !important;
+            }
+            .dlv-route-map-wrap {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                min-height: 28rem !important;
+                position: relative !important;
+                background: #d5dee8 !important;
+            }
+            .dlv-route-map-wrap .leaflet-container,
+            #dlv-admin-map,
+            #dlv-driver-map {
+                position: absolute !important;
+                inset: 0 !important;
+                height: 100% !important;
+                width: 100% !important;
+            }
+            .dlv-summary {
+                display: grid !important;
+                grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)) !important;
+                gap: 0.5rem !important;
+                padding: 0.65rem 0.85rem !important;
+                background: #f7f9fb !important;
+                border-bottom: 1px solid #e2e8f0 !important;
+                flex-shrink: 0 !important;
+            }
+            .dlv-summary div {
+                background: #fff !important;
+                border: 1px solid #e2e8f0 !important;
+                padding: 0.4rem 0.55rem !important;
+                border-radius: 4px !important;
+            }
+            .dlv-summary strong {
+                display: block !important;
+                font-size: 11px !important;
+                color: #64748b !important;
+                text-transform: uppercase !important;
+            }
+            .dlv-map-num {
+                display: flex !important;
+                width: 28px !important;
+                height: 28px !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 999px !important;
+                background: #1e3a5f !important;
+                color: #fff !important;
+                font-size: 12px !important;
+                font-weight: 800 !important;
+                border: 2px solid #fff !important;
+            }
+            .dlv-map-num.is-start { background: #0f766e !important; }
+            .dlv-timeline { list-style: none !important; margin: 0 !important; padding: 0.5rem 0.75rem 1rem !important; }
+            .dlv-timeline li { display: flex !important; gap: 0.65rem !important; padding: 0.7rem 0.4rem !important; border-bottom: 1px solid #eef2f6 !important; }
+            .dlv-stop-badge {
+                flex-shrink: 0 !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                min-width: 2rem !important;
+                height: 2rem !important;
+                border-radius: 999px !important;
+                background: #1e3a5f !important;
+                color: #fff !important;
+                font-size: 11px !important;
+                font-weight: 800 !important;
+            }
+            .dlv-stop-badge.is-start { background: #0f766e !important; font-size: 9px !important; }
+            .dlv-page {
+                padding: 0.7rem 1rem 0.7rem 1.15rem !important;
+                box-sizing: border-box !important;
+            }
+            .dlv-page .desk-toolbar,
+            .dlv-page .desk-titlebar,
+            .dlv-page .dlv-banner,
+            .dlv-page .dlv-summary,
+            .dlv-page .dlv-form {
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+            .dlv-page .desk-main-body,
+            .dlv-page .dlv-driver-scroll {
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+            }
+            .dlv-stop-pick { background: none !important; border: 0 !important; padding: 0.2rem 0 !important; font: inherit !important; color: inherit !important; cursor: pointer !important; text-align: left !important; width: 100% !important; }
+            .dlv-modal-backdrop { z-index: 400 !important; }
+            .dlv-modal-head { display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 0.75rem !important; margin-bottom: 0.75rem !important; }
+            .dlv-modal-head h3 { margin: 0 !important; }
+            .dlv-routes-page { height: 100% !important; min-height: 0 !important; }
+            .dlv-routes-page .desk-toolbar,
+            .dlv-routes-page .desk-titlebar,
+            .dlv-routes-page .dlv-banner,
+            .dlv-routes-page .dlv-summary {
+                padding-left: 1.15rem !important;
+                padding-right: 1.15rem !important;
+            }
+            .dlv-routes-page .desk-main-split.dlv-routes-body {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                padding: 0 1.15rem 1.15rem !important;
+                min-width: 0 !important;
+            }
+            .dlv-routes-page .desk-grid {
+                overflow-x: auto !important;
+                overflow-y: auto !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 6px !important;
+            }
+            .dlv-routes-table { width: 100% !important; min-width: 58rem !important; table-layout: auto !important; }
+            .dlv-routes-table tbody tr { height: 3.4rem !important; }
+            .dlv-routes-table tbody td { overflow: visible !important; }
+            .dlv-routes-table tbody td a.desk-btn,
+            .dlv-routes-page .desk-grid > .desk-table tbody td a.desk-btn {
+                display: inline-flex !important;
+                overflow: visible !important;
+                max-width: none !important;
+                min-width: 7.25rem !important;
+                color: #fff !important;
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                line-height: 1.2 !important;
+                padding: 0.4rem 0.85rem !important;
+                height: auto !important;
+                white-space: nowrap !important;
+                text-overflow: clip !important;
+                text-decoration: none !important;
+            }
+            .dlv-progress {
+                height: 8px !important;
+                background: #e2e8f0 !important;
+                border-radius: 999px !important;
+                overflow: hidden !important;
+                min-width: 6rem !important;
+            }
+            .dlv-progress span {
+                display: block !important;
+                height: 100% !important;
+                background: #0f766e !important;
+                border-radius: 999px !important;
+            }
+            .dlv-pill { display: inline-block !important; font-size: 12px !important; font-weight: 700 !important; padding: 0.12rem 0.5rem !important; border-radius: 999px !important; }
+            .dlv-pill.is-delivered { background: #d1fae5 !important; color: #065f46 !important; }
+            .dlv-pill.is-en_route { background: #fef3c7 !important; color: #92400e !important; }
+            .dlv-pill.is-failed { background: #fee2e2 !important; color: #991b1b !important; }
+            .dlv-pill.is-pending { background: #e2e8f0 !important; color: #475569 !important; }
+            .dlv-men-page { height: 100% !important; min-height: 0 !important; }
+            .dlv-men-page .desk-main-split.dlv-men-body {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                padding: 0 1rem 1rem !important;
+                min-width: 0 !important;
+            }
+            .dlv-men-page .desk-grid {
+                overflow-x: auto !important;
+                overflow-y: auto !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 6px !important;
+            }
+            .dlv-men-table { width: 100% !important; min-width: 56rem !important; table-layout: auto !important; }
+            .dlv-men-table tbody tr { height: 3.4rem !important; }
+            .dlv-men-table tbody td { overflow: visible !important; }
+            .dlv-men-page .desk-grid > .desk-table tbody td a.desk-btn {
+                display: inline-flex !important;
+                overflow: visible !important;
+                max-width: none !important;
+                min-width: 6.5rem !important;
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                padding: 0.4rem 0.85rem !important;
+                height: auto !important;
+                white-space: nowrap !important;
+                text-overflow: clip !important;
+                text-decoration: none !important;
+            }
+            .dlv-men-page .desk-grid > .desk-table tbody td a.desk-btn-primary { color: #fff !important; }
+            .dlv-men-page .desk-grid > .desk-table tbody td a.desk-btn:not(.desk-btn-primary) { color: #1e3a5f !important; }
         </style>
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
@@ -101,6 +294,14 @@
                                 ['Suppliers', 'purchasing.suppliers.index'],
                                 ['New Supplier', 'purchasing.suppliers.create'],
                             ],
+                            'Delivery' => [
+                                ['Delivery Management', 'deliveries.assign'],
+                                ["Today's Routes", 'deliveries.routes'],
+                                ['Delivery Men', 'deliveries.men'],
+                                ['Route History', 'deliveries.history'],
+                                ['Delivery Areas', 'deliveries.areas'],
+                                ["My Deliveries", 'deliveries.driver'],
+                            ],
                             'Reports' => [
                                 ['Sales Report By Customer', 'reports.sales-by-customer'],
                                 ['Sales Report By Item', 'reports.sales-by-item'],
@@ -120,6 +321,9 @@
                             $menuItems = [];
                             foreach ($items as $row) {
                                 if (! $routeExists($row[1])) {
+                                    continue;
+                                }
+                                if ($row[1] === 'deliveries.driver' && $menuUser?->canAccessFeature('delivery.manage', 'view')) {
                                     continue;
                                 }
                                 $menuItems[] = [$row[0], $row[1], $canRoute($row[1])];
@@ -315,6 +519,13 @@
                     'admin.users.index' => 'Users & Roles',
                     'admin.email-setup' => 'Email Setup',
                     'admin.email-logs' => 'Email Send Log',
+                    'deliveries.assign' => 'Delivery Management',
+                    'deliveries.routes' => "Today's Routes",
+                    'deliveries.routes.show' => 'Delivery Route',
+                    'deliveries.history' => 'Route History',
+                    'deliveries.men' => 'Delivery Men',
+                    'deliveries.driver' => "My Deliveries",
+                    'deliveries.areas' => 'Delivery Areas',
                 ];
 
                 $soWindows = app(\App\Services\SalesOrderWindowManager::class);

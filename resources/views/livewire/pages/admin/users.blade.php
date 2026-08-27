@@ -177,6 +177,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             ['name' => 'sales_rep', 'label' => 'Sales Rep'],
             ['name' => 'buyer', 'label' => 'Buyer'],
             ['name' => 'warehouse', 'label' => 'Warehouse'],
+            ['name' => 'delivery', 'label' => 'Delivery'],
         ] as $role) {
             $existing = Role::query()->firstOrCreate(
                 ['name' => $role['name']],
@@ -184,13 +185,19 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                     'label' => $role['label'],
                     'permissions' => $role['name'] === 'admin'
                         ? AppFeatures::permissionTokens()
-                        : $defaults,
+                        : ($role['name'] === 'delivery'
+                            ? ['delivery.driver.view', 'delivery.driver.edit']
+                            : $defaults),
                 ]
             );
 
             // Repair empty non-admin role permission sets once.
             if ($role['name'] !== 'admin' && empty($existing->permissions)) {
-                $existing->update(['permissions' => $defaults]);
+                $existing->update([
+                    'permissions' => $role['name'] === 'delivery'
+                        ? ['delivery.driver.view', 'delivery.driver.edit']
+                        : $defaults,
+                ]);
             }
         }
     }

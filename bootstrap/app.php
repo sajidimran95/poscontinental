@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('sale') || $request->is('sale/*')) {
                 return route('sale.login');
             }
+            if ($request->is('delivery') || $request->is('delivery/*')) {
+                return route('delivery.app.login');
+            }
 
             return route('login');
         });
@@ -28,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'feature' => \App\Http\Middleware\EnsureFeatureAccess::class,
             'sale.app' => \App\Http\Middleware\EnsureSaleApp::class,
+            'delivery.app' => \App\Http\Middleware\EnsureDeliveryApp::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

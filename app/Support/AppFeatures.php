@@ -210,6 +210,23 @@ class AppFeatures
                 'group' => 'Lookups',
                 'routes' => ['lookups.index'],
             ],
+            'delivery.manage' => [
+                'label' => 'Delivery Management',
+                'group' => 'Delivery',
+                'routes' => [
+                    'deliveries.assign',
+                    'deliveries.routes',
+                    'deliveries.routes.show',
+                    'deliveries.history',
+                    'deliveries.men',
+                    'deliveries.areas',
+                ],
+            ],
+            'delivery.driver' => [
+                'label' => 'My Deliveries',
+                'group' => 'Delivery',
+                'routes' => ['deliveries.driver'],
+            ],
         ];
     }
 
@@ -476,6 +493,13 @@ class AppFeatures
             'Lookups' => [
                 ['label' => 'Lookups', 'feature' => 'lookups'],
             ],
+            'Delivery' => [
+                ['label' => 'Delivery Management', 'feature' => 'delivery.manage'],
+                ['label' => "Today's Routes", 'feature' => 'delivery.manage'],
+                ['label' => 'Company Locations', 'feature' => 'delivery.manage'],
+                ['label' => 'Delivery Areas', 'feature' => 'delivery.manage'],
+                ['label' => "My Deliveries", 'feature' => 'delivery.driver'],
+            ],
             'Reports' => [
                 ['label' => 'Sales Report By Customer', 'feature' => 'reports.sales'],
                 ['label' => 'Sales Report By Item', 'feature' => 'reports.sales'],
@@ -658,6 +682,8 @@ class AppFeatures
             'sales.price_override',
             'admin.japsai_chat',
             'team.chat_manage',
+            'delivery.manage',
+            'delivery.driver',
         ];
     }
 

@@ -109,6 +109,9 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             'processed_by_name' => ['label' => 'Processed By', 'has' => 'processedByUser', 'column' => 'name'],
             'item_code' => ['label' => 'Item Code', 'has' => 'lines', 'column' => 'item_code'],
             'item_description' => ['label' => 'Item Description', 'has' => 'lines', 'column' => 'description'],
+            'in_stock' => ['label' => 'In Stock (line)', 'has' => 'lines', 'column' => 'in_stock', 'type' => 'number'],
+            'allocated' => ['label' => 'Allocated (line)', 'has' => 'lines', 'column' => 'allocated', 'type' => 'number'],
+            'counted' => ['label' => 'Counted (line)', 'has' => 'lines', 'column' => 'counted', 'type' => 'number'],
         ];
     }
 
@@ -130,6 +133,22 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     protected function deskQuerySessionKey(): string
     {
         return 'stock_counts_query_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
+    }
+
+    /** Always available in Load saved search (cannot be deleted). */
+    protected function builtInDeskQueries(): array
+    {
+        return [
+            'In stock less than zero' => [
+                [
+                    'field' => 'in_stock',
+                    'operator' => 'lt',
+                    'value' => '0',
+                    'join' => 'and',
+                    'label' => '( In Stock (line) | Less than | 0 )',
+                ],
+            ],
+        ];
     }
 
     public function updatingSearch(): void

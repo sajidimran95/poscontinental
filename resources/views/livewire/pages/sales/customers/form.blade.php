@@ -11,6 +11,7 @@ use App\Models\PriceLevel;
 use App\Models\PurchaseLimitSchedule;
 use App\Models\RouteLookup;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Attributes\Layout;
@@ -495,6 +496,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 ]);
             }
         });
+
+        Cache::forget('orders.filter_customers.'.(int) auth()->user()->company_id);
 
         $this->redirect(route('sales.customers.index'), navigate: true);
     }

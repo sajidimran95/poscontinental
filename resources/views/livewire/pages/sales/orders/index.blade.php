@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\SalesOrder;
 use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -315,13 +316,20 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $query = SalesOrder::query()
             ->with([
                 'customer:id,customer_id,company_name,contact,telephone,address',
-                'createdBy:id,name',
                 'invoice:id,sales_order_id,invoice_number,status',
             ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
+                $raw = trim($this->search);
+                $q->where(function ($inner) use ($raw) {
+                    if (preg_match('/^[0-9]{3,}$/', $raw)) {
+                        $prefix = $raw.'%';
+                        $inner->where('order_number', 'like', $prefix)
+                            ->orWhereHas('invoice', fn ($inv) => $inv->where('invoice_number', 'like', $prefix));
+
+                        return;
+                    }
+                    $term = '%'.$raw.'%';
                     $inner->where('order_number', 'like', $term)
                         ->orWhereHas('invoice', fn ($inv) => $inv->where('invoice_number', 'like', $term))
                         ->orWhereHas('customer', fn ($c) => $c->where('customer_id', 'like', $term)
@@ -380,12 +388,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'queryOperators' => $this->deskQueryOperatorOptions(),
             'savedDeskQueries' => $this->loadSavedDeskQueries(),
             'deskQueryTitle' => 'Sales Order Query',
-            'filterCustomers' => Customer::query()
+            'filterCustomers' => Cache::remember('orders.filter_customers.'.$companyId, 180, fn () => Customer::query()
                 ->where('company_id', $companyId)
                 ->where('is_inactive', false)
                 ->orderBy('company_name')
                 ->limit(500)
-                ->get(['id', 'customer_id', 'company_name']),
+                ->get(['id', 'customer_id', 'company_name'])),
             'selectedOrder' => $this->selectedId
                 ? SalesOrder::query()->where('company_id', $companyId)->find($this->selectedId)
                 : null,
@@ -519,7 +527,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     <input
                         id="orders-search" data-pos-search
                         type="search"
-                        wire:model.live.debounce.300ms="search"
+                        wire:model.live.debounce.400ms="search"
                         placeholder="Order #, invoice #, customer…"
                         class="desk-search orders-search-input"
                         aria-label="Search Orders"

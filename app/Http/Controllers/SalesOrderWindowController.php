@@ -21,10 +21,15 @@ class SalesOrderWindowController extends Controller
 
     public function close(string $window, SalesOrderWindowManager $windows): RedirectResponse
     {
+        $stayOn = $windows->activeId();
         $next = $windows->close($window);
 
         if ($next === null) {
             return redirect()->route('home');
+        }
+
+        if ($stayOn && $stayOn !== $window && $windows->has($stayOn)) {
+            $next = $stayOn;
         }
 
         return redirect()->route('sales.orders.create', ['w' => $next]);

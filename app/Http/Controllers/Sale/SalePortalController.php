@@ -17,6 +17,8 @@ use App\Services\Rep\CreateSalesOrderFromRep;
 use App\Services\Rep\SalesRepScope;
 use App\Support\ItemPricing;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 class SalePortalController extends Controller
@@ -787,6 +789,28 @@ class SalePortalController extends Controller
         $request->session()->put('user.default_location_id', $id);
 
         return back()->with('status', ['success' => 1, 'msg' => 'Default location saved.']);
+    }
+
+    public function updatePassword(Request $request)
+    {
+        $user = $this->user();
+        $data = $request->validate([
+            'current_password' => 'required|string|max:191',
+            'password' => ['required', 'string', 'confirmed', Password::min(6)],
+        ]);
+
+        if (! Hash::check($data['current_password'], (string) $user->getAuthPassword())) {
+            return back()->withErrors(['current_password' => 'Current password is incorrect.']);
+        }
+
+        if (Hash::check($data['password'], (string) $user->getAuthPassword())) {
+            return back()->withErrors(['password' => 'New password must be different from the current password.']);
+        }
+
+        $user->password = $data['password'];
+        $user->save();
+
+        return back()->with('status', ['success' => 1, 'msg' => 'Password updated. Use it the next time you sign in.']);
     }
 
     public function delivery(Request $request)

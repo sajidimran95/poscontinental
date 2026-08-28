@@ -222,6 +222,7 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::get('/orders/{salesOrder}', [SalePortalController::class, 'show'])->name('orders.show');
         Route::get('/account', [SalePortalController::class, 'account'])->name('account');
         Route::post('/account/location', [SalePortalController::class, 'updateLocation'])->name('account.location');
+        Route::post('/account/password', [SalePortalController::class, 'updatePassword'])->name('account.password');
         Route::post('/chat/dm', [SaleChatController::class, 'dm'])->name('chat.dm');
         Route::post('/chat/{channel}/messages', [SaleChatController::class, 'send'])->name('chat.send')->whereNumber('channel');
         Route::get('/chat/{channel}/poll', [SaleChatController::class, 'poll'])->name('chat.poll')->whereNumber('channel');

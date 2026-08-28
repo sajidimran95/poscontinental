@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
 use App\Models\Department;
@@ -10,6 +11,7 @@ use App\Models\SalesOrderLine;
 use App\Models\Site;
 use App\Models\Subcategory;
 use App\Services\InventoryService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
@@ -22,6 +24,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -109,8 +112,17 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
+                $raw = trim($this->search);
+                $q->where(function ($inner) use ($raw) {
+                    if (preg_match('/^[A-Za-z0-9\-]{2,}$/', $raw)) {
+                        $prefix = $raw.'%';
+                        $inner->where('item_code', 'like', $prefix)
+                            ->orWhere('primary_upc', 'like', $prefix)
+                            ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $prefix));
+
+                        return;
+                    }
+                    $term = '%'.$raw.'%';
                     $inner->where('item_code', 'like', $term)
                         ->orWhere('description', 'like', $term)
                         ->orWhere('primary_upc', 'like', $term)
@@ -143,62 +155,87 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $query = $this->applyDeskSort($query, $this->favorite === 'new' ? 'created_at' : 'id', 'desc');
 
-        $favorites = [
-            'all' => 'All Items',
-            'new' => 'New Items ('.$itemNewDays.' days)',
-            'active' => 'Active Items',
-            'inactive' => 'Inactive Items',
-            'low_stock' => 'Low Stock',
-        ];
-
-        $nodes = [
-            ['type' => 'item', 'key' => 'all', 'label' => 'All Items', 'level' => 0],
-            ['type' => 'item', 'key' => 'new', 'label' => 'New Items ('.$itemNewDays.' days)', 'level' => 0],
-            ['type' => 'item', 'key' => 'active', 'label' => 'Active Items', 'level' => 0],
-            ['type' => 'item', 'key' => 'inactive', 'label' => 'Inactive Items', 'level' => 0],
-            ['type' => 'item', 'key' => 'low_stock', 'label' => 'Low Stock', 'level' => 0],
-        ];
-
-        $departments = Department::query()
-            ->with(['categories' => fn ($q) => $q->orderBy('name')->with(['subcategories' => fn ($sq) => $sq->orderBy('name')])])
-            ->where('company_id', $companyId)
-            ->orderBy('name')
-            ->get();
-
-        if ($departments->isNotEmpty()) {
-            $nodes[] = ['type' => 'heading', 'label' => 'By Department'];
-        }
-
-        foreach ($departments as $dept) {
-            $favorites['dept:'.$dept->id] = $dept->name;
-            $nodes[] = [
-                'type' => 'item',
-                'key' => 'dept:'.$dept->id,
-                'label' => $dept->name,
-                'level' => 0,
-                'kind' => 'Dept',
+        $nav = Cache::remember('items.list_nav.'.(int) $companyId, 180, function () use ($companyId, $itemNewDays) {
+            $favorites = [
+                'all' => 'All Items',
+                'new' => 'New Items ('.$itemNewDays.' days)',
+                'active' => 'Active Items',
+                'inactive' => 'Inactive Items',
+                'low_stock' => 'Low Stock',
             ];
-            foreach ($dept->categories as $cat) {
-                $favorites['cat:'.$cat->id] = $cat->name;
+            $nodes = [
+                ['type' => 'item', 'key' => 'all', 'label' => 'All Items', 'level' => 0],
+                ['type' => 'item', 'key' => 'new', 'label' => 'New Items ('.$itemNewDays.' days)', 'level' => 0],
+                ['type' => 'item', 'key' => 'active', 'label' => 'Active Items', 'level' => 0],
+                ['type' => 'item', 'key' => 'inactive', 'label' => 'Inactive Items', 'level' => 0],
+                ['type' => 'item', 'key' => 'low_stock', 'label' => 'Low Stock', 'level' => 0],
+            ];
+            $departments = Department::query()
+                ->with(['categories' => fn ($q) => $q->orderBy('name')->with(['subcategories' => fn ($sq) => $sq->orderBy('name')])])
+                ->where('company_id', $companyId)
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'company_id']);
+            if ($departments->isNotEmpty()) {
+                $nodes[] = ['type' => 'heading', 'label' => 'By Department'];
+            }
+            foreach ($departments as $dept) {
+                $favorites['dept:'.$dept->id] = $dept->name;
                 $nodes[] = [
                     'type' => 'item',
-                    'key' => 'cat:'.$cat->id,
-                    'label' => $cat->name,
-                    'level' => 1,
-                    'kind' => 'Category',
+                    'key' => 'dept:'.$dept->id,
+                    'label' => $dept->name,
+                    'level' => 0,
+                    'kind' => 'Dept',
                 ];
-                foreach ($cat->subcategories as $sub) {
-                    $favorites['sub:'.$sub->id] = $sub->name;
+                foreach ($dept->categories as $cat) {
+                    $favorites['cat:'.$cat->id] = $cat->name;
                     $nodes[] = [
                         'type' => 'item',
-                        'key' => 'sub:'.$sub->id,
-                        'label' => $sub->name,
-                        'level' => 2,
-                        'kind' => 'Subcat',
+                        'key' => 'cat:'.$cat->id,
+                        'label' => $cat->name,
+                        'level' => 1,
+                        'kind' => 'Category',
                     ];
+                    foreach ($cat->subcategories as $sub) {
+                        $favorites['sub:'.$sub->id] = $sub->name;
+                        $nodes[] = [
+                            'type' => 'item',
+                            'key' => 'sub:'.$sub->id,
+                            'label' => $sub->name,
+                            'level' => 2,
+                            'kind' => 'Subcat',
+                        ];
+                    }
                 }
             }
-        }
+
+            return [
+                'favorites' => $favorites,
+                'nodes' => $nodes,
+                'categories' => Category::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name'])
+                    ->map(fn ($c) => ['id' => (int) $c->id, 'code' => $c->code, 'name' => $c->name])
+                    ->all(),
+                'departmentsFlat' => $departments->map(fn ($d) => ['id' => (int) $d->id, 'code' => $d->code, 'name' => $d->name])->all(),
+                'subcategories' => Subcategory::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name', 'category_id'])
+                    ->map(fn ($s) => ['id' => (int) $s->id, 'code' => $s->code, 'name' => $s->name, 'category_id' => (int) $s->category_id])
+                    ->all(),
+            ];
+        });
+        $favorites = $nav['favorites'];
+        $nodes = $nav['nodes'];
+        $categories = collect($nav['categories'])->map(fn ($r) => (object) $r);
+        $departmentsFlat = collect($nav['departmentsFlat'])->map(fn ($r) => (object) $r);
+        $subcategories = collect($nav['subcategories'])->map(fn ($r) => (object) $r);
 
         $listTitle = 'Items List';
         if ($this->queryCriteria !== []) {
@@ -209,60 +246,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             $listTitle = 'Items List (Active)';
         } elseif ($this->statusFilter === 'inactive') {
             $listTitle = 'Items List (Inactive)';
-        } elseif ($this->favorite === 'new') {
-            $listTitle = 'New Items (last '.Item::NEW_ITEM_DAYS.' days)';
-        } elseif ($this->favorite === 'active') {
-            $listTitle = 'Active Items';
-        } elseif ($this->favorite === 'inactive') {
-            $listTitle = 'Inactive Items';
-        } elseif ($this->favorite === 'low_stock') {
-            $listTitle = 'Low Stock Items';
-        } elseif (str_starts_with($this->favorite, 'dept:')) {
-            $deptId = (int) substr($this->favorite, 5);
-            $listTitle = $departments->firstWhere('id', $deptId)?->name ?? 'Items List';
-        } elseif (str_starts_with($this->favorite, 'cat:')) {
-            $catId = (int) substr($this->favorite, 4);
-            $cat = Category::query()->with('department')->find($catId);
-            $listTitle = $cat
-                ? trim(($cat->department?->name ? $cat->department->name.' › ' : '').$cat->name)
-                : 'Items List';
-        } elseif (str_starts_with($this->favorite, 'sub:')) {
-            $subId = (int) substr($this->favorite, 4);
-            $sub = Subcategory::query()->with('category.department')->find($subId);
-            if ($sub) {
-                $parts = array_filter([
-                    $sub->category?->department?->name,
-                    $sub->category?->name,
-                    $sub->name,
-                ]);
-                $listTitle = implode(' › ', $parts) ?: 'Items List';
-            }
         } elseif ($this->categoryFilter !== '') {
-            $catId = (int) $this->categoryFilter;
-            $cat = Category::query()->with('department')->find($catId);
-            $listTitle = $cat
-                ? trim(($cat->department?->name ? $cat->department->name.' › ' : '').$cat->name)
-                : 'Items List';
+            $hit = $categories->firstWhere('id', (int) $this->categoryFilter);
+            $listTitle = $hit->name ?? 'Items List';
+        } elseif (isset($favorites[$this->favorite]) && $this->favorite !== 'all') {
+            $listTitle = $favorites[$this->favorite];
         }
-
-        $categories = Category::query()
-            ->where('company_id', $companyId)
-            ->where('is_active', true)
-            ->orderBy('code')
-            ->orderBy('name')
-            ->get(['id', 'code', 'name']);
-
-        $departmentsFlat = Department::query()
-            ->where('company_id', $companyId)
-            ->orderBy('name')
-            ->get(['id', 'code', 'name']);
-
-        $subcategories = Subcategory::query()
-            ->where('company_id', $companyId)
-            ->where('is_active', true)
-            ->orderBy('code')
-            ->orderBy('name')
-            ->get(['id', 'code', 'name', 'category_id']);
 
         $adjustItem = null;
         $adjustJournal = collect();
@@ -298,7 +287,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $visibleKeys = $this->normalizedVisibleColumns();
 
         return [
-            'items' => $query->paginate(50),
+            'items' => $this->paginateDeskList(
+                $query,
+                'items.list_count.'.(int) $companyId.'.'.$this->favorite.'.'.$this->statusFilter.'.'.$this->categoryFilter.'.'.$this->search.'.'.$this->sortField.'.'.$this->sortDir,
+                50,
+                $this->search === '' && $this->queryCriteria === [] ? 20 : 0
+            ),
             'favorites' => $favorites,
             'nodes' => $nodes,
             'listTitle' => $listTitle,

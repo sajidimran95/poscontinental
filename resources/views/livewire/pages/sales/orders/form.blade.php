@@ -40,6 +40,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** Create-mode multi-window id (?w=). */
     public ?string $createWindowId = null;
 
+    public bool $skipWindowDraftPersist = false;
+
     public bool $showPrintDialog = false;
 
     public bool $optCreateInvoicePayment = false;
@@ -532,6 +534,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function dehydrate(): void
     {
+        if (! empty($this->skipWindowDraftPersist)) {
+            return;
+        }
         if ($this->createWindowId && ! $this->salesOrder?->exists) {
             $this->persistCreateWindowDraft();
         }
@@ -586,37 +591,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     #[On('so-windows-close')]
     public function closeCreateWindow(string $id): void
     {
-        if ($this->salesOrder?->exists && ! $this->createWindowId) {
-            $this->redirect(route('home'), navigate: true);
-
-            return;
-        }
+        $this->skipWindowDraftPersist = true;
 
         $windows = app(SalesOrderWindowManager::class);
-        if ($this->createWindowId && $this->createWindowId !== $id && ! $this->salesOrder?->exists) {
-            $this->persistCreateWindowDraft();
-        }
-
+        $stayOn = $this->createWindowId;
         $next = $windows->close($id);
         if ($next === null) {
             $this->createWindowId = null;
-            $this->redirect(route('home'), navigate: true);
+            $this->redirect(route('home'), navigate: false);
 
             return;
         }
 
-        $stay = ($this->createWindowId && $this->createWindowId !== $id)
-            ? $this->createWindowId
+        $stay = ($stayOn && $stayOn !== $id && $windows->has($stayOn))
+            ? $stayOn
             : $next;
 
         $this->redirect(route('sales.orders.create', ['w' => $stay]), navigate: false);
-    }
-
-    public function updated($name = null, $value = null): void
-    {
-        if ($this->createWindowId && ! $this->salesOrder?->exists) {
-            $this->persistCreateWindowDraft();
-        }
     }
 
     /**

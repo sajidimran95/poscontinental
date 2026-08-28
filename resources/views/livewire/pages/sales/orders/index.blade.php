@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -20,6 +21,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     use WithPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -320,6 +322,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = SalesOrder::query()
+            ->select([
+                'id', 'company_id', 'order_number', 'order_type', 'order_source', 'status',
+                'order_date', 'ship_date', 'customer_id', 'total',
+            ])
             ->with([
                 'customer:id,customer_id,company_name,contact,telephone,address',
                 'invoice:id,sales_order_id,invoice_number,status',
@@ -347,12 +353,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
             ->when($this->favorite === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
             ->when($this->favorite === 'invoiced', fn ($q) => $q->where('status', 'Invoiced'))
-            ->when($this->favorite === 'month', fn ($q) => $q->where('order_date', '>=', now()->startOfMonth()))
-            ->when($this->favorite === 'today', fn ($q) => $q->whereDate('order_date', '>=', now()->subDay()))
+            ->when($this->favorite === 'month', fn ($q) => $q->where('order_date', '>=', now()->startOfMonth()->toDateString()))
+            ->when($this->favorite === 'today', fn ($q) => $q->where('order_date', '>=', now()->subDay()->toDateString()))
             ->when($this->statusFilter === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
             ->when($this->statusFilter === 'Invoiced', fn ($q) => $q->where('status', 'Invoiced'))
-            ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('order_date', '>=', $this->dateFrom))
-            ->when($this->dateTo !== '', fn ($q) => $q->whereDate('order_date', '<=', $this->dateTo))
+            ->when($this->dateFrom !== '', fn ($q) => $q->where('order_date', '>=', $this->dateFrom))
+            ->when($this->dateTo !== '', fn ($q) => $q->where('order_date', '<=', $this->dateTo))
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
         $this->applyDeskSort($query, 'id', 'desc');
@@ -379,7 +385,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         }
 
         return [
-            'orders' => $query->paginate(50),
+            'orders' => $this->paginateDeskList(
+                $query,
+                'orders.list_count.'.(int) $companyId.'.'.$this->favorite.'.'.$this->statusFilter.'.'.$this->dateFrom.'.'.$this->dateTo.'.'.$this->customerId.'.'.$this->search,
+                50,
+                $this->search === '' && $this->queryCriteria === [] ? 20 : 0
+            ),
             'favorites' => [
                 'all' => 'All Orders',
                 'new' => 'New Orders',
@@ -410,7 +421,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'selectedOrder' => $this->selectedId
                 ? SalesOrder::query()->where('company_id', $companyId)->find($this->selectedId)
                 : null,
-            'parkedCount' => app(ParkedSaleService::class)->listFor(auth()->user())->count(),
+            'parkedCount' => Cache::remember(
+                'parked.count.'.(int) auth()->id(),
+                20,
+                fn () => \App\Models\ParkedSale::query()
+                    ->where('company_id', $companyId)
+                    ->where('user_id', auth()->id())
+                    ->count()
+            ),
         ];
     }
 

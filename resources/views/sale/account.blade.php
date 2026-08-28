@@ -62,6 +62,28 @@
     @endif
 </div>
 
+<div class="sale-card mb-3">
+    <div class="sale-sec-title !mb-3">
+        <span class="sale-sec-title__ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        </span>
+        Change password
+    </div>
+    <p class="text-xs text-slate-500 mb-3">Enter your current password, then choose a new one (at least 6 characters).</p>
+    @if($errors->any())
+        <div class="mb-3 rounded-xl bg-rose-50 text-rose-800 text-sm font-semibold px-3 py-2 border border-rose-200">{{ $errors->first() }}</div>
+    @endif
+    <form method="POST" action="{{ route('sale.account.password') }}" class="space-y-3">
+        @csrf
+        @include('sale.partials.password-field', ['id' => 'sale-current-password', 'name' => 'current_password', 'label' => 'Current password', 'placeholder' => 'Current password', 'autocomplete' => 'current-password', 'minlength' => 1])
+        @include('sale.partials.password-field', ['id' => 'sale-new-password', 'name' => 'password', 'label' => 'New password', 'placeholder' => 'New password (min 6)', 'autocomplete' => 'new-password', 'minlength' => 6])
+        @include('sale.partials.password-field', ['id' => 'sale-new-password-confirm', 'name' => 'password_confirmation', 'label' => 'Confirm new password', 'placeholder' => 'Confirm new password', 'autocomplete' => 'new-password', 'minlength' => 6])
+        <button type="submit" class="sale-btn !w-full inline-flex items-center justify-center gap-2">
+            Update password
+        </button>
+    </form>
+</div>
+
 <div class="sale-card !py-1 mb-3">
     <a href="{{ route('sale.home') }}" class="sale-menu-row">
         <span class="sale-menu-row__ico">
@@ -141,4 +163,20 @@
         </button>
     </form>
 </div>
+<script>
+    document.querySelectorAll('[data-password-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var input = document.getElementById(btn.getAttribute('aria-controls'));
+            if (!input) return;
+            var show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+            var eye = btn.querySelector('.sale-pw-eye');
+            var eyeOff = btn.querySelector('.sale-pw-eye-off');
+            if (eye) eye.hidden = show;
+            if (eyeOff) eyeOff.hidden = !show;
+        });
+    });
+</script>
 @endsection

@@ -22,6 +22,14 @@
             font-size: .9375rem; background: #fff; outline: none; box-sizing: border-box;
         }
         .sale-input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15,118,110,.15); }
+        .sale-pw-wrap { position: relative; }
+        .sale-pw-input { padding-right: 2.75rem; }
+        .sale-pw-toggle {
+            position: absolute; right: .35rem; top: 50%; transform: translateY(-50%);
+            width: 2.25rem; height: 2.25rem; border: 0; background: transparent; color: #64748b;
+            border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+        }
+        .sale-pw-toggle:hover { color: #0f766e; background: #f0fdfa; }
         .sale-btn {
             background: #0f766e; color: #fff; font-weight: 700; border: 0; border-radius: 12px;
             padding: .85rem 1.25rem; width: 100%; font-size: .95rem; cursor: pointer;

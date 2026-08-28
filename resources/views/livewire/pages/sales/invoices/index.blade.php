@@ -1,10 +1,12 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
@@ -17,6 +19,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -65,21 +68,24 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 'customer:id,customer_id,company_name',
                 'salesOrder:id,order_number,bill_to_name,delivery_status',
             ])
-            ->withSum('payments', 'amount')
-            ->withSum('credits', 'amount')
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
+                $raw = trim($this->search);
+                $q->where(function ($inner) use ($raw) {
+                    if (preg_match('/^[0-9]{3,}$/', $raw)) {
+                        $prefix = $raw.'%';
+                        $inner->where('invoice_number', 'like', $prefix)
+                            ->orWhereHas('salesOrder', fn ($o) => $o->where('order_number', 'like', $prefix));
+
+                        return;
+                    }
+                    $term = '%'.$raw.'%';
                     $inner->where('invoice_number', 'like', $term)
                         ->orWhereHas('customer', function ($c) use ($term) {
                             $c->where('company_name', 'like', $term)
                                 ->orWhere('customer_id', 'like', $term);
                         })
-                        ->orWhereHas('salesOrder', fn ($o) => $o->where('order_number', 'like', $term))
-                        ->orWhereHas('payments', function ($p) use ($term) {
-                            $p->where('check_number', 'like', $term);
-                        });
+                        ->orWhereHas('salesOrder', fn ($o) => $o->where('order_number', 'like', $term));
                 });
             });
 
@@ -89,6 +95,38 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             $query->where('status', 'NOT PAID');
         } elseif ($this->favorite === 'paid') {
             $query->where('status', 'PAID');
+        }
+
+        $sortNeedsSums = in_array($this->sortField, ['payments', 'credits', 'balance'], true);
+        if ($sortNeedsSums) {
+            $query->withSum('payments', 'amount')->withSum('credits', 'amount');
+        }
+
+        $invoices = $this->paginateDeskList(
+            $this->applyDeskSort($query),
+            'invoices.list_count.'.(int) $companyId.'.'.$this->statusFilter.'.'.$this->favorite.'.'.$this->search.'.'.$this->sortField.'.'.$this->sortDir,
+            50,
+            $this->search === '' ? 20 : 0
+        );
+
+        if (! $sortNeedsSums) {
+            $ids = $invoices->getCollection()->pluck('id')->filter()->all();
+            if ($ids !== []) {
+                $pays = InvoicePayment::query()
+                    ->whereIn('invoice_id', $ids)
+                    ->groupBy('invoice_id')
+                    ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as s')
+                    ->pluck('s', 'invoice_id');
+                $credits = InvoiceCredit::query()
+                    ->whereIn('invoice_id', $ids)
+                    ->groupBy('invoice_id')
+                    ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as s')
+                    ->pluck('s', 'invoice_id');
+                $invoices->getCollection()->each(function (Invoice $inv) use ($pays, $credits) {
+                    $inv->setAttribute('payments_sum_amount', (float) ($pays[$inv->id] ?? 0));
+                    $inv->setAttribute('credits_sum_amount', (float) ($credits[$inv->id] ?? 0));
+                });
+            }
         }
 
         $modalInvoice = $this->modalInvoiceId
@@ -115,7 +153,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             : 0;
 
         return [
-            'invoices' => $this->applyDeskSort($query)->paginate(50),
+            'invoices' => $invoices,
             'favorites' => [
                 'all' => 'All Invoices',
                 'not_paid' => 'NOT PAID',
@@ -138,7 +176,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
                     ->values()
                 : collect(),
-            'hasCreditSalesOrder' => once(fn () => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id')),
+            'hasCreditSalesOrder' => Cache::remember('schema.credit_memos.sales_order_id', 86400, fn () => \Illuminate\Support\Facades\Schema::hasColumn('credit_memos', 'sales_order_id')),
             'draftPayTotal' => $draftPayTotal,
             'draftCreditTotal' => $draftCreditTotal,
             'previewBalance' => $previewBalance,

@@ -617,13 +617,10 @@
                             class="chief-tab-link"
                         >{{ $tab['label'] }}</a>
                         @if ($isSo)
-                            <button
-                                type="button"
-                                class="chief-tab-close"
-                                title="Close"
-                                aria-label="Close {{ $tab['label'] }}"
-                                onclick="if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-close', { id: {{ json_encode($tab['window_id']) }} }); } else { const f=document.createElement('form'); f.method='POST'; f.action={{ json_encode($tab['close_url']) }}; const t=document.createElement('input'); t.type='hidden'; t.name='_token'; t.value={{ json_encode(csrf_token()) }}; f.appendChild(t); document.body.appendChild(f); f.submit(); }"
-                            >×</button>
+                            <form method="POST" action="{{ $tab['close_url'] }}" class="chief-tab-close-form">
+                                @csrf
+                                <button type="submit" class="chief-tab-close" title="Close" aria-label="Close {{ $tab['label'] }}">×</button>
+                            </form>
                         @else
                             <form method="POST" action="{{ $tab['close_url'] }}" class="chief-tab-close-form">
                                 @csrf

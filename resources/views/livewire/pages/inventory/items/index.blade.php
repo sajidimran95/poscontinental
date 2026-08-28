@@ -114,17 +114,20 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             ->when($this->search !== '', function ($q) {
                 $raw = trim($this->search);
                 $q->where(function ($inner) use ($raw) {
+                    $term = '%'.$raw.'%';
                     if (preg_match('/^[A-Za-z0-9\-]{2,}$/', $raw)) {
                         $prefix = $raw.'%';
                         $inner->where('item_code', 'like', $prefix)
                             ->orWhere('primary_upc', 'like', $prefix)
-                            ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $prefix));
+                            ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $prefix))
+                            ->orWhere('description', 'like', $term)
+                            ->orWhere('extended_description', 'like', $term);
 
                         return;
                     }
-                    $term = '%'.$raw.'%';
                     $inner->where('item_code', 'like', $term)
                         ->orWhere('description', 'like', $term)
+                        ->orWhere('extended_description', 'like', $term)
                         ->orWhere('primary_upc', 'like', $term)
                         ->orWhere('manufacturer', 'like', $term)
                         ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
@@ -1466,9 +1469,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 type="text"
                                 wire:model.live.debounce.300ms="search"
                                 wire:keydown.enter.prevent="scanFindItem($event.target.value)"
-                                placeholder="Scan or type code / UPC — Enter opens exact"
+                                placeholder="Code, UPC, or description"
                                 class="items-sku-input"
-                                aria-label="Enter SKU or scan barcode"
+                                aria-label="Search items by code, UPC, or description"
                                 autocomplete="off"
                             />
                             @if ($search !== '')

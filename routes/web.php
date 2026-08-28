@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\CustomerApp\CustomerAuthController;
+use App\Http\Controllers\CustomerApp\CustomerPortalController;
+use App\Http\Controllers\CustomerApp\CustomerPwaController;
 use App\Http\Controllers\DeliveryApp\DeliveryAppController;
 use App\Http\Controllers\DeliveryApp\DeliveryAuthController;
 use App\Http\Controllers\DeliveryApp\DeliveryPwaController;
@@ -12,6 +15,7 @@ use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\Sale\SaleAuthController;
 use App\Http\Controllers\Sale\SaleChatController;
+use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\Sale\SalePortalController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SalesOrderWindowController;
@@ -166,6 +170,37 @@ Route::middleware(['auth', 'feature'])->group(function () {
 
 require __DIR__.'/auth.php';
 
+Route::prefix('customer')->name('customer.')->group(function () {
+    Route::get('/pwa/manifest.webmanifest', [CustomerPwaController::class, 'manifest'])->name('pwa.manifest');
+    Route::get('/pwa/sw.js', [CustomerPwaController::class, 'serviceWorker'])->name('pwa.sw');
+    Route::get('/pwa/offline', [CustomerPwaController::class, 'offline'])->name('pwa.offline');
+
+    Route::get('/login', [CustomerAuthController::class, 'showLoginForm'])->name('login');
+    Route::post('/login', [CustomerAuthController::class, 'login'])->name('login.post');
+    Route::post('/logout', [CustomerAuthController::class, 'logout'])->name('logout')->middleware('auth:customer');
+
+    Route::middleware(['auth:customer', 'customer.app'])->group(function () {
+        Route::get('/', [CustomerPortalController::class, 'home'])->name('home');
+        Route::get('/account', [CustomerPortalController::class, 'account'])->name('account');
+        Route::get('/profile', [CustomerPortalController::class, 'profile'])->name('profile');
+        Route::post('/profile/password', [CustomerPortalController::class, 'updatePassword'])->name('profile.password');
+        Route::post('/profile/location', [CustomerPortalController::class, 'updateLocation'])->name('profile.location');
+        Route::get('/documents', [CustomerPortalController::class, 'documents'])->name('documents');
+        Route::get('/documents/{invoice}/invoice', [CustomerPortalController::class, 'showInvoice'])->name('documents.invoice');
+        Route::get('/price-check', [CustomerPortalController::class, 'priceCheck'])->name('price');
+        Route::get('/orders', [CustomerPortalController::class, 'orders'])->name('orders');
+        Route::get('/orders/create', [CustomerPortalController::class, 'create'])->name('orders.create');
+        Route::post('/orders', [CustomerPortalController::class, 'store'])->name('orders.store');
+        Route::get('/orders/{salesOrder}/invoice', [CustomerPortalController::class, 'downloadInvoice'])->name('orders.invoice');
+        Route::get('/orders/{salesOrder}', [CustomerPortalController::class, 'show'])->name('orders.show');
+        Route::get('/api/customers', [CustomerPortalController::class, 'searchCustomers'])->name('api.customers');
+        Route::get('/api/customers/{customer}/shipping', [CustomerPortalController::class, 'customerShipping'])->name('api.customer_shipping');
+        Route::get('/api/products', [CustomerPortalController::class, 'searchProducts'])->name('api.products');
+        Route::get('/api/categories', [CustomerPortalController::class, 'categoriesTree'])->name('api.categories');
+        Route::get('/api/parked-sales', [CustomerPortalController::class, 'parkedSales'])->name('api.parked_sales');
+    });
+});
+
 Route::prefix('sale')->name('sale.')->group(function () {
     Route::get('/pwa/manifest.webmanifest', [SalePwaController::class, 'manifest'])->name('pwa.manifest');
     Route::get('/pwa/sw.js', [SalePwaController::class, 'serviceWorker'])->name('pwa.sw');
@@ -200,6 +235,10 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::get('/api/customers', [SalePortalController::class, 'searchCustomers'])->name('api.customers');
         Route::get('/api/customers/{customer}/shipping', [SalePortalController::class, 'customerShipping'])->name('api.customer_shipping');
         Route::get('/api/products', [SalePortalController::class, 'searchProducts'])->name('api.products');
+        Route::get('/api/parked-sales', [SaleParkedSaleController::class, 'index'])->name('api.parked_sales');
+        Route::post('/api/parked-sales', [SaleParkedSaleController::class, 'store'])->name('api.parked_sales.store');
+        Route::get('/api/parked-sales/{parkedSale}', [SaleParkedSaleController::class, 'show'])->name('api.parked_sales.show');
+        Route::delete('/api/parked-sales/{parkedSale}', [SaleParkedSaleController::class, 'destroy'])->name('api.parked_sales.destroy');
         Route::get('/api/categories', [SalePortalController::class, 'categoriesTree'])->name('api.categories');
         Route::get('/api/last-purchases', [SalePortalController::class, 'lastPurchases'])->name('api.last_purchases');
         Route::get('/api/items', [SalePortalController::class, 'searchItems'])->name('api.items');

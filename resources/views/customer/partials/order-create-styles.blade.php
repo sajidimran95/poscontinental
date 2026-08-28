@@ -1,39 +1,22 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="theme-color" content="#0f766e">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Sales">
-    <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="{{ url('/sale/pwa/manifest.webmanifest') }}">
-    <link rel="icon" type="image/png" href="{{ asset('pwa/sale-icon-192.png') }}">
-    <link rel="apple-touch-icon" href="{{ asset('pwa/sale-icon-192.png') }}">
-    <title>@yield('title', 'Sales App') — {{ config('app.name', 'JAPS POS') }}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    @vite(['resources/css/pwa.css'])
     <style>
-        body { font-family: Inter, system-ui, sans-serif; background: #f1f5f9; color: #0b1220; margin: 0; }
+        .sale-create-form { font-family: Inter, system-ui, sans-serif; color: #0b1220; }
         .sale-input {
             width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; padding: .75rem .9rem;
             font-size: .9375rem; background: #fff; outline: none; box-sizing: border-box;
         }
-        .sale-input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15,118,110,.15); }
+        .sale-input:focus { border-color: #e11d48; box-shadow: 0 0 0 3px rgba(225,29,72,.15); }
         .sale-btn {
-            background: #0f766e; color: #fff; font-weight: 700; border: 0; border-radius: 12px;
+            background: #e11d48; color: #fff; font-weight: 700; border: 0; border-radius: 12px;
             padding: .85rem 1.25rem; width: 100%; font-size: .95rem; cursor: pointer;
         }
         .sale-btn:disabled { opacity: .55; cursor: not-allowed; }
         .sale-btn-ghost {
-            background: #fff; color: #0f766e; border: 1px solid #cbd5e1; font-weight: 700;
+            background: #fff; color: #e11d48; border: 1px solid #cbd5e1; font-weight: 700;
             border-radius: 12px; padding: .85rem 1.25rem; width: 100%; cursor: pointer;
         }
         .sale-btn-sm {
             display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-            background: #0f766e; color: #fff; font-weight: 700; border: 0; border-radius: 10px;
+            background: #e11d48; color: #fff; font-weight: 700; border: 0; border-radius: 10px;
             padding: .55rem 1rem; font-size: .875rem; cursor: pointer; text-decoration: none;
             width: auto;
         }
@@ -68,7 +51,7 @@
         }
         .sale-sec-title__ico {
             width: 34px; height: 34px; border-radius: 10px;
-            background: #ccfbf1; color: #0f766e;
+            background: #fff1f2; color: #e11d48;
             display: flex; align-items: center; justify-content: center;
         }
         .sale-sec-title__ico svg { width: 18px; height: 18px; }
@@ -82,7 +65,7 @@
         .sale-order-row:active, .sale-order-row:hover { background: #f8fafc; border-color: #cbd5e1; }
         .sale-order-row__ico {
             width: 44px; height: 44px; border-radius: 12px;
-            background: #f0fdfa; color: #0f766e;
+            background: #fff1f2; color: #e11d48;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .sale-order-row__ico svg { width: 22px; height: 22px; }
@@ -97,7 +80,7 @@
         .sale-menu-row:last-child { border-bottom: 0; }
         .sale-menu-row__ico {
             width: 40px; height: 40px; border-radius: 12px;
-            background: #f1f5f9; color: #0f766e;
+            background: #f1f5f9; color: #e11d48;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .sale-menu-row__ico svg { width: 20px; height: 20px; }
@@ -111,7 +94,7 @@
         }
         .sale-empty__ico {
             width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 20px;
-            background: #f0fdfa; color: #0f766e;
+            background: #fff1f2; color: #e11d48;
             display: flex; align-items: center; justify-content: center;
         }
         .sale-empty__ico svg { width: 30px; height: 30px; }
@@ -158,16 +141,16 @@
             border-radius: 10px;
             border: 1px solid #e2e8f0;
             background: #fff;
-            color: #0f766e;
+            color: #e11d48;
             font-size: 13px;
             font-weight: 700;
             text-decoration: none;
             box-sizing: border-box;
         }
-        .sale-pager__btn:hover { background: #f0fdfa; }
+        .sale-pager__btn:hover { background: #fff1f2; }
         .sale-pager__btn--active {
-            background: #0f766e;
-            border-color: #0f766e;
+            background: #e11d48;
+            border-color: #e11d48;
             color: #fff;
         }
         .sale-pager__btn--disabled {
@@ -206,23 +189,23 @@
             width: 22px; height: 22px; display: block; stroke: currentColor; fill: none;
             stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
         }
-        .sale-tab.active { color: #0f766e; }
+        .sale-tab.active { color: #e11d48; }
         .sale-tab.active svg { stroke-width: 2.2; }
         .sale-tab-fab {
             width: 54px; height: 54px; border-radius: 999px;
-            background: #0f766e; color: #fff;
+            background: #e11d48; color: #fff;
             display: flex; align-items: center; justify-content: center;
             margin-top: -22px; margin-bottom: 2px;
-            box-shadow: 0 6px 16px rgba(15,118,110,.4);
+            box-shadow: 0 6px 16px rgba(225,29,72,.4);
             text-decoration: none;
         }
         .sale-tab-fab svg { width: 26px; height: 26px; stroke: #fff; stroke-width: 2.2; fill: none; }
         .sale-tab-fab.active,
-        .sale-tab-fab:active { background: #0d5f59; }
+        .sale-tab-fab:active { background: #be123c; }
         .sale-bottom-nav__center-label {
             font-size: 10px; font-weight: 700; color: #64748b; line-height: 1;
         }
-        .sale-bottom-nav__center-label.active { color: #0f766e; }
+        .sale-bottom-nav__center-label.active { color: #e11d48; }
         .sale-main-app {
             padding-bottom: calc(130px + env(safe-area-inset-bottom, 0)) !important;
             min-height: 100dvh;
@@ -345,8 +328,8 @@
         .sale-home-role-pill {
             display: inline-flex;
             align-items: center;
-            border: 1.5px solid #0f766e;
-            color: #0f766e;
+            border: 1.5px solid #e11d48;
+            color: #e11d48;
             background: #fff;
             border-radius: 999px;
             padding: 6px 14px;
@@ -393,7 +376,7 @@
         .sale-del__sub { margin: 2px 0 0; font-size: 13px; color: #64748b; font-weight: 600; }
         .sale-exp__add {
             display: inline-flex; align-items: center; justify-content: center;
-            background: #0f766e; color: #fff; border-radius: 10px;
+            background: #e11d48; color: #fff; border-radius: 10px;
             padding: 8px 12px; font-size: 11px; font-weight: 800; letter-spacing: .02em;
             text-decoration: none; white-space: nowrap;
         }
@@ -469,13 +452,13 @@
         .sale-exp-customer__list .sale-pick-row { padding: 12px; }
         .sale-exp-customer__list .sale-pick-avatar {
             width: 40px; height: 40px; font-size: 12px;
-            background: #ccfbf1; color: #0f766e; border-radius: 999px;
+            background: #fff1f2; color: #e11d48; border-radius: 999px;
             display: inline-flex; align-items: center; justify-content: center; font-weight: 800;
         }
         .sale-exp-customer__list .sale-pick-empty { padding: 16px; text-align: center; color: #94a3b8; font-size: 13px; font-weight: 600; }
         .sale-exp-customer__chip .sale-pick-avatar {
             width: 42px; height: 42px; border-radius: 999px;
-            background: #ccfbf1; color: #0f766e;
+            background: #fff1f2; color: #e11d48;
             display: inline-flex; align-items: center; justify-content: center;
             font-weight: 800; font-size: 13px; flex-shrink: 0;
         }
@@ -503,7 +486,7 @@
         }
         .sale-stat--primary {
             grid-column: 1 / -1;
-            background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+            background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
             border: 0;
             color: #fff;
         }
@@ -523,15 +506,15 @@
             padding: 12px; text-decoration: none; color: inherit;
         }
         .sale-action-tile--main {
-            background: #ccfbf1; border-color: #99f6e4;
+            background: #fff1f2; border-color: #fecdd3;
         }
         .sale-action-tile__icon {
             width: 40px; height: 40px; border-radius: 12px;
-            background: #0f766e; color: #fff;
+            background: #e11d48; color: #fff;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .sale-action-tile__icon--soft {
-            background: #e2e8f0; color: #0f766e;
+            background: #e2e8f0; color: #e11d48;
         }
         .sale-action-tile__text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
         .sale-action-tile__text strong { font-size: 13px; font-weight: 800; }
@@ -559,9 +542,9 @@
             background: #0b1220; color: #fff; border-radius: 14px; padding: 12px 14px;
             box-shadow: 0 12px 40px rgba(0,0,0,.35);
         }
-        .sale-install__logo { width: 36px; height: 36px; border-radius: 9px; background: #0f766e; }
+        .sale-install__logo { width: 36px; height: 36px; border-radius: 9px; background: #e11d48; }
         .sale-install__btn {
-            flex-shrink: 0; background: #0f766e; color: #fff; border: 0; border-radius: 8px;
+            flex-shrink: 0; background: #e11d48; color: #fff; border: 0; border-radius: 8px;
             padding: 8px 12px; font-weight: 700; font-size: 12px; cursor: pointer;
         }
         .sale-install__close {
@@ -578,8 +561,8 @@
             padding: 8px 14px; border-radius: 10px; font-size: 14px; font-weight: 700;
             color: #475569; text-decoration: none;
         }
-        .sale-nav-link:hover { background: #f1f5f9; color: #0f766e; }
-        .sale-nav-link.active { background: #ccfbf1; color: #0f766e; }
+        .sale-nav-link:hover { background: #f1f5f9; color: #e11d48; }
+        .sale-nav-link.active { background: #fff1f2; color: #e11d48; }
 
         @media (min-width: 1024px) {
             body { background: #eef2f6; overflow-x: hidden; }
@@ -726,7 +709,7 @@
                 font-weight: 600; font-size: 14px; margin-bottom: 6px;
             }
             .sale-side-link:hover { background: rgba(255,255,255,.08); color: #fff; }
-            .sale-side-link.active { background: #0f766e; color: #fff; }
+            .sale-side-link.active { background: #e11d48; color: #fff; }
             .sale-side-ico {
                 width: 36px; height: 36px; border-radius: 10px;
                 background: rgba(255,255,255,.1);
@@ -1004,7 +987,7 @@
             padding: 8px 8px; text-decoration: none; border: 1px solid transparent;
             cursor: pointer; background: #f1f5f9; color: #334155; line-height: 1.2;
         }
-        .sale-act--view { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+        .sale-act--view { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
         .sale-act--edit { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
         .sale-act--dl { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
         .sale-act--del { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
@@ -1048,7 +1031,7 @@
         /* Dashboard product grids */
         .sale-loc-pill {
             display: inline-flex; align-items: center; gap: 6px;
-            background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4;
+            background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3;
             border-radius: 999px; padding: 8px 12px; font-size: 12px; font-weight: 800;
             text-decoration: none; max-width: 100%;
         }
@@ -1098,10 +1081,10 @@
             min-height: 2.4em;
         }
         .sale-prod-tile__meta { font-size: 10px; font-weight: 700; color: #64748b; margin-top: -2px; }
-        .sale-prod-tile__price { font-size: 12px; font-weight: 800; color: #0f766e; }
+        .sale-prod-tile__price { font-size: 12px; font-weight: 800; color: #e11d48; }
         .sale-prod-tile__add {
             display: inline-flex; align-items: center; justify-content: center;
-            background: #0f766e; color: #fff; border-radius: 8px;
+            background: #e11d48; color: #fff; border-radius: 8px;
             font-size: 11px; font-weight: 800; padding: 6px 8px; text-align: center;
         }
         .sale-prod-app__list { display: flex; flex-direction: column; gap: 10px; }
@@ -1129,7 +1112,7 @@
         }
         .sale-prod-card__thumb svg { width: 22px; height: 22px; }
         .sale-prod-card__add {
-            flex-shrink: 0; background: #0f766e; color: #fff; text-decoration: none;
+            flex-shrink: 0; background: #e11d48; color: #fff; text-decoration: none;
             font-weight: 800; font-size: 12px; border-radius: 10px; padding: 8px 12px;
         }
         @media (min-width: 1024px) {
@@ -1165,7 +1148,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            background: #0f766e;
+            background: #e11d48;
             color: #fff;
             padding: 10px 12px;
             padding-top: calc(10px + env(safe-area-inset-top, 0px));
@@ -1241,11 +1224,11 @@
             vertical-align: middle;
         }
         .sale-pick-mode input[type="radio"]:checked {
-            border-color: #0f766e;
+            border-color: #e11d48;
             background:
                 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-6'/%3E%3C/svg%3E")
                 center / 12px 12px no-repeat,
-                #0f766e;
+                #e11d48;
         }
         .sale-pick-mode__dot { display: none !important; }
         .sale-pick-search {
@@ -1303,7 +1286,7 @@
         .sale-pick-row:active { background: #f8fafc; }
         .sale-pick-avatar {
             width: 44px; height: 44px; border-radius: 999px;
-            background: #ccfbf1; color: #0f766e;
+            background: #fff1f2; color: #e11d48;
             display: inline-flex; align-items: center; justify-content: center;
             font-weight: 800; font-size: 13px; flex-shrink: 0;
             letter-spacing: .02em;
@@ -1354,7 +1337,7 @@
         .sale-order-build__submit {
             border: 0 !important;
             background: #fff !important;
-            color: #0f766e !important;
+            color: #e11d48 !important;
             font-weight: 800;
             font-size: 12px;
             letter-spacing: .04em;
@@ -1369,7 +1352,7 @@
             line-height: 1.2;
         }
         .sale-order-build__submit:hover {
-            background: #f0fdfa !important;
+            background: #fff1f2 !important;
         }
         .sale-order-build__submit:active {
             transform: translateY(1px);
@@ -1415,7 +1398,7 @@
             width: 20px; height: 20px; border-radius: 50%; background: #fff;
             box-shadow: 0 1px 3px rgba(15,23,42,.2); transition: transform .15s ease;
         }
-        .sale-toggle input:checked + .sale-toggle__track { background: #0f766e; }
+        .sale-toggle input:checked + .sale-toggle__track { background: #e11d48; }
         .sale-toggle input:checked + .sale-toggle__track::after { transform: translateX(20px); }
 
         .sale-fulfill {
@@ -1433,17 +1416,17 @@
             background: #fff; flex-shrink: 0; box-sizing: border-box;
         }
         .sale-fulfill__opt input:checked {
-            border-color: #0f766e;
+            border-color: #e11d48;
             background:
                 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-6'/%3E%3C/svg%3E")
-                center / 12px 12px no-repeat, #0f766e;
+                center / 12px 12px no-repeat, #e11d48;
         }
         .sale-fulfill__dot { display: none; }
 
         .sale-last-qty-status {
             font-size: 12px;
             font-weight: 700;
-            color: #0f766e;
+            color: #e11d48;
             margin-top: -4px;
             flex-shrink: 0;
         }
@@ -1463,7 +1446,7 @@
             align-items: center; justify-content: center; cursor: pointer; padding: 0;
         }
         .sale-sku-mode.is-active {
-            background: #0f766e; border-color: #0f766e; color: #fff;
+            background: #e11d48; border-color: #e11d48; color: #fff;
         }
         .sale-sku-camera { flex-shrink: 0; }
         .sale-scan-overlay {
@@ -1488,7 +1471,7 @@
             flex: 1 1 auto; min-height: 240px; width: 100%; background: #000; object-fit: cover;
         }
         .sale-scan-overlay__status {
-            padding: 12px 16px; font-size: 13px; font-weight: 700; color: #99f6e4;
+            padding: 12px 16px; font-size: 13px; font-weight: 700; color: #fecdd3;
         }
         .sale-parked-row {
             display: flex; align-items: stretch; border-bottom: 1px solid #e2e8f0;
@@ -1519,7 +1502,7 @@
         }
         .sale-order-list-head strong { font-size: 15px; font-weight: 800; color: #0b1220; }
         .sale-order-list-head__link {
-            border: 0; background: transparent; color: #0f766e;
+            border: 0; background: transparent; color: #e11d48;
             font-size: 13px; font-weight: 800; cursor: pointer; padding: 0;
         }
         .sale-order-build .sale-cart-scroll {
@@ -1559,7 +1542,7 @@
             border-top: 1px solid #f1f5f9;
             margin-top: 0;
         }
-        .sale-order-build__total strong { font-size: 18px; font-weight: 800; color: #0f766e; }
+        .sale-order-build__total strong { font-size: 18px; font-weight: 800; color: #e11d48; }
 
         /* Build step: fill space above bottom nav; cart list scrolls fully */
         body.sale-building-order {
@@ -1784,7 +1767,7 @@
             align-items: center;
             gap: 6px;
             flex-shrink: 0;
-            background: #0f766e;
+            background: #e11d48;
             color: #fff;
             border: 0;
             font-weight: 700;
@@ -1792,7 +1775,7 @@
             border-radius: 10px;
             padding: .55rem .9rem;
             cursor: pointer;
-            box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
         }
         .sale-cart-scroll {
             max-height: min(48dvh, 420px);
@@ -1843,14 +1826,14 @@
             display: flex; justify-content: space-between; align-items: center;
             font-size: 1.05rem; font-weight: 800;
         }
-        .sale-cart-total strong { color: #0f766e; font-size: 1.2rem; }
+        .sale-cart-total strong { color: #e11d48; font-size: 1.2rem; }
         .sale-cart-pay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .sale-pay-chip {
             display: flex; align-items: center; gap: 8px;
             border: 2px solid #e2e8f0; border-radius: 12px; padding: 10px 12px;
             font-size: 13px; font-weight: 700; cursor: pointer; background: #fff;
         }
-        .sale-pay-chip:has(:checked) { border-color: #0f766e; background: #f0fdfa; }
+        .sale-pay-chip:has(:checked) { border-color: #e11d48; background: #fff1f2; }
         .sale-ship-flow {
             width: 100%;
             max-width: 560px;
@@ -1927,12 +1910,12 @@
         }
         .sale-prod-app__filter-btn {
             position: relative; width: 40px; height: 40px; border-radius: 12px;
-            border: 0; background: #f0fdfa; color: #0f766e; cursor: pointer;
+            border: 0; background: #fff1f2; color: #e11d48; cursor: pointer;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .sale-prod-app__dot {
             position: absolute; top: 8px; right: 8px; width: 8px; height: 8px;
-            border-radius: 999px; background: #0f766e; border: 2px solid #f0fdfa;
+            border-radius: 999px; background: #e11d48; border: 2px solid #fff1f2;
         }
         .sale-prod-app__dot.hidden { display: none; }
         .sale-prod-app__chips {
@@ -1949,15 +1932,15 @@
             cursor: pointer; white-space: nowrap; text-decoration: none;
         }
         .sale-chip.active {
-            background: #0f766e; border-color: #0f766e; color: #fff;
-            box-shadow: 0 4px 10px rgba(15,118,110,.25);
+            background: #e11d48; border-color: #e11d48; color: #fff;
+            box-shadow: 0 4px 10px rgba(225,29,72,.25);
         }
         .sale-prod-app__meta {
             display: flex; align-items: center; justify-content: space-between;
             font-size: 12px; font-weight: 700; color: #64748b; min-height: 20px;
         }
         .sale-prod-app__clear {
-            border: 0; background: transparent; color: #0f766e; font-weight: 800;
+            border: 0; background: transparent; color: #e11d48; font-weight: 800;
             font-size: 12px; cursor: pointer; padding: 0;
         }
         .sale-prod-app__clear.hidden { display: none; }
@@ -2006,10 +1989,10 @@
             position: fixed; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom, 0));
             transform: translateX(-50%);
             z-index: 140;
-            background: #0f766e; color: #fff;
+            background: #e11d48; color: #fff;
             font-size: 13px; font-weight: 800;
             padding: 10px 18px; border-radius: 999px;
-            box-shadow: 0 8px 24px rgba(15,118,110,.35);
+            box-shadow: 0 8px 24px rgba(225,29,72,.35);
             pointer-events: none;
         }
         .sale-added-msg[hidden] { display: none !important; }
@@ -2050,11 +2033,11 @@
             font-weight: 700; font-size: 14px; color: #0f172a; cursor: pointer;
         }
         .sale-catalog__row:active { background: #f8fafc; }
-        .sale-catalog__row--all { color: #0f766e; }
+        .sale-catalog__row--all { color: #e11d48; }
         .sale-catalog__chev { color: #94a3b8; font-size: 18px; }
         .sale-catalog__add {
             width: 32px; height: 32px; border-radius: 999px;
-            background: #0f766e; color: #fff; display: flex; align-items: center; justify-content: center;
+            background: #e11d48; color: #fff; display: flex; align-items: center; justify-content: center;
             font-size: 18px; font-weight: 700; flex-shrink: 0;
         }
         @media (min-width: 1024px) {
@@ -2092,13 +2075,13 @@
                 box-shadow: 0 -6px 16px rgba(15, 23, 42, 0.06);
             }
             body.sale-page-create .sale-create-bar .sale-btn {
-                background: #0f766e;
+                background: #e11d48;
                 color: #fff;
                 opacity: 1;
-                box-shadow: 0 6px 16px rgba(15, 118, 110, 0.35);
+                box-shadow: 0 6px 16px rgba(225, 29, 72, 0.35);
             }
             /* On cart step, Order button stays in card — only shipping submit is fixed */
-            body.sale-page-create #stepCart .sale-btn { position: static; box-shadow: 0 6px 16px rgba(15, 118, 110, 0.25); }
+            body.sale-page-create #stepCart .sale-btn { position: static; box-shadow: 0 6px 16px rgba(225, 29, 72, 0.25); }
         }
         @media (min-width: 1024px) {
             body.sale-page-create .sale-create-bar {
@@ -2106,226 +2089,3 @@
             }
         }
     </style>
-    @stack('head')
-</head>
-<body class="antialiased {{ auth('sale')->check() ? 'sale-authed' : 'sale-guest' }} {{ in_array(optional(request()->route())->getName(), ['sale.orders.create', 'sale.orders.edit'], true) ? 'sale-page-create' : '' }} {{ optional(request()->route())->getName() === 'sale.orders.create' ? 'sale-picking-customer' : '' }} {{ (optional(request()->route())->getName() === 'sale.products') ? 'sale-page-products' : '' }} {{ (optional(request()->route())->getName() === 'sale.orders.show') ? 'sale-page-order-show' : '' }} {{ optional(request()->route())->getName() === 'sale.chat' ? 'sale-page-chat'.(! request()->route('channel') ? ' sale-chat-inbox' : ' sale-chat-thread') : '' }}">
-@php
-    $routeName = optional(request()->route())->getName();
-    $isHome = $routeName === 'sale.home';
-    $isOrders = in_array($routeName, ['sale.orders', 'sale.orders.show', 'sale.orders.edit'], true);
-    $isCreate = in_array($routeName, ['sale.orders.create', 'sale.orders.edit'], true);
-    $isProducts = $routeName === 'sale.products';
-    $isCustomers = in_array($routeName, ['sale.customers', 'sale.customers.create'], true);
-    $isAccount = $routeName === 'sale.account' || $routeName === 'sale.account.location';
-    $isChat = $routeName === 'sale.chat' || str_starts_with((string) $routeName, 'sale.chat');
-    $isDelivery = $routeName === 'sale.delivery';
-    $customerMenuUrl = route('sale.customers');
-    $authUser = auth('sale')->user();
-    $userInitial = 'S';
-    $userName = '';
-    if ($authUser) {
-        $userName = (string) $authUser->name;
-        $userInitial = strtoupper(mb_substr(preg_replace('/\s+/', '', $userName) ?: 'S', 0, 2));
-        if (mb_strlen($userInitial) < 1) {
-            $userInitial = 'S';
-        }
-    }
-@endphp
-
-@auth('sale')
-<div class="sale-desk-shell">
-    {{-- Desktop sidebar --}}
-    <aside class="sale-desk-side sale-d-only">
-        <div class="flex items-center gap-3 px-2 mb-8">
-            <img src="{{ asset('pwa/sale-icon-192.png') }}" alt="" class="h-10 w-10 rounded-xl bg-sale">
-            <div>
-                <div class="font-extrabold text-[15px] leading-tight">Sales App</div>
-                <div class="text-[11px] text-white/50 font-semibold">Representative</div>
-            </div>
-        </div>
-        <nav>
-            <a href="{{ route('sale.home') }}" class="sale-side-link {{ $isHome ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg>
-                </span>
-                Dashboard
-            </a>
-            <a href="{{ route('sale.orders.create') }}" class="sale-side-link {{ $isCreate ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                </span>
-                Create
-            </a>
-            <a href="{{ route('sale.chat') }}" class="sale-side-link {{ $isChat ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
-                </span>
-                Chat
-            </a>
-            <a href="{{ route('sale.orders') }}" class="sale-side-link {{ $isOrders ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-                </span>
-                Orders
-            </a>
-            <a href="{{ route('sale.delivery') }}" class="sale-side-link {{ $isDelivery ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-                </span>
-                Delivery
-            </a>
-            <a href="{{ route('sale.products') }}" class="sale-side-link {{ $isProducts ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></svg>
-                </span>
-                Products
-            </a>
-            <a href="{{ $customerMenuUrl }}" class="sale-side-link {{ $isCustomers ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 19c1.2-3.2 6.8-3.2 8 0"/><circle cx="17" cy="8" r="2.5"/><path d="M14 19c.8-2.4 5.2-2.4 6 0"/></svg>
-                </span>
-                Customers
-            </a>
-            <a href="{{ route('sale.account') }}" class="sale-side-link {{ $isAccount ? 'active' : '' }}">
-                <span class="sale-side-ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 14.5-4 16 0"/></svg>
-                </span>
-                Account
-            </a>
-        </nav>
-        <div class="sale-side-footer px-1">
-            <div class="px-2 mb-3">
-                <div class="text-[11px] text-white/40 mb-1">Signed in</div>
-                <div class="text-sm font-semibold truncate">{{ $userName }}</div>
-            </div>
-            <form method="POST" action="{{ route('sale.logout') }}">
-                @csrf
-                <button type="submit" class="sale-side-logout">
-                    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 18 18" aria-hidden="true">
-                        <path d="M7 3H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>
-                        <path d="M12 12l3-3-3-3M7 9h8"/>
-                    </svg>
-                    Sign out
-                </button>
-            </form>
-        </div>
-    </aside>
-
-    <div class="sale-desk-main">
-        {{-- Desktop top bar --}}
-        <header class="sale-desk-top sale-d-flex">
-            <div>
-                <div class="text-[11px] uppercase tracking-wider font-bold text-slate-400">Sales workstation</div>
-                <div class="font-extrabold text-lg leading-tight">@yield('header', 'Orders')</div>
-            </div>
-            <div class="flex items-center gap-3">
-                <a href="{{ route('sale.orders.create') }}" class="sale-btn-sm sale-d-only">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.4a2 2 0 0 0 2-1.5L21 8H7"/></svg>
-                    Create order
-                </a>
-                <div class="h-10 w-10 rounded-full bg-sale text-white flex items-center justify-center font-bold">{{ $userInitial }}</div>
-            </div>
-        </header>
-
-        {{-- Mobile app header: brand + profile --}}
-        <header class="sale-m-only sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-sale-line pt-[env(safe-area-inset-top,0)]">
-            <div class="h-14 px-4 flex items-center justify-between gap-3">
-                <a href="{{ route('sale.home') }}" class="flex items-center gap-2 min-w-0 no-underline text-inherit">
-                    <img src="{{ asset('pwa/sale-icon-192.png') }}" alt="" class="h-8 w-8 rounded-full bg-sale shrink-0">
-                    <span class="font-extrabold text-[15px] truncate">{{ config('app.name', 'Sales') }}</span>
-                </a>
-                <details class="sale-profile-menu relative shrink-0">
-                    <summary class="list-none cursor-pointer h-9 w-9 rounded-full bg-sale text-white flex items-center justify-center font-bold text-sm select-none">
-                        {{ $userInitial }}
-                    </summary>
-                    <div class="sale-profile-panel absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-50">
-                        <div class="px-3 py-2.5 text-sm font-bold text-slate-800 border-b border-slate-100 flex items-center gap-2">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 14.5-4 16 0"/></svg>
-                            <span class="truncate">{{ strtoupper($userName) }}</span>
-                        </div>
-                        <a href="{{ route('sale.account') }}" class="block px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 no-underline">Account</a>
-                        <form method="POST" action="{{ route('sale.logout') }}">
-                            @csrf
-                            <button type="submit" class="w-full text-left px-3 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 border-0 bg-transparent cursor-pointer">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4"/><path d="M16 16l4-4-4-4M10 12h10"/></svg>
-                                Sign Out
-                            </button>
-                        </form>
-                    </div>
-                </details>
-            </div>
-        </header>
-
-        @if(session('status'))
-            @php $st = session('status'); @endphp
-            <div class="sale-flash mx-3 mt-3 rounded-xl px-3 py-2.5 text-sm font-semibold {{ !empty($st['success']) ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-rose-50 text-rose-900 border border-rose-200' }}">
-                {{ is_array($st) ? ($st['msg'] ?? '') : $st }}
-            </div>
-        @endif
-
-        <main class="sale-main-app px-3 pt-3 w-full">
-            <div class="sale-page w-full">
-                @yield('content')
-            </div>
-        </main>
-    </div>
-</div>
-
-{{-- Mobile bottom: Home · Create · Chat · Orders · Delivery --}}
-<nav class="sale-bottom-nav sale-m-only" aria-label="Primary">
-    <div class="sale-bottom-nav__inner">
-        <a href="{{ route('sale.home') }}" class="sale-tab {{ $isHome ? 'active' : '' }}">
-            <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg>
-            Home
-        </a>
-        <a href="{{ route('sale.orders.create') }}" class="sale-tab {{ $isCreate ? 'active' : '' }}">
-            <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            Create
-        </a>
-        <a href="{{ route('sale.chat') }}" class="sale-tab {{ $isChat ? 'active' : '' }}">
-            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
-            Chat
-        </a>
-        <a href="{{ route('sale.orders') }}" class="sale-tab {{ $isOrders ? 'active' : '' }}">
-            <svg viewBox="0 0 24 24"><path d="M3 7h18v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Orders
-        </a>
-        <a href="{{ route('sale.delivery') }}" class="sale-tab {{ $isDelivery ? 'active' : '' }}">
-            <svg viewBox="0 0 24 24"><path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-            Delivery
-        </a>
-    </div>
-</nav>
-
-@else
-    @if(session('status'))
-        @php $st = session('status'); @endphp
-        <div class="mx-3 mt-3 rounded-xl px-3 py-2.5 text-sm font-semibold {{ !empty($st['success']) ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-rose-50 text-rose-900 border border-rose-200' }}">
-            {{ is_array($st) ? ($st['msg'] ?? '') : $st }}
-        </div>
-    @endif
-    <main>
-        @yield('content')
-    </main>
-@endauth
-
-{{-- PWA install: always available (login + logged-in) --}}
-<div id="sale_pwa_install_bar" class="sale-install" hidden>
-    <div class="sale-install__inner">
-        <img src="{{ asset('pwa/sale-icon-192.png') }}" alt="" class="sale-install__logo" width="36" height="36">
-        <div class="flex-1 min-w-0">
-            <div class="text-[12px] font-bold">Install Sales app</div>
-            <div class="text-[10px] text-white/70">Faster access — open from home screen</div>
-        </div>
-        <button type="button" id="sale_pwa_install_btn" class="sale-install__btn">Install</button>
-        <button type="button" id="sale_pwa_dismiss_btn" class="sale-install__close" aria-label="Dismiss">×</button>
-    </div>
-</div>
-
-<script>
-window.__SALE_PWA__ = { swUrl: @json(url('/sale/pwa/sw.js')), startUrl: @json(url('/sale/login')) };
-</script>
-<script src="{{ asset('js/sale-pwa.js') }}?v={{ config('app.asset_version', '1') }}" defer></script>
-@stack('scripts')
-</body>
-</html>

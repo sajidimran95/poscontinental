@@ -14,6 +14,7 @@ use App\Models\Site;
 use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\ParkedSaleService;
 use App\Services\SalesOrderWindowManager;
 use App\Support\ItemPricing;
 use App\Support\SalesOrderLinePresentation;
@@ -21,6 +22,7 @@ use App\Support\StockPolicy;
 use App\Livewire\Concerns\SortsItemBrowse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -64,6 +66,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /** True after "Scan" click — next Enter/barcode auto-adds the line. */
     public bool $scanModeActive = false;
+
+    public bool $showParkedSalesModal = false;
+
+    /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
+    public array $parkedSalesList = [];
 
     public bool $showBrowse = false;
 
@@ -407,9 +414,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         } else {
             $windows = app(SalesOrderWindowManager::class);
             $requested = request()->query('w');
+            $parkedParam = request()->query('parked');
             if (! is_string($requested) || $requested === '' || ! $windows->has($requested)) {
                 $id = $windows->ensureOne();
-                $this->redirect(route('sales.orders.create', ['w' => $id]), navigate: false);
+                $params = ['w' => $id];
+                if (filled($parkedParam)) {
+                    $params['parked'] = $parkedParam;
+                }
+                $this->redirect(route('sales.orders.create', $params), navigate: false);
 
                 return;
             }
@@ -434,6 +446,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $this->suppressCustomerConfirm = false;
                 $this->confirmedCustomerId = (int) $walkIn->id;
                 $this->persistCreateWindowDraft();
+            }
+
+            if (is_numeric($parkedParam) && (int) $parkedParam > 0) {
+                $this->recallParkedSale((int) $parkedParam);
+            } elseif ($parkedParam === 'list') {
+                $this->openParkedSalesModal();
             }
         }
 
@@ -1187,6 +1205,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalDiscounts' => $filledLines->sum(fn ($l) => (float) $l['discount']),
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
+            'parkedCount' => app(ParkedSaleService::class)->listFor(auth()->user())->count(),
             'canChangePrice' => $this->userCanChangeOrderPrice(),
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'oversellingOn' => StockPolicy::allowsNegativeStock(),
@@ -2793,6 +2812,248 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->save();
     }
 
+    protected function filledParkLines()
+    {
+        return collect($this->lines)->filter(fn ($l) => filled($l['item_code'] ?? null) && ! empty($l['item_id']) && (float) ($l['qty_ordered'] ?? 0) > 0);
+    }
+
+    public function refreshParkedList(): void
+    {
+        $this->parkedSalesList = app(ParkedSaleService::class)
+            ->listFor(auth()->user())
+            ->map(fn ($p) => [
+                'id' => (int) $p->id,
+                'customer_label' => $p->customer_label,
+                'line_count' => (int) $p->line_count,
+                'total' => (float) $p->total,
+                'updated_at' => optional($p->updated_at)->format('n/j/Y g:i A'),
+            ])
+            ->all();
+    }
+
+    public function openParkedSalesModal(): void
+    {
+        $this->refreshParkedList();
+        $this->showParkedSalesModal = true;
+    }
+
+    public function closeParkedSalesModal(): void
+    {
+        $this->showParkedSalesModal = false;
+    }
+
+    public function parkSale(): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $filled = $this->filledParkLines();
+        if ($filled->isEmpty()) {
+            $this->notifyAlert('Add at least one item before parking this sale.', 'warning');
+
+            return;
+        }
+        if (! $this->customer_id) {
+            $this->notifyAlert('Select a customer first.', 'warning');
+
+            return;
+        }
+
+        $customer = Customer::query()->find($this->customer_id);
+        if (! $customer || (int) $customer->company_id !== (int) auth()->user()->company_id) {
+            $this->notifyAlert('Select a valid customer.', 'error');
+
+            return;
+        }
+
+        $form = [];
+        foreach ($this->createWindowDraftKeys() as $key) {
+            $form[$key] = $this->{$key};
+        }
+
+        $pwaLines = $filled->map(fn ($l) => [
+            'product_id' => (int) $l['item_id'],
+            'variation_id' => (int) $l['item_id'],
+            'name' => trim(($l['description'] ?? '').(filled($l['item_code'] ?? null) ? ' ('.$l['item_code'].')' : '')),
+            'unit_price' => (float) ($l['price'] ?? 0),
+            'quantity' => (float) ($l['qty_ordered'] ?? 0),
+            'allow_decimal' => 1,
+        ])->values()->all();
+
+        $total = (float) $filled->sum(fn ($l) => ((float) ($l['qty_ordered'] ?? 0) * (float) ($l['price'] ?? 0)) - (float) ($l['discount'] ?? 0));
+        $label = trim($this->bill_to_name ?: ($customer->company_name ?: $customer->contact ?: ''));
+
+        try {
+            app(ParkedSaleService::class)->park(auth()->user(), $customer, $label, [
+                'source' => 'desktop',
+                'form' => $form,
+                'customer_id' => (int) $customer->id,
+                'customer_label' => $label,
+                'lines' => $pwaLines,
+                'location_id' => $this->ship_from_site_id,
+                'shipping' => [
+                    'ship_to_address_id' => $this->ship_to_address_id,
+                    'ship_to_name' => $this->ship_to_name,
+                    'ship_to_address' => $this->ship_to_address,
+                    'ship_to_city' => $this->ship_to_city,
+                    'ship_to_state' => $this->ship_to_state,
+                    'ship_to_zip' => $this->ship_to_zip,
+                    'ship_to_phone' => $this->ship_to_phone,
+                    'ship_via_id' => $this->ship_via_id,
+                    'payment_term_id' => $this->payment_term_id,
+                    'route_id' => $this->route_id,
+                    'ship_date' => $this->ship_date,
+                    'sale_note' => $this->comments,
+                    'location_id' => $this->ship_from_site_id,
+                ],
+            ], $filled->count(), $total);
+        } catch (ValidationException $e) {
+            $this->notifyAlert(collect($e->errors())->flatten()->first() ?: 'Could not park this sale.', 'error');
+
+            return;
+        }
+
+        if (! $this->salesOrder?->exists) {
+            $this->resetBlankNewOrder();
+        }
+        $this->refreshParkedList();
+        $this->notifyAlert('Sale parked. Use Parked Sales to recall it.', 'success');
+    }
+
+    protected function resetBlankNewOrder(): void
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $this->lines = [];
+        $this->boxes = [['box_number' => '', 'tracking_number' => '']];
+        $this->comments = '';
+        $this->customer_po_no = '';
+        $this->reference_no = '';
+        $this->freight = '';
+        $this->trade_discount = '';
+        $this->miscellaneous = '';
+        $this->tax = '';
+        $this->taxManual = false;
+        $this->custom_field_1 = '';
+        $this->custom_field_2 = '';
+        $this->custom_field_3 = '';
+        $this->custom_field_4 = '';
+        $this->custom_field_5 = '';
+        $this->itemEntry = '';
+        $this->order_number = SalesOrder::nextNumber($companyId);
+        $this->order_date = now()->toDateString();
+        $this->required_date = now()->toDateString();
+        $this->ship_date = now()->toDateString();
+        $this->sales_rep_id = auth()->id();
+        $this->ship_from_site_id = auth()->user()->site_id;
+        $this->activeTab = 'general';
+        $walkIn = $this->resolveWalkInCustomer($companyId);
+        $this->suppressCustomerConfirm = true;
+        $this->customer_id = $walkIn->id;
+        $this->updatedCustomerId($walkIn->id);
+        $this->suppressCustomerConfirm = false;
+        $this->confirmedCustomerId = (int) $walkIn->id;
+        $this->persistCreateWindowDraft();
+    }
+
+    public function recallParkedSale(int $id): void
+    {
+        abort_if($this->viewMode, 403);
+
+        if ($this->salesOrder?->exists) {
+            $this->notifyAlert('Open a new sales order to recall a parked sale.', 'warning');
+
+            return;
+        }
+
+        $row = app(ParkedSaleService::class)->findOwn(auth()->user(), $id);
+        $payload = is_array($row->payload) ? $row->payload : [];
+
+        if (isset($payload['form']) && is_array($payload['form'])) {
+            $this->applyCreateWindowDraft($payload['form']);
+        } else {
+            $this->applyParkedSaleAppPayload($payload);
+        }
+
+        $this->regenerateOrderNumber();
+        $row->delete();
+        $this->showParkedSalesModal = false;
+        $this->refreshParkedList();
+        $this->persistCreateWindowDraft();
+        if ($this->filledParkLines()->isNotEmpty()) {
+            $this->activeTab = 'items';
+        }
+        $this->notifyAlert('Parked sale recalled.', 'success');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function applyParkedSaleAppPayload(array $payload): void
+    {
+        $customerId = (int) ($payload['customer_id'] ?? 0);
+        if ($customerId > 0) {
+            $this->suppressCustomerConfirm = true;
+            $this->customer_id = $customerId;
+            $this->updatedCustomerId($customerId);
+            $this->suppressCustomerConfirm = false;
+            $this->confirmedCustomerId = $customerId;
+        }
+
+        $this->lines = [];
+        foreach ($payload['lines'] ?? [] as $l) {
+            $itemId = (int) ($l['product_id'] ?? $l['variation_id'] ?? $l['item_id'] ?? 0);
+            if ($itemId < 1) {
+                continue;
+            }
+            $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
+            $line = $this->emptyLine();
+            $line['item_id'] = $itemId;
+            $line['item_code'] = $item?->item_code ?: (string) ($l['sku'] ?? '');
+            $line['description'] = $item?->description ?: (string) ($l['name'] ?? '');
+            $line['uom'] = $item?->unit_of_measure ?: '';
+            $line['qty_ordered'] = (string) ($l['quantity'] ?? $l['qty_ordered'] ?? 1);
+            $line['price'] = $this->formatMoney($l['unit_price'] ?? $l['price'] ?? 0);
+            $line['system_price'] = $line['price'];
+            $this->lines[] = $line;
+        }
+
+        $ship = is_array($payload['shipping'] ?? null) ? $payload['shipping'] : [];
+        foreach ([
+            'ship_to_name', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip', 'ship_to_phone',
+        ] as $key) {
+            if (array_key_exists($key, $ship)) {
+                $this->{$key} = (string) $ship[$key];
+            }
+        }
+        if (! empty($ship['ship_to_address_id'])) {
+            $this->ship_to_address_id = (int) $ship['ship_to_address_id'];
+        }
+        if (! empty($ship['payment_term_id'])) {
+            $this->payment_term_id = (int) $ship['payment_term_id'];
+        }
+        if (! empty($ship['route_id'])) {
+            $this->route_id = (int) $ship['route_id'];
+        }
+        if (! empty($ship['ship_via_id'])) {
+            $this->ship_via_id = (int) $ship['ship_via_id'];
+        }
+        if (! empty($ship['ship_date'])) {
+            $this->ship_date = (string) $ship['ship_date'];
+        }
+        if (! empty($ship['sale_note'])) {
+            $this->comments = (string) $ship['sale_note'];
+        }
+        if (! empty($payload['location_id'])) {
+            $this->ship_from_site_id = (int) $payload['location_id'];
+        }
+    }
+
+    public function discardParkedSale(int $id): void
+    {
+        app(ParkedSaleService::class)->discard(auth()->user(), $id);
+        $this->refreshParkedList();
+        $this->notifyAlert('Parked sale discarded.', 'success');
+    }
+
     #[On('pos-shortcut-print')]
     public function shortcutPrint(): void
     {
@@ -3394,6 +3655,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'total' => $total,
             'created_by' => $this->salesOrder?->created_by ?? auth()->id(),
         ];
+
+        if ($isNewOrder) {
+            $data['order_source'] = \App\Models\SalesOrder::SOURCE_POS;
+        }
 
         $savedOrder = null;
         DB::transaction(function () use (&$data, $companyId, &$savedOrder) {
@@ -4438,6 +4703,47 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     @include('livewire.pages.sales.orders.partials.item-browse-panel')
 
+    @if ($showParkedSalesModal && ! $viewMode)
+        <div
+            class="desk-modal-backdrop desk-modal-top"
+            wire:click.self="closeParkedSalesModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parked-sales-title"
+        >
+            <div class="desk-modal" style="max-width:32rem;" wire:keydown.escape.window="closeParkedSalesModal">
+                <div class="desk-modal-head">
+                    <span id="parked-sales-title">Parked sales</span>
+                    <button type="button" wire:click="closeParkedSalesModal" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="padding:0; max-height:22rem; overflow:auto;">
+                    @forelse ($parkedSalesList as $parked)
+                        <div style="display:flex; align-items:stretch; border-bottom:1px solid #e2e8f0;">
+                            <button
+                                type="button"
+                                wire:click="recallParkedSale({{ $parked['id'] }})"
+                                style="flex:1; text-align:left; border:0; background:#fff; padding:.85rem 1rem; cursor:pointer;"
+                            >
+                                <div style="font-weight:700;">{{ $parked['customer_label'] ?: 'Customer' }}</div>
+                                <div style="font-size:.8rem; color:#64748b;">{{ $parked['line_count'] }} item(s) · ${{ number_format($parked['total'], 2) }}@if($parked['updated_at']) · {{ $parked['updated_at'] }}@endif</div>
+                            </button>
+                            <button
+                                type="button"
+                                wire:click="discardParkedSale({{ $parked['id'] }})"
+                                wire:confirm="Discard this parked sale?"
+                                class="desk-modal-close"
+                                style="width:2.75rem; position:static;"
+                                aria-label="Discard"
+                            >×</button>
+                        </div>
+                    @empty
+                        <p style="padding:1rem; color:#64748b; margin:0;">No parked sales.</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+
     <div class="so-bottom so-bottom-full">
         <div class="so-bottom-tabs">
             <x-mode-tabs
@@ -4454,6 +4760,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)
+                <button type="button" wire:click="parkSale" class="so-btn-cancel" title="Hold this sale and start another">Park Sale</button>
+                <button type="button" wire:click="openParkedSalesModal" class="so-btn-cancel">
+                    Parked{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}
+                </button>
                 <button type="submit" form="so-form" class="so-btn-save" data-pos-save>Save Changes</button>
             @endif
         </div>

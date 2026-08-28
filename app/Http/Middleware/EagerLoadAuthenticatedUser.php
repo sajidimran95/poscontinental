@@ -11,7 +11,7 @@ class EagerLoadAuthenticatedUser
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        if ($user) {
+        if ($user instanceof \App\Models\User) {
             $user->loadMissing(['role', 'company', 'site']);
         }
 

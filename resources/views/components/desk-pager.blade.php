@@ -1,5 +1,6 @@
 @props([
     'paginator',
+    'side' => 4,
 ])
 
 @php
@@ -8,6 +9,26 @@
     $to = $paginator->lastItem();
     $page = $paginator->currentPage();
     $last = $paginator->lastPage();
+    $side = max(1, (int) $side);
+
+    $pages = [];
+    if ($last > 0) {
+        $pages[] = 1;
+        $start = max(2, $page - $side);
+        $end = min($last - 1, $page + $side);
+        if ($start > 2) {
+            $pages[] = '...';
+        }
+        for ($i = $start; $i <= $end; $i++) {
+            $pages[] = $i;
+        }
+        if ($end < $last - 1) {
+            $pages[] = '...';
+        }
+        if ($last > 1) {
+            $pages[] = $last;
+        }
+    }
 @endphp
 
 <div {{ $attributes->class('desk-pager') }}>
@@ -22,42 +43,31 @@
         <div class="desk-pager-nav" role="navigation" aria-label="Pagination">
             <button
                 type="button"
-                class="desk-btn desk-btn-sm"
-                wire:click="gotoPage(1)"
-                @disabled($page <= 1)
-            >First</button>
-            <button
-                type="button"
-                class="desk-btn desk-btn-sm"
+                class="desk-btn desk-btn-sm desk-pager-num"
                 wire:click="previousPage"
                 @disabled($page <= 1)
-            >Previous</button>
-            <label class="desk-pager-jump">
-                Page
-                <input
-                    type="number"
-                    min="1"
-                    max="{{ $last }}"
-                    value="{{ $page }}"
-                    class="desk-pager-input"
-                    wire:keydown.enter="gotoPage($event.target.value)"
-                    wire:blur="gotoPage($event.target.value)"
-                    aria-label="Go to page"
-                />
-                of {{ number_format($last) }}
-            </label>
+                aria-label="Previous page"
+            >&lt;</button>
+            @foreach ($pages as $item)
+                @if ($item === '...')
+                    <span class="desk-pager-ellipsis">…</span>
+                @elseif ((int) $item === $page)
+                    <span class="desk-pager-num is-current" aria-current="page">{{ $item }}</span>
+                @else
+                    <button
+                        type="button"
+                        class="desk-btn desk-btn-sm desk-pager-num"
+                        wire:click="gotoPage({{ (int) $item }})"
+                    >{{ $item }}</button>
+                @endif
+            @endforeach
             <button
                 type="button"
-                class="desk-btn desk-btn-sm"
+                class="desk-btn desk-btn-sm desk-pager-num"
                 wire:click="nextPage"
                 @disabled($page >= $last)
-            >Next</button>
-            <button
-                type="button"
-                class="desk-btn desk-btn-sm"
-                wire:click="gotoPage({{ $last }})"
-                @disabled($page >= $last)
-            >Last</button>
+                aria-label="Next page"
+            >&gt;</button>
         </div>
     @endif
 </div>

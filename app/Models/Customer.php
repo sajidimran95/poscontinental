@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Customer extends Model
+class Customer extends Model implements AuthenticatableContract
 {
+    use Authenticatable;
+
     public const WALK_IN_CODE = 'WALKIN';
 
     public const WALK_IN_NAME = 'Walk-in Customer';
@@ -29,6 +33,9 @@ class Customer extends Model
         'mobile',
         'fax',
         'email',
+        'portal_email',
+        'portal_password',
+        'portal_active',
         'web_page',
         'price_level_id',
         'cigarette_tax_class_id',
@@ -79,6 +86,8 @@ class Customer extends Model
 
     protected $hidden = [
         'owner_ssn',
+        'portal_password',
+        'remember_token',
     ];
 
     protected function casts(): array
@@ -86,6 +95,7 @@ class Customer extends Model
         return [
             'is_inactive' => 'boolean',
             'is_favorite' => 'boolean',
+            'portal_active' => 'boolean',
             'is_tax_exempt' => 'boolean',
             'certificate_on_file' => 'boolean',
             'drivers_accept_returns' => 'boolean',
@@ -103,6 +113,35 @@ class Customer extends Model
             'last_order_on' => 'date',
             'owner_ssn' => 'encrypted',
         ];
+    }
+
+    public function getAuthPassword(): string
+    {
+        return (string) ($this->portal_password ?? '');
+    }
+
+    public function displayName(): string
+    {
+        return trim((string) ($this->company_name ?: $this->contact ?: $this->customer_id)) ?: 'Customer';
+    }
+
+    public function loginEmail(): string
+    {
+        return trim((string) ($this->portal_email ?: $this->email));
+    }
+
+    public function canUseCustomerApp(): bool
+    {
+        if ($this->is_inactive || ! $this->portal_active || $this->getAuthPassword() === '') {
+            return false;
+        }
+
+        $company = $this->company;
+        if ($company && isset($company->customer_app_api_active) && ! $company->customer_app_api_active) {
+            return false;
+        }
+
+        return true;
     }
 
     public function company(): BelongsTo

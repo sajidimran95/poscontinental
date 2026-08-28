@@ -121,6 +121,7 @@ class CreateSalesOrderFromRep
             'route_id' => $payload['route_id'] ?? $customer->delivery_route_id,
             'ship_date' => $payload['ship_date'] ?? null,
             'order_type' => $payload['order_type'] ?? 'Sales Order',
+            'order_source' => $payload['order_source'] ?? SalesOrder::SOURCE_SALES,
         ]);
     }
 

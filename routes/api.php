@@ -142,6 +142,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 'company_id' => $user->company_id,
                 'order_number' => SalesOrder::nextNumber($user->company_id),
                 'order_type' => 'Sales Order',
+                'order_source' => SalesOrder::SOURCE_SALES,
                 'status' => 'New',
                 'priority' => 'Normal',
                 'customer_id' => $customer->id,

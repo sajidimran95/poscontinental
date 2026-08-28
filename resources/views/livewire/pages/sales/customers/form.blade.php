@@ -12,6 +12,7 @@ use App\Models\PurchaseLimitSchedule;
 use App\Models\RouteLookup;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -27,6 +28,14 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     public string $customer_id = '';
 
     public bool $is_inactive = false;
+
+    public bool $portal_active = false;
+
+    public string $portal_email = '';
+
+    public string $portal_password = '';
+
+    public bool $portal_has_password = false;
 
     public string $contact = '';
 
@@ -172,6 +181,10 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             }
 
             $this->is_inactive = (bool) $customer->is_inactive;
+            $this->portal_active = (bool) $customer->portal_active;
+            $this->portal_email = (string) ($customer->portal_email ?? '');
+            $this->portal_has_password = filled($customer->portal_password);
+            $this->portal_password = '';
             $this->opt_out_catalog = (bool) $customer->opt_out_catalog;
             $this->opt_out_email = (bool) $customer->opt_out_email;
             $this->opt_out_telemarketing = (bool) $customer->opt_out_telemarketing;
@@ -323,6 +336,18 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
+        $portalLoginErrors = [];
+        if ($this->portalAppOn()) {
+            $hasEmail = trim($this->portal_email) !== '' || trim($this->email) !== '';
+            $hasMobile = trim(preg_replace('/\D+/', '', $this->mobile) ?? '') !== '';
+            if (! $hasEmail && ! $hasMobile) {
+                $portalLoginErrors = [
+                    'email' => 'Customer App Active requires Email or Mobile.',
+                    'mobile' => 'Customer App Active requires Email or Mobile.',
+                ];
+            }
+        }
+
         try {
             $this->validate([
                 'customer_id' => 'required|string|max:64',
@@ -330,6 +355,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 'contact' => 'nullable|string|max:255',
                 'telephone' => 'nullable|string|max:40',
                 'email' => 'nullable|email|max:255',
+                'portal_email' => 'nullable|email|max:255',
+                'portal_password' => $this->portalAppOn() && ! $this->portal_has_password ? 'required|string|min:4|max:72' : 'nullable|string|min:4|max:72',
                 'credit_limit' => 'nullable|numeric|min:0',
                 'fein_no' => 'nullable|string|max:32',
                 'tax_certificate_no' => $this->is_tax_exempt ? 'required|string|max:64' : 'nullable|string|max:64',
@@ -338,19 +365,29 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 'customer_id.required' => 'Customer ID is required.',
                 'company_name.required' => 'Company name is required.',
                 'email.email' => 'Enter a valid email address.',
+                'portal_password.required' => 'Set a password for Customer App login.',
                 'tax_certificate_no.required' => 'Certificate No. is required for tax-exempt customers.',
                 'tax_certificate_exp.required' => 'Certificate expiry date is required for tax-exempt customers.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            $keys = array_keys($e->errors());
-            if (array_intersect($keys, ['customer_id', 'company_name', 'contact', 'telephone', 'email'])) {
+            $merged = $e->errors();
+            foreach ($portalLoginErrors as $field => $message) {
+                $merged[$field] = array_values(array_unique(array_merge($merged[$field] ?? [], [$message])));
+            }
+            $keys = array_keys($merged);
+            if (array_intersect($keys, ['customer_id', 'company_name', 'contact', 'telephone', 'email', 'mobile', 'portal_email', 'portal_password'])) {
                 $this->activeTab = 'name';
             } elseif (array_intersect($keys, ['fein_no', 'credit_limit'])) {
                 $this->activeTab = 'account';
             } elseif (array_intersect($keys, ['tax_certificate_no', 'tax_certificate_exp'])) {
                 $this->activeTab = 'other';
             }
-            throw $e;
+            throw \Illuminate\Validation\ValidationException::withMessages($merged);
+        }
+
+        if ($portalLoginErrors !== []) {
+            $this->activeTab = 'name';
+            throw \Illuminate\Validation\ValidationException::withMessages($portalLoginErrors);
         }
 
         if ($this->reveal_ssn || (! str_contains($this->owner_ssn_display, '*') && filled($this->owner_ssn_display))) {
@@ -363,6 +400,8 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'company_id' => auth()->user()->company_id,
             'customer_id' => $this->customer_id,
             'is_inactive' => $this->is_inactive,
+            'portal_active' => in_array($this->portal_active, [true, 1, '1'], true),
+            'portal_email' => trim($this->portal_email) !== '' ? trim($this->portal_email) : (trim($this->email) ?: null),
             'contact' => $this->contact,
             'company_name' => $this->company_name,
             'address' => $this->address,
@@ -422,6 +461,9 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
             'owner_fax' => $this->owner_fax,
             'owner_email' => $this->owner_email,
         ];
+        if ($this->portalAppOn() && filled($this->portal_password)) {
+            $data['portal_password'] = Hash::make($this->portal_password);
+        }
 
         DB::transaction(function () use ($data) {
             if ($this->customer) {
@@ -456,6 +498,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
 
         $this->redirect(route('sales.customers.index'), navigate: true);
     }
+
+    public function portalAppOn(): bool
+    {
+        return in_array($this->portal_active, [true, 1, '1'], true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
@@ -476,6 +523,30 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                     </div>
                 </div>
                 @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                <div class="so-form-row so-form-row-pair entity-header-row" style="margin-top:.75rem">
+                    <span class="so-form-lbl">Customer App</span>
+                    <div class="entity-status-btns" role="radiogroup" aria-label="Customer App status">
+                        <label class="desk-btn desk-btn-sm {{ $this->portalAppOn() ? 'is-on' : '' }}" style="cursor:pointer">
+                            <input type="radio" wire:model.live="portal_active" value="1" style="margin-right:.35rem"> Active
+                        </label>
+                        <label class="desk-btn desk-btn-sm {{ ! $this->portalAppOn() ? 'is-on-danger' : '' }}" style="cursor:pointer">
+                            <input type="radio" wire:model.live="portal_active" value="0" style="margin-right:.35rem"> Inactive
+                        </label>
+                    </div>
+                </div>
+                @if ($this->portalAppOn())
+                    <p class="text-xs text-slate-500" style="margin:.35rem 0 .5rem">Sign-in at <strong>/customer</strong> uses Email or Mobile (at least one is required) plus this password.</p>
+                    <div class="so-form-row">
+                        <label class="so-form-lbl" for="portal_email">App login email</label>
+                        <input id="portal_email" type="email" wire:model="portal_email" class="so-input" placeholder="Leave blank to use Email" />
+                    </div>
+                    @error('portal_email') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row">
+                        <label class="so-form-lbl so-field-req" for="portal_password">App password</label>
+                        <input id="portal_password" type="password" wire:model="portal_password" class="so-input" autocomplete="new-password" placeholder="{{ $portal_has_password ? 'Leave blank to keep current' : 'Set password' }}" />
+                    </div>
+                    @error('portal_password') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                @endif
                 @if ($activeTab === 'account')
                     <div class="entity-balance" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.5rem;align-items:baseline">
                         <span>Balance owed: <strong>${{ number_format((float) $balance, 2) }}</strong></span>
@@ -511,10 +582,14 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                     <div class="entity-col">
                         <div class="so-form-row"><label class="so-form-lbl" for="telephone">Telephone</label><input id="telephone" wire:model="telephone" class="so-input" placeholder="( ) -" /></div>
                         <div class="so-form-row"><label class="so-form-lbl" for="telephone2">2nd phone</label><input id="telephone2" wire:model="telephone2" class="so-input" placeholder="( ) -" /></div>
-                        <div class="so-form-row"><label class="so-form-lbl" for="mobile">Mobile</label><input id="mobile" wire:model="mobile" class="so-input" placeholder="( ) -" /></div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl {{ $this->portalAppOn() ? 'so-field-req' : '' }}" for="mobile">Mobile</label>
+                            <input id="mobile" wire:model="mobile" class="so-input @error('mobile') is-invalid @enderror" placeholder="( ) -" />
+                        </div>
+                        @error('mobile') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         <div class="so-form-row"><label class="so-form-lbl" for="fax">Fax number</label><input id="fax" wire:model="fax" class="so-input" placeholder="( ) -" /></div>
                         <div class="so-form-row">
-                            <label class="so-form-lbl" for="email">Email</label>
+                            <label class="so-form-lbl {{ $this->portalAppOn() ? 'so-field-req' : '' }}" for="email">Email</label>
                             <input id="email" wire:model="email" type="email" class="so-input @error('email') is-invalid @enderror" />
                         </div>
                         @error('email') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror

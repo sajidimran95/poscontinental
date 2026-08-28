@@ -976,8 +976,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     <span class="desk-title-meta">{{ number_format($invoices->total()) }} records</span>
                 </div>
 
-                <div class="desk-grid">
-                    <table class="desk-table desk-table-fit">
+                <div class="desk-grid desk-grid-responsive">
+                    <table class="desk-table desk-table-fit desk-list-table">
                         <colgroup>
                             <col style="width:2.1rem" />
                             <col style="width:8%" />
@@ -1076,6 +1076,40 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
+
+                    <div class="desk-list-cards" aria-label="Invoices">
+                        @forelse ($invoices as $inv)
+                            <article
+                                class="desk-list-card {{ $selectedId === $inv->id || $modalInvoiceId === $inv->id ? 'is-selected' : '' }}"
+                                wire:click="selectRow({{ $inv->id }})"
+                                wire:dblclick="viewInvoice({{ $inv->id }})"
+                            >
+                                <div class="desk-list-card__top">
+                                    <a href="{{ route('sales.invoices.pdf', $inv) }}" target="_blank" rel="noopener" wire:click.stop class="desk-list-card__id">{{ $inv->invoice_number }}</a>
+                                    <span @class([
+                                        'desk-pill',
+                                        'desk-pill-new' => $inv->status === 'NOT PAID',
+                                        'desk-pill-invoiced' => $inv->status === 'PAID',
+                                        'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
+                                    ])>{{ $inv->status }}</span>
+                                </div>
+                                <div class="desk-list-card__meta">
+                                    <span>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</span>
+                                    @if ($inv->salesOrder?->order_number)
+                                        <span>SO {{ $inv->salesOrder->order_number }}</span>
+                                    @endif
+                                </div>
+                                <div class="desk-list-card__name">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name ?: '—' }}</div>
+                                <div class="desk-list-card__sub">{{ $inv->customer?->customer_id }}</div>
+                                <div class="desk-list-card__foot">
+                                    <span>Total <strong class="tabular-nums">${{ number_format($inv->invoice_total, 2) }}</strong></span>
+                                    <span>Bal <strong class="tabular-nums">${{ number_format($inv->invoice_balance, 2) }}</strong></span>
+                                </div>
+                            </article>
+                        @empty
+                            <div class="desk-list-card is-empty">No invoices. Invoice a sales order from the Orders list.</div>
+                        @endforelse
+                    </div>
                 </div>
 
                 <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>

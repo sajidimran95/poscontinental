@@ -221,6 +221,7 @@ class SalePortalController extends Controller
             'ship_date' => $request->input('ship_date') ?: null,
             'ship_from_site_id' => $request->integer('location_id') ?: $user->site_id,
             'order_type' => $this->saleOrderType($request->input('order_mode')),
+            'order_source' => SalesOrder::SOURCE_SALES,
         ];
     }
 
@@ -681,6 +682,14 @@ class SalePortalController extends Controller
 
         if ($variationId > 0) {
             $query->where('id', $variationId);
+        }
+        if ($request->boolean('scan') && $term !== '') {
+            $scanned = Item::findByScanCode((int) $user->company_id, $term, 'sell');
+            if (! $scanned) {
+                return response()->json([]);
+            }
+
+            return response()->json([$this->mapProduct($scanned, $customer)]);
         }
         if ($term !== '') {
             $query->where(function ($q) use ($term) {

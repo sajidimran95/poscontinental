@@ -47,6 +47,7 @@
             </a>
             <a href="{{ route('sale.orders.show', $order->id) }}" class="sale-order-row__body min-w-0 flex-1 no-underline text-inherit">
                 <div class="font-extrabold text-[15px] truncate">{{ $order->invoice_no }}</div>
+                <div class="mt-0.5"><span class="sale-badge sale-badge--ordered">{{ $order->sourceLabel() }}</span></div>
                 @if(!empty($order->converted_invoice_no))
                     <div class="text-xs font-bold text-sale mt-0.5">Invoice {{ $order->converted_invoice_no }}</div>
                 @endif

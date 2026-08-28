@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
 use App\Services\InventoryService;
+use App\Services\ParkedSaleService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -36,6 +37,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public ?int $selectedId = null;
 
     public bool $compactView = false;
+
+    public bool $showParkedSalesModal = false;
+
+    /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
+    public array $parkedSalesList = [];
 
     public function updatedSearch(): void
     {
@@ -73,6 +79,37 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
+    }
+
+    public function openParkedSalesModal(): void
+    {
+        $this->parkedSalesList = app(ParkedSaleService::class)
+            ->listFor(auth()->user())
+            ->map(fn ($p) => [
+                'id' => (int) $p->id,
+                'customer_label' => $p->customer_label,
+                'line_count' => (int) $p->line_count,
+                'total' => (float) $p->total,
+                'updated_at' => optional($p->updated_at)->format('n/j/Y g:i A'),
+            ])
+            ->all();
+        $this->showParkedSalesModal = true;
+    }
+
+    public function closeParkedSalesModal(): void
+    {
+        $this->showParkedSalesModal = false;
+    }
+
+    public function recallParkedSale(int $id): void
+    {
+        $this->redirect(route('sales.orders.create', ['parked' => $id]), navigate: true);
+    }
+
+    public function discardParkedSale(int $id): void
+    {
+        app(ParkedSaleService::class)->discard(auth()->user(), $id);
+        $this->openParkedSalesModal();
     }
 
     public function clearSearch(): void
@@ -352,6 +389,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'selectedOrder' => $this->selectedId
                 ? SalesOrder::query()->where('company_id', $companyId)->find($this->selectedId)
                 : null,
+            'parkedCount' => app(ParkedSaleService::class)->listFor(auth()->user())->count(),
         ];
     }
 
@@ -362,6 +400,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'order_number' => ['label' => 'Order Number', 'column' => 'order_number'],
             'status' => ['label' => 'Status', 'column' => 'status'],
             'order_type' => ['label' => 'Order Type', 'column' => 'order_type'],
+            'order_source' => ['label' => 'Source', 'column' => 'order_source'],
             'priority' => ['label' => 'Priority', 'column' => 'priority'],
             'order_date' => ['label' => 'Order Date', 'column' => 'order_date', 'type' => 'date'],
             'required_date' => ['label' => 'Required Date', 'column' => 'required_date', 'type' => 'date'],
@@ -398,9 +437,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'customer_company' => ['relation' => 'customer', 'column' => 'company_name'],
             'customer_address' => ['relation' => 'customer', 'column' => 'address'],
             'customer_phone' => ['relation' => 'customer', 'column' => 'telephone'],
-            'user_name' => ['relation' => 'createdBy', 'column' => 'name'],
-            'updated_at' => 'updated_at',
-            'required_date' => 'required_date',
             'total' => 'total',
         ];
     }
@@ -523,13 +559,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table desk-table-fit">
+                <div class="desk-grid desk-grid-responsive {{ $compactView ? 'is-compact' : '' }}">
+                    <table class="desk-table desk-table-fit desk-list-table">
                         <colgroup>
                             <col style="width:2.1rem" />
                             <col style="width:7%" />
                             <col style="width:7%" />
                             <col style="width:6%" />
+                            <col style="width:7%" />
                             <col style="width:6.5%" />
                             <col style="width:6.5%" />
                             <col style="width:6%" />
@@ -538,10 +575,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             <col style="width:10%" />
                             <col style="width:9%" />
                             <col style="width:7%" />
-                            <col style="width:6%" />
-                            <col style="width:7%" />
-                            <col style="width:6%" />
-                            <col style="width:6%" />
+                            <col style="width:8%" />
                             <col style="width:4.5rem" />
                         </colgroup>
                         <thead>
@@ -550,6 +584,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 <x-desk-sort-th field="order_number" label="Order #" />
                                 <x-desk-sort-th field="invoice_number" label="Invoice #" />
                                 <x-desk-sort-th field="order_type" label="Type" />
+                                <th>Source</th>
                                 <x-desk-sort-th field="order_date" label="Order Date" />
                                 <x-desk-sort-th field="ship_date" label="Ship Date" />
                                 <x-desk-sort-th field="status" label="Status" />
@@ -558,9 +593,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 <x-desk-sort-th field="customer_company" label="Company" />
                                 <x-desk-sort-th field="customer_address" label="Address" />
                                 <x-desk-sort-th field="customer_phone" label="Telephone" />
-                                <x-desk-sort-th field="user_name" label="User Name" />
-                                <x-desk-sort-th field="updated_at" label="Last Updated" />
-                                <x-desk-sort-th field="required_date" label="Req. Delivery" />
                                 <x-desk-sort-th field="total" label="Total" align="right" />
                                 <th></th>
                             </tr>
@@ -599,6 +631,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         @endif
                                     </td>
                                     <td>{{ $order->order_type }}</td>
+                                    <td>
+                                        @php $src = (string) ($order->order_source ?? 'pos'); @endphp
+                                        <span @class([
+                                            'desk-pill',
+                                            'desk-pill-muted' => $src === 'pos',
+                                            'desk-pill-new' => $src === 'sales',
+                                            'desk-pill-invoiced' => $src === 'customer',
+                                        ])>{{ $order->sourceLabel() }}</span>
+                                    </td>
                                     <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
                                     <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
                                     <td>
@@ -614,9 +655,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <td title="{{ $order->customer?->company_name }}">{{ $order->customer?->company_name }}</td>
                                     <td title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
                                     <td title="{{ $order->customer?->telephone }}">{{ $order->customer?->telephone }}</td>
-                                    <td title="{{ $order->createdBy?->name }}">{{ $order->createdBy?->name }}</td>
-                                    <td>{{ optional($order->updated_at)?->format('n/j/Y g:i A') }}</td>
-                                    <td>{{ optional($order->required_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-money">${{ number_format($order->total, 2) }}</td>
                                     <td wire:click.stop>
                                         @if ($order->status !== 'Invoiced')
@@ -626,16 +664,63 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="17">No orders found.</td>
+                                    <td colspan="15">No orders found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
                     </table>
+
+                    <div class="desk-list-cards" aria-label="Orders">
+                        @forelse ($orders as $order)
+                            @php $src = (string) ($order->order_source ?? 'pos'); @endphp
+                            <article
+                                class="desk-list-card {{ $selectedId === $order->id ? 'is-selected' : '' }}"
+                                wire:click="selectRow({{ $order->id }})"
+                                wire:dblclick="openOrder({{ $order->id }})"
+                            >
+                                <div class="desk-list-card__top">
+                                    <a href="{{ route('sales.orders.show', $order) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    <span @class([
+                                        'desk-pill',
+                                        'desk-pill-new' => $order->status === 'New',
+                                        'desk-pill-invoiced' => $order->status === 'Invoiced',
+                                        'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
+                                    ])>{{ $order->status }}</span>
+                                </div>
+                                <div class="desk-list-card__meta">
+                                    <span @class([
+                                        'desk-pill',
+                                        'desk-pill-muted' => $src === 'pos',
+                                        'desk-pill-new' => $src === 'sales',
+                                        'desk-pill-invoiced' => $src === 'customer',
+                                    ])>{{ $order->sourceLabel() }}</span>
+                                    <span>{{ $order->order_type }}</span>
+                                    <span>{{ optional($order->order_date)?->format('n/j/Y') }}</span>
+                                </div>
+                                <div class="desk-list-card__name">{{ $order->customer?->company_name ?: $order->customer?->contact ?: '—' }}</div>
+                                <div class="desk-list-card__sub">{{ $order->customer?->customer_id }}{{ $order->customer?->telephone ? ' · '.$order->customer->telephone : '' }}</div>
+                                <div class="desk-list-card__foot">
+                                    <strong class="tabular-nums">${{ number_format($order->total, 2) }}</strong>
+                                    @if ($order->invoice)
+                                        <a href="{{ route('sales.invoices.pdf', $order->invoice) }}" target="_blank" rel="noopener" wire:click.stop>Inv {{ $order->invoice->invoice_number }}</a>
+                                    @endif
+                                    @if ($order->status !== 'Invoiced')
+                                        <button type="button" wire:click.stop="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                    @endif
+                                </div>
+                            </article>
+                        @empty
+                            <div class="desk-list-card is-empty">No orders found.</div>
+                        @endforelse
+                    </div>
                 </div>
 
-                <x-record-count :count="$orders->total()">
+                <x-record-count :count="$orders->total()" class="is-inline" note="">
+                    <button type="button" wire:click="openParkedSalesModal" class="desk-btn">
+                        Parked Sales{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}
+                    </button>
                     <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Sales Order</a>
-                    {{ $orders->links() }}
+                    <x-desk-pager :paginator="$orders" />
                 </x-record-count>
             </div>
 
@@ -707,6 +792,46 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             </aside>
         </div>
     </div>
+    @if ($showParkedSalesModal)
+        <div
+            class="desk-modal-backdrop desk-modal-top"
+            wire:click.self="closeParkedSalesModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parked-sales-list-title"
+        >
+            <div class="desk-modal" style="max-width:32rem;" wire:keydown.escape.window="closeParkedSalesModal">
+                <div class="desk-modal-head">
+                    <span id="parked-sales-list-title">Parked sales</span>
+                    <button type="button" wire:click="closeParkedSalesModal" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="padding:0; max-height:22rem; overflow:auto;">
+                    @forelse ($parkedSalesList as $parked)
+                        <div style="display:flex; align-items:stretch; border-bottom:1px solid #e2e8f0;">
+                            <button
+                                type="button"
+                                wire:click="recallParkedSale({{ $parked['id'] }})"
+                                style="flex:1; text-align:left; border:0; background:#fff; padding:.85rem 1rem; cursor:pointer;"
+                            >
+                                <div style="font-weight:700;">{{ $parked['customer_label'] ?: 'Customer' }}</div>
+                                <div style="font-size:.8rem; color:#64748b;">{{ $parked['line_count'] }} item(s) · ${{ number_format($parked['total'], 2) }}@if($parked['updated_at']) · {{ $parked['updated_at'] }}@endif</div>
+                            </button>
+                            <button
+                                type="button"
+                                wire:click="discardParkedSale({{ $parked['id'] }})"
+                                wire:confirm="Discard this parked sale?"
+                                class="desk-modal-close"
+                                style="width:2.75rem; position:static;"
+                                aria-label="Discard"
+                            >×</button>
+                        </div>
+                    @empty
+                        <p style="padding:1rem; color:#64748b; margin:0;">No parked sales.</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
     @include('livewire.partials.desk-query-modal')
 </div>
 @script

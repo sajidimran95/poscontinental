@@ -1,8 +1,11 @@
-@extends('sale.layout')
+@extends('customer.layout')
 @section('title', !empty($edit_order) ? 'Edit order' : 'Create order')
 @section('header', !empty($edit_order) ? 'Edit order' : 'Create order')
+@push('styles')
+    @include('customer.partials.order-create-styles')
+@endpush
 @section('content')
-<form method="POST" action="{{ !empty($edit_order) ? route('sale.orders.update', $edit_order->id) : route('sale.orders.store') }}" id="saleOrderForm" class="sale-create-form">
+<form method="POST" action="{{ route('customer.orders.store') }}" id="saleOrderForm" class="sale-create-form">
     @csrf
     @if(!empty($edit_order))
         @method('PUT')
@@ -11,8 +14,8 @@
     <input type="hidden" name="order_mode" id="order_mode" value="new_order">
     <div id="productsJson" class="hidden"></div>
 
-    {{-- STEP 0: Select customer (layout like app — uses existing customers API) --}}
-    @if(empty($edit_order))
+    {{-- Customer is locked to the signed-in account --}}
+    @if(empty($edit_order) && empty($lock_customer))
     <div id="stepCustomer" class="sale-pick-customer">
         <div class="sale-order-build__bar">
             <div class="sale-order-build__titles min-w-0">
@@ -32,16 +35,16 @@
     @endif
 
     {{-- STEP 1: Build order (after customer) — Pickup/Delivery/Shipping + SKU/scan + catalog --}}
-    <div id="stepCart" class="sale-order-build" @if(empty($edit_order)) hidden @endif>
+    <div id="stepCart" class="sale-order-build" @if(empty($edit_order) && empty($lock_customer)) hidden @endif>
         <div class="sale-order-build__bar">
-            <button type="button" id="backToCustomerBtn" class="sale-order-build__iconbtn" aria-label="Back" @if(!empty($edit_order)) hidden @endif>
+            <button type="button" id="backToCustomerBtn" class="sale-order-build__iconbtn" aria-label="Back" @if(!empty($edit_order) || !empty($lock_customer)) hidden @endif>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
             <div class="sale-order-build__titles min-w-0">
                 <div class="sale-order-build__title">Create Order</div>
                 <div class="sale-order-build__sub truncate" id="orderCustomerName">{{ $default_customer['text'] ?? ($edit_order->contact->supplier_business_name ?? $edit_order->contact->name ?? '') }}</div>
             </div>
-            @if(empty($edit_order))
+            @if(empty($lock_customer))
             <button type="button" class="sale-order-build__park" id="parkSaleBtn" title="Park this sale">PARK</button>
             @endif
             <button type="button" class="sale-order-build__submit" id="goShippingBtn">SUBMIT</button>
@@ -107,7 +110,7 @@
 
     {{-- STEP 2: Shipping info (same fields as desk sales order) --}}
     <div id="stepShipping" class="sale-ship-flow" hidden>
-        <button type="button" id="backToCartBtn" class="inline-flex items-center gap-1.5 text-sm font-bold text-sale mb-3">
+        <button type="button" id="backToCartBtn" class="inline-flex items-center gap-1.5 text-sm font-bold text-brand mb-3">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
             Back to cart
         </button>
@@ -121,7 +124,7 @@
             </div>
             <div class="flex justify-between text-sm font-bold mb-1">
                 <span class="text-slate-500">Order total</span>
-                <span id="shipTotal" class="tabular-nums text-sale">$0.00</span>
+                <span id="shipTotal" class="tabular-nums text-brand">$0.00</span>
             </div>
 
             <div>
@@ -432,7 +435,7 @@
     async function loadCustomerShipping(customerId, preferExisting) {
         if (!customerId) return;
         try {
-            const res = await fetch(@json(url('/sale/api/customers')) + '/' + customerId + '/shipping', {
+            const res = await fetch(@json(url('/customer/api/customers')) + '/' + customerId + '/shipping', {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             });
             if (!res.ok) return;
@@ -495,7 +498,7 @@
             } catch (err) {
                 console.error(err);
             }
-            if (goToCart !== false && stepCustomer) {
+            if (goToCart !== false) {
                 showCartStep();
             }
         } else {
@@ -558,7 +561,7 @@
     }
 
     async function loadCustomers(q, targetEl, pickFn) {
-        const rows = await fetchJson(@json(route('sale.api.customers')) + '?q=' + encodeURIComponent(q || ''));
+        const rows = await fetchJson(@json(route('customer.api.customers')) + '?q=' + encodeURIComponent(q || ''));
         renderCustomerRows(rows, targetEl, pickFn);
     }
 
@@ -655,7 +658,7 @@
         const params = new URLSearchParams(extra || {});
         if (locationId.value) params.set('location_id', locationId.value);
         if (contactId.value) params.set('contact_id', contactId.value);
-        return @json(route('sale.api.products')) + '?' + params.toString();
+        return @json(route('customer.api.products')) + '?' + params.toString();
     }
 
     if (customerSearch && customerResults && stepCustomer && !contactId.value) {
@@ -753,6 +756,7 @@
         stepShipping.hidden = false;
         document.body.classList.remove('sale-picking-customer');
         document.body.classList.remove('sale-building-order');
+        document.body.classList.add('ca-on-shipping');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
@@ -761,6 +765,7 @@
         stepCart.hidden = false;
         if (stepCustomer) stepCustomer.hidden = true;
         document.body.classList.remove('sale-picking-customer');
+        document.body.classList.remove('ca-on-shipping');
         document.body.classList.add('sale-building-order');
     });
 
@@ -810,7 +815,7 @@
     function closeCatalog() { catalogModal.hidden = true; }
 
     async function ensureCatalogTree() {
-        if (!catalogTree) catalogTree = await fetchJson(@json(route('sale.api.categories')));
+        if (!catalogTree) catalogTree = await fetchJson(@json(route('customer.api.categories')));
         return catalogTree;
     }
 
@@ -923,6 +928,11 @@
                 productsJson.appendChild(inp);
             });
         });
+        const submitBtn = document.getElementById('submitOrderBtn');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving…';
+        }
     });
 
     (async function prefillFromQuery() {
@@ -941,7 +951,7 @@
     renderCart();
 
     const isEditOrder = @json(!empty($edit_order));
-    const parkedListUrl = @json(route('sale.api.parked_sales'));
+    const parkedListUrl = @json(route('customer.api.parked_sales'));
     const parkedModal = document.getElementById('parkedModal');
     const parkedBody = document.getElementById('parkedBody');
     const parkSaleBtn = document.getElementById('parkSaleBtn');

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 class SalesOrder extends Model
 {
     protected $fillable = [
-        'company_id', 'order_number', 'order_type', 'status', 'priority', 'customer_id', 'ship_to_address_id',
+        'company_id', 'order_number', 'order_type', 'order_source', 'status', 'priority', 'customer_id', 'ship_to_address_id',
         'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
         'ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip',
         'order_date', 'required_date', 'customer_po_no', 'reference_no', 'sales_rep_id',
@@ -127,5 +127,20 @@ class SalesOrder extends Model
         }
 
         return (string) $n;
+    }
+
+    public const SOURCE_POS = 'pos';
+
+    public const SOURCE_SALES = 'sales';
+
+    public const SOURCE_CUSTOMER = 'customer';
+
+    public function sourceLabel(): string
+    {
+        return match ((string) ($this->order_source ?? 'pos')) {
+            self::SOURCE_SALES => 'Sales',
+            self::SOURCE_CUSTOMER => 'Customer App',
+            default => 'POS Sale',
+        };
     }
 }

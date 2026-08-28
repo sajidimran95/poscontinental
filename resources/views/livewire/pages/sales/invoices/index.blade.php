@@ -3,6 +3,7 @@
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
+use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
@@ -61,6 +62,22 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public bool $showInvoiceDeliveryDialog = false;
 
     public string $invoiceDeliveryMode = 'print';
+
+    public ?int $editInvoiceId = null;
+
+    public string $edit_invoice_date = '';
+
+    public string $edit_driver = '';
+
+    public string $edit_trade_discount = '';
+
+    public string $edit_freight = '';
+
+    public string $edit_miscellaneous = '';
+
+    public string $edit_tax = '';
+
+    public string $edit_subtotal = '';
 
     public function mount(): void
     {
@@ -202,6 +219,21 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
             'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
+            'canEditInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false,
+            'editInvoice' => $this->editInvoiceId
+                ? Invoice::query()
+                    ->with(['customer:id,customer_id,company_name', 'salesOrder:id,order_number'])
+                    ->where('company_id', $companyId)
+                    ->find($this->editInvoiceId)
+                : null,
+            'editPreviewTotal' => round(
+                (float) str_replace(',', '', $this->edit_subtotal)
+                - (float) str_replace(',', '', $this->edit_trade_discount)
+                + (float) str_replace(',', '', $this->edit_freight)
+                + (float) str_replace(',', '', $this->edit_miscellaneous)
+                + (float) str_replace(',', '', $this->edit_tax),
+                2
+            ),
         ];
     }
 
@@ -424,15 +456,134 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->dispatch('open-invoice-pdf', url: route('sales.invoices.pdf', $invoice));
     }
 
-    public function editSelected(): void
+    public function editSelected(): mixed
     {
         if (! $this->selectedId) {
             session()->flash('status', 'Select an invoice first.');
 
+            return null;
+        }
+
+        return $this->openInvoiceEdit($this->selectedId);
+    }
+
+    public function openInvoiceEdit(int $id): mixed
+    {
+        if (! (auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false)) {
+            session()->flash('status', 'Your role cannot edit invoices.');
+
+            return null;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+        if (! $invoice) {
+            session()->flash('status', 'Invoice not found.');
+
+            return null;
+        }
+
+        if ($invoice->sales_order_id) {
+            return $this->redirect(
+                route('sales.orders.edit', $invoice->sales_order_id).'?from=invoices',
+                navigate: true
+            );
+        }
+
+        $this->selectedId = $id;
+        $this->editInvoiceId = $id;
+        $this->edit_invoice_date = optional($invoice->invoice_date)?->toDateString() ?: now()->toDateString();
+        $this->edit_driver = (string) ($invoice->driver ?? '');
+        $this->edit_subtotal = number_format((float) $invoice->subtotal, 2, '.', '');
+        $this->edit_trade_discount = number_format((float) $invoice->trade_discount, 2, '.', '');
+        $this->edit_freight = number_format((float) $invoice->freight, 2, '.', '');
+        $this->edit_miscellaneous = number_format((float) $invoice->miscellaneous, 2, '.', '');
+        $this->edit_tax = number_format((float) $invoice->tax, 2, '.', '');
+        $this->resetErrorBag();
+
+        return null;
+    }
+
+    public function closeInvoiceEdit(): void
+    {
+        $this->editInvoiceId = null;
+    }
+
+    public function saveInvoiceEdit(): void
+    {
+        if (! (auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false)) {
+            session()->flash('status', 'Your role cannot edit invoices.');
+
             return;
         }
 
-        $this->openPayments($this->selectedId);
+        $this->validate([
+            'edit_invoice_date' => 'required|date',
+            'edit_trade_discount' => 'nullable|numeric|min:0',
+            'edit_freight' => 'nullable|numeric|min:0',
+            'edit_miscellaneous' => 'nullable|numeric|min:0',
+            'edit_tax' => 'nullable|numeric|min:0',
+        ]);
+
+        if (! $this->editInvoiceId) {
+            return;
+        }
+
+        try {
+            DB::transaction(function () {
+                $invoice = Invoice::query()
+                    ->with(['payments', 'credits', 'customer'])
+                    ->lockForUpdate()
+                    ->findOrFail($this->editInvoiceId);
+                abort_unless((int) $invoice->company_id === (int) auth()->user()->company_id, 403);
+
+                $oldTotal = (float) $invoice->invoice_total;
+                $subtotal = (float) $invoice->subtotal;
+                $trade = round((float) str_replace(',', '', $this->edit_trade_discount), 4);
+                $freight = round((float) str_replace(',', '', $this->edit_freight), 4);
+                $misc = round((float) str_replace(',', '', $this->edit_miscellaneous), 4);
+                $tax = round((float) str_replace(',', '', $this->edit_tax), 4);
+                $newTotal = round($subtotal - $trade + $freight + $misc + $tax, 4);
+                $applied = (float) $invoice->payments->sum('amount') + (float) $invoice->credits->sum('amount');
+                if ($newTotal + 0.0001 < $applied) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'edit_freight' => 'Invoice total cannot be less than payments and credits already applied ($'.number_format($applied, 2).').',
+                    ]);
+                }
+
+                $invoice->update([
+                    'invoice_date' => $this->edit_invoice_date,
+                    'driver' => trim($this->edit_driver) !== '' ? trim($this->edit_driver) : null,
+                    'trade_discount' => $trade,
+                    'freight' => $freight,
+                    'miscellaneous' => $misc,
+                    'tax' => $tax,
+                    'invoice_total' => $newTotal,
+                    'status' => ($newTotal - $applied) <= 0.0001 ? 'PAID' : 'NOT PAID',
+                ]);
+
+                $delta = $newTotal - $oldTotal;
+                if (abs($delta) > 0.0001 && $invoice->customer_id) {
+                    $customer = Customer::query()->lockForUpdate()->find($invoice->customer_id);
+                    if ($customer) {
+                        $customer->update([
+                            'balance' => (float) $customer->balance + $delta,
+                        ]);
+                    }
+                }
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Unable to save invoice. '.$e->getMessage());
+
+            return;
+        }
+
+        session()->flash('status', 'Invoice updated.');
+        $this->editInvoiceId = null;
     }
 
     public function markSelected(): void
@@ -1191,7 +1342,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Open invoice / payments' : 'No payment permission' }}" aria-label="Open invoice" @disabled(! $selectedId || ! $canEnterPayments)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditInvoice ? 'Edit invoice' : 'No invoice edit permission' }}" aria-label="Edit invoice" @disabled(! $selectedId || ! $canEditInvoice)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
@@ -1460,6 +1611,66 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($editInvoice)
+        <div class="desk-modal-backdrop" wire:click.self="closeInvoiceEdit" role="dialog" aria-modal="true" aria-label="Edit invoice">
+            <div class="desk-modal desk-modal-lg">
+                <div class="desk-modal-head">
+                    <span>Edit invoice {{ $editInvoice->invoice_number }}</span>
+                    <button type="button" wire:click="closeInvoiceEdit" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <form wire:submit="saveInvoiceEdit" class="desk-modal-body space-y-3">
+                    <p class="item-hint" style="margin:0">
+                        Line items and stock stay as invoiced. Change date, driver, freight, tax, and other header amounts.
+                        @if ($editInvoice->salesOrder?->order_number)
+                            Order {{ $editInvoice->salesOrder->order_number }}.
+                        @endif
+                    </p>
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_invoice_date">Invoice date</label>
+                        <input id="edit_invoice_date" type="date" wire:model="edit_invoice_date" class="so-input" />
+                    </div>
+                    @error('edit_invoice_date') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_driver">Driver</label>
+                        <input id="edit_driver" type="text" wire:model="edit_driver" class="so-input" autocomplete="off" />
+                    </div>
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl">Subtotal</label>
+                        <input type="text" class="so-input text-right" value="${{ number_format((float) $edit_subtotal, 2) }}" readonly />
+                    </div>
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_trade_discount">Trade discount</label>
+                        <input id="edit_trade_discount" type="text" inputmode="decimal" wire:model.live="edit_trade_discount" class="so-input text-right" />
+                    </div>
+                    @error('edit_trade_discount') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_freight">Freight</label>
+                        <input id="edit_freight" type="text" inputmode="decimal" wire:model.live="edit_freight" class="so-input text-right" />
+                    </div>
+                    @error('edit_freight') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_miscellaneous">Miscellaneous</label>
+                        <input id="edit_miscellaneous" type="text" inputmode="decimal" wire:model.live="edit_miscellaneous" class="so-input text-right" />
+                    </div>
+                    @error('edit_miscellaneous') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="edit_tax">Tax</label>
+                        <input id="edit_tax" type="text" inputmode="decimal" wire:model.live="edit_tax" class="so-input text-right" />
+                    </div>
+                    @error('edit_tax') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl">Invoice total</label>
+                        <strong class="tabular-nums">${{ number_format((float) $editPreviewTotal, 2) }}</strong>
+                    </div>
+                    <div class="entity-footer-actions" style="justify-content:flex-end;gap:.5rem">
+                        <button type="button" wire:click="closeInvoiceEdit" class="desk-btn">Cancel</button>
+                        <button type="submit" class="desk-btn desk-btn-primary">Save</button>
+                    </div>
+                </form>
             </div>
         </div>
     @endif

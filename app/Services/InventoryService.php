@@ -292,7 +292,8 @@ class InventoryService
     }
 
     /**
-     * Decrease on-hand when a sales order is invoiced (shipped qty, else ordered).
+     * Decrease on-hand when a sales order is invoiced.
+     * After this, allocated is cleared for those lines so Available = In stock.
      */
     public function applyInvoiceStock(SalesOrder $order, Invoice $invoice): void
     {
@@ -350,7 +351,97 @@ class InventoryService
             ]);
         }
 
+        $order->update(['status' => 'Invoiced']);
         $this->syncAllocatedQty($order->lines->pluck('item_id')->filter()->all());
+    }
+
+    /**
+     * Sales order (no invoice): never changes In stock. Rebuilds allocated so Available updates.
+     * Invoice edit: In stock goes up when a line is removed, down when qty is added; Available follows.
+     *
+     * @param  array<int, float>  $oldQtyByItemId
+     */
+    public function applyOrderQtyRevision(SalesOrder $order, array $oldQtyByItemId, ?Invoice $invoice = null): void
+    {
+        $order->loadMissing('lines');
+        $newByItem = [];
+        foreach ($order->lines as $line) {
+            if (! $line->item_id) {
+                continue;
+            }
+            $qty = (float) $line->qty_ordered;
+            if ($qty <= 0) {
+                continue;
+            }
+            $id = (int) $line->item_id;
+            $newByItem[$id] = ($newByItem[$id] ?? 0) + $qty;
+        }
+
+        $idMap = [];
+        foreach ($oldQtyByItemId as $id => $_) {
+            $idMap[(int) $id] = true;
+        }
+        foreach ($newByItem as $id => $_) {
+            $idMap[(int) $id] = true;
+        }
+        $itemIds = array_keys($idMap);
+        if ($itemIds === []) {
+            return;
+        }
+
+        if ($invoice) {
+            $company = Company::query()->find($order->company_id);
+            foreach ($itemIds as $itemId) {
+                $delta = (float) ($newByItem[$itemId] ?? 0) - (float) ($oldQtyByItemId[$itemId] ?? 0);
+                if (abs($delta) < 0.0001) {
+                    continue;
+                }
+
+                $item = Item::query()->lockForUpdate()->find($itemId);
+                if (! $item) {
+                    continue;
+                }
+
+                $onHand = (float) $item->quantity_in_stock;
+                if ($delta > 0) {
+                    $err = StockPolicy::invoiceQtyError($item, $delta, $onHand, $company);
+                    if ($err) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'invoice' => $err,
+                        ]);
+                    }
+                }
+
+                $newQty = $onHand - $delta;
+                $item->update(['quantity_in_stock' => $newQty]);
+
+                InventoryJournalEntry::query()->create([
+                    'company_id' => $order->company_id,
+                    'item_id' => $item->id,
+                    'site_id' => $order->ship_from_site_id,
+                    'source_type' => Invoice::class,
+                    'source_id' => $invoice->id,
+                    'reference' => $invoice->invoice_number,
+                    'qty_change' => -$delta,
+                    'qty_after' => $newQty,
+                    'unit_cost' => $item->current_cost,
+                    'user_id' => auth()->id(),
+                    'notes' => 'Invoice revision '.$invoice->invoice_number.' (SO '.$order->order_number.')',
+                ]);
+            }
+        }
+
+        $this->syncAllocatedQty($itemIds);
+    }
+
+    /**
+     * After an invoiced order is edited, apply the qty difference to on-hand.
+     *
+     * @param  array<int, float>  $oldShippedByItemId
+     */
+    public function applyInvoiceRevisionStock(SalesOrder $order, array $oldShippedByItemId, Invoice $invoice): void
+    {
+        $this->applyOrderQtyRevision($order, $oldShippedByItemId, $invoice);
     }
 
     /**
@@ -472,10 +563,15 @@ class InventoryService
         }
 
         $allocated = SalesOrderLine::query()
-            ->selectRaw('sales_order_lines.item_id, SUM(GREATEST(COALESCE(sales_order_lines.qty_ordered,0) - COALESCE(sales_order_lines.qty_shipped,0), 0)) as qty')
+            ->selectRaw('sales_order_lines.item_id, SUM(COALESCE(sales_order_lines.qty_ordered, 0)) as qty')
             ->join('sales_orders', 'sales_orders.id', '=', 'sales_order_lines.sales_order_id')
             ->whereIn('sales_order_lines.item_id', $ids)
             ->whereNotIn('sales_orders.status', ['Invoiced', 'Cancelled', 'Closed', 'Void'])
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('invoices')
+                    ->whereColumn('invoices.sales_order_id', 'sales_orders.id');
+            })
             ->groupBy('sales_order_lines.item_id')
             ->pluck('qty', 'item_id');
 

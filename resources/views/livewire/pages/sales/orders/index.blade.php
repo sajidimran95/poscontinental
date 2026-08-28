@@ -202,12 +202,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        if ($order->status === 'Invoiced' || $order->invoice) {
-            session()->flash('status', 'Invoiced orders are locked and cannot be edited. Use View instead.');
-
-            return null;
-        }
-
         return $this->redirect(route('sales.orders.edit', $order), navigate: true);
     }
 

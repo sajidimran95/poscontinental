@@ -27,6 +27,7 @@ use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
@@ -36,6 +37,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /** View-only (same layout as edit, locked). */
     public bool $viewMode = false;
+
+    /** Query: ?from=invoices — Save/Cancel go back to the invoice list. */
+    #[Url]
+    public string $from = '';
 
     /** Create-mode multi-window id (?w=). */
     public ?string $createWindowId = null;
@@ -342,23 +347,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->viewMode = request()->routeIs('sales.orders.show');
+        if (request()->query('from') === 'invoices') {
+            $this->from = 'invoices';
+        }
         $companyId = auth()->user()->company_id;
 
         if ($salesOrder?->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
             $salesOrder->loadMissing('invoice');
-            if (! $this->viewMode && ($salesOrder->status === 'Invoiced' || $salesOrder->invoice)) {
-                session()->flash('status', 'Invoiced orders are locked and cannot be edited.');
-                $this->redirect(route('sales.orders.index'), navigate: true);
-
-                return;
-            }
             $this->salesOrder = $salesOrder->load(['lines.item', 'boxes', 'customer', 'invoice']);
             if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
                 $invNo = $salesOrder->invoice?->invoice_number;
                 $this->orderLockMessage = $invNo
-                    ? 'This sales order is invoiced (Invoice #'.$invNo.'). It is view-only and cannot be edited.'
-                    : 'This sales order is invoiced. It is view-only and cannot be edited.';
+                    ? 'This order is invoiced (#'.$invNo.'). Saving updates the invoice, totals, and stock.'
+                    : 'This order is invoiced. Saving updates the invoice, totals, and stock.';
             }
             $data = $salesOrder->only([
                 'order_number', 'order_type', 'status', 'priority', 'customer_id', 'ship_to_address_id',
@@ -668,8 +670,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->refreshCreditWarning();
     }
 
-    protected function finishCreateWindowAndRedirect(?string $fallbackRoute = 'sales.orders.index'): void
+    public function shouldReturnToInvoiceList(): bool
     {
+        return $this->from === 'invoices' || (bool) $this->salesOrder?->invoice;
+    }
+
+    protected function finishCreateWindowAndRedirect(?string $fallbackRoute = null): void
+    {
+        $fallbackRoute ??= $this->shouldReturnToInvoiceList() ? 'sales.invoices.index' : 'sales.orders.index';
+
         $windows = app(SalesOrderWindowManager::class);
         if ($this->createWindowId && $windows->has($this->createWindowId)) {
             $next = $windows->close($this->createWindowId);
@@ -769,6 +778,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->selectedStockRemaining = '';
     }
 
+    protected function orderQtyDeltaForItem(int $itemId): float
+    {
+        if ($itemId <= 0) {
+            return 0.0;
+        }
+
+        $current = 0.0;
+        foreach ($this->lines as $line) {
+            if ((int) ($line['item_id'] ?? 0) === $itemId) {
+                $current += (float) ($line['qty_ordered'] ?? 0);
+            }
+        }
+
+        $previous = 0.0;
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->loadMissing('lines');
+            $previous = (float) $this->salesOrder->lines
+                ->where('item_id', $itemId)
+                ->sum('qty_ordered');
+        }
+
+        return $current - $previous;
+    }
+
     protected function refreshSelectedLineStock(?int $index = null, ?Item $knownItem = null): void
     {
         $i = $index ?? $this->selectedLineIndex;
@@ -793,7 +826,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $onHand = (float) $item->quantity_in_stock;
         $allocated = (float) $item->allocated_qty;
-        $available = (float) $item->available_quantity;
         $orderedOnOrder = 0.0;
         foreach ($this->lines as $line) {
             if ((int) ($line['item_id'] ?? 0) === $itemId) {
@@ -801,14 +833,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
         }
 
-        // Unsaved order qty is not in allocated yet — show remaining after this order.
-        $remaining = $available - $orderedOnOrder;
-        if ($this->salesOrder?->exists) {
-            $this->salesOrder->loadMissing('lines');
-            $previousOnOrder = (float) $this->salesOrder->lines
-                ->where('item_id', $itemId)
-                ->sum('qty_ordered');
-            $remaining = $available - ($orderedOnOrder - $previousOnOrder);
+        $delta = $this->orderQtyDeltaForItem($itemId);
+        $invoiced = (bool) $this->salesOrder?->invoice;
+        if ($invoiced) {
+            $onHand -= $delta;
+            $available = $onHand - $allocated;
+        } else {
+            $allocated += $delta;
+            $available = $onHand - $allocated;
         }
 
         $this->selectedStockCode = (string) $item->item_code;
@@ -816,7 +848,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->selectedStockAllocated = number_format($allocated, 0);
         $this->selectedStockAvailable = number_format($available, 0);
         $this->selectedStockOrdered = number_format($orderedOnOrder, 0);
-        $this->selectedStockRemaining = number_format($remaining, 0);
+        $this->selectedStockRemaining = number_format($available, 0);
     }
 
     protected function syncLineContextHeader(?int $index = null): void
@@ -1162,8 +1194,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'pageTitle' => $this->viewMode
                 ? 'View Sales Order — '.($this->order_number ?: '—')
                 : ($this->salesOrder?->exists
-                    ? 'Edit Sales Order — '.$this->order_number
+                    ? (($this->salesOrder->invoice)
+                        ? 'Edit Invoice / Order — '.$this->order_number
+                        : 'Edit Sales Order — '.$this->order_number)
                     : 'New Sales Order'),
+            'returnToInvoiceList' => $this->shouldReturnToInvoiceList(),
             'salesReps' => $onGeneral
                 ? User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get()
                 : collect(),
@@ -1179,7 +1214,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'sites' => $onShipping
                 ? Site::query()->where('company_id', $companyId)->orderBy('code')->get()
                 : collect(),
-            'browseItems' => collect($this->browseRows),
+            'browseItems' => collect($this->browseRows)->map(function (array $row) {
+                $id = (int) ($row['id'] ?? 0);
+                $delta = $this->orderQtyDeltaForItem($id);
+                $onHand = (float) ($row['on_hand'] ?? 0);
+                $available = (float) ($row['available'] ?? 0);
+                $invoiced = (bool) $this->salesOrder?->invoice;
+                if ($invoiced) {
+                    $onHand -= $delta;
+                    $row['on_hand'] = $onHand;
+                    $row['available'] = $onHand;
+                } else {
+                    $row['available'] = $available - $delta;
+                }
+
+                return $row;
+            }),
             'browseCustomers' => $browseCustomers,
             'browseCategories' => $this->showBrowse
                 ? Category::query()
@@ -1737,6 +1787,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
         $this->browseHasMore = count($this->browseRows) < $this->browseTotal;
+    }
+
+    /**
+     * @param  list<int>  $itemIds
+     */
+    protected function refreshBrowseStockFromDatabase(array $itemIds): void
+    {
+        $ids = array_values(array_unique(array_filter($itemIds)));
+        if ($ids === [] || $this->browseRows === []) {
+            return;
+        }
+
+        $fresh = Item::query()
+            ->whereIn('id', $ids)
+            ->get(['id', 'quantity_in_stock', 'allocated_qty'])
+            ->keyBy('id');
+
+        foreach ($this->browseRows as $i => $row) {
+            $item = $fresh->get((int) ($row['id'] ?? 0));
+            if (! $item) {
+                continue;
+            }
+            $this->browseRows[$i]['on_hand'] = (float) $item->quantity_in_stock;
+            $this->browseRows[$i]['available'] = (float) $item->quantity_in_stock - (float) $item->allocated_qty;
+        }
     }
 
     /**
@@ -2794,6 +2869,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->refreshCreditWarning();
             $this->suggestTax();
             $this->notifyAlert($item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.', 'success');
+            $this->refreshSelectedLineStock($existingIndex, $item);
 
             return;
         }
@@ -3588,6 +3664,66 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->boxes = array_values($this->boxes) ?: [['box_number' => '', 'tracking_number' => '']];
     }
 
+    protected function syncLinkedInvoiceFromOrder(SalesOrder $order, float $oldInvoiceTotal): void
+    {
+        $invoice = $order->invoice;
+        if (! $invoice) {
+            return;
+        }
+
+        $invoice->loadMissing(['payments', 'credits']);
+        $lineDiscount = (float) $order->lines->sum('discount');
+        $newTotal = round((float) $order->total, 4);
+        $applied = (float) $invoice->payments->sum('amount') + (float) $invoice->credits->sum('amount');
+        if ($newTotal + 0.0001 < $applied) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Invoice total cannot be less than payments and credits already applied ($'.number_format($applied, 2).').',
+            ]);
+        }
+
+        $oldCustomerId = $invoice->customer_id ? (int) $invoice->customer_id : null;
+        $newCustomerId = $order->customer_id ? (int) $order->customer_id : null;
+
+        $invoice->update([
+            'customer_id' => $newCustomerId,
+            'subtotal' => $order->subtotal,
+            'total_discount' => $lineDiscount,
+            'trade_discount' => $order->trade_discount,
+            'freight' => $order->freight,
+            'miscellaneous' => $order->miscellaneous,
+            'tax' => $order->tax,
+            'invoice_total' => $newTotal,
+            'status' => ($newTotal - $applied) <= 0.0001 ? 'PAID' : 'NOT PAID',
+        ]);
+
+        if ($oldCustomerId && $oldCustomerId !== $newCustomerId) {
+            $oldCustomer = Customer::query()->lockForUpdate()->find($oldCustomerId);
+            if ($oldCustomer) {
+                $oldCustomer->update([
+                    'balance' => (float) $oldCustomer->balance - $oldInvoiceTotal,
+                ]);
+            }
+            if ($newCustomerId) {
+                $newCustomer = Customer::query()->lockForUpdate()->find($newCustomerId);
+                if ($newCustomer) {
+                    $newCustomer->update([
+                        'balance' => (float) $newCustomer->balance + $newTotal,
+                    ]);
+                }
+            }
+        } elseif ($newCustomerId) {
+            $delta = $newTotal - $oldInvoiceTotal;
+            if (abs($delta) > 0.0001) {
+                $customer = Customer::query()->lockForUpdate()->find($newCustomerId);
+                if ($customer) {
+                    $customer->update([
+                        'balance' => (float) $customer->balance + $delta,
+                    ]);
+                }
+            }
+        }
+    }
+
     public function save(): void
     {
         abort_if($this->viewMode, 403);
@@ -3596,11 +3732,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($this->salesOrder?->exists) {
             $this->salesOrder->refresh()->loadMissing('invoice');
-            if ($this->salesOrder->status === 'Invoiced' || $this->salesOrder->invoice) {
-                $this->addError('order_number', 'Invoiced orders cannot be changed.');
-
-                return;
-            }
         }
 
         try {
@@ -3657,14 +3788,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $previousByItem = [];
         if ($this->salesOrder?->exists) {
+            $this->salesOrder->loadMissing('lines');
             foreach ($this->salesOrder->lines as $prev) {
                 if (! $prev->item_id) {
                     continue;
                 }
-                $previousByItem[(int) $prev->item_id] = ($previousByItem[(int) $prev->item_id] ?? 0) + (float) $prev->qty_ordered;
+                $oldQty = (float) $prev->qty_ordered;
+                $shipped = (float) ($prev->qty_shipped ?? 0);
+                if ($shipped > 0) {
+                    $oldQty = $shipped;
+                }
+                $previousByItem[(int) $prev->item_id] = ($previousByItem[(int) $prev->item_id] ?? 0) + $oldQty;
             }
         }
 
+        $isInvoicedDoc = (bool) $this->salesOrder?->invoice;
         foreach ($neededByItem as $itemId => $needed) {
             $item = Item::query()->find($itemId);
             if (! $item) {
@@ -3673,13 +3811,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
                 return;
             }
-            $available = (float) $item->available_quantity + (float) ($previousByItem[$itemId] ?? 0);
-            $err = StockPolicy::orderQtyError($item, $needed, $available);
-            if ($err) {
-                $this->addError('lines', $err);
-                $this->activeTab = 'items';
+            $oldQty = (float) ($previousByItem[$itemId] ?? 0);
+            if ($isInvoicedDoc) {
+                $extra = $needed - $oldQty;
+                if ($extra > 0) {
+                    $err = StockPolicy::invoiceQtyError($item, $extra, (float) $item->quantity_in_stock);
+                    if ($err) {
+                        $this->addError('lines', $err);
+                        $this->activeTab = 'items';
 
-                return;
+                        return;
+                    }
+                }
+            } else {
+                $available = (float) $item->available_quantity + $oldQty;
+                $err = StockPolicy::orderQtyError($item, $needed, $available);
+                if ($err) {
+                    $this->addError('lines', $err);
+                    $this->activeTab = 'items';
+
+                    return;
+                }
             }
         }
 
@@ -3756,9 +3908,48 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $data['order_source'] = \App\Models\SalesOrder::SOURCE_POS;
         }
 
+        if ($this->salesOrder?->invoice) {
+            $data['status'] = 'Invoiced';
+        }
+
+        $previousItemIds = [];
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->loadMissing('lines');
+            $previousItemIds = $this->salesOrder->lines
+                ->pluck('item_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+        }
+
         $savedOrder = null;
-        DB::transaction(function () use (&$data, $companyId, &$savedOrder) {
+        DB::transaction(function () use (&$data, $companyId, &$savedOrder, $previousItemIds) {
+            $revisingInvoice = false;
+            $oldQtyByItem = [];
+            $oldInvoiceTotal = 0.0;
+            $linkedInvoice = null;
+
             if ($this->salesOrder) {
+                $this->salesOrder->load(['lines', 'invoice']);
+                $linkedInvoice = $this->salesOrder->invoice
+                    ?? Invoice::query()->where('sales_order_id', $this->salesOrder->id)->first();
+                $revisingInvoice = $linkedInvoice !== null;
+                if ($revisingInvoice) {
+                    $oldInvoiceTotal = (float) $linkedInvoice->invoice_total;
+                }
+                foreach ($this->salesOrder->lines as $oldLine) {
+                    if (! $oldLine->item_id) {
+                        continue;
+                    }
+                    $qty = (float) $oldLine->qty_ordered;
+                    $shipped = (float) ($oldLine->qty_shipped ?? 0);
+                    if ($shipped > 0) {
+                        $qty = $shipped;
+                    }
+                    $oldQtyByItem[(int) $oldLine->item_id] = ($oldQtyByItem[(int) $oldLine->item_id] ?? 0) + $qty;
+                }
                 $this->salesOrder->update($data);
                 $order = $this->salesOrder->fresh();
                 $order->lines()->delete();
@@ -3786,6 +3977,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     continue;
                 }
                 $qty = (float) $line['qty_ordered'];
+                if ($qty <= 0) {
+                    continue;
+                }
                 $price = (float) $line['price'];
                 $unitDiscount = (float) ($line['unit_discount'] ?? 0);
                 $discount = isset($line['unit_discount'])
@@ -3797,7 +3991,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'description' => $line['description'] ?: null,
                     'uom' => $line['uom'] ?: null,
                     'qty_ordered' => $qty,
-                    'qty_shipped' => (float) ($line['qty_shipped'] ?? 0),
+                    'qty_shipped' => $revisingInvoice ? $qty : 0,
                     'price' => $price,
                     'discount' => $discount,
                     'line_message' => $this->persistableLineMessage($line),
@@ -3819,9 +4013,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
 
             $savedOrder = $order->fresh(['lines', 'invoice']);
+            $invoiceForRevision = $savedOrder?->invoice ?? $linkedInvoice;
+            if ($savedOrder && $this->salesOrder) {
+                if ($invoiceForRevision) {
+                    $savedOrder->setRelation('invoice', $invoiceForRevision);
+                }
+                app(InventoryService::class)->applyOrderQtyRevision(
+                    $savedOrder,
+                    $oldQtyByItem,
+                    $revisingInvoice ? $invoiceForRevision : null
+                );
+                if ($revisingInvoice && $invoiceForRevision) {
+                    $this->syncLinkedInvoiceFromOrder($savedOrder, $oldInvoiceTotal);
+                }
+            }
         });
 
         $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
+        $itemIds = array_values(array_unique(array_merge($itemIds, $previousItemIds)));
         if ($savedOrder) {
             $itemIds = array_values(array_unique(array_merge(
                 $itemIds,
@@ -3854,6 +4063,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
         }
         app(InventoryService::class)->syncAllocatedQty($itemIds);
+        $this->refreshBrowseStockFromDatabase($itemIds);
+        $this->refreshSelectedLineStock();
+
+        if ($this->shouldReturnToInvoiceList()) {
+            session()->flash('status', 'Invoice updated.');
+            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            return;
+        }
 
         $this->dismissTransientOverlays();
         $this->showPrintDialog = true;
@@ -3864,7 +4082,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->notifyAlert(
             $isNewOrder
                 ? 'Order created. Choose print options, then OK.'
-                : 'Order saved. Choose print options, then OK.',
+                : ($this->salesOrder?->invoice
+                    ? 'Invoice and order saved. Stock and totals were updated.'
+                    : 'Order saved. Choose print options, then OK.'),
             'success'
         );
     }
@@ -4004,8 +4224,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             <div class="so-msg so-msg-info" role="status" x-data x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('status', $el)">{{ session('status') }}</div>
         @endif
         @if (filled($orderLockMessage))
-            <div class="so-msg so-msg-danger" role="alert">
-                <strong>Locked:</strong> {{ $orderLockMessage }}
+            <div class="so-msg so-msg-info" role="status">
+                {{ $orderLockMessage }}
             </div>
         @endif
         @if ($errors->any())
@@ -4346,6 +4566,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <div class="so-expand-main">
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
+                    @if ($selectedStockCode !== '')
+                        <div class="so-stock-bar" wire:key="so-stock-{{ $selectedStockCode }}-{{ $selectedStockAvailable }}">
+                            <span class="so-stock-code">{{ $selectedStockCode }}</span>
+                            <span>In stock <strong>{{ $selectedStockOnHand }}</strong></span>
+                            <span>Allocated <strong>{{ $selectedStockAllocated }}</strong></span>
+                            <span @class(['so-stock-remain', 'is-low' => (float) str_replace(',', '', $selectedStockAvailable) <= 0])>
+                                Available <strong>{{ $selectedStockAvailable }}</strong>
+                            </span>
+                            <span>On this order <strong>{{ $selectedStockOrdered }}</strong></span>
+                        </div>
+                    @endif
                     <div class="so-items-grid">
                         <table class="so-lines-table">
                             <colgroup>
@@ -4883,11 +5114,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             />
         </div>
         <div class="so-bottom-actions">
-            <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+            <a href="{{ $returnToInvoiceList ? route('sales.invoices.index') : route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
             @if ($viewMode && $salesOrder)
-                @if ($salesOrder->status !== 'Invoiced' && ! $salesOrder->invoice)
-                    <a href="{{ route('sales.orders.edit', $salesOrder) }}" wire:navigate class="so-btn-save">Edit Order</a>
-                @endif
+                <a href="{{ route('sales.orders.edit', $salesOrder) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" wire:navigate class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)

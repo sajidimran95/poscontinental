@@ -1627,7 +1627,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             <div class="so-lookup-row">
                                 <select id="tax_schedule_id" wire:model="tax_schedule_id" class="so-input">
                                     <option value="">—</option>
-                                    @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }}</option>@endforeach
+                                    @foreach ($taxSchedules as $t)<option value="{{ $t->id }}">{{ $t->name }} ({{ rtrim(rtrim(number_format((float) $t->rate, 4, '.', ''), '0'), '.') }}%)</option>@endforeach
                                 </select>
                                 @if (auth()->user()?->canAccessFeature('lookups', 'edit'))
                                     <a href="{{ route('lookups.index', ['activeLookup' => 'tax_schedules']) }}" wire:navigate class="desk-btn desk-btn-sm">+</a>

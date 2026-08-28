@@ -2780,8 +2780,8 @@
         font-size: 14px;
         color: #0f172a;
         min-width: 0;
-        max-width: 20rem;
-        flex: 0 1 16rem;
+        max-width: 24rem;
+        flex: 0 1 22rem;
         margin-left: auto;
     }
 
@@ -2838,6 +2838,72 @@
         -webkit-appearance: none;
         appearance: none;
         vertical-align: middle;
+    }
+
+    .so-totals-row.so-totals-tax {
+        align-items: flex-start;
+        white-space: normal;
+    }
+
+    .so-tax-edit {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.3rem;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .so-tax-edit__row {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .so-tax-edit__sched {
+        max-width: 12.5rem;
+        height: 1.7rem;
+        font-size: 12px;
+        padding: 0 0.35rem;
+    }
+
+    .so-tax-new {
+        width: 100%;
+        max-width: 16rem;
+        padding: 0.45rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+    }
+
+    .so-tax-new__grid {
+        display: grid;
+        grid-template-columns: 4.5rem 4.5rem;
+        gap: 0.35rem;
+    }
+
+    .so-tax-new__name {
+        grid-column: 1 / -1;
+    }
+
+    .so-tax-new label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+    }
+
+    .so-tax-new__err {
+        margin: 0;
+        font-size: 11px;
+        color: #b91c1c;
     }
 
     .so-totals-input:focus {

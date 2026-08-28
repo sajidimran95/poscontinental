@@ -12,6 +12,7 @@ use App\Models\SalesOrder;
 use App\Models\ShipVia;
 use App\Models\Site;
 use App\Models\Subcategory;
+use App\Models\TaxSchedule;
 use App\Models\User;
 use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
@@ -279,6 +280,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public string $shipToFlash = '';
 
     public bool $taxManual = false;
+
+    public ?int $orderTaxScheduleId = null;
+
+    public bool $showNewTaxSchedule = false;
+
+    public string $newTaxRate = '';
+
+    public string $newTaxName = '';
+
+    public string $newTaxCode = '';
 
     public float $pendingTradePercent = 0;
 
@@ -623,7 +634,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'sales_rep_id', 'payment_term_id', 'route_id', 'ship_via_id', 'ship_from_site_id', 'ship_date',
             'no_of_boxes', 'no_of_pallets',
             'custom_field_1', 'custom_field_2', 'custom_field_3', 'custom_field_4', 'custom_field_5',
-            'comments', 'freight', 'trade_discount', 'miscellaneous', 'tax', 'taxManual',
+            'comments', 'freight', 'trade_discount', 'miscellaneous', 'tax', 'taxManual', 'orderTaxScheduleId',
             'lines', 'boxes', 'customerAlert', 'creditWarning', 'taxExemptWarning',
         ];
     }
@@ -1206,6 +1217,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
             'parkedCount' => app(ParkedSaleService::class)->listFor(auth()->user())->count(),
+            'taxSchedules' => TaxSchedule::query()
+                ->where('company_id', $companyId)
+                ->where('is_active', true)
+                ->orderBy('rate')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'rate']),
             'canChangePrice' => $this->userCanChangeOrderPrice(),
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'oversellingOn' => StockPolicy::allowsNegativeStock(),
@@ -2090,7 +2107,86 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function markTaxManual(): void
     {
         $this->taxManual = true;
+        $this->orderTaxScheduleId = null;
         $this->refreshCreditWarning();
+    }
+
+    public function updatedOrderTaxScheduleId($value): void
+    {
+        $this->taxManual = false;
+        $this->orderTaxScheduleId = $value !== null && $value !== '' ? (int) $value : null;
+        $this->suggestTax();
+        $this->refreshCreditWarning();
+    }
+
+    public function toggleNewTaxSchedule(): void
+    {
+        $this->showNewTaxSchedule = ! $this->showNewTaxSchedule;
+        $this->resetErrorBag(['newTaxRate', 'newTaxName', 'newTaxCode']);
+        if ($this->showNewTaxSchedule && $this->newTaxRate === '') {
+            $this->newTaxRate = '6';
+            $this->newTaxName = '6% Sales Tax';
+            $this->newTaxCode = 'T6';
+        }
+    }
+
+    public function updatedNewTaxRate($value): void
+    {
+        $rate = (float) str_replace(['%', ','], '', (string) $value);
+        if ($rate < 0) {
+            $rate = 0;
+        }
+        $label = rtrim(rtrim(number_format($rate, 4, '.', ''), '0'), '.');
+        if ($this->newTaxName === '' || preg_match('/^\d/', $this->newTaxName) || str_ends_with($this->newTaxName, 'Sales Tax')) {
+            $this->newTaxName = $label.'% Sales Tax';
+        }
+        $codeRate = str_replace('.', '_', $label);
+        if ($this->newTaxCode === '' || str_starts_with($this->newTaxCode, 'T')) {
+            $this->newTaxCode = 'T'.$codeRate;
+        }
+    }
+
+    public function saveNewTaxSchedule(): void
+    {
+        if ($this->viewMode) {
+            return;
+        }
+        $this->validate([
+            'newTaxRate' => 'required|numeric|min:0|max:100',
+            'newTaxName' => 'required|string|max:255',
+            'newTaxCode' => 'required|string|max:32',
+        ], [], [
+            'newTaxRate' => 'tax %',
+            'newTaxName' => 'schedule name',
+            'newTaxCode' => 'code',
+        ]);
+
+        $companyId = (int) auth()->user()->company_id;
+        $code = strtoupper(trim($this->newTaxCode));
+        $exists = TaxSchedule::query()->where('company_id', $companyId)->where('code', $code)->exists();
+        if ($exists) {
+            $this->addError('newTaxCode', 'This tax code already exists in Tax Schedules.');
+
+            return;
+        }
+
+        $row = TaxSchedule::query()->create([
+            'company_id' => $companyId,
+            'code' => $code,
+            'name' => trim($this->newTaxName),
+            'rate' => round((float) $this->newTaxRate, 4),
+            'is_active' => true,
+        ]);
+
+        $this->orderTaxScheduleId = $row->id;
+        $this->taxManual = false;
+        $this->showNewTaxSchedule = false;
+        $this->newTaxRate = '';
+        $this->newTaxName = '';
+        $this->newTaxCode = '';
+        $this->suggestTax();
+        $this->refreshCreditWarning();
+        session()->flash('status', 'Tax schedule '.$row->code.' ('.$row->rate.'%) saved. Same list as Lookups → Tax Schedules.');
     }
 
     public function updatedLines($value = null, $key = null): void
@@ -2480,25 +2576,33 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($filled->isEmpty()) {
             return;
         }
-        $itemIds = $filled->pluck('item_id')->filter()->unique()->all();
-        $items = Item::query()->with('taxSchedule')->whereIn('id', $itemIds)->get()->keyBy('id');
-        $taxable = 0.0;
-        $weighted = 0.0;
-        foreach ($filled as $line) {
-            $item = $items->get($line['item_id']);
-            $rate = (float) ($item?->taxSchedule?->rate ?? 0);
-            $lineNet = ((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'];
-            $taxable += $lineNet;
-            $weighted += $lineNet * ($rate / 100);
-        }
-        $taxable = max(0, $taxable - (float) $this->trade_discount);
+        $gross = $filled->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+        $taxable = max(0, $gross - (float) $this->trade_discount);
         if ($taxable <= 0) {
             $this->tax = '';
 
             return;
         }
-        // Scale suggested tax after trade discount proportionally
-        $gross = $filled->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
+
+        if ($this->orderTaxScheduleId) {
+            $sched = TaxSchedule::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->find($this->orderTaxScheduleId);
+            $rate = (float) ($sched?->rate ?? 0);
+            $this->tax = $this->formatMoney(number_format($taxable * ($rate / 100), 2, '.', ''));
+
+            return;
+        }
+
+        $itemIds = $filled->pluck('item_id')->filter()->unique()->all();
+        $items = Item::query()->with('taxSchedule')->whereIn('id', $itemIds)->get()->keyBy('id');
+        $weighted = 0.0;
+        foreach ($filled as $line) {
+            $item = $items->get($line['item_id']);
+            $rate = (float) ($item?->taxSchedule?->rate ?? 0);
+            $lineNet = ((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'];
+            $weighted += $lineNet * ($rate / 100);
+        }
         $suggested = $gross > 0 ? $weighted * ($taxable / $gross) : 0;
         $this->tax = $this->formatMoney(number_format($suggested, 2, '.', ''));
     }
@@ -2932,6 +3036,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->miscellaneous = '';
         $this->tax = '';
         $this->taxManual = false;
+        $this->orderTaxScheduleId = null;
         $this->custom_field_1 = '';
         $this->custom_field_2 = '';
         $this->custom_field_3 = '';
@@ -4587,9 +4692,47 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <span class="so-totals-lbl">Miscellaneous:</span>
                             <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="miscellaneous" wire:keydown.up.prevent="nudgeAmount('miscellaneous', 1)" wire:keydown.down.prevent="nudgeAmount('miscellaneous', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
                         </div>
-                        <div class="so-totals-row">
+                        <div class="so-totals-row so-totals-tax">
                             <span class="so-totals-lbl">Tax:</span>
-                            <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" wire:keydown.up.prevent="nudgeAmount('tax', 1)" wire:keydown.down.prevent="nudgeAmount('tax', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                            <div class="so-tax-edit">
+                                <div class="so-tax-edit__row">
+                                    <select
+                                        id="orderTaxScheduleId"
+                                        wire:model.live="orderTaxScheduleId"
+                                        class="so-input so-tax-edit__sched"
+                                        @disabled($viewMode)
+                                        aria-label="Tax percent schedule"
+                                    >
+                                        <option value="">Item rates / type $</option>
+                                        @foreach ($taxSchedules as $ts)
+                                            <option value="{{ $ts->id }}">{{ rtrim(rtrim(number_format((float) $ts->rate, 4, '.', ''), '0'), '.') }}% — {{ $ts->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    @unless ($viewMode)
+                                        <button type="button" class="desk-btn desk-btn-sm" wire:click="toggleNewTaxSchedule" title="Add a tax % (Tax Schedules)">+</button>
+                                    @endunless
+                                </div>
+                                <label class="so-totals-amt">$<input type="text" inputmode="decimal" wire:model.live="tax" wire:change="markTaxManual" wire:keydown.up.prevent="nudgeAmount('tax', 1)" wire:keydown.down.prevent="nudgeAmount('tax', -1)" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                                @if ($showNewTaxSchedule && ! $viewMode)
+                                    <div class="so-tax-new">
+                                        <div class="so-tax-new__grid">
+                                            <label>Rate %
+                                                <input type="text" inputmode="decimal" wire:model.live="newTaxRate" class="so-input" placeholder="6">
+                                            </label>
+                                            <label>Code
+                                                <input type="text" wire:model="newTaxCode" class="so-input" placeholder="T6" maxlength="32">
+                                            </label>
+                                            <label class="so-tax-new__name">Name
+                                                <input type="text" wire:model="newTaxName" class="so-input" placeholder="6% Sales Tax">
+                                            </label>
+                                        </div>
+                                        @error('newTaxRate') <p class="so-tax-new__err">{{ $message }}</p> @enderror
+                                        @error('newTaxCode') <p class="so-tax-new__err">{{ $message }}</p> @enderror
+                                        @error('newTaxName') <p class="so-tax-new__err">{{ $message }}</p> @enderror
+                                        <button type="button" class="desk-btn desk-btn-primary desk-btn-sm" wire:click="saveNewTaxSchedule">Save % to Tax Schedules</button>
+                                    </div>
+                                @endif
+                            </div>
                         </div>
                         <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                     </div>

@@ -135,7 +135,7 @@ class CreateSalesOrderFromRep
 
         foreach (array_values($lines) as $i => $line) {
             $item = Item::query()
-                ->with('prices')
+                ->with(['prices', 'taxSchedule'])
                 ->where('company_id', $rep->company_id)
                 ->where('item_code', $line['item_code'])
                 ->where('is_inactive', false)
@@ -172,6 +172,7 @@ class CreateSalesOrderFromRep
         }
 
         $subtotal = 0.0;
+        $weightedTax = 0.0;
         foreach ($resolved as $row) {
             /** @var Item $item */
             $item = $row['item'];
@@ -184,6 +185,8 @@ class CreateSalesOrderFromRep
 
             $lineTotal = round($qty * $price, 4);
             $subtotal += $lineTotal;
+            $rate = (float) ($item->taxSchedule?->rate ?? 0);
+            $weightedTax += $lineTotal * ($rate / 100);
 
             $order->lines()->create([
                 'item_id' => $item->id,
@@ -199,9 +202,11 @@ class CreateSalesOrderFromRep
             ]);
         }
 
+        $tax = round($weightedTax, 2);
         $order->update([
             'subtotal' => $subtotal,
-            'total' => $subtotal,
+            'tax' => $tax,
+            'total' => $subtotal + $tax,
         ]);
     }
 }

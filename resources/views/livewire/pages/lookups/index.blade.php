@@ -32,6 +32,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public string $name = '';
 
+    public string $rate = '';
+
     public string $base_uom = '';
 
     public ?int $parent_id = null;
@@ -145,6 +147,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 'customer_categories' => 'Customer form → Category (Retail, Convenience, Chain…). Not inventory categories.',
                 'lead_sources' => 'Customer form → Lead Source (Walk-in, Sales Call, Referral…).',
                 'account_types' => 'Customer form → Account Type (Cash, Open Account, COD…).',
+                'tax_schedules' => 'Tax percent used on items and sales orders (example: 6 for 6%). Add it here, then pick it on the item Tax Schedule or on the sales order Tax dropdown.',
                 default => 'Shared setup values used across sales and inventory screens.',
             },
         ];
@@ -155,6 +158,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         return [
             'code' => 'code',
             'name' => 'name',
+            'rate' => 'rate',
             'is_active' => 'is_active',
             'base_uom' => 'base_uom',
             'department' => ['relation' => 'department', 'column' => 'name'],
@@ -170,7 +174,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         $this->activeLookup = $key;
         $this->sortField = '';
         $this->sortDir = 'asc';
-        $this->reset('code', 'name', 'base_uom', 'parent_id');
+        $this->reset('code', 'name', 'base_uom', 'parent_id', 'rate');
         $this->resetErrorBag();
     }
 
@@ -190,6 +194,9 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         ];
         if ($this->activeLookup === 'uom_schedules') {
             $rules['base_uom'] = 'required|string|max:16';
+        }
+        if ($this->activeLookup === 'tax_schedules') {
+            $rules['rate'] = 'required|numeric|min:0|max:100';
         }
 
         $this->validate($rules, [
@@ -228,7 +235,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 'is_active' => true,
             ]);
 
-            $this->reset('code', 'name', 'base_uom', 'parent_id');
+            $this->reset('code', 'name', 'base_uom', 'parent_id', 'rate');
             session()->flash('status', 'Saved. It will appear on the Customer form.');
 
             return;
@@ -263,10 +270,13 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         if ($this->activeLookup === 'uom_schedules') {
             $payload['base_uom'] = strtoupper(trim($this->base_uom));
         }
+        if ($this->activeLookup === 'tax_schedules') {
+            $payload['rate'] = round((float) $this->rate, 4);
+        }
 
         $map[$this->activeLookup]::query()->create($payload);
 
-        $this->reset('code', 'name', 'base_uom', 'parent_id');
+        $this->reset('code', 'name', 'base_uom', 'parent_id', 'rate');
         session()->flash('status', 'Saved successfully. It will appear on the Item form dropdowns.');
     }
 }; ?>
@@ -355,6 +365,14 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 </div>
             @endif
 
+            @if ($activeLookup === 'tax_schedules')
+                <div>
+                    <label class="desk-toolbar-label" for="rate">Rate %</label>
+                    <input id="rate" type="text" inputmode="decimal" wire:model="rate" class="desk-search" style="width:6.5rem" placeholder="6" />
+                    @error('rate') <p class="text-xs text-red-700 mt-1" role="alert">{{ $message }}</p> @enderror
+                </div>
+            @endif
+
             <button type="submit" class="desk-btn desk-btn-primary">Add {{ $listTitle === 'Sub Categories' ? 'Sub Category' : (str_ends_with($listTitle, 's') ? rtrim($listTitle, 's') : $listTitle) }}</button>
         </form>
         @endif
@@ -365,6 +383,9 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                     <tr>
                         <x-desk-sort-th field="code" label="Code" />
                         <x-desk-sort-th field="name" label="Name" />
+                        @if ($activeLookup === 'tax_schedules')
+                            <x-desk-sort-th field="rate" label="Rate %" align="right" />
+                        @endif
                         @if ($activeLookup === 'uom_schedules')
                             <x-desk-sort-th field="base_uom" label="Base U of M" />
                         @endif
@@ -382,6 +403,9 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                         <tr>
                             <td class="desk-num">{{ $row->code }}</td>
                             <td>{{ $row->name }}</td>
+                            @if ($activeLookup === 'tax_schedules')
+                                <td class="desk-money">{{ rtrim(rtrim(number_format((float) ($row->rate ?? 0), 4, '.', ''), '0'), '.') }}%</td>
+                            @endif
                             @if ($activeLookup === 'uom_schedules')
                                 <td class="desk-num">{{ $row->base_uom ?: '—' }}</td>
                             @endif

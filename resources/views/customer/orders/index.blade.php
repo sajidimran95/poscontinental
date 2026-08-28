@@ -14,7 +14,23 @@
             <div class="font-extrabold text-red-600">{{ $initials }}</div>
             <div class="text-sm text-slate-600 mt-1">{{ \Carbon\Carbon::parse($order->transaction_date)->format('m/d/Y') }}</div>
             <div class="text-sm text-slate-600">Order #{{ $order->invoice_no }}</div>
-            <div class="mt-1"><span class="ca-badge ca-badge--partial">{{ $order->sourceLabel() }}</span></div>
+            <div class="mt-1 flex flex-wrap gap-1.5">
+                @if(($order->sale_status ?? '') === 'invoiced')
+                    <span class="ca-badge ca-badge--partial">Invoiced</span>
+                    @if(!empty($order->converted_invoice_no))
+                        <span class="ca-badge">Inv {{ $order->converted_invoice_no }}</span>
+                    @endif
+                    @if(($order->invoice_pay_status ?? '') === 'PAID')
+                        <span class="ca-badge ca-badge--paid">PAID</span>
+                    @elseif(($order->invoice_pay_status ?? '') === 'PARTIAL')
+                        <span class="ca-badge ca-badge--partial">PARTIAL</span>
+                    @else
+                        <span class="ca-badge ca-badge--due">UNPAID</span>
+                    @endif
+                @else
+                    <span class="ca-badge ca-badge--partial">{{ $order->sourceLabel() }}</span>
+                @endif
+            </div>
             <div class="text-sm font-bold mt-1 tabular-nums">${{ number_format($order->final_total, 2) }}</div>
         </div>
         <div class="grid grid-cols-3 border-t border-slate-100 text-sm font-bold">

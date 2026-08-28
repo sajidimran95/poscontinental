@@ -186,7 +186,7 @@ class CustomerPortalController extends Controller
         $status = (string) $request->get('status', '');
 
         $orders = SalesOrder::query()
-            ->with(['customer', 'invoice'])
+            ->with(['customer', 'invoice.payments', 'invoice.credits'])
             ->where('customer_id', $customer->id)
             ->when($q !== '', fn ($query) => $query->where('order_number', 'like', '%'.$q.'%'))
             ->when($status === 'return', fn ($query) => $query->where('order_type', 'Return'))
@@ -213,26 +213,17 @@ class CustomerPortalController extends Controller
 
         return view('customer.orders.show', [
             'order' => $salesOrder,
-            'amounts' => [
-                'subtotal' => (float) $salesOrder->subtotal,
-                'discount' => (float) $salesOrder->trade_discount,
-                'discount_label' => 'Discount',
-                'tax' => (float) $salesOrder->tax,
-                'shipping' => (float) $salesOrder->freight,
-                'packing' => (float) $salesOrder->miscellaneous,
-                'packing_label' => 'Misc',
-                'extras' => [],
-                'total' => (float) $salesOrder->total,
-                'show_paid' => false,
-                'paid' => 0,
-                'due' => (float) $salesOrder->total,
-            ],
+            'amounts' => $salesOrder->portalAmounts(),
         ]);
     }
 
     public function downloadInvoice(SalesOrder $salesOrder, DocumentPdfService $pdfs)
     {
         abort_unless((int) $salesOrder->customer_id === (int) $this->customer()->id, 403);
+        $salesOrder->loadMissing('invoice');
+        if ($salesOrder->invoice) {
+            return $pdfs->streamInvoice($salesOrder->invoice);
+        }
 
         return $pdfs->streamSalesOrderInvoiceStyle($salesOrder, $this->actingRep($this->customer()));
     }
@@ -440,7 +431,7 @@ class CustomerPortalController extends Controller
 
     protected function presentOrder(SalesOrder $order): SalesOrder
     {
-        $order->loadMissing(['customer', 'lines.item', 'invoice']);
+        $order->loadMissing(['customer', 'lines.item', 'invoice.payments', 'invoice.credits']);
         $this->presentContact($order->customer ?? $this->customer());
         $order->setRelation('contact', $order->customer);
         $order->invoice_no = $order->order_number;
@@ -451,9 +442,7 @@ class CustomerPortalController extends Controller
         $order->can_show_edit = false;
         $invoiced = (bool) $order->invoice;
         $order->sale_status = $invoiced ? 'invoiced' : ((string) $order->order_type === 'Return' ? 'return' : 'sale');
-        if ($order->invoice) {
-            $order->converted_invoice_no = $order->invoice->invoice_number;
-        }
+        $order->applyInvoiceForPortal();
         foreach ($order->lines as $line) {
             $line->quantity = (float) $line->qty_ordered;
             $line->unit_price_inc_tax = (float) $line->price;

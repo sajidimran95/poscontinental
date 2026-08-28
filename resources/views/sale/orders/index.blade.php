@@ -64,6 +64,9 @@
             <div class="sale-order-row__meta shrink-0">
                 <div class="font-extrabold tabular-nums">${{ number_format($order->sale_display_total ?? $order->final_total, 2) }}</div>
                 <span class="sale-badge {{ $badge }} mt-1">{{ $badgeLabel }}</span>
+                @if(($order->sale_status ?? '') === 'invoiced' && !empty($order->invoice_pay_status))
+                    <span class="sale-badge mt-1 {{ $order->invoice_pay_status === 'PAID' ? 'sale-badge--completed' : ($order->invoice_pay_status === 'PARTIAL' ? 'sale-badge--ordered' : 'sale-badge--draft') }}">{{ $order->invoice_pay_status }}</span>
+                @endif
             </div>
             <div class="sale-order-actions">
                 <a href="{{ route('sale.orders.show', $order->id) }}" class="sale-act sale-act--view" title="View">View</a>

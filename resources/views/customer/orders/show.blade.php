@@ -10,6 +10,18 @@
         <h1 class="text-2xl font-extrabold">View Order</h1>
         <div class="text-sm text-slate-500 font-semibold">{{ $initials }}</div>
         <div class="text-xs text-slate-400 font-semibold mt-0.5">#{{ $order->invoice_no }} · {{ \Carbon\Carbon::parse($order->transaction_date)->format('M d, Y') }}</div>
+        @if(!empty($order->converted_invoice_no))
+            <div class="mt-2 flex flex-wrap gap-1.5">
+                <span class="ca-badge ca-badge--partial">Invoiced {{ $order->converted_invoice_no }}</span>
+                @if(($order->invoice_pay_status ?? '') === 'PAID')
+                    <span class="ca-badge ca-badge--paid">PAID</span>
+                @elseif(($order->invoice_pay_status ?? '') === 'PARTIAL')
+                    <span class="ca-badge ca-badge--partial">PARTIAL</span>
+                @else
+                    <span class="ca-badge ca-badge--due">UNPAID</span>
+                @endif
+            </div>
+        @endif
     </div>
     <div class="flex items-center gap-2 flex-shrink-0">
         <a href="{{ route('customer.orders.invoice', $order->id) }}" class="inline-flex w-10 h-10 items-center justify-center rounded-full bg-rose-50 text-rose-600" title="Invoice">
@@ -55,5 +67,9 @@
     <div class="flex justify-between font-extrabold text-base pt-2 border-t border-slate-100">
         <span>Total</span><span class="text-red-600 tabular-nums">${{ number_format($a['total'] ?? $order->final_total, 2) }}</span>
     </div>
+    @if(!empty($a['show_paid']))
+        <div class="flex justify-between"><span class="text-slate-500 font-semibold">Paid</span><span class="font-bold tabular-nums">${{ number_format($a['paid'] ?? 0, 2) }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500 font-semibold">Due</span><span class="font-bold tabular-nums">${{ number_format($a['due'] ?? 0, 2) }}</span></div>
+    @endif
 </div>
 @endsection

@@ -99,7 +99,7 @@ class SalePortalController extends Controller
 
     protected function presentOrder(SalesOrder $order, User $user): SalesOrder
     {
-        $order->loadMissing(['customer', 'lines.item', 'invoice']);
+        $order->loadMissing(['customer', 'lines.item', 'invoice.payments', 'invoice.credits']);
         $this->presentContact($order->customer);
         $order->setRelation('contact', $order->customer);
         $order->invoice_no = $order->order_number;
@@ -123,11 +123,8 @@ class SalePortalController extends Controller
         ])->filter()->implode("\n");
         $order->shipping_method = $order->shipVia?->name;
         $order->shipping_status = null;
-        if ($order->invoice) {
-            $order->converted_invoice_no = $order->invoice->invoice_number;
-        }
-
         $invoiced = (bool) $order->invoice;
+        $order->applyInvoiceForPortal();
         $type = (string) $order->order_type;
         if ($invoiced) {
             $order->sale_status = 'invoiced';
@@ -154,20 +151,7 @@ class SalePortalController extends Controller
 
     protected function orderAmounts(SalesOrder $order): array
     {
-        return [
-            'subtotal' => (float) $order->subtotal,
-            'discount' => (float) $order->trade_discount,
-            'discount_label' => 'Discount',
-            'tax' => (float) $order->tax,
-            'shipping' => (float) $order->freight,
-            'packing' => (float) $order->miscellaneous,
-            'packing_label' => 'Misc',
-            'extras' => [],
-            'total' => (float) $order->total,
-            'show_paid' => false,
-            'paid' => 0,
-            'due' => (float) $order->total,
-        ];
+        return $order->portalAmounts();
     }
 
     protected function saleOrderType(?string $mode): string
@@ -457,7 +441,7 @@ class SalePortalController extends Controller
         $status = (string) $request->get('status', '');
 
         $orders = SalesRepScope::salesOrdersQuery($user)
-            ->with(['customer', 'invoice'])
+            ->with(['customer', 'invoice.payments', 'invoice.credits'])
             ->when($q !== '', function ($query) use ($q) {
                 $term = '%'.$q.'%';
                 $query->where(function ($inner) use ($term) {
@@ -498,6 +482,10 @@ class SalePortalController extends Controller
     {
         $user = $this->user();
         SalesRepScope::assertOrderAccess($user, $salesOrder);
+        $salesOrder->loadMissing('invoice');
+        if ($salesOrder->invoice) {
+            return $pdfs->streamInvoice($salesOrder->invoice);
+        }
 
         return $pdfs->streamSalesOrderInvoiceStyle($salesOrder, $user);
     }

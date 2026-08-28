@@ -143,4 +143,83 @@ class SalesOrder extends Model
             default => 'POS Sale',
         };
     }
+
+    /**
+     * Overlay admin invoice totals/status so customer and sales apps show the latest invoice.
+     */
+    public function applyInvoiceForPortal(): self
+    {
+        $this->loadMissing(['invoice.payments', 'invoice.credits']);
+        $inv = $this->invoice;
+        if (! $inv) {
+            $this->invoice_pay_status = null;
+            $this->portal_paid = 0.0;
+            $this->portal_due = (float) $this->total;
+
+            return $this;
+        }
+
+        $paid = round((float) $inv->total_payments + (float) $inv->total_credits, 2);
+        $total = round((float) $inv->invoice_total, 2);
+        $due = round(max(0, $total - $paid), 2);
+
+        $this->converted_invoice_no = $inv->invoice_number;
+        $this->final_total = $total;
+        $this->sale_display_total = $total;
+        $this->sale_status = 'invoiced';
+        $this->portal_paid = $paid;
+        $this->portal_due = $due;
+
+        if ($due <= 0.0001) {
+            $this->invoice_pay_status = 'PAID';
+        } elseif ($paid > 0.0001) {
+            $this->invoice_pay_status = 'PARTIAL';
+        } else {
+            $this->invoice_pay_status = 'UNPAID';
+        }
+
+        return $this;
+    }
+
+    public function portalAmounts(): array
+    {
+        $inv = $this->relationLoaded('invoice') ? $this->invoice : $this->invoice()->with(['payments', 'credits'])->first();
+
+        if ($inv) {
+            $paid = (float) ($this->portal_paid ?? ((float) $inv->total_payments + (float) $inv->total_credits));
+            $total = (float) $inv->invoice_total;
+
+            return [
+                'subtotal' => (float) $inv->subtotal,
+                'discount' => (float) $inv->trade_discount,
+                'discount_label' => 'Discount',
+                'tax' => (float) $inv->tax,
+                'shipping' => (float) $inv->freight,
+                'packing' => (float) $inv->miscellaneous,
+                'packing_label' => 'Misc',
+                'extras' => [],
+                'total' => $total,
+                'show_paid' => true,
+                'paid' => $paid,
+                'due' => (float) ($this->portal_due ?? max(0, round($total - $paid, 2))),
+            ];
+        }
+
+        $total = (float) $this->total;
+
+        return [
+            'subtotal' => (float) $this->subtotal,
+            'discount' => (float) $this->trade_discount,
+            'discount_label' => 'Discount',
+            'tax' => (float) $this->tax,
+            'shipping' => (float) $this->freight,
+            'packing' => (float) $this->miscellaneous,
+            'packing_label' => 'Misc',
+            'extras' => [],
+            'total' => $total,
+            'show_paid' => false,
+            'paid' => 0,
+            'due' => $total,
+        ];
+    }
 }

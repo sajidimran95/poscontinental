@@ -35,6 +35,11 @@
                 </div>
                 <span class="sale-badge {{ $badge }} shrink-0">{{ $badgeLabel }}</span>
             </div>
+            @if(($order->sale_status ?? '') === 'invoiced' && !empty($order->invoice_pay_status))
+                <div class="mt-2">
+                    <span class="sale-badge {{ $order->invoice_pay_status === 'PAID' ? 'sale-badge--completed' : ($order->invoice_pay_status === 'PARTIAL' ? 'sale-badge--ordered' : 'sale-badge--draft') }}">{{ $order->invoice_pay_status }}</span>
+                </div>
+            @endif
         </div>
 
         <div class="sale-card">

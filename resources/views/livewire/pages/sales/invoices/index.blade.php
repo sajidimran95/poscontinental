@@ -27,6 +27,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     #[Url]
     public string $statusFilter = '';
 
+    #[Url]
+    public ?int $pay = null;
+
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
@@ -58,6 +61,21 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public bool $showInvoiceDeliveryDialog = false;
 
     public string $invoiceDeliveryMode = 'print';
+
+    public function mount(): void
+    {
+        if ($this->pay) {
+            $id = (int) $this->pay;
+            $this->pay = null;
+            $ok = Invoice::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->whereKey($id)
+                ->exists();
+            if ($ok) {
+                $this->openPayments($id);
+            }
+        }
+    }
 
     public function with(): array
     {

@@ -723,6 +723,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <td wire:click.stop>
                                         @if ($order->status !== 'Invoiced')
                                             <button type="button" wire:click="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                        @elseif ($order->customer_id && (auth()->user()?->canAccessFeature('sales.credit_memos', 'edit') ?? false))
+                                            <a
+                                                href="{{ route('sales.credit-memos.index', ['new' => 1, 'customer_id' => $order->customer_id, 'sales_order_id' => $orderId]) }}"
+                                                class="desk-btn desk-btn-sm"
+                                                wire:click.stop
+                                            >Return</a>
                                         @endif
                                     </td>
                                 </tr>
@@ -780,6 +786,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     @endif
                                     @if ($order->status !== 'Invoiced')
                                         <button type="button" wire:click.stop="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                    @elseif ($order->customer_id && (auth()->user()?->canAccessFeature('sales.credit_memos', 'edit') ?? false))
+                                        <a href="{{ route('sales.credit-memos.index', ['new' => 1, 'customer_id' => $order->customer_id, 'sales_order_id' => $orderId]) }}" class="desk-btn desk-btn-sm" wire:click.stop>Return</a>
                                     @endif
                                 </div>
                             </article>

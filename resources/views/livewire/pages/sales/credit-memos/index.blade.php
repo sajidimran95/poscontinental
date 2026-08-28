@@ -166,9 +166,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 : collect(),
             'browseOrders' => ($this->showOrderBrowse && $this->customer_id)
                 ? SalesOrder::query()
-                    ->with('invoice:id,sales_order_id,invoice_number,status')
+                    ->with('invoice:id,sales_order_id,invoice_number,status,invoice_total')
                     ->where('company_id', $companyId)
                     ->where('customer_id', $this->customer_id)
+                    ->where(function ($q) {
+                        $q->where('status', 'Invoiced')
+                            ->orWhereHas('invoice');
+                    })
                     ->when(filled($this->orderBrowseSearch), function ($q) {
                         $term = '%'.$this->orderBrowseSearch.'%';
                         $q->where(function ($inner) use ($term) {
@@ -410,6 +414,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     public function mount(): void
     {
         $customerId = request()->integer('customer_id') ?: null;
+        $orderId = request()->integer('sales_order_id') ?: null;
         $openNew = request()->boolean('new');
 
         if ($openNew) {
@@ -421,6 +426,11 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     ->exists();
                 if ($exists) {
                     $this->customer_id = $customerId;
+                    if ($orderId > 0) {
+                        $this->pickOrder($orderId);
+                    } else {
+                        $this->openOrderBrowse();
+                    }
                 }
             }
         }
@@ -645,6 +655,11 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             ->where('customer_id', $this->customer_id)
             ->find($orderId);
         if (! $order) {
+            return;
+        }
+        if ($order->status !== 'Invoiced' && ! $order->invoice) {
+            session()->flash('status', 'Return only from invoiced sales. Invoice the order first.');
+
             return;
         }
 
@@ -1004,12 +1019,18 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
         if ($this->sales_order_id) {
             $orderOk = SalesOrder::query()
+                ->with('invoice')
                 ->where('company_id', auth()->user()->company_id)
                 ->where('customer_id', $this->customer_id)
                 ->whereKey($this->sales_order_id)
-                ->exists();
+                ->first();
             if (! $orderOk) {
                 $this->addError('sales_order_id', 'Selected order does not belong to this customer.');
+
+                return;
+            }
+            if ($orderOk->status !== 'Invoiced' && ! $orderOk->invoice) {
+                $this->addError('sales_order_id', 'Return only against an invoiced sales order.');
 
                 return;
             }
@@ -1261,7 +1282,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         </p>
                         <label class="entity-check cm-restock">
                             <input type="checkbox" wire:model="restock_inventory" />
-                            Restock inventory when item lines are saved
+                            Return items to stock (increase on-hand). Uncheck only for price credit with no goods returned.
                         </label>
                     </div>
                 </div>
@@ -1652,10 +1673,10 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     @endif
 
     @if ($showOrderBrowse)
-        <div class="desk-modal-backdrop" wire:click.self="closeOrderBrowse" role="dialog" aria-modal="true" aria-label="Select order or invoice">
+        <div class="desk-modal-backdrop" wire:click.self="closeOrderBrowse" role="dialog" aria-modal="true" aria-label="Select invoiced order to return">
             <div class="desk-modal desk-modal-lg so-item-browse-modal">
                 <div class="desk-modal-head">
-                    <span>Select Order / Invoice{{ $selectedCustomer ? ' — '.$selectedCustomer->company_name : '' }}</span>
+                    <span>Invoiced sales to return{{ $selectedCustomer ? ' — '.$selectedCustomer->company_name : '' }}</span>
                     <button type="button" wire:click="closeOrderBrowse" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-item-browse-toolbar">
@@ -1663,41 +1684,40 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         type="search"
                         wire:model.live.debounce.200ms="orderBrowseSearch"
                         class="so-input so-item-browse-search"
-                        placeholder="Search order #, invoice #, PO #…"
+                        placeholder="Search invoiced order # or invoice #…"
                         autofocus
                     />
                     <span class="so-item-browse-count">{{ $browseOrders->count() }} shown</span>
                 </div>
+                @if (session('status'))
+                    <div class="desk-flash" role="status" style="margin:0 1rem 0.5rem">{{ session('status') }}</div>
+                @endif
                 <div class="so-item-browse-scroll">
                     <table class="so-item-browse-table">
                         <thead>
                             <tr>
                                 <th>Order No.</th>
                                 <th>Invoice No.</th>
-                                <th>PO No.</th>
                                 <th>Date</th>
-                                <th>Status</th>
                                 <th class="is-num">Total</th>
                             </tr>
                         </thead>
                         <tbody>
                             @forelse ($browseOrders as $bo)
-                                <tr class="is-pickable" wire:click="pickOrder({{ $bo->id }})" style="cursor:pointer" title="Click to select">
+                                <tr class="is-pickable" wire:click="pickOrder({{ $bo->id }})" style="cursor:pointer" title="Return against this invoiced sale">
                                     <td class="font-mono">{{ $bo->order_number }}</td>
                                     <td class="font-mono">{{ $bo->invoice?->invoice_number ?: '—' }}</td>
-                                    <td>{{ $bo->customer_po_no ?: '—' }}</td>
                                     <td>{{ optional($bo->order_date)?->format('n/j/Y') }}</td>
-                                    <td>{{ $bo->status }}</td>
                                     <td class="is-num">${{ number_format((float) $bo->total, 2) }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="so-item-browse-empty">No orders / invoices for this customer.</td></tr>
+                                <tr><td colspan="4" class="so-item-browse-empty">No invoiced sales for this customer. Invoice the order first, then return.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
                 <div class="so-item-browse-foot">
-                    <span>Click a row to select · Esc / Close</span>
+                    <span>Only invoiced sales. New / uninvoiced orders are hidden. Click a row to return.</span>
                     <button type="button" wire:click="closeOrderBrowse" class="desk-btn">Close</button>
                 </div>
             </div>

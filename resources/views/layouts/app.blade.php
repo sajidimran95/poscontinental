@@ -446,8 +446,8 @@
                         @if ($routeExists('team-chat.index') && ($menuUser?->canAccessFeature('team.chat', 'view') ?? false))
                             <a
                                 href="{{ route('pos.tabs.open', ['route' => 'team-chat.index', 'label' => 'Team chat']) }}"
-                                class="text-sm font-medium text-slate-700 hover:text-slate-900"
-                            >Team chat</a>
+                                class="tc-nav-link text-sm font-medium text-slate-700 hover:text-slate-900"
+                            >Team chat <span data-chat-unread class="tc-nav-badge" hidden>0</span></a>
                         @endif
                         @if ($routeExists('lookups.index') && ($menuUser?->canAccessFeature('lookups', 'view') ?? false))
                             <a
@@ -1183,5 +1183,8 @@
                 }, true);
             })();
         </script>
+        @if ($routeExists('team-chat.unread') && (auth()->user()?->canAccessFeature('team.chat', 'view') ?? false))
+            @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('team-chat.unread')])
+        @endif
     </body>
 </html>

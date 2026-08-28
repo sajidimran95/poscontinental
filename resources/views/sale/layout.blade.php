@@ -209,6 +209,7 @@
             padding: 6px 2px;
             -webkit-tap-highlight-color: transparent;
             max-width: none;
+            position: relative;
         }
         .sale-tab svg {
             width: 22px; height: 22px; display: block; stroke: currentColor; fill: none;
@@ -2173,6 +2174,7 @@
                     <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
                 </span>
                 Chat
+                <span data-chat-unread class="sale-chat-badge" hidden>0</span>
             </a>
             <a href="{{ route('sale.orders') }}" class="sale-side-link {{ $isOrders ? 'active' : '' }}">
                 <span class="sale-side-ico" aria-hidden="true">
@@ -2297,6 +2299,7 @@
         <a href="{{ route('sale.chat') }}" class="sale-tab {{ $isChat ? 'active' : '' }}">
             <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
             Chat
+            <span data-chat-unread class="sale-chat-badge" hidden>0</span>
         </a>
         <a href="{{ route('sale.orders') }}" class="sale-tab {{ $isOrders ? 'active' : '' }}">
             <svg viewBox="0 0 24 24"><path d="M3 7h18v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -2338,6 +2341,9 @@
 window.__SALE_PWA__ = { swUrl: @json(url('/sale/pwa/sw.js')), startUrl: @json(url('/sale/login')) };
 </script>
 <script src="{{ asset('js/sale-pwa.js') }}?v={{ config('app.asset_version', '1') }}" defer></script>
+@auth('sale')
+    @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('sale.chat.unread')])
+@endauth
 @stack('scripts')
 </body>
 </html>

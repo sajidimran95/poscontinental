@@ -17,12 +17,17 @@ use App\Http\Controllers\Sale\SaleAuthController;
 use App\Http\Controllers\Sale\SaleChatController;
 use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\Sale\SalePortalController;
+use App\Http\Controllers\SetupAdminController;
+use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SalesOrderWindowController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
 Route::redirect('/', '/login');
+
+Route::get('setup/admin', [SetupAdminController::class, 'show'])->name('setup.admin');
+Route::post('setup/admin', [SetupAdminController::class, 'store'])->name('setup.admin.store');
 
 Route::post('logout', LogoutController::class)
     ->middleware('auth')
@@ -44,6 +49,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
         ->name('pos.tabs.close');
 
     Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
+    Route::get('team-chat/unread', [TeamChatNavController::class, 'unread'])->name('team-chat.unread');
 
     Volt::route('profile', 'pages.profile')->name('profile');
 
@@ -223,6 +229,7 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::get('/account', [SalePortalController::class, 'account'])->name('account');
         Route::post('/account/location', [SalePortalController::class, 'updateLocation'])->name('account.location');
         Route::post('/account/password', [SalePortalController::class, 'updatePassword'])->name('account.password');
+        Route::get('/chat/unread', [SaleChatController::class, 'unread'])->name('chat.unread');
         Route::post('/chat/dm', [SaleChatController::class, 'dm'])->name('chat.dm');
         Route::post('/chat/{channel}/messages', [SaleChatController::class, 'send'])->name('chat.send')->whereNumber('channel');
         Route::get('/chat/{channel}/poll', [SaleChatController::class, 'poll'])->name('chat.poll')->whereNumber('channel');

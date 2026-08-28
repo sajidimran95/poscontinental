@@ -83,6 +83,14 @@ class SaleChatController extends Controller
         return redirect()->route('sale.chat', ['channel' => $channel->id]);
     }
 
+    public function unread(): \Illuminate\Http\JsonResponse
+    {
+        $user = $this->user();
+        abort_unless($user->canAccessFeature('team.chat', 'view') || $user->isSalesRep(), 403);
+
+        return response()->json($this->chat->unreadSummary($user));
+    }
+
     public function poll(Request $request, ChatChannel $channel)
     {
         $user = $this->user();

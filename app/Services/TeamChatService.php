@@ -181,6 +181,55 @@ class TeamChatService
         });
     }
 
+    /**
+     * Unread count + latest preview for navbar badges (other people's messages only).
+     *
+     * @return array{unread: int, preview: ?array{from: string, body: string, channel: string}, latest_id: int}
+     */
+    public function unreadSummary(User $user): array
+    {
+        $userId = (int) $user->id;
+        $companyId = (int) $user->company_id;
+
+        $query = ChatMessage::query()
+            ->join('chat_channel_members as mem', function ($join) use ($userId) {
+                $join->on('mem.channel_id', '=', 'chat_messages.channel_id')
+                    ->where('mem.user_id', '=', $userId);
+            })
+            ->join('chat_channels as ch', 'ch.id', '=', 'chat_messages.channel_id')
+            ->where('ch.company_id', $companyId)
+            ->where('chat_messages.sender_id', '!=', $userId)
+            ->whereRaw('chat_messages.id > COALESCE(mem.last_read_message_id, 0)');
+
+        $unread = (int) (clone $query)->count('chat_messages.id');
+
+        $latest = (clone $query)
+            ->with('sender:id,name')
+            ->orderByDesc('chat_messages.id')
+            ->select('chat_messages.*', 'ch.name as channel_name', 'ch.type as channel_type')
+            ->first();
+
+        $preview = null;
+        if ($latest) {
+            $channelLabel = (string) ($latest->channel_name ?? 'Chat');
+            if (($latest->channel_type ?? '') === ChatChannel::TYPE_DM) {
+                $channelLabel = 'Direct message';
+            }
+
+            $preview = [
+                'from' => (string) ($latest->sender?->name ?: 'Someone'),
+                'body' => Str::limit(trim(preg_replace('/\s+/', ' ', (string) $latest->body) ?? ''), 90),
+                'channel' => $channelLabel,
+            ];
+        }
+
+        return [
+            'unread' => $unread,
+            'preview' => $preview,
+            'latest_id' => (int) ($latest?->id ?? 0),
+        ];
+    }
+
     public function createChannel(User $user, string $name): ChatChannel
     {
         $name = Str::lower(trim($name));

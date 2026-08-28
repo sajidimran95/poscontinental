@@ -32,6 +32,14 @@
             padding: .85rem 1rem; background: #fff; outline: none; font-weight: 600; box-sizing: border-box;
         }
         .ca-input:focus { border-color: #e11d48; box-shadow: 0 0 0 4px rgba(225,29,72,.12); }
+        .ca-pw-wrap { position: relative; }
+        .ca-pw-input { padding-right: 2.85rem; }
+        .ca-pw-toggle {
+            position: absolute; right: .4rem; top: 50%; transform: translateY(-50%);
+            width: 2.25rem; height: 2.25rem; border: 0; background: transparent; color: #64748b;
+            border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+        }
+        .ca-pw-toggle:hover { color: #e11d48; background: #fff1f2; }
         .ca-card {
             background: rgba(255,255,255,.82); border: 1px solid rgba(15,23,42,.08);
             border-radius: 20px; padding: 24px; box-shadow: 0 10px 30px rgba(15,23,42,.06);
@@ -64,12 +72,34 @@
             </div>
             <div>
                 <label class="text-xs font-bold text-slate-500 mb-1.5 block">Password</label>
-                <input type="password" name="password" required autocomplete="current-password" class="ca-input" placeholder="Password">
+                <div class="ca-pw-wrap">
+                    <input id="customer-login-password" type="password" name="password" required autocomplete="current-password" class="ca-input ca-pw-input" placeholder="Password">
+                    <button type="button" class="ca-pw-toggle" data-password-toggle aria-controls="customer-login-password" aria-label="Show password" aria-pressed="false">
+                        <svg class="sale-pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="sale-pw-eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.8 21.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.8 21.8 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                    </button>
+                </div>
             </div>
             <button type="submit" class="ca-btn">Login</button>
         </form>
     </div>
 </div>
 @include('customer.partials.pwa')
+<script>
+    document.querySelectorAll('[data-password-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var input = document.getElementById(btn.getAttribute('aria-controls'));
+            if (!input) return;
+            var show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+            var eye = btn.querySelector('.sale-pw-eye');
+            var eyeOff = btn.querySelector('.sale-pw-eye-off');
+            if (eye) eye.hidden = show;
+            if (eyeOff) eyeOff.hidden = !show;
+        });
+    });
+</script>
 </body>
 </html>

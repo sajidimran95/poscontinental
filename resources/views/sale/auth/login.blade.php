@@ -48,7 +48,13 @@
                 </div>
                 <div>
                     <label class="text-xs font-bold text-slate-500 mb-1.5 block">Password</label>
-                    <input type="password" name="password" required autocomplete="current-password" class="sale-input" placeholder="Password">
+                    <div class="sale-pw-wrap">
+                        <input id="sale-login-password" type="password" name="password" required autocomplete="current-password" class="sale-input sale-pw-input" placeholder="Password">
+                        <button type="button" class="sale-pw-toggle" data-password-toggle aria-controls="sale-login-password" aria-label="Show password" aria-pressed="false">
+                            <svg class="sale-pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg class="sale-pw-eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.8 21.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.8 21.8 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-slate-600">
                     <input type="checkbox" name="remember" value="1"> Remember me
@@ -62,4 +68,30 @@
         </div>
     </div>
 </div>
+<style>
+    .sale-pw-wrap { position: relative; }
+    .sale-pw-input { padding-right: 2.75rem; }
+    .sale-pw-toggle {
+        position: absolute; right: .35rem; top: 50%; transform: translateY(-50%);
+        width: 2.25rem; height: 2.25rem; border: 0; background: transparent; color: #64748b;
+        border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .sale-pw-toggle:hover { color: #0f766e; background: #f0fdfa; }
+</style>
+<script>
+    document.querySelectorAll('[data-password-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var input = document.getElementById(btn.getAttribute('aria-controls'));
+            if (!input) return;
+            var show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+            var eye = btn.querySelector('.sale-pw-eye');
+            var eyeOff = btn.querySelector('.sale-pw-eye-off');
+            if (eye) eye.hidden = show;
+            if (eyeOff) eyeOff.hidden = !show;
+        });
+    });
+</script>
 @endsection

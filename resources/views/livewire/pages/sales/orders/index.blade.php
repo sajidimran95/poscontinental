@@ -485,6 +485,25 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         return 'sales_orders_query_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
+    public function openReturnCreditMemo(int $id): mixed
+    {
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if (! $order || ! $order->isReturnSale()) {
+            session()->flash('status', 'Select a Return Sale order.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.credit-memos.index', [
+            'new' => 1,
+            'customer_id' => $order->customer_id,
+            'sales_order_id' => $order->id,
+        ]), navigate: true);
+    }
+
     public function invoiceOrder(int $id): void
     {
         try {
@@ -721,14 +740,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <td title="{{ $oc?->telephone }}">{{ $oc?->telephone }}</td>
                                     <td class="desk-money">${{ number_format($order->total, 2) }}</td>
                                     <td wire:click.stop>
-                                        @if ($order->status !== 'Invoiced')
+                                        @if ($order->isReturnSale())
+                                            <button type="button" wire:click="openReturnCreditMemo({{ $orderId }})" class="desk-btn desk-btn-sm">Return</button>
+                                        @elseif ($order->status !== 'Invoiced')
                                             <button type="button" wire:click="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
-                                        @elseif ($order->customer_id && (auth()->user()?->canAccessFeature('sales.credit_memos', 'edit') ?? false))
-                                            <a
-                                                href="{{ route('sales.credit-memos.index', ['new' => 1, 'customer_id' => $order->customer_id, 'sales_order_id' => $orderId]) }}"
-                                                class="desk-btn desk-btn-sm"
-                                                wire:click.stop
-                                            >Return</a>
                                         @endif
                                     </td>
                                 </tr>
@@ -784,10 +799,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     @if ($cardInvoice)
                                         <a href="{{ route('sales.invoices.pdf', $cardInvoice->getKey()) }}" target="_blank" rel="noopener" wire:click.stop>Inv {{ $cardInvoice->invoice_number }}</a>
                                     @endif
-                                    @if ($order->status !== 'Invoiced')
+                                    @if ($order->isReturnSale())
+                                        <button type="button" wire:click.stop="openReturnCreditMemo({{ $orderId }})" class="desk-btn desk-btn-sm">Return</button>
+                                    @elseif ($order->status !== 'Invoiced')
                                         <button type="button" wire:click.stop="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
-                                    @elseif ($order->customer_id && (auth()->user()?->canAccessFeature('sales.credit_memos', 'edit') ?? false))
-                                        <a href="{{ route('sales.credit-memos.index', ['new' => 1, 'customer_id' => $order->customer_id, 'sales_order_id' => $orderId]) }}" class="desk-btn desk-btn-sm" wire:click.stop>Return</a>
                                     @endif
                                 </div>
                             </article>

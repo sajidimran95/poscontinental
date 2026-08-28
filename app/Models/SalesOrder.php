@@ -100,6 +100,13 @@ class SalesOrder extends Model
         return $this->hasOne(Invoice::class);
     }
 
+    public function isReturnSale(): bool
+    {
+        $type = strtolower(preg_replace('/\s+/', '', (string) $this->order_type));
+
+        return $type !== '' && str_contains($type, 'return');
+    }
+
     public static function nextNumber(int $companyId): string
     {
         $query = static::query()

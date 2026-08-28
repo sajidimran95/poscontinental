@@ -308,18 +308,23 @@ class InventoryService
             }
 
             $onHand = (float) $item->quantity_in_stock;
-            $company = Company::query()->find($order->company_id);
-            $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
-            if ($err) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'invoice' => $err,
-                ]);
+            $isReturn = $order->isReturnSale();
+            if (! $isReturn) {
+                $company = Company::query()->find($order->company_id);
+                $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
+                if ($err) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'invoice' => $err,
+                    ]);
+                }
             }
 
-            $newQty = $onHand - $qty;
+            $newQty = $isReturn ? ($onHand + $qty) : ($onHand - $qty);
             $item->update([
                 'quantity_in_stock' => $newQty,
-                'last_sold_at' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
+                'last_sold_at' => $isReturn
+                    ? $item->last_sold_at
+                    : ($invoice->invoice_date?->toDateString() ?? now()->toDateString()),
             ]);
 
             if ((float) $line->qty_shipped <= 0) {
@@ -333,11 +338,11 @@ class InventoryService
                 'source_type' => Invoice::class,
                 'source_id' => $invoice->id,
                 'reference' => $invoice->invoice_number,
-                'qty_change' => -$qty,
+                'qty_change' => $isReturn ? $qty : -$qty,
                 'qty_after' => $newQty,
                 'unit_cost' => $item->current_cost,
                 'user_id' => auth()->id(),
-                'notes' => 'Sales Invoice '.$invoice->invoice_number.' (SO '.$order->order_number.')',
+                'notes' => ($isReturn ? 'Return Sale Invoice ' : 'Sales Invoice ').$invoice->invoice_number.' (SO '.$order->order_number.')',
             ]);
         }
 

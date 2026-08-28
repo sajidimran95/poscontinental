@@ -1092,6 +1092,18 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             'total' => $total,
         ];
 
+        $previousPoItemIds = [];
+        if ($this->purchaseOrder?->exists) {
+            $this->purchaseOrder->loadMissing('lines');
+            $previousPoItemIds = $this->purchaseOrder->lines
+                ->pluck('item_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+        }
+
         DB::transaction(function () use ($data) {
             if ($this->purchaseOrder) {
                 $this->purchaseOrder->update($data);
@@ -1128,6 +1140,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         });
 
         $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all();
+        $itemIds = array_values(array_unique(array_merge($itemIds, $previousPoItemIds)));
         app(InventoryService::class)->syncOnOrderQty($itemIds);
 
         $this->redirect(route('purchasing.orders.index'), navigate: true);

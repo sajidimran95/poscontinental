@@ -4566,17 +4566,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <div class="so-expand-main">
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
-                    @if ($selectedStockCode !== '')
-                        <div class="so-stock-bar" wire:key="so-stock-{{ $selectedStockCode }}-{{ $selectedStockAvailable }}">
-                            <span class="so-stock-code">{{ $selectedStockCode }}</span>
-                            <span>In stock <strong>{{ $selectedStockOnHand }}</strong></span>
-                            <span>Allocated <strong>{{ $selectedStockAllocated }}</strong></span>
-                            <span @class(['so-stock-remain', 'is-low' => (float) str_replace(',', '', $selectedStockAvailable) <= 0])>
-                                Available <strong>{{ $selectedStockAvailable }}</strong>
-                            </span>
-                            <span>On this order <strong>{{ $selectedStockOrdered }}</strong></span>
-                        </div>
-                    @endif
                     <div class="so-items-grid">
                         <table class="so-lines-table">
                             <colgroup>

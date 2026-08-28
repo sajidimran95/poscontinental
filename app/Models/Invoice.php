@@ -78,8 +78,9 @@ class Invoice extends Model
         return (float) $this->invoice_total - $this->total_payments - $this->total_credits;
     }
 
-    public static function nextNumber(int $companyId): string
+    public static function nextNumber(int|string $companyId): string
     {
+        $companyId = (int) $companyId;
         $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('invoice_number');
         $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 100001;
 

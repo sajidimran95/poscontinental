@@ -87,33 +87,16 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->parkedSalesList = app(ParkedSaleService::class)
             ->listFor(auth()->user())
             ->map(function ($p) {
-                if (is_array($p)) {
-                    $updated = $p['updated_at'] ?? null;
-
-                    return [
-                        'id' => (int) ($p['id'] ?? 0),
-                        'customer_label' => $p['customer_label'] ?? null,
-                        'line_count' => (int) ($p['line_count'] ?? 0),
-                        'total' => (float) ($p['total'] ?? 0),
-                        'updated_at' => is_object($updated) ? $updated->format('n/j/Y g:i A') : (is_string($updated) ? $updated : null),
-                    ];
-                }
-                if (! is_object($p)) {
-                    return [
-                        'id' => (int) $p,
-                        'customer_label' => null,
-                        'line_count' => 0,
-                        'total' => 0.0,
-                        'updated_at' => null,
-                    ];
-                }
+                $updated = data_get($p, 'updated_at');
 
                 return [
-                    'id' => (int) $p->id,
-                    'customer_label' => $p->customer_label ?? null,
-                    'line_count' => (int) ($p->line_count ?? 0),
-                    'total' => (float) ($p->total ?? 0),
-                    'updated_at' => optional($p->updated_at)->format('n/j/Y g:i A'),
+                    'id' => (int) data_get($p, 'id'),
+                    'customer_label' => data_get($p, 'customer_label'),
+                    'line_count' => (int) data_get($p, 'line_count'),
+                    'total' => (float) data_get($p, 'total'),
+                    'updated_at' => is_object($updated) && method_exists($updated, 'format')
+                        ? $updated->format('n/j/Y g:i A')
+                        : (is_string($updated) ? $updated : null),
                 ];
             })
             ->all();
@@ -417,10 +400,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 ->orderBy('company_name')
                 ->limit(500)
                 ->get(['id', 'customer_id', 'company_name'])
-                ->map(fn (Customer $c) => [
-                    'id' => (int) $c->id,
-                    'customer_id' => (string) $c->customer_id,
-                    'company_name' => (string) ($c->company_name ?? ''),
+                ->map(fn ($c) => [
+                    'id' => (int) data_get($c, 'id'),
+                    'customer_id' => (string) data_get($c, 'customer_id'),
+                    'company_name' => (string) data_get($c, 'company_name'),
                 ])
                 ->values()
                 ->all()),
@@ -489,7 +472,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         try {
             DB::transaction(function () use ($id) {
                 $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($id);
-                abort_unless($order->company_id === auth()->user()->company_id, 403);
+                abort_unless((int) $order->company_id === (int) auth()->user()->company_id, 403);
                 $existingInvoice = $order->relationLoaded('invoice')
                     ? $order->getRelation('invoice')
                     : $order->invoice()->first();
@@ -499,11 +482,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
                 $lineDiscount = (float) $order->lines->sum('discount');
                 $invoice = Invoice::query()->create([
-                    'company_id' => $order->company_id,
-                    'invoice_number' => Invoice::nextNumber($order->company_id),
+                    'company_id' => (int) $order->company_id,
+                    'invoice_number' => Invoice::nextNumber((int) $order->company_id),
                     'invoice_date' => now()->toDateString(),
-                    'sales_order_id' => $order->id,
-                    'customer_id' => $order->customer_id,
+                    'sales_order_id' => (int) $order->getKey(),
+                    'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
                     'status' => 'NOT PAID',
                     'subtotal' => $order->subtotal,
                     'total_discount' => $lineDiscount,
@@ -535,6 +518,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
             session()->flash('status', collect($e->errors())->flatten()->first() ?: 'Unable to invoice order.');
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Unable to invoice order. '.$e->getMessage());
 
             return;
         }
@@ -647,29 +635,38 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         </thead>
                         <tbody>
                             @forelse ($orders as $order)
+                                @continue(! $order instanceof \App\Models\SalesOrder)
+                                @php
+                                    $orderId = (int) $order->getKey();
+                                    $oc = ($order->relationLoaded('customer') && $order->getRelation('customer') instanceof \App\Models\Customer)
+                                        ? $order->getRelation('customer')
+                                        : null;
+                                    $rowInvoice = ($order->relationLoaded('invoice') && $order->getRelation('invoice') instanceof \App\Models\Invoice)
+                                        ? $order->getRelation('invoice')
+                                        : null;
+                                @endphp
                                 <tr
-                                    wire:click="selectRow({{ $order->id }})"
-                                    wire:dblclick="openOrder({{ $order->id }})"
-                                    @class(['is-selected' => $selectedId === $order->id, 'cursor-pointer'])
+                                    wire:click="selectRow({{ $orderId }})"
+                                    wire:dblclick="openOrder({{ $orderId }})"
+                                    @class(['is-selected' => $selectedId === $orderId, 'cursor-pointer'])
                                 >
                                     <td class="text-center" wire:click.stop>
                                         <input
                                             type="radio"
                                             name="order_select"
-                                            value="{{ $order->id }}"
-                                            @checked($selectedId === $order->id)
-                                            wire:click="selectRow({{ $order->id }})"
+                                            value="{{ $orderId }}"
+                                            @checked($selectedId === $orderId)
+                                            wire:click="selectRow({{ $orderId }})"
                                             aria-label="Select order {{ $order->order_number }}"
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('sales.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+                                        <a href="{{ route('sales.orders.show', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
                                     </td>
                                     <td class="desk-num">
-                                        @php $rowInvoice = $order->relationLoaded('invoice') ? $order->getRelation('invoice') : $order->invoice()->first(); @endphp
-                                        @if ($rowInvoice instanceof \App\Models\Invoice)
+                                        @if ($rowInvoice)
                                             <a
-                                                href="{{ route('sales.invoices.pdf', $rowInvoice) }}"
+                                                href="{{ route('sales.invoices.pdf', $rowInvoice->getKey()) }}"
                                                 target="_blank"
                                                 rel="noopener"
                                                 wire:click.stop
@@ -699,15 +696,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                             'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
                                         ])>{{ $order->status }}</span>
                                     </td>
-                                    <td class="desk-num">{{ $order->customer?->customer_id }}</td>
-                                    <td title="{{ $order->customer?->contact }}">{{ $order->customer?->contact }}</td>
-                                    <td title="{{ $order->customer?->company_name }}">{{ $order->customer?->company_name }}</td>
-                                    <td title="{{ $order->customer?->address }}">{{ $order->customer?->address }}</td>
-                                    <td title="{{ $order->customer?->telephone }}">{{ $order->customer?->telephone }}</td>
+                                    <td class="desk-num">{{ $oc?->customer_id }}</td>
+                                    <td title="{{ $oc?->contact }}">{{ $oc?->contact }}</td>
+                                    <td title="{{ $oc?->company_name }}">{{ $oc?->company_name }}</td>
+                                    <td title="{{ $oc?->address }}">{{ $oc?->address }}</td>
+                                    <td title="{{ $oc?->telephone }}">{{ $oc?->telephone }}</td>
                                     <td class="desk-money">${{ number_format($order->total, 2) }}</td>
                                     <td wire:click.stop>
                                         @if ($order->status !== 'Invoiced')
-                                            <button type="button" wire:click="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                            <button type="button" wire:click="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
                                         @endif
                                     </td>
                                 </tr>
@@ -721,14 +718,24 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
                     <div class="desk-list-cards" aria-label="Orders">
                         @forelse ($orders as $order)
-                            @php $src = (string) ($order->order_source ?? 'pos'); @endphp
+                            @continue(! $order instanceof \App\Models\SalesOrder)
+                            @php
+                                $orderId = (int) $order->getKey();
+                                $src = (string) ($order->order_source ?? 'pos');
+                                $oc = ($order->relationLoaded('customer') && $order->getRelation('customer') instanceof \App\Models\Customer)
+                                    ? $order->getRelation('customer')
+                                    : null;
+                                $cardInvoice = ($order->relationLoaded('invoice') && $order->getRelation('invoice') instanceof \App\Models\Invoice)
+                                    ? $order->getRelation('invoice')
+                                    : null;
+                            @endphp
                             <article
-                                class="desk-list-card {{ $selectedId === $order->id ? 'is-selected' : '' }}"
-                                wire:click="selectRow({{ $order->id }})"
-                                wire:dblclick="openOrder({{ $order->id }})"
+                                class="desk-list-card {{ $selectedId === $orderId ? 'is-selected' : '' }}"
+                                wire:click="selectRow({{ $orderId }})"
+                                wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">
-                                    <a href="{{ route('sales.orders.show', $order) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    <a href="{{ route('sales.orders.show', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
                                     <span @class([
                                         'desk-pill',
                                         'desk-pill-new' => $order->status === 'New',
@@ -746,16 +753,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <span>{{ $order->order_type }}</span>
                                     <span>{{ optional($order->order_date)?->format('n/j/Y') }}</span>
                                 </div>
-                                <div class="desk-list-card__name">{{ $order->customer?->company_name ?: $order->customer?->contact ?: '—' }}</div>
-                                <div class="desk-list-card__sub">{{ $order->customer?->customer_id }}{{ $order->customer?->telephone ? ' · '.$order->customer->telephone : '' }}</div>
+                                <div class="desk-list-card__name">{{ $oc?->company_name ?: $oc?->contact ?: '—' }}</div>
+                                <div class="desk-list-card__sub">{{ $oc?->customer_id }}{{ $oc?->telephone ? ' · '.$oc->telephone : '' }}</div>
                                 <div class="desk-list-card__foot">
                                     <strong class="tabular-nums">${{ number_format($order->total, 2) }}</strong>
-                                    @php $cardInvoice = $order->relationLoaded('invoice') ? $order->getRelation('invoice') : $order->invoice()->first(); @endphp
-                                    @if ($cardInvoice instanceof \App\Models\Invoice)
-                                        <a href="{{ route('sales.invoices.pdf', $cardInvoice) }}" target="_blank" rel="noopener" wire:click.stop>Inv {{ $cardInvoice->invoice_number }}</a>
+                                    @if ($cardInvoice)
+                                        <a href="{{ route('sales.invoices.pdf', $cardInvoice->getKey()) }}" target="_blank" rel="noopener" wire:click.stop>Inv {{ $cardInvoice->invoice_number }}</a>
                                     @endif
                                     @if ($order->status !== 'Invoiced')
-                                        <button type="button" wire:click.stop="invoiceOrder({{ $order->id }})" class="desk-btn desk-btn-sm">Invoice</button>
+                                        <button type="button" wire:click.stop="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
                                     @endif
                                 </div>
                             </article>

@@ -3958,7 +3958,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         return DB::transaction(function () use ($order) {
             $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($order->id);
-            abort_unless($order->company_id === auth()->user()->company_id, 403);
+            abort_unless((int) $order->company_id === (int) auth()->user()->company_id, 403);
 
             if ($order->invoice instanceof Invoice) {
                 return $order->invoice;
@@ -3966,11 +3966,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             $lineDiscount = (float) $order->lines->sum('discount');
             $invoice = Invoice::query()->create([
-                'company_id' => $order->company_id,
-                'invoice_number' => Invoice::nextNumber($order->company_id),
+                'company_id' => (int) $order->company_id,
+                'invoice_number' => Invoice::nextNumber((int) $order->company_id),
                 'invoice_date' => now()->toDateString(),
-                'sales_order_id' => $order->id,
-                'customer_id' => $order->customer_id,
+                'sales_order_id' => (int) $order->getKey(),
+                'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
                 'status' => 'NOT PAID',
                 'subtotal' => $order->subtotal,
                 'total_discount' => $lineDiscount,

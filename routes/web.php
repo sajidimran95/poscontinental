@@ -17,7 +17,6 @@ use App\Http\Controllers\Sale\SaleAuthController;
 use App\Http\Controllers\Sale\SaleChatController;
 use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\Sale\SalePortalController;
-use App\Http\Controllers\SetupAdminController;
 use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SalesOrderWindowController;
@@ -25,9 +24,6 @@ use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
 Route::redirect('/', '/login');
-
-Route::get('setup/admin', [SetupAdminController::class, 'show'])->name('setup.admin');
-Route::post('setup/admin', [SetupAdminController::class, 'store'])->name('setup.admin.store');
 
 Route::post('logout', LogoutController::class)
     ->middleware('auth')

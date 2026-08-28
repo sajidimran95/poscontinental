@@ -7,6 +7,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         $skip = ['sessions', 'job_batches'];
         $schema = DB::getDatabaseName();
 

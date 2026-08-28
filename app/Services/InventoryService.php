@@ -595,7 +595,7 @@ class InventoryService
         }
 
         $onOrder = PurchaseOrderLine::query()
-            ->selectRaw('purchase_order_lines.item_id, SUM(GREATEST(COALESCE(purchase_order_lines.qty_ordered,0) - COALESCE(purchase_order_lines.qty_received,0), 0)) as qty')
+            ->selectRaw('purchase_order_lines.item_id, SUM(CASE WHEN COALESCE(purchase_order_lines.qty_ordered,0) - COALESCE(purchase_order_lines.qty_received,0) > 0 THEN COALESCE(purchase_order_lines.qty_ordered,0) - COALESCE(purchase_order_lines.qty_received,0) ELSE 0 END) as qty')
             ->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_lines.purchase_order_id')
             ->whereIn('purchase_order_lines.item_id', $ids)
             ->whereNotIn('purchase_orders.status', ['Received', 'Cancelled', 'Closed', 'Void'])

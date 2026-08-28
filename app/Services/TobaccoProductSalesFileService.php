@@ -40,24 +40,22 @@ class TobaccoProductSalesFileService
     /** Approved HID field after version 0002 — always 00000004. */
     public const HID_FORMAT_ID = '00000004';
 
-    /** BID description starts after BID(3)+UPC14+SKU14. */
+    /** BID product description starts after BID(3)+UPC14+SKU14 (columns 32–81). */
     public const BID_DESC_AT = 31;
 
-    /**
-     * Fixed-width BID description slot (keeps NACS/promo columns aligned).
-     * MSA importer treats the visible description as max 50 chars — longer text
-     * spills into Promo Descriptions. We only write ≤50 chars into this slot.
-     */
-    public const BID_DESC_LEN = 100;
+    public const BID_DESC_LEN = 50;
 
-    /** Max meaningful description chars for MSA (rest of BID_DESC_LEN is spaces). */
-    public const BID_DESC_MAX = 50;
+    /** Promotion Description columns 82–131 (MULTICAT BID). */
+    public const BID_PROMO_DESC_AT = 81;
+
+    public const BID_PROMO_DESC_LEN = 50;
 
     public const BID_SIZE_AT = 131;
 
     public const BID_NACS_AT = 144;
 
-    public const BID_PROMO_AT = 166;
+    /** @deprecated Promo text belongs in BID_PROMO_DESC_AT, not this later slot. */
+    public const BID_PROMO_AT = 81;
 
     public const BID_STATE_AT = 207;
 
@@ -487,19 +485,17 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * MSA BID promo flag / code / description.
-     * Also treats item descriptions with 2-for / multipack deal text as promoted
-     * (e.g. 2/$1.99, 30/2 FOR $1.39) when manufacturer promo fields are empty.
+     * MSA BID promo: Y/N at column 138, description at columns 82–131.
+     * Do not put "PROMO" in NACS (the 6-char field after the indicator).
      *
-     * @return array{flag: bool, code: string, description: string}
+     * @return array{flag: bool, description: string}
      */
     protected function promoDetails(Item $item): array
     {
-        $code = $this->upperAscii(trim((string) ($item->manu_promotion_code ?? '')));
         $desc = $this->upperAscii(trim((string) ($item->manu_promotion_description ?? '')));
         $flag = filled($item->manu_promotion_item)
             || filled($item->promotion_schedule_id)
-            || $code !== ''
+            || filled($item->manu_promotion_code)
             || $desc !== '';
 
         $fromName = $this->promoTextFromDescription((string) ($item->description ?? ''));
@@ -508,21 +504,14 @@ class TobaccoProductSalesFileService
             if ($desc === '') {
                 $desc = $fromName;
             }
-            if ($code === '') {
-                $code = 'PROMO';
-            }
         }
 
-        if ($flag && $desc === '') {
-            $desc = $code !== '' ? $code : 'PROMO';
-        }
-        if ($flag && $code === '') {
-            $code = 'PROMO';
+        if (strlen($desc) > self::BID_PROMO_DESC_LEN) {
+            $desc = substr($desc, 0, self::BID_PROMO_DESC_LEN);
         }
 
         return [
             'flag' => $flag,
-            'code' => $code,
             'description' => $desc,
         ];
     }
@@ -588,18 +577,20 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * BID — 275 chars. UPC and SKU are GTIN-14 (no 10-digit + spaces).
-     * Col 132–137 = items per selling unit. Measure 003 = on-hand qty, not price.
+     * BID — 275 chars.
+     * MULTICAT: desc 32–81, promo desc 82–131, items/unit 132–137, promo Y/N 138.
+     * Never write PROMO into NACS. Promo wording stays in columns 82–131 only.
      */
     protected function bid(string $code14, Item $item, string $companyState, int $onHand = 0): string
     {
-        // MSA: description must be ≤50 chars or it overflows into Promo Descriptions.
-        $desc = $this->upperAscii((string) ($item->description ?: $item->item_code));
-        if (strlen($desc) > self::BID_DESC_MAX) {
-            $desc = substr($desc, 0, self::BID_DESC_MAX);
-        }
-        $unitSize = $this->itemsPerSellingUnit($item);
+        $rawDesc = $this->upperAscii((string) ($item->description ?: $item->item_code));
         $promo = $this->promoDetails($item);
+        $desc = $this->productDescriptionWithoutPromo($rawDesc, $promo['description']);
+        if (strlen($desc) > self::BID_DESC_LEN) {
+            $desc = substr($desc, 0, self::BID_DESC_LEN);
+        }
+        $promoDesc = $promo['flag'] ? $promo['description'] : '';
+        $unitSize = $this->itemsPerSellingUnit($item);
         $state = $this->upperAscii(substr($companyState ?: 'MI', 0, 2));
 
         return $this->fields([
@@ -607,13 +598,14 @@ class TobaccoProductSalesFileService
             [$code14, 14, '0', STR_PAD_LEFT],
             [$code14, 14, '0', STR_PAD_LEFT],
             [$desc, self::BID_DESC_LEN],
+            [$promoDesc, self::BID_PROMO_DESC_LEN],
             [$this->num($unitSize, 6), 6, '0', STR_PAD_LEFT],
             [$promo['flag'] ? 'Y' : 'N', 1],
-            [$promo['flag'] ? $promo['code'] : '', 6],
+            ['', 6],
             [$this->nacsCode($item), 6],
             ['', 10],
             ['0', 6, '0', STR_PAD_LEFT],
-            [$promo['flag'] ? $promo['description'] : '', 41],
+            ['', 41],
             [$state, 2],
             ['0', 32, '0', STR_PAD_LEFT],
             ['', 6],
@@ -622,6 +614,21 @@ class TobaccoProductSalesFileService
             ['006', 3],
             ['0', 11, '0', STR_PAD_LEFT],
         ], self::BID_LEN);
+    }
+
+    /** Keep product description free of deal text so it cannot shift into promo / size columns. */
+    protected function productDescriptionWithoutPromo(string $description, string $promoText): string
+    {
+        $text = $this->upperAscii($description);
+        if ($promoText !== '') {
+            $text = str_replace($promoText, ' ', $text);
+        }
+        $fromName = $this->promoTextFromDescription($description);
+        if ($fromName !== '') {
+            $text = str_replace($fromName, ' ', $text);
+        }
+
+        return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
     }
 
     /**

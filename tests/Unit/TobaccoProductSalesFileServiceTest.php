@@ -190,11 +190,10 @@ class TobaccoProductSalesFileServiceTest extends TestCase
 
         $descSlot = substr($bid, TobaccoProductSalesFileService::BID_DESC_AT, TobaccoProductSalesFileService::BID_DESC_LEN);
         $this->assertSame(TobaccoProductSalesFileService::BID_DESC_LEN, strlen($descSlot));
-        $this->assertLessThanOrEqual(50, strlen(rtrim($descSlot)));
-        $this->assertSame(strtoupper(substr($long, 0, 50)), substr($descSlot, 0, 50));
-        // Chars 51–100 of the description slot must be blank (no spill into promo area).
-        $this->assertSame(str_repeat(' ', 50), substr($descSlot, 50, 50));
-        $this->assertStringNotContainsString('RETURN ALLOWED', substr($bid, 81, 50));
+        $this->assertSame(strtoupper(substr($long, 0, 50)), $descSlot);
+        $promoSlot = substr($bid, TobaccoProductSalesFileService::BID_PROMO_DESC_AT, TobaccoProductSalesFileService::BID_PROMO_DESC_LEN);
+        $this->assertSame(str_repeat(' ', 50), $promoSlot);
+        $this->assertStringNotContainsString('RETURN ALLOWED', $promoSlot);
     }
 
     public function test_deal_text_in_item_description_sets_msa_promo_flag_and_fields(): void
@@ -210,8 +209,9 @@ class TobaccoProductSalesFileServiceTest extends TestCase
 
         $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
         $this->assertSame('Y', substr($bid, 137, 1));
-        $this->assertSame('PROMO', rtrim(substr($bid, 138, 6)));
-        $this->assertSame('2/$1.99', rtrim(substr($bid, TobaccoProductSalesFileService::BID_PROMO_AT, 41)));
+        $this->assertNotSame('PROMO', rtrim(substr($bid, 138, 6)));
+        $this->assertSame('2/$1.99', rtrim(substr($bid, TobaccoProductSalesFileService::BID_PROMO_DESC_AT, 50)));
+        $this->assertStringNotContainsString('2/$1.99', rtrim(substr($bid, TobaccoProductSalesFileService::BID_DESC_AT, 50)));
 
         $swisher = $this->sampleFile(new Item([
             'item_code' => 'SW1',
@@ -222,7 +222,9 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         ]));
         $bid2 = collect(preg_split("/\r\n|\n/", $swisher))->first(fn ($line) => str_starts_with($line, 'BID'));
         $this->assertSame('Y', substr($bid2, 137, 1));
-        $this->assertStringContainsString('30/2 FOR $1.39', substr($bid2, TobaccoProductSalesFileService::BID_PROMO_AT, 41));
+        $this->assertStringContainsString('30/2 FOR $1.39', substr($bid2, TobaccoProductSalesFileService::BID_PROMO_DESC_AT, 50));
+        $this->assertStringNotContainsString('PROMO', substr($bid2, 138, 6));
+        $this->assertStringNotContainsString('30/2 FOR $1.39', rtrim(substr($bid2, TobaccoProductSalesFileService::BID_DESC_AT, 50)));
     }
 
     public function test_non_promo_item_keeps_n_flag_and_blank_promo_fields(): void
@@ -238,7 +240,7 @@ class TobaccoProductSalesFileServiceTest extends TestCase
         $bid = collect(preg_split("/\r\n|\n/", $file))->first(fn ($line) => str_starts_with($line, 'BID'));
         $this->assertSame('N', substr($bid, 137, 1));
         $this->assertSame(str_repeat(' ', 6), substr($bid, 138, 6));
-        $this->assertSame(str_repeat(' ', 41), substr($bid, TobaccoProductSalesFileService::BID_PROMO_AT, 41));
+        $this->assertSame(str_repeat(' ', 50), substr($bid, TobaccoProductSalesFileService::BID_PROMO_DESC_AT, 50));
     }
 
     public function test_pur_puts_dollars_in_002_not_004(): void

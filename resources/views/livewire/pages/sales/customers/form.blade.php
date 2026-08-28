@@ -498,6 +498,7 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
         });
 
         Cache::forget('orders.filter_customers.'.(int) auth()->user()->company_id);
+        Cache::forget('orders.filter_customers.v2.'.(int) auth()->user()->company_id);
 
         $this->redirect(route('sales.customers.index'), navigate: true);
     }

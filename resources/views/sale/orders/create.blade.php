@@ -41,10 +41,12 @@
                 <div class="sale-order-build__title">Create Order</div>
                 <div class="sale-order-build__sub truncate" id="orderCustomerName">{{ $default_customer['text'] ?? ($edit_order->contact->supplier_business_name ?? $edit_order->contact->name ?? '') }}</div>
             </div>
+            <div class="sale-order-build__actions">
             @if(empty($edit_order))
             <button type="button" class="sale-order-build__park" id="parkSaleBtn" title="Park this sale">PARK</button>
             @endif
             <button type="button" class="sale-order-build__submit" id="goShippingBtn">SUBMIT</button>
+            </div>
         </div>
 
         <div class="sale-order-build__body">

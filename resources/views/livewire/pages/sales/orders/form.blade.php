@@ -3960,7 +3960,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($order->id);
             abort_unless($order->company_id === auth()->user()->company_id, 403);
 
-            if ($order->invoice) {
+            if ($order->invoice instanceof Invoice) {
                 return $order->invoice;
             }
 
@@ -3985,8 +3985,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             app(InventoryService::class)->applyInvoiceStock($order, $invoice);
             $order->update(['status' => 'Invoiced']);
 
-            if ($order->customer) {
-                $customer = $order->customer;
+            $customer = $order->customer()->first();
+            if ($customer instanceof \App\Models\Customer) {
                 $updates = [
                     'last_order_on' => $order->order_date ?? now()->toDateString(),
                     'number_of_orders' => (int) $customer->number_of_orders + 1,

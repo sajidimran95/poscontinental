@@ -497,7 +497,7 @@ class DocumentPdfService
         DocumentEmailLog::query()->create([
             'company_id' => $user->company_id,
             'document_type' => $order->invoice ? 'invoice' : 'sales_order',
-            'document_id' => $order->invoice?->id ?? $order->id,
+            'document_id' => $order->invoice instanceof \App\Models\Invoice ? $order->invoice->id : $order->id,
             'recipient' => $recipient,
             'subject' => $subject,
             'user_id' => $user->id,

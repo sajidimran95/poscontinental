@@ -19,6 +19,14 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
     #[Url]
     public string $search = '';
 
+    /** Invoice date filter (from). Empty = no lower bound. */
+    #[Url]
+    public string $date_from = '';
+
+    /** Invoice date filter (to). Empty = no upper bound. */
+    #[Url]
+    public string $date_to = '';
+
     public string $date = '';
 
     public ?int $driver_id = null;
@@ -42,11 +50,35 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
     public function mount(): void
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'view'), 403);
-        $this->date = now()->toDateString();
+        $today = now()->toDateString();
+        $this->date = $this->date !== '' ? $this->date : $today;
+        if ($this->date_from === '') {
+            $this->date_from = $today;
+        }
+        if ($this->date_to === '') {
+            $this->date_to = $today;
+        }
     }
 
     public function updatingSearch(): void
     {
+        $this->resetPage();
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetPage();
+    }
+
+    public function clearDates(): void
+    {
+        $this->date_from = '';
+        $this->date_to = '';
         $this->resetPage();
     }
 
@@ -109,7 +141,26 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             ->where('company_id', $companyId)
             ->whereNotNull('sales_order_id')
             ->whereHas('salesOrder')
+            ->where(function ($q) {
+                $q->whereNull('customer_id')
+                    ->orWhereHas('customer', function ($c) {
+                        $c->whereRaw('UPPER(customer_id) != ?', [Customer::WALK_IN_CODE]);
+                    });
+            })
             ->when($this->customer_id, fn ($q) => $q->where('customer_id', $this->customer_id))
+            ->when(! $this->customer_id && trim($this->customerSearch) !== '', function ($q) {
+                $like = '%'.trim($this->customerSearch).'%';
+                $q->where(function ($inner) use ($like) {
+                    $inner->whereHas('customer', function ($c) use ($like) {
+                        $c->where('company_name', 'like', $like)
+                            ->orWhere('customer_id', 'like', $like)
+                            ->orWhere('contact', 'like', $like)
+                            ->orWhere('telephone', 'like', $like);
+                    })->orWhereHas('salesOrder', fn ($o) => $o->where('bill_to_name', 'like', $like));
+                });
+            })
+            ->when($this->date_from !== '', fn ($q) => $q->whereDate('invoice_date', '>=', $this->date_from))
+            ->when($this->date_to !== '', fn ($q) => $q->whereDate('invoice_date', '<=', $this->date_to))
             ->when($term !== '', function ($q) use ($term) {
                 $like = '%'.$term.'%';
                 $q->where(function ($inner) use ($like) {
@@ -133,6 +184,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             ? Customer::query()
                 ->where('company_id', $companyId)
                 ->where('is_inactive', false)
+                ->whereRaw('UPPER(customer_id) != ?', [Customer::WALK_IN_CODE])
                 ->where(function ($q) use ($custTerm) {
                     $like = '%'.$custTerm.'%';
                     $q->where('customer_id', 'like', $like)
@@ -173,6 +225,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
     {
         return [
             'invoice_number' => 'invoice_number',
+            'invoice_date' => 'invoice_date',
             'customer' => ['relation' => 'customer', 'column' => 'company_name'],
             'ship_to' => ['relation' => 'salesOrder', 'column' => 'ship_to_city'],
             'total' => 'invoice_total',
@@ -259,7 +312,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                         type="search"
                         class="desk-search orders-search-input"
                         wire:model.live.debounce.200ms="customerSearch"
-                        placeholder="Customer ID or name…"
+                        placeholder="Filter by customer…"
                         autocomplete="off"
                     />
                     @if ($customer_id || $customerSearch !== '')
@@ -288,6 +341,27 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                 placeholder="Invoice # or city…"
                 aria-label="Invoice search"
             />
+            <label class="desk-toolbar-label" for="dlv-date-from">Invoice date</label>
+            <input
+                id="dlv-date-from"
+                type="date"
+                class="desk-input"
+                wire:model.live="date_from"
+                aria-label="Invoice date from"
+                title="Invoice date from"
+            />
+            <span class="dlv-muted">to</span>
+            <input
+                id="dlv-date-to"
+                type="date"
+                class="desk-input"
+                wire:model.live="date_to"
+                aria-label="Invoice date to"
+                title="Invoice date to"
+            />
+            @if ($date_from !== '' || $date_to !== '')
+                <button type="button" class="desk-btn desk-btn-sm" wire:click="clearDates">All dates</button>
+            @endif
             <select class="desk-select orders-status-select" wire:model.live="listFilter" aria-label="Assignment filter">
                 <option value="unassigned">Unassigned</option>
                 <option value="assigned">Assigned</option>
@@ -300,7 +374,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                         <option value="{{ $driver->id }}">{{ $driver->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="desk-input" wire:model="date" aria-label="Delivery date" />
+                <input type="date" class="desk-input" wire:model="date" aria-label="Delivery date" title="Delivery date for assign / generate route" />
                 <button type="button" class="desk-btn desk-btn-primary" wire:click="assign" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Assign selected</button>
                 <button type="button" class="desk-btn" wire:click="generate" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Generate route</button>
             </div>
@@ -308,7 +382,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
         <div class="desk-titlebar">
             <h2 class="desk-title">Delivery Management</h2>
-            <span class="desk-title-meta">{{ number_format($invoices->total()) }} invoices · Inactive or unmatched areas cannot be assigned</span>
+            <span class="desk-title-meta">{{ number_format($invoices->total()) }} invoices{{ ($date_from !== '' || $date_to !== '') ? ' · '.($date_from !== '' ? \Illuminate\Support\Carbon::parse($date_from)->format('n/j/Y') : '…').' – '.($date_to !== '' ? \Illuminate\Support\Carbon::parse($date_to)->format('n/j/Y') : '…') : '' }} · Inactive or unmatched areas cannot be assigned</span>
             <div class="desk-footer-actions">
                 <button type="button" class="desk-btn desk-btn-sm" wire:click="selectVisible({{ \Illuminate\Support\Js::from($visibleIds) }})">Select page</button>
                 <button type="button" class="desk-btn desk-btn-sm" wire:click="clearSelected" @disabled($selectedCount === 0)>Clear</button>
@@ -322,16 +396,18 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                     <table class="desk-table desk-table-fit">
                         <colgroup>
                             <col style="width:2.2rem" />
-                            <col style="width:12%" />
-                            <col style="width:38%" />
-                            <col style="width:22%" />
-                            <col style="width:12%" />
+                            <col style="width:11%" />
+                            <col style="width:10%" />
+                            <col style="width:32%" />
+                            <col style="width:20%" />
+                            <col style="width:11%" />
                             <col style="width:14%" />
                         </colgroup>
                         <thead>
                             <tr>
                                 <th class="text-center"></th>
                                 <x-desk-sort-th field="invoice_number" label="Invoice #" />
+                                <x-desk-sort-th field="invoice_date" label="Date" />
                                 <x-desk-sort-th field="customer" label="Customer" />
                                 <x-desk-sort-th field="ship_to" label="Ship to" />
                                 <x-desk-sort-th field="total" label="Total" align="right" />
@@ -368,6 +444,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                                         <input type="checkbox" wire:model="selected.{{ $invoice->id }}" aria-label="Select invoice {{ $invoice->invoice_number }}" />
                                     </td>
                                     <td class="desk-num">{{ $invoice->invoice_number }}</td>
+                                    <td>{{ optional($invoice->invoice_date)?->format('n/j/Y') ?: '—' }}</td>
                                     <td title="{{ $invoice->customer?->company_name }}">
                                         {{ $invoice->customer?->company_name ?: $order?->bill_to_name }}
                                         @if ($invoice->customer?->customer_id)
@@ -396,7 +473,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                                     </td>
                                 </tr>
                             @empty
-                                <tr class="is-empty"><td colspan="6">No invoices found.</td></tr>
+                                <tr class="is-empty"><td colspan="7">No invoices found.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

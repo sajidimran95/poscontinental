@@ -9,6 +9,7 @@ use App\Models\InventoryReceiving;
 use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderLine;
 use App\Models\ReturnToVendor;
 use App\Models\SalesOrder;
 use App\Models\SalesOrderLine;
@@ -99,6 +100,10 @@ class InventoryService
                 'status' => 'Processed',
                 'processed_at' => now(),
             ]);
+
+            $this->syncOnOrderQty(
+                $receiving->lines->pluck('item_id')->filter()->all()
+            );
         });
     }
 
@@ -175,6 +180,10 @@ class InventoryService
                 'status' => 'New',
                 'processed_at' => null,
             ]);
+
+            $this->syncOnOrderQty(
+                $receiving->lines->pluck('item_id')->filter()->all()
+            );
         });
     }
 
@@ -308,23 +317,18 @@ class InventoryService
             }
 
             $onHand = (float) $item->quantity_in_stock;
-            $isReturn = $order->isReturnSale();
-            if (! $isReturn) {
-                $company = Company::query()->find($order->company_id);
-                $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
-                if ($err) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'invoice' => $err,
-                    ]);
-                }
+            $company = Company::query()->find($order->company_id);
+            $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
+            if ($err) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'invoice' => $err,
+                ]);
             }
 
-            $newQty = $isReturn ? ($onHand + $qty) : ($onHand - $qty);
+            $newQty = $onHand - $qty;
             $item->update([
                 'quantity_in_stock' => $newQty,
-                'last_sold_at' => $isReturn
-                    ? $item->last_sold_at
-                    : ($invoice->invoice_date?->toDateString() ?? now()->toDateString()),
+                'last_sold_at' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
             ]);
 
             if ((float) $line->qty_shipped <= 0) {
@@ -338,11 +342,11 @@ class InventoryService
                 'source_type' => Invoice::class,
                 'source_id' => $invoice->id,
                 'reference' => $invoice->invoice_number,
-                'qty_change' => $isReturn ? $qty : -$qty,
+                'qty_change' => -$qty,
                 'qty_after' => $newQty,
                 'unit_cost' => $item->current_cost,
                 'user_id' => auth()->id(),
-                'notes' => ($isReturn ? 'Return Sale Invoice ' : 'Sales Invoice ').$invoice->invoice_number.' (SO '.$order->order_number.')',
+                'notes' => 'Sales Invoice '.$invoice->invoice_number.' (SO '.$order->order_number.')',
             ]);
         }
 
@@ -361,11 +365,17 @@ class InventoryService
         $memo->loadMissing('lines');
 
         foreach ($memo->lines as $line) {
-            if (! $line->item_id || (float) $line->qty <= 0) {
+            if ((float) $line->qty <= 0) {
                 continue;
             }
 
-            $item = Item::query()->lockForUpdate()->find($line->item_id);
+            $item = $line->item_id
+                ? Item::query()->lockForUpdate()->find($line->item_id)
+                : Item::query()
+                    ->where('company_id', $memo->company_id)
+                    ->where('item_code', $line->item_code)
+                    ->lockForUpdate()
+                    ->first();
             if (! $item) {
                 continue;
             }
@@ -385,9 +395,11 @@ class InventoryService
                 'qty_after' => $newQty,
                 'unit_cost' => $item->current_cost,
                 'user_id' => auth()->id(),
-                'notes' => 'Credit Memo restock',
+                'notes' => 'Customer return restock '.$memo->memo_number,
             ]);
         }
+
+        $this->syncAllocatedQty($memo->lines->pluck('item_id')->filter()->all());
     }
 
     /**
@@ -470,6 +482,33 @@ class InventoryService
         foreach ($ids as $itemId) {
             Item::query()->whereKey($itemId)->update([
                 'allocated_qty' => round((float) ($allocated[$itemId] ?? 0), 4),
+            ]);
+        }
+    }
+
+    /**
+     * Recalculate on_order_qty from open purchase order lines (not yet received).
+     *
+     * @param  list<int>|int  $itemIds
+     */
+    public function syncOnOrderQty(int|array $itemIds): void
+    {
+        $ids = array_values(array_unique(array_filter(is_array($itemIds) ? $itemIds : [$itemIds])));
+        if ($ids === []) {
+            return;
+        }
+
+        $onOrder = PurchaseOrderLine::query()
+            ->selectRaw('purchase_order_lines.item_id, SUM(GREATEST(COALESCE(purchase_order_lines.qty_ordered,0) - COALESCE(purchase_order_lines.qty_received,0), 0)) as qty')
+            ->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_lines.purchase_order_id')
+            ->whereIn('purchase_order_lines.item_id', $ids)
+            ->whereNotIn('purchase_orders.status', ['Received', 'Cancelled', 'Closed', 'Void'])
+            ->groupBy('purchase_order_lines.item_id')
+            ->pluck('qty', 'item_id');
+
+        foreach ($ids as $itemId) {
+            Item::query()->whereKey($itemId)->update([
+                'on_order_qty' => round((float) ($onOrder[$itemId] ?? 0), 4),
             ]);
         }
     }

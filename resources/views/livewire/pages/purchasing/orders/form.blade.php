@@ -10,6 +10,7 @@ use App\Models\Site;
 use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Livewire\Attributes\Layout;
@@ -1125,6 +1126,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 }
             }
         });
+
+        $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->all();
+        app(InventoryService::class)->syncOnOrderQty($itemIds);
 
         $this->redirect(route('purchasing.orders.index'), navigate: true);
     }

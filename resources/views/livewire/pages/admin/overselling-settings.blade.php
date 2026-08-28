@@ -65,10 +65,10 @@ new #[Layout('layouts.app'), Title('Overselling Settings')] class extends Compon
                 <span>
                     <strong>Allow overselling (negative stock)</strong>
                     <span class="block text-slate-600" style="font-size:.9em;line-height:1.4;margin-top:.35rem;">
-                        When on-hand is <strong>0</strong>, you can still sell. Stock becomes
-                        <strong>-1</strong>, <strong>-2</strong>, etc. after invoice.<br />
-                        When you <strong>purchase / receive</strong> goods, qty adds back:
-                        e.g. stock <strong>-10</strong> + receive <strong>100</strong> = on-hand <strong>90</strong>.
+                        When on-hand is <strong>0</strong>, you can still sell. After invoice, stock can be
+                        <strong>-1</strong>, <strong>-2</strong>, etc.<br />
+                        Saving a <strong>purchase order</strong> does <strong>not</strong> add on-hand (it updates <strong>On Order</strong> only).
+                        <strong>Receive</strong> the PO to add qty: e.g. stock <strong>-10</strong> + receive <strong>100</strong> = on-hand <strong>90</strong>.
                     </span>
                 </span>
             </label>

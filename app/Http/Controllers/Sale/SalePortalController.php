@@ -206,7 +206,7 @@ class SalePortalController extends Controller
             'route_id' => $request->integer('route_id') ?: null,
             'ship_date' => $request->input('ship_date') ?: null,
             'ship_from_site_id' => $request->integer('location_id') ?: $user->site_id,
-            'order_type' => $this->saleOrderType($request->input('order_mode')),
+            'order_type' => 'Sales Order',
             'order_source' => SalesOrder::SOURCE_SALES,
         ];
     }

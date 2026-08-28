@@ -170,7 +170,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     ->where('company_id', $companyId)
                     ->where('customer_id', $this->customer_id)
                     ->where(function ($q) {
-                        $q->whereRaw("LOWER(REPLACE(order_type, ' ', '')) LIKE '%return%'");
+                        $q->where('status', 'Invoiced')
+                            ->orWhereHas('invoice');
+                    })
+                    ->where(function ($q) {
+                        $q->whereNull('order_type')
+                            ->orWhereRaw("LOWER(REPLACE(order_type, ' ', '')) NOT LIKE '%return%'");
                     })
                     ->when(filled($this->orderBrowseSearch), function ($q) {
                         $term = '%'.$this->orderBrowseSearch.'%';
@@ -656,8 +661,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         if (! $order) {
             return;
         }
-        if (! $order->isReturnSale()) {
-            session()->flash('status', 'Pick a Return Sale order. Regular sales orders are not listed here.');
+        if ($order->isReturnSale()) {
+            session()->flash('status', 'Pick the original invoiced sales order, not a return type.');
+
+            return;
+        }
+        if ($order->status !== 'Invoiced' && ! $order->invoice) {
+            session()->flash('status', 'Invoice the sales order first, then create the return.');
 
             return;
         }
@@ -668,7 +678,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             ?: $order->order_number
             ?: '';
         if (blank($this->reason)) {
-            $this->reason = 'Return Sale';
+            $this->reason = 'Customer return';
         }
         if (blank($this->comments) && filled($order->comments)) {
             $this->comments = (string) $order->comments;
@@ -1063,8 +1073,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
                 return;
             }
-            if (! $orderOk->isReturnSale()) {
-                $this->addError('sales_order_id', 'Attach a Return Sale order, not a regular sales order.');
+            if ($orderOk->isReturnSale()) {
+                $this->addError('sales_order_id', 'Link the original sales order, not a return type.');
+
+                return;
+            }
+            if ($orderOk->status !== 'Invoiced' && ! $orderOk->invoice) {
+                $this->addError('sales_order_id', 'Invoice the sales order first, then create the return.');
 
                 return;
             }
@@ -1108,8 +1123,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
-        // Flat amount credit (no items) should not restock inventory.
-        $restock = $this->restock_inventory && $filledLines->isNotEmpty();
+        // Product return always restocks. Flat amount (no items) does not.
+        $restock = $filledLines->isNotEmpty();
 
         $companyId = (int) auth()->user()->company_id;
 
@@ -1314,10 +1329,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                 Use flat amount for price adjustment / allowance (no items).
                             @endif
                         </p>
-                        <label class="entity-check cm-restock">
-                            <input type="checkbox" wire:model="restock_inventory" />
-                            Return items to stock (increase on-hand). Uncheck only for price credit with no goods returned.
-                        </label>
+                        <p class="item-hint" style="margin:0.4rem 0 0">
+                            Returned product lines are restocked automatically. Flat amount with no items does not change stock.
+                        </p>
                     </div>
                 </div>
 
@@ -1710,7 +1724,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         <div class="desk-modal-backdrop" wire:click.self="closeOrderBrowse" role="dialog" aria-modal="true" aria-label="Select invoiced order to return">
             <div class="desk-modal desk-modal-lg so-item-browse-modal">
                 <div class="desk-modal-head">
-                    <span>Return Sale orders{{ $selectedCustomer ? ' — '.$selectedCustomer->company_name : '' }}</span>
+                    <span>Invoiced sales orders{{ $selectedCustomer ? ' — '.$selectedCustomer->company_name : '' }}</span>
                     <button type="button" wire:click="closeOrderBrowse" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="so-item-browse-toolbar">
@@ -1745,13 +1759,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                     <td class="is-num">${{ number_format((float) $bo->total, 2) }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="4" class="so-item-browse-empty">No Return Sale orders for this customer. Set Order Type to Return Sale, then use Return.</td></tr>
+                                <tr><td colspan="4" class="so-item-browse-empty">No invoiced sales orders for this customer. Invoice the sale first, then return.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
                 <div class="so-item-browse-foot">
-                    <span>Only Return Sale type. Regular sales orders are hidden. Click a row to continue.</span>
+                    <span>Original invoiced sales only. Click a row to load those items onto the credit memo.</span>
                     <button type="button" wire:click="closeOrderBrowse" class="desk-btn">Close</button>
                 </div>
             </div>

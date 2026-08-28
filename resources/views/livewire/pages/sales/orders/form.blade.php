@@ -2937,21 +2937,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showParkedSalesModal = false;
     }
 
-    public function openReturnCreditMemo(): mixed
-    {
-        if (! $this->salesOrder?->exists) {
-            session()->flash('status', 'Save the Return Sale order first.');
-
-            return null;
-        }
-
-        return $this->redirect(route('sales.credit-memos.index', [
-            'new' => 1,
-            'customer_id' => $this->salesOrder->customer_id,
-            'sales_order_id' => $this->salesOrder->id,
-        ]), navigate: true);
-    }
-
     public function parkSale(): void
     {
         abort_if($this->viewMode, 403);
@@ -3723,7 +3708,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $data = [
             'company_id' => $companyId,
             'order_number' => $this->order_number,
-            'order_type' => $this->order_type,
+            'order_type' => 'Sales Order',
             'status' => $this->status,
             'priority' => $this->priority,
             'customer_id' => $nullableId($this->customer_id),
@@ -4075,10 +4060,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <div class="so-form-main" aria-label="Order customer and address">
                             <div class="so-form-row so-form-row-pair">
                                 <label class="so-form-lbl" for="order_type">Order Type</label>
-                                <select id="order_type" wire:model="order_type" class="so-input" aria-label="Order Type">
-                                    <option value="Sales Order">Sales Order</option>
-                                    <option value="Return Sale">Return Sale</option>
-                                </select>
+                                <input id="order_type" class="so-input" value="Sales Order" readonly aria-label="Order Type" />
                                 <label class="so-form-lbl so-field-req" for="order_number">Order No</label>
                                 <div class="so-lookup-row">
                                     <input id="order_number" wire:model="order_number" class="so-input font-mono @error('order_number') is-invalid @enderror" aria-label="Order Number" readonly title="Auto-generated" />
@@ -4902,9 +4884,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
         <div class="so-bottom-actions">
             <a href="{{ route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
-            @if ($salesOrder?->exists && str_contains(strtolower(preg_replace('/\s+/', '', (string) $order_type)), 'return'))
-                <button type="button" class="so-btn-save" wire:click="openReturnCreditMemo">Return</button>
-            @endif
             @if ($viewMode && $salesOrder)
                 @if ($salesOrder->status !== 'Invoiced' && ! $salesOrder->invoice)
                     <a href="{{ route('sales.orders.edit', $salesOrder) }}" wire:navigate class="so-btn-save">Edit Order</a>

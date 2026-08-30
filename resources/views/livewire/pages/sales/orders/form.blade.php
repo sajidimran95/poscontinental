@@ -205,6 +205,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $orderLockMessage = '';
 
+    public bool $showUnknownScanModal = false;
+
+    public string $unknownScanCode = '';
+
     public bool $showSubstitutePrompt = false;
 
     public ?int $pendingItemId = null;
@@ -1715,6 +1719,33 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 
+    protected function alertUnknownScan(string $code): void
+    {
+        $this->unknownScanCode = $code;
+        $this->showUnknownScanModal = true;
+        $this->scanModeActive = false;
+        $this->itemEntry = $code;
+        $this->browseSearch = $code;
+        $this->lineWarning = '';
+        $this->js('window.startPosScanMissAlarm && window.startPosScanMissAlarm()');
+    }
+
+    public function acknowledgeUnknownScan(): void
+    {
+        $this->showUnknownScanModal = false;
+        $this->unknownScanCode = '';
+        $this->itemEntry = '';
+        $this->browseSearch = '';
+        $this->js('window.stopPosScanMissAlarm && window.stopPosScanMissAlarm()');
+        if ($this->showBrowse) {
+            $this->focusBrowseSearch();
+
+            return;
+        }
+        $this->scanModeActive = true;
+        $this->clearAndFocusEntry();
+    }
+
     public function loadMoreBrowseItems(): void
     {
         if (! $this->showBrowse || ! $this->browseHasMore || $this->browseLoadingMore) {
@@ -1857,6 +1888,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
+        if ($this->showUnknownScanModal) {
+            return;
+        }
+
         if ($code !== null) {
             $this->browseSearch = trim($code);
         }
@@ -1877,9 +1912,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $this->notifyAlert('Product "'.$resolved.'" is not available.', 'error');
-        $this->resetBrowseAndLoadFirstPage();
-        $this->focusBrowseSearch(true);
+        $this->alertUnknownScan($resolved);
     }
 
     public function focusBrowseScan(): void
@@ -3246,13 +3279,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /**
      * Add item from entry bar (✓ tick or Enter).
-     * Exact match → add line. Partial / no match → browse list.
+     * Exact match → add line. Unknown scan → blocking alert (stay on this order).
      */
     public function addItemFromEntry(?string $code = null): void
     {
         abort_if($this->viewMode, 403);
 
-        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemEntry)) ?? '');
+        if ($this->showUnknownScanModal) {
+            return;
+        }
+
+        // Do not fall back to Livewire itemEntry — the scan box uses wire:ignore.self,
+        // so a previous SKU (e.g. 2234b) can still be in state while the box shows "12".
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? '')) ?? '');
         $this->itemEntry = $code;
 
         if ($code === '') {
@@ -3273,9 +3312,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $this->scanModeActive = false;
-        $this->notifyAlert('Product "'.$code.'" is not available.', 'error');
-        $this->openBrowseForSearch($code);
+        $this->alertUnknownScan($code);
     }
 
     /**
@@ -3286,7 +3323,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemEntry)) ?? '');
+        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? '')) ?? '');
         // Need a complete code — ignore very short noise while typing.
         if ($code === '' || mb_strlen($code) < 2) {
             return;
@@ -5118,6 +5155,39 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     </div>
 
+    @if ($showUnknownScanModal && ! $viewMode)
+        <div
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="unknown-scan-title"
+            aria-describedby="unknown-scan-msg"
+        >
+            <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.enter.window.prevent="acknowledgeUnknownScan" wire:keydown.escape.window="acknowledgeUnknownScan">
+                <div class="desk-modal-head">
+                    <span id="unknown-scan-title">Item not in system</span>
+                </div>
+                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
+                    <div
+                        aria-hidden="true"
+                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:#b91c1c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
+                    >!</div>
+                    <div style="flex:1; min-width:0;">
+                        <p id="unknown-scan-msg" style="margin:0;font-size:.95rem;line-height:1.4;">
+                            Scanned item is not in the system.
+                            @if (trim($unknownScanCode) !== '')
+                                <br><strong style="word-break:break-all;">{{ $unknownScanCode }}</strong>
+                            @endif
+                        </p>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
+                    <button type="button" wire:click="acknowledgeUnknownScan" class="desk-btn desk-btn-primary" autofocus>OK</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showPriceBelowLimitModal)
         <div
             class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
@@ -5636,6 +5706,58 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (!url) return;
         window.open(url, '_blank');
     });
+
+    // Keep unknown-item alarm going until OK; stop extra scans from leaving the page.
+    $wire.$watch('showUnknownScanModal', (open) => {
+        if (open) {
+            window.startPosScanMissAlarm && window.startPosScanMissAlarm();
+            return;
+        }
+        window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
+    });
+
+    (function () {
+        let buf = '';
+        let last = 0;
+        document.addEventListener('keydown', function (e) {
+            if ($wire.showUnknownScanModal) {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    $wire.acknowledgeUnknownScan();
+                } else if (e.key.length === 1 || e.key === 'Tab') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                return;
+            }
+
+            // Barcode guns sometimes send Ctrl+L then a URL, which jumps to the address bar.
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            const now = Date.now();
+            if (now - last > 90) buf = '';
+            last = now;
+            if (e.key.length === 1 && ! e.ctrlKey && ! e.metaKey && ! e.altKey) {
+                buf += e.key;
+            }
+            if (e.key !== 'Enter' || buf.length < 4) return;
+            const looksUrl = /^https?:\/\//i.test(buf) || /^www\./i.test(buf);
+            if (! looksUrl) {
+                buf = '';
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const code = buf;
+            buf = '';
+            $wire.addItemFromEntry(code);
+        }, true);
+    })();
 
     $wire.on('open-order-print-urls', (payload) => {
         const urls = payload?.urls ?? payload?.[0]?.urls ?? [];

@@ -916,7 +916,8 @@
                                 <span>Scan</span>
                             </button>
                             <input
-                                type="search"
+                                type="text"
+                                inputmode="text"
                                 wire:model.live.debounce.300ms="browseSearch"
                                 wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
                                 class="so-input so-item-browse-search-bottom"

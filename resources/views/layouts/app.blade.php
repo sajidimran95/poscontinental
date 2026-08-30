@@ -790,7 +790,7 @@
 
                 window.playPosAlert = function (kind) {
                     const nowMs = Date.now();
-                    if (nowMs - lastAt < 280) return;
+                    if (kind !== 'scan-miss' && nowMs - lastAt < 280) return;
                     lastAt = nowMs;
                     const ac = audio();
                     if (! ac) return;
@@ -809,7 +809,12 @@
                         osc.stop(now + start + dur + 0.02);
                     };
                     kind = kind || 'error';
-                    if (kind === 'error' || kind === 'danger') {
+                    if (kind === 'scan-miss') {
+                        beep(880, 0, 0.22, 0.48);
+                        beep(220, 0.24, 0.38, 0.52);
+                        beep(880, 0.66, 0.22, 0.48);
+                        beep(180, 0.9, 0.45, 0.55);
+                    } else if (kind === 'error' || kind === 'danger') {
                         beep(980, 0, 0.16, 0.28);
                         beep(420, 0.18, 0.28, 0.28);
                     } else if (kind === 'warning' || kind === 'alert' || kind === 'credit') {
@@ -821,6 +826,22 @@
                         beep(1080, 0, 0.1, 0.16);
                     }
                 };
+
+                let scanMissTimer = 0;
+                window.stopPosScanMissAlarm = function () {
+                    window.clearInterval(scanMissTimer);
+                    scanMissTimer = 0;
+                };
+                window.startPosScanMissAlarm = function () {
+                    window.stopPosScanMissAlarm();
+                    window.playPosAlert && window.playPosAlert('scan-miss');
+                    scanMissTimer = window.setInterval(function () {
+                        window.playPosAlert && window.playPosAlert('scan-miss');
+                    }, 1400);
+                };
+                document.addEventListener('livewire:navigate', function () {
+                    window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
+                });
 
                 function showPermissionToast(message) {
                     const el = document.getElementById('pos-permission-toast');

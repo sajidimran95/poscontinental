@@ -357,7 +357,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     }
 
     /**
-     * Enter / barcode: exact code/UPC → open item. Otherwise keep term as list filter (browse).
+     * Enter / barcode: exact code/UPC → select that row on this list (do not open details).
      * Pass code from the live input so scanner Enter is not stale.
      */
     public function scanFindItem(?string $code = null): mixed
@@ -380,9 +380,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         if ($item) {
             $this->selectedId = (int) $item->id;
+            $this->search = (string) $item->item_code;
+            $this->resetPage();
             $this->scanStatus = 'Found: '.$item->item_code;
 
-            return $this->redirect(route('inventory.items.show', $item), navigate: true);
+            return null;
         }
 
         // Partial / unknown: show filtered item list (do not auto-create).
@@ -409,7 +411,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         JS);
 
         if (trim($this->search) === '') {
-            $this->scanStatus = 'Scan barcode or type SKU, then press Enter to open — or keep typing to filter the list.';
+            $this->scanStatus = 'Scan barcode or type SKU, then press Enter — stay on this list.';
         }
 
         return null;
@@ -1450,7 +1452,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 type="button"
                                 class="items-sku-scan"
                                 wire:click="focusScanAndFind"
-                                title="Scan barcode — focus field or open/add on Enter"
+                                title="Scan barcode — focus field; Enter finds the item on this list"
                             >
                                 <svg class="items-sku-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
                                     <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>

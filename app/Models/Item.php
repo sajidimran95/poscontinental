@@ -203,19 +203,21 @@ class Item extends Model
     /**
      * Match scanned barcode / typed code to an item.
      *
-     * Matches (case-insensitive, trimmed):
+     * Never matches by database id. Short typed codes on sell (under 8 chars)
+     * match item_code only, so typing "12" cannot add a different SKU whose
+     * UPC / alias / supplier code happens to be "12".
+     *
+     * Longer scans still match:
      * - item_code
-     * - primary_upc (Aliases / Primary UPC)
-     * - item_upcs.upc (all UPC / Alias rows)
-     * - item_prices.alias_code (Pricing alias)
-     * - item_suppliers.supplier_item_code
+     * - primary_upc / item_upcs.upc
+     * - item_prices.alias_code
+     * - item_suppliers.supplier_item_code (not used for sell)
      *
      * @param  'any'|'sell'|'order'  $mode
      */
     public static function findByScanCode(int $companyId, string $code, string $mode = 'any'): ?self
     {
         $code = trim($code);
-        // Common scanner junk / control chars
         $code = preg_replace('/[\x00-\x1F\x7F]/', '', $code) ?? $code;
         $code = trim($code);
         if ($code === '') {
@@ -223,6 +225,7 @@ class Item extends Model
         }
 
         $lower = mb_strtolower($code);
+        $shortSell = $mode === 'sell' && mb_strlen($lower) < 8;
 
         $query = static::query()
             ->where('company_id', $companyId)
@@ -234,20 +237,91 @@ class Item extends Model
             $query->where('can_order', true);
         }
 
-        return $query
-            ->where(function ($q) use ($lower) {
-                $q->whereRaw('LOWER(item_code) = ?', [$lower])
-                    ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])
-                    ->orWhereHas('upcs', function ($upc) use ($lower) {
-                        $upc->whereRaw('LOWER(upc) = ?', [$lower]);
-                    })
-                    ->orWhereHas('prices', function ($p) use ($lower) {
-                        $p->whereRaw('LOWER(COALESCE(alias_code, ?)) = ?', ['', $lower]);
-                    })
-                    ->orWhereHas('itemSuppliers', function ($s) use ($lower) {
-                        $s->whereRaw('LOWER(COALESCE(supplier_item_code, ?)) = ?', ['', $lower]);
-                    });
-            })
-            ->first();
+        $query->where(function ($q) use ($lower, $shortSell, $mode) {
+            $q->whereRaw('LOWER(TRIM(item_code)) = ?', [$lower]);
+            if ($shortSell) {
+                return;
+            }
+            $q->orWhereRaw('LOWER(TRIM(COALESCE(primary_upc, ?))) = ?', ['', $lower])
+                ->orWhereHas('upcs', function ($upc) use ($lower) {
+                    $upc->whereRaw('LOWER(TRIM(upc)) = ?', [$lower]);
+                })
+                ->orWhereHas('prices', function ($p) use ($lower) {
+                    $p->whereRaw('LOWER(TRIM(COALESCE(alias_code, ?))) = ?', ['', $lower]);
+                });
+            if ($mode !== 'sell') {
+                $q->orWhereHas('itemSuppliers', function ($s) use ($lower) {
+                    $s->whereRaw('LOWER(TRIM(COALESCE(supplier_item_code, ?))) = ?', ['', $lower]);
+                });
+            }
+        });
+
+        $matches = $query->get();
+        if ($matches->isEmpty()) {
+            return null;
+        }
+
+        $byItemCode = $matches->first(
+            fn (self $item) => mb_strtolower(trim((string) $item->item_code)) === $lower
+        );
+        if ($byItemCode) {
+            return $byItemCode;
+        }
+
+        if ($shortSell) {
+            return null;
+        }
+
+        foreach ($matches as $item) {
+            if (self::itemMatchesScanCode($item, $code, $mode)) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    public static function itemMatchesScanCode(self $item, string $code, string $mode = 'any'): bool
+    {
+        $lower = mb_strtolower(trim(preg_replace('/[\x00-\x1F\x7F]/', '', $code) ?? $code));
+        if ($lower === '') {
+            return false;
+        }
+
+        if (mb_strtolower(trim((string) $item->item_code)) === $lower) {
+            return true;
+        }
+
+        if ($mode === 'sell' && mb_strlen($lower) < 8) {
+            return false;
+        }
+
+        if (mb_strtolower(trim((string) ($item->primary_upc ?? ''))) === $lower) {
+            return true;
+        }
+
+        $item->loadMissing(['upcs', 'prices', 'itemSuppliers']);
+
+        foreach ($item->upcs as $upc) {
+            if (mb_strtolower(trim((string) $upc->upc)) === $lower) {
+                return true;
+            }
+        }
+
+        foreach ($item->prices as $price) {
+            if (mb_strtolower(trim((string) ($price->alias_code ?? ''))) === $lower) {
+                return true;
+            }
+        }
+
+        if ($mode !== 'sell') {
+            foreach ($item->itemSuppliers as $supplier) {
+                if (mb_strtolower(trim((string) ($supplier->supplier_item_code ?? ''))) === $lower) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

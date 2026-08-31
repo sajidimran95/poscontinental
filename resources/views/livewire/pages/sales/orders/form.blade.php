@@ -341,14 +341,18 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** @var array<int, array{box_number:string,tracking_number:string}> */
     public array $boxes = [];
 
-    public function mount(?SalesOrder $salesOrder = null): void
+    public function mount(mixed $salesOrder = null): void
     {
+        if (! $salesOrder instanceof SalesOrder && is_numeric($salesOrder)) {
+            $salesOrder = SalesOrder::query()->find((int) $salesOrder);
+        }
+
         if ($this->activeTab === 'expand') {
             $this->activeTab = 'items';
         }
 
         // New order always opens on General (customer / order header).
-        if (! $salesOrder?->exists) {
+        if (! ($salesOrder instanceof SalesOrder && $salesOrder->exists)) {
             $this->activeTab = 'general';
         }
 
@@ -358,7 +362,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         $companyId = auth()->user()->company_id;
 
-        if ($salesOrder?->exists) {
+        if ($salesOrder instanceof SalesOrder && $salesOrder->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
             $salesOrder->loadMissing('invoice');
             $this->salesOrder = $salesOrder->load(['lines.item', 'boxes', 'customer', 'invoice']);
@@ -1139,10 +1143,42 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function hydrate(): void
     {
         $this->viewMode = request()->routeIs('sales.orders.show');
+        $this->ensureSalesOrderModel();
+    }
+
+    protected function ensureSalesOrderModel(): void
+    {
+        if ($this->salesOrder instanceof SalesOrder) {
+            return;
+        }
+
+        $id = 0;
+        if (is_numeric($this->salesOrder)) {
+            $id = (int) $this->salesOrder;
+        } elseif (is_string($this->salesOrder) && $this->salesOrder !== '') {
+            $id = (int) $this->salesOrder;
+        }
+
+        if ($id < 1) {
+            $routeOrder = request()->route('salesOrder');
+            if ($routeOrder instanceof SalesOrder) {
+                $this->salesOrder = $routeOrder;
+
+                return;
+            }
+            if (is_numeric($routeOrder)) {
+                $id = (int) $routeOrder;
+            }
+        }
+
+        $this->salesOrder = $id > 0
+            ? SalesOrder::query()->with(['invoice', 'customer'])->find($id)
+            : null;
     }
 
     public function with(): array
     {
+        $this->ensureSalesOrderModel();
         $companyId = auth()->user()->company_id;
         $filledLines = collect($this->lines)->filter(fn ($l) => filled($l['item_code'] ?? null));
         $subtotal = $filledLines->sum(fn ($l) => ((float) $l['qty_ordered'] * (float) $l['price']) - (float) $l['discount']);
@@ -1219,23 +1255,55 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     : 'New Sales Order'),
             'returnToInvoiceList' => $this->shouldReturnToInvoiceList(),
             'salesReps' => $onGeneral
-                ? Cache::remember(
-                    'lookups.sales_reps.'.$companyId.'.'.(int) $this->sales_rep_id,
+                ? collect(Cache::remember(
+                    'lookups.sales_reps.v2.'.$companyId.'.'.(int) $this->sales_rep_id,
                     120,
-                    fn () => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get()
-                )
+                    fn () => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)
+                        ->get(['id', 'name'])
+                        ->map(fn ($u) => ['id' => (int) $u->id, 'name' => (string) $u->name])
+                        ->values()
+                        ->all()
+                ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
             'paymentTerms' => $onShipping
-                ? Cache::remember('lookups.payment_terms.'.$companyId, 180, fn () => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get())
+                ? collect(Cache::remember(
+                    'lookups.payment_terms.v2.'.$companyId,
+                    180,
+                    fn () => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get(['id', 'name'])
+                        ->map(fn ($r) => ['id' => (int) $r->id, 'name' => (string) $r->name])
+                        ->values()
+                        ->all()
+                ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
             'routes' => $onShipping
-                ? Cache::remember('lookups.routes.'.$companyId, 180, fn () => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get())
+                ? collect(Cache::remember(
+                    'lookups.routes.v2.'.$companyId,
+                    180,
+                    fn () => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get(['id', 'name'])
+                        ->map(fn ($r) => ['id' => (int) $r->id, 'name' => (string) $r->name])
+                        ->values()
+                        ->all()
+                ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
             'shipVias' => $onShipping
-                ? Cache::remember('lookups.ship_vias.'.$companyId, 180, fn () => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get())
+                ? collect(Cache::remember(
+                    'lookups.ship_vias.v2.'.$companyId,
+                    180,
+                    fn () => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get(['id', 'name'])
+                        ->map(fn ($r) => ['id' => (int) $r->id, 'name' => (string) $r->name])
+                        ->values()
+                        ->all()
+                ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
             'sites' => $onShipping
-                ? Cache::remember('lookups.sites.'.$companyId, 180, fn () => Site::query()->where('company_id', $companyId)->orderBy('code')->get())
+                ? collect(Cache::remember(
+                    'lookups.sites.v2.'.$companyId,
+                    180,
+                    fn () => Site::query()->where('company_id', $companyId)->orderBy('code')->get(['id', 'code'])
+                        ->map(fn ($r) => ['id' => (int) $r->id, 'code' => (string) $r->code])
+                        ->values()
+                        ->all()
+                ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
             'browseItems' => collect($this->browseRows)->map(function (array $row) {
                 $id = (int) ($row['id'] ?? 0);
@@ -4263,7 +4331,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 }; ?>
 
-<div class="so-page" wire:key="so-{{ $createWindowId ?? ($salesOrder?->id ?? 'new') }}-{{ $viewMode ? 'view' : 'edit' }}">
+<div class="so-page" wire:key="so-{{ $createWindowId ?? (($salesOrder instanceof \App\Models\SalesOrder) ? $salesOrder->id : 'new') }}-{{ $viewMode ? 'view' : 'edit' }}">
     <x-action-bar :title="$pageTitle" class="so-action-full" />
 
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
@@ -4583,7 +4651,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <select id="sales_rep_id" wire:model="sales_rep_id" class="so-input" aria-label="Sales Rep">
                                     <option value="">—</option>
                                     @foreach ($salesReps as $r)
-                                        <option value="{{ $r->id }}">{{ $r->name }}</option>
+                                        <option value="{{ $r['id'] ?? '' }}">{{ $r['name'] ?? '' }}</option>
                                     @endforeach
                                 </select>
                             </div>
@@ -5003,28 +5071,28 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <label class="so-ship-lbl" for="payment_term_id">Payment Terms:</label>
                                 <select id="payment_term_id" wire:model="payment_term_id" class="so-input">
                                     <option value="">—</option>
-                                    @foreach ($paymentTerms as $pt)<option value="{{ $pt->id }}">{{ $pt->name }}</option>@endforeach
+                                    @foreach ($paymentTerms as $pt)<option value="{{ $pt['id'] ?? '' }}">{{ $pt['name'] ?? '' }}</option>@endforeach
                                 </select>
                             </div>
                             <div class="so-ship-row">
                                 <label class="so-ship-lbl" for="route_id">Route:</label>
                                 <select id="route_id" wire:model="route_id" class="so-input">
                                     <option value="">—</option>
-                                    @foreach ($routes as $route)<option value="{{ $route->id }}">{{ $route->name }}</option>@endforeach
+                                    @foreach ($routes as $route)<option value="{{ $route['id'] ?? '' }}">{{ $route['name'] ?? '' }}</option>@endforeach
                                 </select>
                             </div>
                             <div class="so-ship-row">
                                 <label class="so-ship-lbl" for="ship_via_id">Ship Via:</label>
                                 <select id="ship_via_id" wire:model="ship_via_id" class="so-input">
                                     <option value="">—</option>
-                                    @foreach ($shipVias as $sv)<option value="{{ $sv->id }}">{{ $sv->name }}</option>@endforeach
+                                    @foreach ($shipVias as $sv)<option value="{{ $sv['id'] ?? '' }}">{{ $sv['name'] ?? '' }}</option>@endforeach
                                 </select>
                             </div>
                             <div class="so-ship-row">
                                 <label class="so-ship-lbl" for="ship_from_site_id">Ship From:</label>
                                 <select id="ship_from_site_id" wire:model="ship_from_site_id" class="so-input">
                                     <option value="">—</option>
-                                    @foreach ($sites as $s)<option value="{{ $s->id }}">{{ $s->code }}</option>@endforeach
+                                    @foreach ($sites as $s)<option value="{{ $s['id'] ?? '' }}">{{ $s['code'] ?? '' }}</option>@endforeach
                                 </select>
                             </div>
                             <div class="so-ship-row">
@@ -5152,8 +5220,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
         <div class="so-bottom-actions">
             <a href="{{ $returnToInvoiceList ? route('sales.invoices.index') : route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
-            @if ($viewMode && $salesOrder)
-                <a href="{{ route('sales.orders.edit', $salesOrder) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
+            @if ($viewMode && $salesOrder instanceof \App\Models\SalesOrder)
+                <a href="{{ route('sales.orders.edit', $salesOrder->id) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)

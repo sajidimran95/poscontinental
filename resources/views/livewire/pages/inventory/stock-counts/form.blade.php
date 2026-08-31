@@ -48,6 +48,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public bool $scanModeActive = false;
 
+    public ?int $selectedLineIndex = null;
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
     public array $lines = [];
 
@@ -166,6 +168,11 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
+        if ($this->selectedLineIndex === $i) {
+            $this->selectedLineIndex = null;
+        } elseif ($this->selectedLineIndex !== null && $this->selectedLineIndex > $i) {
+            $this->selectedLineIndex--;
+        }
         if ($this->lines === []) {
             $this->addLine();
         }
@@ -211,14 +218,14 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 $this->lines[$index] = $this->emptyLine();
                 $this->lookupMessage = $item->item_code.' is already on this count (line '.((int) $i + 1).').';
                 $this->playPosSound('warning');
-                $this->focusLineCode((int) $i);
-                $this->js('requestAnimationFrame(() => { document.getElementById("sc-line-counted-'.$i.'")?.focus(); });');
+                $this->highlightCountLine((int) $i);
 
                 return;
             }
         }
 
         $this->fillLineFromItem($index, $item);
+        $this->highlightCountLine($index);
         $this->playPosSound('success');
         // Ready next empty line for continuous scan / manual entry.
         $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
@@ -270,6 +277,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 $this->lineWarning = $this->lookupMessage;
                 $this->lineWarningKind = 'warning';
                 $this->playPosSound('warning');
+                $this->highlightCountLine((int) $i);
                 $this->focusBrowseSearch();
 
                 return;
@@ -278,6 +286,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         $index = $this->resolveCountTargetIndex();
         $this->fillLineFromItem($index, $item);
+        $this->highlightCountLine($index);
         $this->lookupMessage = '';
         $this->lineWarning = '';
         $this->playPosSound('success');
@@ -394,6 +403,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
                 $this->lookupMessage = $item->item_code.' is already on this count (line '.((int) $i + 1).').';
                 $this->playPosSound('warning');
+                $this->highlightCountLine((int) $i);
 
                 return false;
             }
@@ -401,6 +411,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         $index = $this->resolveCountTargetIndex();
         $this->fillLineFromItem($index, $item);
+        $this->highlightCountLine($index);
         $this->lookupMessage = '';
         $this->lineWarning = '';
         $this->playPosSound('success');
@@ -530,6 +541,17 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $lines[$index]['in_stock'] = (string) $item->quantity_in_stock;
         $lines[$index]['allocated'] = (string) $item->allocated_qty;
         $this->lines = $lines;
+    }
+
+    protected function highlightCountLine(int $index): void
+    {
+        $this->selectedLineIndex = $index;
+        $this->js('requestAnimationFrame(() => {
+            const row = document.getElementById("sc-line-row-'.$index.'");
+            if (row) row.scrollIntoView({ block: "nearest" });
+            const counted = document.getElementById("sc-line-counted-'.$index.'");
+            if (counted && !counted.disabled) { counted.focus(); counted.select(); }
+        });');
     }
 
     protected function focusLineCode(int $index, bool $select = false): void
@@ -891,7 +913,12 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                             : null;
                                     @endphp
                                     @if ($filled)
-                                        <tr>
+                                        <tr
+                                            id="sc-line-row-{{ $i }}"
+                                            wire:key="sc-line-{{ $i }}-{{ $line['item_id'] ?? 'new' }}"
+                                            wire:click="$set('selectedLineIndex', {{ $i }})"
+                                            @class(['is-selected' => $selectedLineIndex === $i, 'cursor-pointer'])
+                                        >
                                             <td class="font-mono desk-num" title="{{ $line['item_code'] ?? '' }}">
                                                 {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
                                             </td>

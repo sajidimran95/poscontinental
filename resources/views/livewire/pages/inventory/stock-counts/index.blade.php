@@ -431,7 +431,6 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                     <a href="{{ route('inventory.stock-counts.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Stock Count</a>
                     <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
-                </x-record-count>
             </div>
 
             {{-- Right rail: document, pen, print, delete, refresh, + --}}

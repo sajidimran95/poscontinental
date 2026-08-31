@@ -137,15 +137,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             $query->withSum('payments', 'amount')->withSum('credits', 'amount');
         }
 
-        $invoices = $this->paginateDeskList(
-            $this->applyDeskSort($query, 'invoice_date', 'desc'),
-            'invoices.list_count.'.(int) $companyId.'.'.$this->statusFilter.'.'.$this->favorite.'.'.$this->search.'.'.$this->sortField.'.'.$this->sortDir,
-            50,
-            $this->search === '' ? 20 : 0
-        );
+        $scroll = $this->scrollDeskList($this->applyDeskSort($query, 'invoice_date', 'desc'));
+        $invoices = $scroll['rows'];
 
         if (! $sortNeedsSums) {
-            $ids = $invoices->getCollection()->pluck('id')->filter()->all();
+            $ids = $invoices->pluck('id')->filter()->all();
             if ($ids !== []) {
                 $pays = InvoicePayment::query()
                     ->whereIn('invoice_id', $ids)
@@ -157,7 +153,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     ->groupBy('invoice_id')
                     ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as s')
                     ->pluck('s', 'invoice_id');
-                $invoices->getCollection()->each(function (Invoice $inv) use ($pays, $credits) {
+                $invoices->each(function (Invoice $inv) use ($pays, $credits) {
                     $inv->setAttribute('payments_sum_amount', (float) ($pays[$inv->id] ?? 0));
                     $inv->setAttribute('credits_sum_amount', (float) ($credits[$inv->id] ?? 0));
                 });
@@ -189,6 +185,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         return [
             'invoices' => $invoices,
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'favorites' => [
                 'all' => 'All Invoices',
                 'not_paid' => 'NOT PAID',
@@ -220,6 +218,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
             'canEditInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false,
+            'canVoidInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'delete') ?? false,
             'editInvoice' => $this->editInvoiceId
                 ? Invoice::query()
                     ->with(['customer:id,customer_id,company_name', 'salesOrder:id,order_number'])
@@ -431,7 +430,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
-        $url = route('sales.invoices.pick-list', $invoice);
+        $url = route('sales.invoices.pick-list', $invoice).'?v='.time();
         $this->dispatch('open-invoice-pdf', url: $url);
     }
 
@@ -1139,13 +1138,116 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     {
         $this->saveAll(true);
     }
+
+    public function viewSalesOrder(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return null;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $invoice?->sales_order_id) {
+            session()->flash('status', 'This invoice has no sales order.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.edit', $invoice->sales_order_id), navigate: true);
+    }
+
+    public function openPaymentsSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $this->openPayments($this->selectedId);
+    }
+
+    public function voidSelectedInvoice(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.invoices', 'delete')) {
+            session()->flash('status', 'Your role cannot void invoices.');
+
+            return;
+        }
+
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        try {
+            DB::transaction(function () {
+                $invoice = Invoice::query()
+                    ->with(['salesOrder.lines', 'salesOrder.customer', 'payments', 'credits'])
+                    ->where('company_id', auth()->user()->company_id)
+                    ->lockForUpdate()
+                    ->findOrFail($this->selectedId);
+
+                $order = $invoice->salesOrder;
+                if ($order) {
+                    app(\App\Services\InventoryService::class)->reverseInvoiceStock($order, $invoice);
+                    $customer = $order->customer;
+                    if ($customer) {
+                        $customer->update([
+                            'number_of_orders' => max(0, (int) $customer->number_of_orders - 1),
+                            'total_sales' => max(0, (float) $customer->total_sales - (float) $invoice->invoice_total),
+                            'balance' => (float) $customer->balance - (float) $invoice->invoice_total,
+                        ]);
+                    }
+                    $order->update(['status' => 'New']);
+                }
+
+                $invoice->payments()->delete();
+                $invoice->credits()->delete();
+                $invoice->delete();
+            });
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Unable to void invoice. '.$e->getMessage());
+
+            return;
+        }
+
+        $this->selectedId = null;
+        $this->closeModal();
+        session()->flash('status', 'Invoice voided. The sales order is open again.');
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page relative">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
+                <x-action-item label="Payments & Credits" sep wire:click="openPaymentsSelected" />
+                <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
+                <x-action-item
+                    label="Void Invoice"
+                    sep
+                    wire:click="voidSelectedInvoice"
+                    wire:confirm="Void the selected invoice? The sales order will reopen and stock will be reversed."
+                    :disabled="! $selectedId || ! $canVoidInvoice"
+                />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -1180,10 +1282,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($invoices->total()) }} records</span>
+                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                 </div>
 
-                <div class="desk-grid desk-grid-responsive">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="desk-grid-responsive">
                     <table class="desk-table desk-table-fit desk-list-table">
                         <colgroup>
                             <col style="width:2.1rem" />
@@ -1317,12 +1419,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <div class="desk-list-card is-empty">No invoices. Invoice a sales order from the Orders list.</div>
                         @endforelse
                     </div>
-                </div>
+                </x-desk-scroll-grid>
 
-                <x-record-count :count="$invoices->total()">{{ $invoices->links() }}</x-record-count>
+                <x-record-count :count="$listShown">
+                    <x-desk-load-more :has-more="$listHasMore" />
+                </x-record-count>
             </div>
 
-            {{-- Right icons: view, print, open/pay, payment, refresh --}}
+            {{-- Right icons: view, print, pick list, edit, payment, void, refresh --}}
             <aside class="desk-rail" aria-label="Invoice actions">
                 <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View invoice" aria-label="View invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -1351,6 +1455,20 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
                         <path d="M5 8.2l2.1 2.1L11.2 6" stroke-width="1.7"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    wire:click="voidSelectedInvoice"
+                    wire:confirm="Void the selected invoice? The sales order will reopen and stock will be reversed."
+                    class="desk-rail-btn desk-rail-btn-danger"
+                    title="{{ $canVoidInvoice ? 'Void invoice' : 'No void permission' }}"
+                    aria-label="Void invoice"
+                    @disabled(! $selectedId || ! $canVoidInvoice)
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
+                        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">

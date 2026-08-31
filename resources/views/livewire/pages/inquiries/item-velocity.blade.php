@@ -214,11 +214,32 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             'outsideRangeCount' => $outsideRangeCount,
         ]);
     }
+
+    public function editLookedUpItem(): mixed
+    {
+        if (! $this->itemId) {
+            session()->flash('status', 'Look up an item first.');
+
+            return null;
+        }
+
+        return $this->redirect(route('inventory.items.edit', $this->itemId), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <div class="desk-main">
-        <x-action-bar title="Item Velocity" />
+        <x-action-bar title="Item Velocity">
+            <x-slot:menu>
+                <x-action-item label="View/Edit Item" kbd="Ctrl+E" wire:click="editLookedUpItem" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-toolbar rpt-toolbar">
             <div class="rpt-field rpt-field-search">

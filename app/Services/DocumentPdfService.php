@@ -360,6 +360,7 @@ class DocumentPdfService
     {
         $order->loadMissing([
             'lines.item.category',
+            'lines.item.subcategory',
             'lines.item.department',
             'customer',
             'salesRep',
@@ -367,17 +368,27 @@ class DocumentPdfService
             'invoice',
         ]);
 
-        return Pdf::loadView('pdf.pick-list', [
+        return $this->stampPageLabels(Pdf::loadView('pdf.pick-list', [
             'order' => $order,
             'company' => $user?->company ?? $order->customer?->company ?? auth()->user()?->company,
             'barcodeValue' => (string) $order->order_number,
-        ])->setPaper('letter');
+        ])
+            ->setPaper('letter')
+            ->setOption('defaultFont', 'Helvetica'), continued: true);
     }
 
     public function streamSalesOrderPickList(SalesOrder $order, ?User $user = null): Response
     {
-        return $this->salesOrderPickListPdf($order, $user)
-            ->stream('pick-list-'.$order->order_number.'.pdf');
+        $pdf = $this->salesOrderPickListPdf($order, $user);
+        $filename = 'pick-list-'.$order->order_number.'.pdf';
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
     }
 
     public function purchaseOrderPdf(PurchaseOrder $order, ?User $user = null)
@@ -615,6 +626,50 @@ class DocumentPdfService
         return Pdf::loadView('pdf.sales-order', $data)
             ->setPaper('letter')
             ->setOption('defaultFont', 'Helvetica');
+    }
+
+    /**
+     * Stamp "Page X of Y" on pick-list pages only (after render).
+     */
+    protected function stampPageLabels(object $pdf, bool $continued = false): object
+    {
+        // Render first — otherwise page_text only sees 1 blank page → "Page 1 of 1".
+        if (method_exists($pdf, 'render')) {
+            $pdf->render();
+        } else {
+            $pdf->getDomPDF()->render();
+        }
+
+        $dompdf = $pdf->getDomPDF();
+        $canvas = $dompdf->getCanvas();
+        $metrics = $dompdf->getFontMetrics();
+        $bold = $metrics->getFont('Helvetica', 'bold');
+        $regular = $metrics->getFont('Helvetica', 'normal');
+        $width = $canvas->get_width();
+        $height = $canvas->get_height();
+
+        $canvas->page_text(
+            $width - 118,
+            32,
+            'Page {PAGE_NUM} of {PAGE_COUNT}',
+            $bold,
+            10,
+            [0, 0, 0]
+        );
+
+        if ($continued) {
+            $canvas->page_script(function (int $pageNumber, int $pageCount, $canvas, $fontMetrics) use ($regular, $width, $height) {
+                if ($pageNumber >= $pageCount) {
+                    return;
+                }
+                $note = 'Continued on the next page';
+                $size = 9.0;
+                $noteWidth = $fontMetrics->getTextWidth($note, $regular, $size);
+                $canvas->text(($width - $noteWidth) / 2, $height - 26, $note, $regular, $size);
+            });
+        }
+
+        return $pdf;
     }
 
     /**

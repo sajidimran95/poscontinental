@@ -1269,6 +1269,26 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $this->redirect(route('inventory.items.index'), navigate: true);
     }
+
+    public function copyItem(): void
+    {
+        if (! $this->item?->exists) {
+            session()->flash('status', 'Save the item first, then copy.');
+
+            return;
+        }
+
+        $this->item = null;
+        $this->item_code = '';
+        $this->quantity_in_stock = '0';
+        $this->allocated_qty = '0';
+        session()->flash('status', 'Item copied. Enter a new item code and save.');
+    }
+
+    public function cancelAction(): mixed
+    {
+        return $this->redirect(route('inventory.items.index'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
@@ -1280,7 +1300,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             $imageUrl = $this->mediaUrl($image_path);
             $thumbUrl = $this->mediaUrl($thumbnail_path);
         @endphp
-        <x-action-bar :title="$pageTitle" />
+        <x-action-bar :title="$pageTitle">
+            <x-slot:menu>
+                <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+                <x-action-item label="Copy Item" kbd="Ctrl+O" sep wire:click="copyItem" :disabled="! $item" />
+                <x-action-item label="Refresh" :disabled="true" sep />
+                <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
+            </x-slot:menu>
+        </x-action-bar>
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>

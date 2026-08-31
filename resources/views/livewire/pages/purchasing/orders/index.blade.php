@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
@@ -16,6 +17,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
     use WithPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -80,8 +82,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 : 'Query Results ('.count($this->queryCriteria).' criteria)';
         }
 
+        $scroll = $this->scrollDeskList($query);
+
         return [
-            'orders' => $query->paginate(50),
+            'orders' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'favorites' => [
                 'all' => 'All POs',
                 'pending' => 'Pending POs',
@@ -364,13 +370,84 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
         $this->dispatch('open-purchase-order-pdf', url: route('purchasing.orders.print', $order));
     }
+
+    public function createNewPurchaseOrder(): mixed
+    {
+        return $this->redirect(route('purchasing.orders.create'), navigate: true);
+    }
+
+    public function receiveSelected(): mixed
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a purchase order first.');
+
+            return null;
+        }
+
+        $po = PurchaseOrder::query()
+            ->with('lines')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $po) {
+            session()->flash('status', 'Purchase order not found.');
+
+            return null;
+        }
+
+        $receiving = InventoryReceiving::query()->create([
+            'company_id' => $po->company_id,
+            'receipt_number' => InventoryReceiving::nextNumber($po->company_id),
+            'receipt_date' => now()->toDateString(),
+            'purchase_order_id' => $po->id,
+            'status' => 'New',
+            'supplier_id' => $po->supplier_id,
+            'buyer_id' => $po->buyer_id,
+            'site_id' => $po->ship_to_site_id,
+            'received_by' => auth()->user()->name,
+        ]);
+
+        foreach ($po->lines as $i => $line) {
+            $remaining = max(0, (float) $line->qty_ordered - (float) $line->qty_received);
+            if ($remaining <= 0) {
+                continue;
+            }
+            $receiving->lines()->create([
+                'purchase_order_line_id' => $line->id,
+                'item_id' => $line->item_id,
+                'item_code' => $line->item_code,
+                'description' => $line->description,
+                'uom' => $line->uom,
+                'qty_ordered' => $line->qty_ordered,
+                'qty_received' => $remaining,
+                'unit_cost' => $line->unit_cost,
+                'line_no' => $i + 1,
+            ]);
+        }
+
+        return $this->redirect(route('purchasing.receivings.edit', $receiving), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Purchase Order" kbd="Ctrl+N" wire:click="createNewPurchaseOrder" />
+                <x-action-item label="View/Edit Selected Purchase Order" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Delete Selected Purchase Order" sep wire:click="deleteSelected" />
+                <x-action-item label="Receive Purchase Order" sep wire:click="receiveSelected" />
+                <x-action-item label="Print" sep wire:click="printSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -420,10 +497,10 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
+                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table">
                         <thead>
                             <tr>
@@ -488,11 +565,11 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
-                <x-record-count :count="$orders->total()">
+                <x-record-count :count="$listShown">
                     <a href="{{ route('purchasing.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Purchase Order</a>
-                    {{ $orders->links() }}
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -15,6 +16,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -177,7 +179,8 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             ->when($this->listFilter === 'unassigned', fn ($q) => $q->whereHas('salesOrder', fn ($o) => $o->whereNull('delivery_user_id')))
             ->when($this->listFilter === 'assigned', fn ($q) => $q->whereHas('salesOrder', fn ($o) => $o->whereNotNull('delivery_user_id')));
 
-        $invoices = $this->applyDeskSort($invoicesQuery, 'invoice_date', 'desc')->paginate(40);
+        $scroll = $this->scrollDeskList($this->applyDeskSort($invoicesQuery, 'invoice_date', 'desc'));
+        $invoices = $scroll['rows'];
 
         $custTerm = trim($this->customerSearch);
         $customerSuggestions = (! $this->customer_id && $custTerm !== '')
@@ -213,6 +216,8 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
         return [
             'invoices' => $invoices,
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'customerSuggestions' => $customerSuggestions,
             'selectedCount' => collect($this->selected)->filter()->count(),
             'visibleIds' => $invoices->pluck('id')->all(),
@@ -382,9 +387,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
         <div class="desk-titlebar">
             <h2 class="desk-title">Delivery Management</h2>
-            <span class="desk-title-meta">{{ number_format($invoices->total()) }} invoices{{ ($date_from !== '' || $date_to !== '') ? ' · '.($date_from !== '' ? \Illuminate\Support\Carbon::parse($date_from)->format('n/j/Y') : '…').' – '.($date_to !== '' ? \Illuminate\Support\Carbon::parse($date_to)->format('n/j/Y') : '…') : '' }} · Inactive or unmatched areas cannot be assigned</span>
+            <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} invoices{{ ($date_from !== '' || $date_to !== '') ? ' · '.($date_from !== '' ? \Illuminate\Support\Carbon::parse($date_from)->format('n/j/Y') : '…').' – '.($date_to !== '' ? \Illuminate\Support\Carbon::parse($date_to)->format('n/j/Y') : '…') : '' }} · Inactive or unmatched areas cannot be assigned</span>
             <div class="desk-footer-actions">
-                <button type="button" class="desk-btn desk-btn-sm" wire:click="selectVisible({{ \Illuminate\Support\Js::from($visibleIds) }})">Select page</button>
+                <button type="button" class="desk-btn desk-btn-sm" wire:click="selectVisible({{ \Illuminate\Support\Js::from($visibleIds) }})">Select visible</button>
                 <button type="button" class="desk-btn desk-btn-sm" wire:click="clearSelected" @disabled($selectedCount === 0)>Clear</button>
                 <span class="dlv-muted">{{ $selectedCount }} selected</span>
             </div>
@@ -392,7 +397,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
         <div class="desk-main-split">
             <div class="desk-main-body">
-                <div class="desk-grid dlv-assign-grid">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="dlv-assign-grid">
                     <table class="desk-table desk-table-fit">
                         <colgroup>
                             <col style="width:2.2rem" />
@@ -477,9 +482,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
                 <div class="desk-footer">
-                    <x-desk-pager :paginator="$invoices" />
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </div>
             </div>
         </div>

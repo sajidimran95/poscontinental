@@ -560,12 +560,51 @@
             role="dialog"
             aria-labelledby="item-browse-title"
             wire:keydown.escape.window="browseEscape"
+            @keydown.ctrl.k.prevent="insertChecked()"
+            @keydown.ctrl.n.prevent="$wire.openBrowseNewItem()"
+            @keydown.ctrl.e.prevent="editSelected()"
             x-data="{
                 x: (window.__soBrowsePos && window.__soBrowsePos.x != null) ? window.__soBrowsePos.x : null,
                 y: (window.__soBrowsePos && window.__soBrowsePos.y != null) ? window.__soBrowsePos.y : null,
                 drag: false,
                 dx: 0,
                 dy: 0,
+                checked: @js(array_values(array_map('intval', $browseCheckedIds))),
+                selected: {{ (int) ($browseSelectedId ?? 0) }},
+                isChecked(id) { return this.checked.indexOf(Number(id)) !== -1; },
+                toggleRow(id) {
+                    id = Number(id);
+                    if (this.isChecked(id)) {
+                        this.checked = this.checked.filter((x) => x !== id);
+                    } else {
+                        this.checked = [...this.checked, id];
+                    }
+                    this.selected = this.checked.length === 1 ? this.checked[0] : 0;
+                },
+                pickRow(id) {
+                    $wire.pickBrowseItem(Number(id));
+                },
+                insertChecked() {
+                    $wire.insertBrowseChecked(this.checked);
+                },
+                insertSelected() {
+                    const id = this.checked.length === 1 ? this.checked[0] : this.selected;
+                    if (!id) return;
+                    $wire.pickBrowseItem(Number(id));
+                },
+                editSelected() {
+                    if (this.checked.length !== 1) return;
+                    $wire.openBrowseEditSelected(this.checked[0]);
+                },
+                selectAllVisible() {
+                    this.checked = [...this.$el.querySelectorAll('tr[data-browse-id]')].map((el) => Number(el.dataset.browseId)).filter(Boolean);
+                    this.selected = this.checked.length === 1 ? this.checked[0] : 0;
+                },
+                clearChecked() {
+                    this.checked = [];
+                    this.selected = 0;
+                },
+                actionOpen: false,
                 start(e) {
                     if (e.button !== 0 || e.target.closest('button, input, select, a, label')) return;
                     const r = this.$el.getBoundingClientRect();
@@ -605,18 +644,18 @@
                         $browseCanSingle = $browseCheckedCount <= 1 && ($browseCheckedCount === 1 || (int) ($browseSelectedId ?? 0) > 0);
                         $browseCanMultiInsert = $browseCheckedCount >= 1;
                     @endphp
-                    <div class="so-browse-action" x-data="{ open: false }" @keydown.escape.window="open = false" @click.outside="open = false">
-                        <button type="button" class="so-browse-action-btn" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">
+                    <div class="so-browse-action" @keydown.escape.window="actionOpen = false" @click.outside="actionOpen = false">
+                        <button type="button" class="so-browse-action-btn" @click="actionOpen = !actionOpen" :aria-expanded="actionOpen" aria-haspopup="menu">
                             Action
                             <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 4.5L6 8l3-3.5H3z"/></svg>
                         </button>
-                        <div class="so-browse-action-menu" x-show="open" x-cloak role="menu" @click="open = false">
+                        <div class="so-browse-action-menu" x-show="actionOpen" x-cloak role="menu" @click="actionOpen = false">
                             <button
                                 type="button"
                                 class="so-browse-action-item"
                                 role="menuitem"
-                                wire:click="insertBrowseChecked"
-                                @disabled(! $browseCanMultiInsert && ! $browseCanSingle)
+                                @click="insertChecked()"
+                                :disabled="checked.length < 1 && selected < 1"
                             >
                                 <span>Insert All Checked Items</span>
                                 <span class="kbd">Ctrl+K</span>
@@ -625,8 +664,8 @@
                                 type="button"
                                 class="so-browse-action-item"
                                 role="menuitem"
-                                wire:click="insertBrowseSelected"
-                                @disabled(! $browseCanSingle)
+                                @click="insertSelected()"
+                                :disabled="checked.length !== 1 && selected < 1"
                             >
                                 <span>Insert Selected Item</span>
                                 <span class="kbd">Ctrl+L</span>
@@ -640,8 +679,8 @@
                                 type="button"
                                 class="so-browse-action-item"
                                 role="menuitem"
-                                wire:click="openBrowseEditSelected"
-                                @disabled(! $browseCanSingle)
+                                @click="editSelected()"
+                                :disabled="checked.length !== 1"
                             >
                                 <span>View/Edit Selected Item</span>
                                 <span class="kbd">Ctrl+E</span>
@@ -656,7 +695,7 @@
                         <input type="checkbox" wire:model.live="browseNewOnly" />
                         New only ({{ $itemNewDays }} days)
                     </label>
-                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible,sortBrowseBy">Loading…</span>
+                    <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible,sortBrowseBy,pickBrowseItem">Loading…</span>
                 </div>
                 @if (filled($lineWarning))
                     <div
@@ -671,16 +710,11 @@
                 @endif
                 <div
                     class="so-item-browse-body"
-                    wire:keydown.ctrl.k.prevent="insertBrowseChecked"
-                    wire:keydown.ctrl.l.prevent="insertBrowseSelected"
-                    wire:keydown.ctrl.n.prevent="openBrowseNewItem"
-                    wire:keydown.ctrl.e.prevent="openBrowseEditSelected"
                     tabindex="-1"
                 >
                     <div
                         class="so-item-browse-scroll"
                         tabindex="0"
-                        x-data="{ clickTimer: null }"
                         @scroll.passthrough="
                             const el = $event.target;
                             if (!el || {{ $browseHasMore ? 'false' : 'true' }}) return;
@@ -753,29 +787,25 @@
                                     @php
                                         $avail = (float) $bi['available'];
                                         $itemId = (int) $bi['id'];
-                                        $isChecked = collect($browseCheckedIds)->contains(fn ($v) => (int) $v === $itemId);
-                                        $isFocused = (int) $browseSelectedId === $itemId;
                                     @endphp
                                     <tr
                                         wire:key="browse-item-{{ $itemId }}"
-                                        class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}{{ $isFocused ? ' is-focused' : '' }}{{ $isChecked ? ' is-checked' : '' }}"
+                                        data-browse-id="{{ $itemId }}"
+                                        class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}"
+                                        :class="{ 'is-focused': selected === {{ $itemId }} && checked.length === 1, 'is-checked': isChecked({{ $itemId }}) }"
                                         @click="
                                             if ($event.target.closest('input, button, a, label')) return;
-                                            clearTimeout(clickTimer);
-                                            clickTimer = setTimeout(() => $wire.selectBrowseRow({{ $itemId }}), 280);
+                                            toggleRow({{ $itemId }});
                                         "
-                                        @dblclick.prevent="
-                                            clearTimeout(clickTimer);
-                                            clickTimer = null;
-                                            $wire.pickBrowseItem({{ $itemId }});
-                                        "
+                                        @dblclick.prevent="pickRow({{ $itemId }})"
                                         title="Click line to select · double-click to insert"
                                     >
-                                        <td class="is-check" wire:click.stop>
+                                        <td class="is-check">
                                             <input
                                                 type="checkbox"
                                                 value="{{ $itemId }}"
-                                                wire:model.live="browseCheckedIds"
+                                                :checked="isChecked({{ $itemId }})"
+                                                @click.stop.prevent="toggleRow({{ $itemId }})"
                                                 aria-label="Check item {{ $bi['item_code'] }}"
                                             />
                                         </td>
@@ -837,7 +867,7 @@
                             class="so-browse-tool-btn"
                             title="Select all loaded items"
                             aria-label="Select all loaded items"
-                            wire:click="selectAllBrowseVisible"
+                            @click="selectAllVisible()"
                             @disabled(! $sideHasRows)
                         >
                             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -850,8 +880,8 @@
                             class="so-browse-tool-btn is-primary"
                             title="Insert all checked items"
                             aria-label="Insert all checked items"
-                            wire:click="insertBrowseChecked"
-                            @disabled(! $sideCanAdd)
+                            @click="insertChecked()"
+                            :disabled="checked.length < 1 && selected < 1"
                         >
                             <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
                                 <path d="M8 3v10M3 8h10"/>
@@ -868,8 +898,8 @@
                             class="so-browse-tool-btn"
                             title="{{ $sideCanSingle ? 'View/edit selected item' : ($sideCheckedCount > 1 ? 'Edit disabled — multiple items checked' : 'Select one item to edit') }}"
                             aria-label="View/edit selected item"
-                            wire:click="openBrowseEditSelected"
-                            @disabled(! $sideCanSingle)
+                            @click="editSelected()"
+                            :disabled="checked.length !== 1"
                         >
                             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                                 <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>

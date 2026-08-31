@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\InventoryReceivingLine;
@@ -20,6 +21,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -101,23 +103,26 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
         $query = $this->applyDeskSort($query, 'rtv_date', 'desc');
 
-        if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '' && ! $this->showForm) {
-            $records = $query->limit(10)->get();
-            $total = $records->count();
-            $footerNote = '10 most recently updated records with no search criteria.';
-            $isPaginated = false;
-        } else {
-            $records = $query->paginate(50);
-            $total = $records->total();
-            $footerNote = null;
-            $isPaginated = true;
-        }
+        $scroll = $this->scrollDeskList($query);
+        $records = $scroll['rows'];
+        $total = $scroll['shown'];
+        $footerNote = null;
+        $listHasMore = $scroll['hasMore'];
 
         $listTitle = match (true) {
             $this->statusFilter === 'New', $this->favorite === 'new' => 'Return To Vendor (RTVs) List (New)',
             $this->statusFilter === 'Returned', $this->favorite === 'returned' => 'Return To Vendor (RTVs) List (Returned)',
             default => 'Return To Vendor (RTVs) List',
         };
+
+        $selectedStatus = null;
+        if ($this->selectedId) {
+            $selectedStatus = optional($records->firstWhere('id', $this->selectedId))->status
+                ?? ReturnToVendor::query()
+                    ->where('company_id', $companyId)
+                    ->whereKey($this->selectedId)
+                    ->value('status');
+        }
 
         $subtotal = collect($this->lines)->sum(fn ($l) => (float) ($l['qty'] ?? 0) * (float) ($l['unit_cost'] ?? 0));
 
@@ -159,7 +164,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'records' => $records,
             'total' => $total,
             'footerNote' => $footerNote,
-            'isPaginated' => $isPaginated,
+            'listHasMore' => $listHasMore,
+            'canEditSelected' => $this->selectedId && $selectedStatus && $selectedStatus !== 'Returned',
             'linesSig' => $linesSig,
             'filledLineCount' => $filledLineCount,
             'suppliers' => Supplier::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('name')->get(),
@@ -265,7 +271,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             return;
         }
 
-        $this->edit($this->selectedId);
+        $this->edit((int) $this->selectedId);
     }
 
     public function viewSelected(): void
@@ -425,16 +431,16 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         abort_unless($rtv->company_id === auth()->user()->company_id, 403);
         $this->rtv = $rtv;
         $this->showForm = true;
-        $this->viewMode = $viewMode;
+        $this->viewMode = $rtv->status === 'Returned' || $viewMode === true;
         $this->lookupMessage = '';
-        $this->rtv_number = $rtv->rtv_number;
+        $this->rtv_number = (string) ($rtv->rtv_number ?? '');
         $this->rtv_date = optional($rtv->rtv_date)?->format('Y-m-d') ?? '';
-        $this->status = $rtv->status;
-        $this->reference_no = $rtv->reference_no ?? '';
-        $this->supplier_id = $rtv->supplier_id;
-        $this->requested_by_id = $rtv->requested_by_id;
-        $this->site_id = $rtv->site_id;
-        $this->comments = $rtv->comments ?? '';
+        $this->status = (string) ($rtv->status ?: 'New');
+        $this->reference_no = (string) ($rtv->reference_no ?? '');
+        $this->supplier_id = $rtv->supplier_id ? (int) $rtv->supplier_id : null;
+        $this->requested_by_id = $rtv->requested_by_id ? (int) $rtv->requested_by_id : null;
+        $this->site_id = $rtv->site_id ? (int) $rtv->site_id : null;
+        $this->comments = (string) ($rtv->comments ?? '');
         $this->discount = $this->formatQtyDisplay($rtv->discount);
         $this->freight = $this->formatQtyDisplay($rtv->freight);
         $this->lines = $rtv->lines->map(fn ($l) => [
@@ -855,11 +861,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function save(bool $closeForm = true): void
     {
-        abort_if($this->viewMode, 403);
-
-        if ($this->status === 'Returned') {
-            return;
-        }
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
 
         $this->validate([
             'rtv_number' => 'required|string|max:64',
@@ -961,7 +963,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     /** Process the RTV on the form. Save alone does not change stock. */
     public function processCurrent(): void
     {
-        abort_if($this->viewMode, 403);
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
 
         $this->save(closeForm: false);
         if ($this->getErrorBag()->isNotEmpty() || ! $this->rtv?->id) {
@@ -1033,6 +1035,22 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     {
         $this->selectedId = $id;
     }
+
+    public function createNewRtv(): void
+    {
+        $this->startNew();
+    }
+
+    public function closeDesk(): mixed
+    {
+        if ($this->showForm) {
+            $this->cancelForm();
+
+            return null;
+        }
+
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page {{ $showForm ? 'entity-page' : '' }} relative">
@@ -1041,15 +1059,28 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     @endunless
 
     <div class="desk-main {{ $showForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}">
-        <x-action-bar :title="$showForm ? ($rtv ? ($viewMode ? 'View RTV '.$rtv_number : 'RTV '.$rtv_number) : 'New RTV') : 'Action'" />
+        <x-action-bar :title="$showForm ? ($rtv ? ($viewMode ? 'View RTV '.$rtv_number : 'RTV '.$rtv_number) : 'New RTV') : 'Action'">
+            <x-slot:menu>
+                @if ($showForm)
+                    <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode || $status === 'Returned'" />
+                    <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelForm" />
+                @else
+                    <x-action-item label="Add New RTV" kbd="Ctrl+N" wire:click="createNewRtv" />
+                    <x-action-item label="View/Edit Selected RTV" kbd="Ctrl+E" sep wire:click="editSelected" :disabled="! $canEditSelected" />
+                    <x-action-item label="Delete Selected RTV" sep wire:click="deleteSelected" />
+                    <x-action-item label="Print" sep wire:click="printSelected" />
+                    <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+                @endif
+            </x-slot:menu>
+        </x-action-bar>
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
 
         @if ($showForm)
-            <form wire:submit="save" class="contents" @class(['item-form-readonly' => $viewMode])>
-                <fieldset class="so-form-fields" @disabled($viewMode)>
+            <form wire:submit="save" class="contents">
+                <fieldset class="so-form-fields">
                 <div class="entity-body">
                     <div class="entity-header">
                         <div class="so-form-row so-form-row-pair entity-header-row">
@@ -1365,11 +1396,15 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 <div class="entity-footer">
                     <div class="entity-tabs"><span class="entity-tab is-active">RTV</span></div>
                     <div class="entity-footer-actions">
-                        <button type="button" wire:click="cancelForm" class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</button>
-                        @if ($viewMode && $rtv)
+                        <button type="button" wire:click="cancelForm" class="desk-btn">{{ $isReadonly ? 'Close' : 'Cancel' }}</button>
+                        @if ($status === 'Returned')
+                            @if ($rtv)
+                                <a href="{{ route('purchasing.rtv.print', $rtv) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
+                            @endif
+                        @elseif ($viewMode && $rtv)
                             <a href="{{ route('purchasing.rtv.print', $rtv) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
-                            <button type="button" wire:click="edit({{ $rtv->id }})" class="desk-btn desk-btn-primary">Edit RTV</button>
-                        @elseif (! $isReturned)
+                            <button type="button" wire:click="edit({{ $rtv->id }}, false)" class="desk-btn desk-btn-primary">Edit RTV</button>
+                        @else
                             <button type="submit" class="desk-btn">Save RTV</button>
                             <button
                                 type="button"
@@ -1431,10 +1466,10 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
                     <div class="desk-titlebar">
                         <h2 class="desk-title">{{ $listTitle }}</h2>
-                        <span class="desk-title-meta">{{ number_format($total) }} records</span>
+                        <span class="desk-title-meta">{{ number_format($total) }}{{ $listHasMore ? '+' : '' }} records</span>
                     </div>
 
-                    <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                    <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                         <table class="desk-table">
                             <thead>
                                 <tr>
@@ -1456,7 +1491,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 @forelse ($records as $rec)
                                     <tr
                                         wire:click="selectRow({{ $rec->id }})"
-                                        wire:dblclick="view({{ $rec->id }})"
+                                        wire:dblclick="edit({{ $rec->id }})"
                                         @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
                                     >
                                         <td class="text-center" wire:click.stop>
@@ -1470,7 +1505,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             />
                                         </td>
                                         <td class="desk-num">
-                                            <button type="button" wire:click.stop="view({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
+                                            <button type="button" wire:click.stop="edit({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
                                         </td>
                                         <td>{{ optional($rec->rtv_date)?->format('n/j/Y') }}</td>
                                         <td class="text-center">
@@ -1497,16 +1532,14 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                 @endforelse
                             </tbody>
                         </table>
-                    </div>
+                    </x-desk-scroll-grid>
 
                     <x-record-count :count="$total">
                         @if ($footerNote)
                             <span class="text-xs text-slate-600 me-auto">{{ $footerNote }}</span>
                         @endif
                         <button type="button" wire:click="startNew" class="desk-btn desk-btn-primary">New RTV</button>
-                        @if ($isPaginated)
-                            {{ $records->links() }}
-                        @endif
+                        <x-desk-load-more :has-more="$listHasMore" />
                     </x-record-count>
                 </div>
 
@@ -1525,7 +1558,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                             <circle cx="8" cy="8" r="2"/>
                         </svg>
                     </button>
-                    <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                    <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditSelected ? 'Edit selected' : 'Processed RTVs cannot be edited' }}" aria-label="Edit selected" @disabled(! $canEditSelected)>
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                             <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                         </svg>

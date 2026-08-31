@@ -125,7 +125,11 @@ trait InteractsWithDeskQuery
         $this->queryLoadedName = '';
         $this->querySavedPick = '';
         $this->queryStatus = '';
-        $this->resetPage();
+        if (method_exists($this, 'resetDeskList')) {
+            $this->resetDeskList();
+        } else {
+            $this->resetPage();
+        }
     }
 
     public function runDeskQuery(): void
@@ -138,7 +142,11 @@ trait InteractsWithDeskQuery
         }
         $this->showQueryModal = false;
         $this->selectedId = null;
-        $this->resetPage();
+        if (method_exists($this, 'resetDeskList')) {
+            $this->resetDeskList();
+        } else {
+            $this->resetPage();
+        }
     }
 
     public function saveDeskQuery(): void

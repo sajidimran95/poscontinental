@@ -356,6 +356,52 @@ class InventoryService
     }
 
     /**
+     * Put stock back and reopen the sales order when an invoice is voided.
+     */
+    public function reverseInvoiceStock(SalesOrder $order, Invoice $invoice): void
+    {
+        $order->loadMissing('lines');
+
+        foreach ($order->lines as $line) {
+            if (! $line->item_id) {
+                continue;
+            }
+
+            $qty = (float) $line->qty_shipped;
+            if ($qty <= 0) {
+                $qty = (float) $line->qty_ordered;
+            }
+            if ($qty <= 0) {
+                continue;
+            }
+
+            $item = Item::query()->lockForUpdate()->find($line->item_id);
+            if (! $item) {
+                continue;
+            }
+
+            $newQty = (float) $item->quantity_in_stock + $qty;
+            $item->update(['quantity_in_stock' => $newQty]);
+
+            InventoryJournalEntry::query()->create([
+                'company_id' => $order->company_id,
+                'item_id' => $item->id,
+                'site_id' => $order->ship_from_site_id,
+                'source_type' => Invoice::class,
+                'source_id' => $invoice->id,
+                'reference' => $invoice->invoice_number,
+                'qty_change' => $qty,
+                'qty_after' => $newQty,
+                'unit_cost' => $item->current_cost,
+                'user_id' => auth()->id(),
+                'notes' => 'Void Invoice '.$invoice->invoice_number.' (SO '.$order->order_number.')',
+            ]);
+        }
+
+        $this->syncAllocatedQty($order->lines->pluck('item_id')->filter()->all());
+    }
+
+    /**
      * Sales order (no invoice): never changes In stock. Rebuilds allocated so Available updates.
      * Invoice edit: In stock goes up when a line is removed, down when qty is added; Available follows.
      *

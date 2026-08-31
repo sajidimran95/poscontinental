@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\DocumentEmailLog;
 use Livewire\Attributes\Layout;
@@ -12,6 +13,7 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -32,8 +34,12 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
                     ->orWhere('document_type', 'like', $term));
             });
 
+        $scroll = $this->scrollDeskList($this->applyDeskSort($logsQuery, 'created_at', 'desc'));
+
         return [
-            'logs' => $this->applyDeskSort($logsQuery, 'created_at', 'desc')->paginate(50),
+            'logs' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'favorites' => ['all' => 'All Sends'],
         ];
     }
@@ -57,7 +63,7 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
         <x-action-bar title="Action" />
         <x-list-chrome label="Search Email Log:" model="search" />
         <div class="px-2 py-1 font-semibold border-b border-slate-300">Document Email Send Log</div>
-        <div class="chief-grid flex-1 overflow-auto">
+        <x-desk-scroll-grid :has-more="$listHasMore" class="chief-grid flex-1 overflow-auto">
             <table class="desk-table">
                 <thead>
                     <tr>
@@ -84,9 +90,9 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
                     @endforelse
                 </tbody>
             </table>
-        </div>
-        <x-record-count :count="$logs->total()">
-            {{ $logs->links() }}
+        </x-desk-scroll-grid>
+        <x-record-count :count="$listShown">
+            <x-desk-load-more :has-more="$listHasMore" />
         </x-record-count>
     </div>
 </div>

@@ -5,6 +5,7 @@ use App\Models\Category;
 use App\Models\Item;
 use App\Models\PaymentTerm;
 use App\Models\PurchaseOrder;
+use App\Models\InventoryReceiving;
 use App\Models\ShipVia;
 use App\Models\Site;
 use App\Models\Subcategory;
@@ -109,6 +110,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_received:string,unit_cost:string}> */
     public array $lines = [];
 
+    public ?int $selectedLineIndex = null;
+
     public function mount(?PurchaseOrder $purchaseOrder = null): void
     {
         $this->viewMode = request()->routeIs('purchasing.orders.show');
@@ -117,10 +120,17 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if ($purchaseOrder?->exists) {
             abort_unless($purchaseOrder->company_id === $companyId, 403);
             $this->purchaseOrder = $purchaseOrder->load('lines');
-            $this->fill($purchaseOrder->only([
-                'po_number', 'order_type', 'reference_no', 'status', 'buyer_id', 'ship_to_site_id',
-                'supplier_id', 'ship_from', 'payment_term_id', 'ship_via_id', 'comments',
-            ]));
+            $this->po_number = (string) ($purchaseOrder->po_number ?? '');
+            $this->order_type = (string) ($purchaseOrder->order_type ?: 'Standard');
+            $this->reference_no = (string) ($purchaseOrder->reference_no ?? '');
+            $this->status = (string) ($purchaseOrder->status ?: 'New');
+            $this->buyer_id = $purchaseOrder->buyer_id ? (int) $purchaseOrder->buyer_id : null;
+            $this->ship_to_site_id = $purchaseOrder->ship_to_site_id ? (int) $purchaseOrder->ship_to_site_id : null;
+            $this->supplier_id = $purchaseOrder->supplier_id ? (int) $purchaseOrder->supplier_id : null;
+            $this->ship_from = (string) ($purchaseOrder->ship_from ?? '');
+            $this->payment_term_id = $purchaseOrder->payment_term_id ? (int) $purchaseOrder->payment_term_id : null;
+            $this->ship_via_id = $purchaseOrder->ship_via_id ? (int) $purchaseOrder->ship_via_id : null;
+            $this->comments = (string) ($purchaseOrder->comments ?? '');
             $this->freight = $this->blankZeroAmount($purchaseOrder->freight);
             $this->trade_discount = $this->blankZeroAmount($purchaseOrder->trade_discount);
             $this->miscellaneous = $this->blankZeroAmount($purchaseOrder->miscellaneous);
@@ -132,9 +142,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'item_code' => $l->item_code ?? '',
                 'description' => $l->description ?? '',
                 'uom' => $l->uom ?? '',
-                'qty_ordered' => $this->blankZeroAmount($l->qty_ordered),
-                'qty_received' => $this->blankZeroAmount($l->qty_received),
-                'unit_cost' => $this->blankZeroAmount($l->unit_cost),
+                'qty_ordered' => $this->formatTwoDecimals($l->qty_ordered),
+                'qty_received' => $this->formatTwoDecimals($l->qty_received),
+                'unit_cost' => $this->formatTwoDecimals($l->unit_cost),
             ])->all();
         } else {
             $this->po_number = PurchaseOrder::nextNumber($companyId);
@@ -164,11 +174,34 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     /** Empty string when value is null/blank/zero so inputs show placeholder 0. */
     protected function blankZeroAmount(mixed $value): string
     {
-        if ($value === null || $value === '') {
+        $formatted = $this->formatTwoDecimals($value);
+        if ($formatted === '' || $formatted === '0.00') {
             return '';
         }
 
-        return is_numeric($value) && (float) $value == 0.0 ? '' : (string) $value;
+        return $formatted;
+    }
+
+    /** Always 2 decimal places (1.00, 25.61) — never 1.0000. */
+    protected function formatTwoDecimals(mixed $value): string
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return '';
+        }
+
+        return number_format(round((float) $value, 2), 2, '.', '');
+    }
+
+    public function updatedLines($value, string $key): void
+    {
+        if (! preg_match('/^(\d+)\.(qty_ordered|qty_received|unit_cost)$/', $key, $m)) {
+            return;
+        }
+        $i = (int) $m[1];
+        if (! isset($this->lines[$i])) {
+            return;
+        }
+        $this->lines[$i][$m[2]] = $this->formatTwoDecimals($this->lines[$i][$m[2]]);
     }
 
     /** Persist empty amount fields as 0. */
@@ -187,8 +220,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $linesSig = md5(json_encode(array_map(static fn ($l) => [
             (int) ($l['item_id'] ?? 0),
             (string) ($l['item_code'] ?? ''),
-            (string) ($l['qty_ordered'] ?? ''),
-            (string) ($l['unit_cost'] ?? ''),
         ], $this->lines)));
 
         return [
@@ -295,10 +326,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $this->browseSelectedId = $itemId;
-        $this->applyItemToOrder($item);
         $this->lineWarning = '';
         $this->lookupMessage = '';
-        $this->focusBrowseSearch();
+        $this->closeBrowse();
+        $this->applyItemToOrder($item);
+        $this->clearAndFocusEntry();
     }
 
     protected const BROWSE_PAGE_SIZE = 80;
@@ -625,9 +657,33 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     {
         unset($this->lines[$index]);
         $this->lines = array_values($this->lines);
+        if ($this->selectedLineIndex === $index) {
+            $this->selectedLineIndex = null;
+        } elseif ($this->selectedLineIndex !== null && $this->selectedLineIndex > $index) {
+            $this->selectedLineIndex--;
+        }
         if ($this->lines === []) {
             $this->addLine();
         }
+    }
+
+    public function adjustLineQty(int $index, int $delta): void
+    {
+        if ($this->viewMode || ! isset($this->lines[$index])) {
+            return;
+        }
+        if (! filled($this->lines[$index]['item_code'] ?? null) && (int) ($this->lines[$index]['item_id'] ?? 0) <= 0) {
+            return;
+        }
+
+        $next = max(0, round((float) ($this->lines[$index]['qty_ordered'] ?? 0) + $delta, 2));
+        $this->lines[$index]['qty_ordered'] = $this->formatQty($next);
+        $this->selectedLineIndex = $index;
+    }
+
+    protected function formatQty(mixed $value): string
+    {
+        return $this->formatTwoDecimals($value);
     }
 
     /**
@@ -799,7 +855,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         foreach ($lines as $i => $line) {
             if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
                 $qty = (float) ($line['qty_ordered'] ?? 0);
-                $lines[$i]['qty_ordered'] = (string) ($qty + 1);
+                $lines[$i]['qty_ordered'] = $this->formatQty($qty + 1);
                 // Keep code/desc in sync (fixes display if earlier fill was partial).
                 $lines[$i]['item_code'] = (string) $item->item_code;
                 $lines[$i]['description'] = (string) ($item->description ?? $lines[$i]['description'] ?? '');
@@ -809,6 +865,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         : 'EA';
                 }
                 $this->lines = $lines;
+                $this->highlightPoLine($i);
                 $this->playPosSound('success');
 
                 return;
@@ -819,31 +876,31 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if ($this->browseLineIndex !== null && isset($lines[$this->browseLineIndex])) {
             $target = (int) $this->browseLineIndex;
             $this->browseLineIndex = null;
-        } else {
-            foreach ($lines as $i => $line) {
-                if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
-                    $target = (int) $i;
-                    break;
-                }
-            }
+            $this->lines = $lines;
+            $this->fillLineFromItem($target, $item);
+            $this->highlightPoLine($target);
+            $this->playPosSound('success');
+
+            return;
         }
 
-        if ($target === null) {
-            $lines[] = $this->emptyLine();
-            $target = count($lines) - 1;
-        }
-
-        $this->lines = $lines;
+        $filled = array_values(array_filter(
+            $lines,
+            fn ($l) => filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0
+        ));
+        $filled[] = $this->emptyLine();
+        $target = count($filled) - 1;
+        $this->lines = $filled;
         $this->fillLineFromItem($target, $item);
-
-        $hasEmpty = collect($this->lines)->contains(
-            fn ($l) => ! filled($l['item_code'] ?? null) && empty($l['item_id'])
-        );
-        if (! $hasEmpty) {
-            $this->lines = array_values(array_merge($this->lines, [$this->emptyLine()]));
-        }
-
+        $this->lines[] = $this->emptyLine();
+        $this->highlightPoLine($target);
         $this->playPosSound('success');
+    }
+
+    protected function highlightPoLine(int $index): void
+    {
+        $this->selectedLineIndex = $index;
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("po-line-row-'.$index.'"); if (el) el.scrollIntoView({ block: "nearest" }); });');
     }
 
     protected function playPosSound(string $kind = 'error'): void
@@ -860,8 +917,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ->first();
 
         $cost = $supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost;
-        // Always keep numeric cost so line totals display (do not blank for zeros).
-        $costStr = is_numeric($cost) ? (string) (0 + (float) $cost) : '0';
 
         $lines = array_values($this->lines);
         if (! isset($lines[$index])) {
@@ -871,13 +926,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $lines[$index]['item_id'] = (int) $item->id;
         $lines[$index]['item_code'] = (string) $item->item_code;
         $lines[$index]['description'] = (string) ($item->description ?? '');
-        // Default to item standard UOM (never leave blank for free typing).
         $lines[$index]['uom'] = filled($item->unit_of_measure)
             ? (string) $item->unit_of_measure
             : 'EA';
-        $lines[$index]['unit_cost'] = $costStr;
+        $lines[$index]['unit_cost'] = $this->formatTwoDecimals($cost !== null && $cost !== '' ? $cost : 0);
         if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
-            $lines[$index]['qty_ordered'] = '1';
+            $lines[$index]['qty_ordered'] = $this->formatQty(1);
         }
         if (! array_key_exists('qty_received', $lines[$index]) || $lines[$index]['qty_received'] === null) {
             $lines[$index]['qty_received'] = '';
@@ -1057,7 +1111,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             'company_id' => auth()->user()->company_id,
             'po_number' => $this->po_number,
             'order_type' => $this->order_type,
-            'reference_no' => $this->reference_no,
+            'reference_no' => $this->reference_no !== '' ? $this->reference_no : null,
             'requisition_date' => $this->requisition_date ?: null,
             'status' => $this->status,
             'buyer_id' => $nullableId($this->buyer_id),
@@ -1129,12 +1183,81 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $this->redirect(route('purchasing.orders.index'), navigate: true);
     }
+
+    public function cancelAction(): mixed
+    {
+        return $this->redirect(route('purchasing.orders.index'), navigate: true);
+    }
+
+    public function receiveThisOrder(): mixed
+    {
+        if (! $this->purchaseOrder?->exists) {
+            session()->flash('status', 'Save the purchase order before receiving.');
+
+            return null;
+        }
+
+        $po = $this->purchaseOrder->load('lines');
+        $receiving = InventoryReceiving::query()->create([
+            'company_id' => $po->company_id,
+            'receipt_number' => InventoryReceiving::nextNumber($po->company_id),
+            'receipt_date' => now()->toDateString(),
+            'purchase_order_id' => $po->id,
+            'status' => 'New',
+            'supplier_id' => $po->supplier_id,
+            'buyer_id' => $po->buyer_id,
+            'site_id' => $po->ship_to_site_id,
+            'received_by' => auth()->user()->name,
+        ]);
+
+        foreach ($po->lines as $i => $line) {
+            $remaining = max(0, (float) $line->qty_ordered - (float) $line->qty_received);
+            if ($remaining <= 0) {
+                continue;
+            }
+            $receiving->lines()->create([
+                'purchase_order_line_id' => $line->id,
+                'item_id' => $line->item_id,
+                'item_code' => $line->item_code,
+                'description' => $line->description,
+                'uom' => $line->uom,
+                'qty_ordered' => $line->qty_ordered,
+                'qty_received' => $remaining,
+                'unit_cost' => $line->unit_cost,
+                'line_no' => $i + 1,
+            ]);
+        }
+
+        return $this->redirect(route('purchasing.receivings.edit', $receiving), navigate: true);
+    }
+
+    public function printThisOrder(): void
+    {
+        if (! $this->purchaseOrder?->exists) {
+            session()->flash('status', 'Save the purchase order before printing.');
+
+            return;
+        }
+
+        $url = route('purchasing.orders.print', $this->purchaseOrder);
+        $this->dispatch('open-purchase-order-pdf', url: $url);
+        $this->js('window.open('.json_encode($url).', "_blank")');
+    }
 }; ?>
 
 <div class="desk-page entity-page">
     <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+        <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'">
+            <x-slot:menu>
+                <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+                <x-action-item label="Receive Purchase Order" sep wire:click="receiveThisOrder" :disabled="! $purchaseOrder" />
+                <x-action-item label="Refresh" :disabled="true" sep />
+                <x-action-item label="Import Purchase Order" :disabled="true" sep />
+                <x-action-item label="Print" sep wire:click="printThisOrder" :disabled="! $purchaseOrder" />
+                <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
+            </x-slot:menu>
+        </x-action-bar>
         <fieldset class="so-form-fields" @disabled($viewMode)>
-        <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'" />
 
         <div class="entity-body">
             <div class="entity-header">
@@ -1448,14 +1571,20 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                         $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
                                     @endphp
                                     @if ($filled)
-                                        <tr wire:key="po-line-row-{{ $i }}-{{ $line['item_id'] ?? 0 }}-{{ $line['item_code'] ?? '' }}">
+                                        <tr
+                                            wire:key="po-line-row-{{ $i }}-{{ $line['item_id'] ?? 0 }}-{{ $line['item_code'] ?? '' }}"
+                                            id="po-line-row-{{ $i }}"
+                                            @class(['is-selected' => $selectedLineIndex === $i])
+                                            wire:click="$set('selectedLineIndex', {{ $i }})"
+                                        >
                                             <td class="font-mono desk-num" title="{{ $line['item_code'] ?? '' }}">
                                                 {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
                                             </td>
                                             <td>
                                                 <input
                                                     wire:model="lines.{{ $i }}.description"
-                                                    class="so-input item-cell-ctl"
+                                                    wire:click.stop
+                                                    class="so-input item-cell-ctl po-line-desc-input"
                                                     @disabled($viewMode)
                                                 />
                                             </td>
@@ -1484,13 +1613,25 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     @endif
                                                 @endif
                                             </td>
-                                            <td class="text-center">
-                                                <input
-                                                    wire:model.live="lines.{{ $i }}.qty_ordered"
-                                                    class="so-input text-right item-cell-qty"
-                                                    placeholder="0"
-                                                    @disabled($viewMode)
-                                                />
+                                            <td class="text-center col-qty">
+                                                @php $qty = (float) ($line['qty_ordered'] ?? 0); @endphp
+                                                @if ($selectedLineIndex === $i && ! $viewMode)
+                                                    <div class="so-qty-stepper" wire:click.stop>
+                                                        <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
+                                                        <input
+                                                            wire:model.live="lines.{{ $i }}.qty_ordered"
+                                                            wire:keydown.up.prevent="adjustLineQty({{ $i }}, 1)"
+                                                            wire:keydown.down.prevent="adjustLineQty({{ $i }}, -1)"
+                                                            class="so-cell-input text-right"
+                                                            placeholder="0"
+                                                            size="4"
+                                                            aria-label="Qty ordered"
+                                                        />
+                                                        <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
+                                                    </div>
+                                                @else
+                                                    {{ $qty != 0.0 ? number_format($qty, 2) : '' }}
+                                                @endif
                                             </td>
                                             <td class="text-center">
                                                 <input
@@ -1502,7 +1643,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             </td>
                                             <td class="text-center">
                                                 <input
-                                                    wire:model.live="lines.{{ $i }}.unit_cost"
+                                                    wire:model.blur="lines.{{ $i }}.unit_cost"
+                                                    wire:click.stop
                                                     class="so-input text-right item-cell-qty"
                                                     placeholder="0"
                                                     @disabled($viewMode)

@@ -13,6 +13,7 @@ use App\Models\SalesOrder;
 use App\Services\DocumentPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as IlluminateResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class DocumentPdfController extends Controller
@@ -24,14 +25,14 @@ class DocumentPdfController extends Controller
         return $pdfs->invoicePdf($invoice, auth()->user())->stream('invoice-'.$invoice->invoice_number.'.pdf');
     }
 
-    public function invoicePickList(Invoice $invoice, DocumentPdfService $pdfs): Response
+    public function invoicePickList(Invoice $invoice): IlluminateResponse
     {
         abort_unless($invoice->company_id === auth()->user()->company_id, 403);
 
         $order = $invoice->salesOrder;
         abort_unless($order, 404);
 
-        return $pdfs->streamSalesOrderPickList($order, auth()->user());
+        return $this->pickListView($order);
     }
 
     public function salesOrder(SalesOrder $salesOrder, DocumentPdfService $pdfs): Response
@@ -48,11 +49,28 @@ class DocumentPdfController extends Controller
         return $pdfs->streamSalesOrderInvoiceStyle($salesOrder, auth()->user());
     }
 
-    public function salesOrderPickList(SalesOrder $salesOrder, DocumentPdfService $pdfs): Response
+    public function salesOrderPickList(SalesOrder $salesOrder): IlluminateResponse
     {
         abort_unless($salesOrder->company_id === auth()->user()->company_id, 403);
 
-        return $pdfs->streamSalesOrderPickList($salesOrder, auth()->user());
+        return $this->pickListView($salesOrder);
+    }
+
+    protected function pickListView(SalesOrder $order): IlluminateResponse
+    {
+        $order->loadMissing([
+            'lines.item.category',
+            'lines.item.subcategory',
+            'customer',
+            'salesRep',
+            'route',
+            'invoice',
+        ]);
+
+        return response()
+            ->view('print.pick-list', ['order' => $order])
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            ->header('Pragma', 'no-cache');
     }
 
     public function purchaseOrder(PurchaseOrder $purchaseOrder, DocumentPdfService $pdfs): Response

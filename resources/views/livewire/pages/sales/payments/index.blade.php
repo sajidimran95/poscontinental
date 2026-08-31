@@ -632,11 +632,85 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         }
         session()->flash('status', $msg);
     }
+
+    public function viewSalesOrder(): mixed
+    {
+        $id = collect($this->selected)->filter()->keys()->first();
+        if (! $id) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return null;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find((int) $id);
+
+        if (! $invoice?->sales_order_id) {
+            session()->flash('status', 'This invoice has no sales order.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.edit', $invoice->sales_order_id), navigate: true);
+    }
+
+    public function printSelectedPayment(): void
+    {
+        $id = collect($this->selected)->filter()->keys()->first();
+        if (! $id) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $url = route('sales.invoices.pdf', (int) $id);
+        $this->dispatch('open-invoice-pdf', url: $url);
+        $this->js('window.open('.json_encode($url).', "_blank")');
+    }
+
+    public function voidPayment(): void
+    {
+        $id = collect($this->selected)->filter()->keys()->first();
+        if (! $id) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        $payment = InvoicePayment::query()
+            ->whereHas('invoice', fn ($q) => $q->where('company_id', auth()->user()->company_id))
+            ->where('invoice_id', (int) $id)
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $payment) {
+            session()->flash('status', 'No payment to void on this invoice.');
+
+            return;
+        }
+
+        $payment->delete();
+        session()->flash('status', 'Payment voided.');
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
     <div class="desk-main entity-form" style="width:min(100%,70rem)">
-        <x-action-bar title="Payments — Customer First" />
+        <x-action-bar title="Payments — Customer First">
+            <x-slot:menu>
+                <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
+                <x-action-item label="Payments & Credits" />
+                <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelectedPayment" />
+                <x-action-item label="Void Payment" sep wire:click="voidPayment" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="entity-body">
             @if (session('status'))

@@ -268,14 +268,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $catalog = $this->itemListColumnCatalog();
         $visibleKeys = $this->normalizedVisibleColumns();
+        $scroll = $this->scrollDeskList($query);
 
         return [
-            'items' => $this->paginateDeskList(
-                $query,
-                'items.list_count.'.(int) $companyId.'.'.$this->favorite.'.'.$this->statusFilter.'.'.$this->categoryFilter.'.'.$this->search.'.'.$this->sortField.'.'.$this->sortDir,
-                50,
-                $this->search === '' && $this->queryCriteria === [] ? 20 : 0
-            ),
+            'items' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'favorites' => $favorites,
             'nodes' => $nodes,
             'listTitle' => $listTitle,
@@ -994,7 +992,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('inventory.items.show', $item), navigate: true);
+        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -1413,13 +1411,37 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     {
         return 'items_query_saved_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
+
+    public function createNewItem(): mixed
+    {
+        return $this->redirect(route('inventory.items.create'), navigate: true);
+    }
+
+    public function openUpdatePrices(): mixed
+    {
+        return $this->redirect(route('inventory.bulk-pricing'), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :nodes="$nodes" :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Item" kbd="Ctrl+N" wire:click="createNewItem" />
+                <x-action-item label="View/Edit Selected Item" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
+                <x-action-item label="Group Update" sep wire:click="openUpdatePrices" />
+                <x-action-item label="Delete Selected Item" sep wire:click="deleteSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -1525,10 +1547,10 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($items->total()) }} records</span>
+                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="items-list">
                         <thead>
                             <tr>
@@ -1638,11 +1660,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
-                <x-record-count :count="$items->total()">
+                <x-record-count :count="$listShown">
                     <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Item</a>
-                    {{ $items->links() }}
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 

@@ -34,7 +34,9 @@ trait SortsDeskList
             $this->sortDir = $this->deskSortDefaultDir($field);
         }
 
-        if (method_exists($this, 'resetPage')) {
+        if (method_exists($this, 'resetDeskList')) {
+            $this->resetDeskList();
+        } elseif (method_exists($this, 'resetPage')) {
             $this->resetPage();
         }
     }

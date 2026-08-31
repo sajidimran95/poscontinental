@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Models\DeliveryArea;
 use App\Services\Delivery\DeliveryAreaService;
 use Livewire\Attributes\Layout;
@@ -12,6 +13,7 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
 {
     use WithPagination;
     use WithFileUploads;
+    use PaginatesDeskLists;
 
     public string $q = '';
 
@@ -43,8 +45,8 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
     {
         $term = trim($this->q);
 
-        return [
-            'areas' => DeliveryArea::query()
+        $scroll = $this->scrollDeskList(
+            DeliveryArea::query()
                 ->where('company_id', auth()->user()->company_id)
                 ->when($term !== '', function ($q) use ($term) {
                     $like = '%'.$term.'%';
@@ -58,7 +60,12 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
                 ->orderBy('state')
                 ->orderBy('city')
                 ->orderBy('zip_code')
-                ->paginate(50),
+        );
+
+        return [
+            'areas' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
         ];
     }
 
@@ -137,7 +144,7 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
         </div>
 
         <div class="desk-main-body">
-            <div class="desk-grid">
+            <x-desk-scroll-grid :has-more="$listHasMore">
                 <table class="desk-table desk-table-fit">
                     <thead>
                         <tr>
@@ -168,9 +175,9 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
                         @endforelse
                     </tbody>
                 </table>
-            </div>
+            </x-desk-scroll-grid>
             <div class="desk-footer">
-                <x-desk-pager :paginator="$areas" />
+                <x-desk-load-more :has-more="$listHasMore" />
             </div>
         </div>
     </div>

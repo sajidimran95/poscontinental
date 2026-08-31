@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Department;
 use App\Models\Role;
@@ -17,6 +18,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -117,8 +119,12 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             $rolesQuery = $rolesQuery->orderBy('label');
         }
 
+        $userScroll = $this->scrollDeskList($usersQuery);
+
         return [
-            'users' => $usersQuery->paginate(40),
+            'users' => $userScroll['rows'],
+            'listHasMore' => $userScroll['hasMore'],
+            'listShown' => $userScroll['shown'],
             'roles' => $rolesQuery->get(),
             'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
             'departments' => Department::query()
@@ -1207,10 +1213,10 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
                     <div class="desk-titlebar">
                         <h2 class="desk-title">{{ $listTitle }}</h2>
-                        <span class="desk-title-meta">{{ number_format($users->total()) }} records</span>
+                        <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                     </div>
 
-                    <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                    <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                         <table class="desk-table">
                             <thead>
                                 <tr>
@@ -1273,11 +1279,11 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
                                 @endforelse
                             </tbody>
                         </table>
-                    </div>
+                    </x-desk-scroll-grid>
 
-                    <x-record-count :count="$users->total()">
+                    <x-record-count :count="$listShown">
                         <button type="button" wire:click="startNewUser" class="desk-btn desk-btn-primary">New User</button>
-                        {{ $users->links() }}
+                        <x-desk-load-more :has-more="$listHasMore" />
                     </x-record-count>
                 </div>
 

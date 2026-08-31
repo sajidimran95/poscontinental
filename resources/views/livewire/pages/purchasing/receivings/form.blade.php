@@ -38,17 +38,22 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
     public function mount(InventoryReceiving $receiving): void
     {
         abort_unless($receiving->company_id === auth()->user()->company_id, 403);
-        $this->viewMode = request()->routeIs('purchasing.receivings.show');
+        if ($receiving->status === 'Processed' && request()->route()?->getName() === 'purchasing.receivings.edit') {
+            $this->redirect(route('purchasing.receivings.show', $receiving), navigate: true);
+
+            return;
+        }
+        $this->viewMode = request()->route()?->getName() === 'purchasing.receivings.show' || $receiving->status === 'Processed';
         $this->receiving = $receiving->load(['lines', 'purchaseOrder', 'supplier', 'site', 'buyer']);
-        $this->receipt_number = $receiving->receipt_number;
+        $this->receipt_number = (string) ($receiving->receipt_number ?? '');
         $this->receipt_date = optional($receiving->receipt_date)?->format('Y-m-d') ?? '';
-        $this->reference_no = $receiving->reference_no ?? '';
-        $this->status = $receiving->status;
-        $this->buyer_id = $receiving->buyer_id;
-        $this->site_id = $receiving->site_id;
-        $this->received_by = $receiving->received_by ?? '';
-        $this->shipping_carrier = $receiving->shipping_carrier ?? '';
-        $this->comments = $receiving->comments ?? '';
+        $this->reference_no = (string) ($receiving->reference_no ?? '');
+        $this->status = (string) ($receiving->status ?? '');
+        $this->buyer_id = $receiving->buyer_id ? (int) $receiving->buyer_id : null;
+        $this->site_id = $receiving->site_id ? (int) $receiving->site_id : null;
+        $this->received_by = (string) ($receiving->received_by ?? '');
+        $this->shipping_carrier = (string) ($receiving->shipping_carrier ?? '');
+        $this->comments = (string) ($receiving->comments ?? '');
         $this->lines = $receiving->lines->map(fn ($l) => [
             'id' => $l->id,
             'item_code' => $l->item_code ?? '',
@@ -69,6 +74,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 
         return [
             'isProcessed' => $this->status === 'Processed',
+            'lockEdit' => $this->viewMode || $this->status === 'Processed',
             'totalOrdered' => $totalOrdered,
             'totalReceived' => $totalReceived,
             'lineTotal' => $lineTotal,
@@ -89,30 +95,22 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 
     public function save(): void
     {
-        abort_if($this->viewMode, 403);
-
-        if ($this->receiving->status === 'Processed') {
-            $this->receiving->update([
-                'received_by' => $this->received_by ?: null,
-                'shipping_carrier' => $this->shipping_carrier ?: null,
-                'comments' => $this->comments ?: null,
-            ]);
-            session()->flash('status', 'Receiving details updated.');
-
-            return;
-        }
+        abort_if($this->viewMode || $this->status === 'Processed', 403);
 
         $this->receiving->update([
             'receipt_date' => $this->receipt_date ?: null,
-            'reference_no' => $this->reference_no,
+            'reference_no' => $this->reference_no !== '' ? $this->reference_no : null,
             'buyer_id' => $this->buyer_id ?: null,
             'site_id' => $this->site_id ?: null,
-            'received_by' => $this->received_by ?: null,
-            'shipping_carrier' => $this->shipping_carrier,
-            'comments' => $this->comments,
+            'received_by' => $this->received_by !== '' ? $this->received_by : null,
+            'shipping_carrier' => $this->shipping_carrier !== '' ? $this->shipping_carrier : null,
+            'comments' => $this->comments !== '' ? $this->comments : null,
         ]);
 
         foreach ($this->lines as $row) {
+            if (empty($row['id'])) {
+                continue;
+            }
             $this->receiving->lines()->where('id', $row['id'])->update([
                 'qty_received' => $row['qty_received'],
                 'unit_cost' => $row['unit_cost'],
@@ -124,11 +122,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 
     public function process(): void
     {
-        abort_if($this->viewMode, 403);
-
-        if ($this->receiving->status === 'Processed') {
-            return;
-        }
+        abort_if($this->viewMode || $this->status === 'Processed', 403);
 
         if (! filled($this->received_by)) {
             $this->received_by = auth()->user()->name;
@@ -138,17 +132,27 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
         app(InventoryService::class)->processReceiving($this->receiving->fresh('lines'));
         $this->redirect(route('purchasing.receivings.index'), navigate: true);
     }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('purchasing.receivings.index'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
-        <x-action-bar title="Inventory Receiving — {{ $receipt_number }}{{ $viewMode ? ' (View)' : '' }}" />
+    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $lockEdit])>
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$lockEdit" />
+                <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
 
-        <fieldset class="so-form-fields" @disabled($viewMode)>
+        <fieldset class="so-form-fields">
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
@@ -185,7 +189,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     <div class="inv-card-title">Receipt header</div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="receipt_date">Receipt Date</label>
-                        <input id="receipt_date" type="date" wire:model="receipt_date" class="so-input sc-date" @disabled($isProcessed) />
+                        <input id="receipt_date" type="date" wire:model="receipt_date" class="so-input sc-date" @disabled($lockEdit) />
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl">Purchase Ord. #</label>
@@ -199,7 +203,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="reference_no">Reference No.</label>
-                        <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($isProcessed) />
+                        <input id="reference_no" wire:model="reference_no" class="so-input" @disabled($lockEdit) />
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl">Status</label>
@@ -238,7 +242,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="buyer_id">Buyer / Requester</label>
-                        <select id="buyer_id" wire:model="buyer_id" class="so-input" @disabled($isProcessed)>
+                        <select id="buyer_id" wire:model="buyer_id" class="so-input" @disabled($lockEdit)>
                             <option value="">—</option>
                             @foreach ($users as $user)
                                 <option value="{{ $user->id }}">{{ $user->name }}</option>
@@ -247,7 +251,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="site_id">Site</label>
-                        <select id="site_id" wire:model="site_id" class="so-input" @disabled($isProcessed)>
+                        <select id="site_id" wire:model="site_id" class="so-input" @disabled($lockEdit)>
                             <option value="">—</option>
                             @foreach ($sites as $s)
                                 <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name }}</option>
@@ -256,7 +260,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="received_by">Received By</label>
-                        <select id="received_by" wire:model="received_by" class="so-input">
+                        <select id="received_by" wire:model="received_by" class="so-input" @disabled($lockEdit)>
                             <option value="">—</option>
                             @foreach ($users as $user)
                                 <option value="{{ $user->name }}">{{ $user->name }}</option>
@@ -268,11 +272,11 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                     </div>
                     <div class="so-form-row so-form-row-side sc-field">
                         <label class="so-form-lbl" for="shipping_carrier">Shipping Carrier</label>
-                        <input id="shipping_carrier" wire:model="shipping_carrier" class="so-input" />
+                        <input id="shipping_carrier" wire:model="shipping_carrier" class="so-input" @disabled($lockEdit) />
                     </div>
                     <div class="so-form-row so-form-row-side so-form-row-top sc-field">
                         <label class="so-form-lbl" for="comments">Comments</label>
-                        <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area" placeholder="Optional notes…"></textarea>
+                        <textarea id="comments" wire:model="comments" rows="3" class="so-input so-input-area" placeholder="Optional notes…" @disabled($lockEdit)></textarea>
                     </div>
                 </div>
             </div>
@@ -316,7 +320,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                                             wire:model.blur="lines.{{ $i }}.qty_received"
                                             class="so-input text-right rcv-qty-input"
                                             style="width:6.5rem;min-width:6.5rem"
-                                            @disabled($isProcessed)
+                                            @disabled($lockEdit)
                                             aria-label="Qty received line {{ $i + 1 }}"
                                         />
                                     </td>
@@ -325,7 +329,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                                             wire:model.blur="lines.{{ $i }}.unit_cost"
                                             class="so-input text-right rcv-cost-input"
                                             style="width:8.5rem;min-width:8.5rem"
-                                            @disabled($isProcessed)
+                                            @disabled($lockEdit)
                                             aria-label="Unit cost line {{ $i + 1 }}"
                                         />
                                     </td>
@@ -347,15 +351,15 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
                 <span class="entity-tab is-active">Receiving</span>
             </div>
             <div class="entity-footer-actions">
-                <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
-                @if ($viewMode)
+                <a href="{{ route('purchasing.receivings.index') }}" wire:navigate class="desk-btn">{{ $lockEdit ? 'Close' : 'Cancel' }}</a>
+                @if ($isProcessed)
+                    <a href="{{ route('purchasing.receivings.print', $receiving) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
+                @elseif ($viewMode)
                     <a href="{{ route('purchasing.receivings.print', $receiving) }}" target="_blank" rel="noopener" class="desk-btn">Print</a>
                     <a href="{{ route('purchasing.receivings.edit', $receiving) }}" wire:navigate class="desk-btn desk-btn-primary">Edit Receiving</a>
                 @else
-                    <button type="submit" class="desk-btn {{ $isProcessed ? 'desk-btn-primary' : '' }}">Save</button>
-                    @unless ($isProcessed)
-                        <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="desk-btn desk-btn-primary">Process Receiving</button>
-                    @endunless
+                    <button type="submit" class="desk-btn">Save</button>
+                    <button type="button" wire:click="process" wire:confirm="Process receiving and update inventory?" class="desk-btn desk-btn-primary">Process Receiving</button>
                 @endif
             </div>
         </div>

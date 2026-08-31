@@ -125,6 +125,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public ?int $customer_id = null;
 
+    public ?int $customerPriceLevelId = null;
+
+    /** @var array<int, float> */
+    public array $itemTaxRateCache = [];
+
     public ?int $ship_to_address_id = null;
 
     public string $bill_to_name = '';
@@ -365,7 +370,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($salesOrder instanceof SalesOrder && $salesOrder->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
             $salesOrder->loadMissing('invoice');
-            $this->salesOrder = $salesOrder->load(['lines.item', 'boxes', 'customer', 'invoice']);
+            $this->salesOrder = $salesOrder->load([
+                'lines' => fn ($q) => $q->orderBy('line_no'),
+                'boxes',
+                'customer:id,customer_id,company_name,messages_alerts,price_level_id,is_favorite',
+                'invoice:id,invoice_number,sales_order_id,status',
+            ]);
             if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
                 $invNo = $salesOrder->invoice?->invoice_number;
                 $this->orderLockMessage = $invNo
@@ -409,6 +419,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->miscellaneous = $this->formatMoney($this->miscellaneous);
             $this->tax = $this->formatMoney($this->tax);
             $this->customerAlert = $salesOrder->customer?->messages_alerts ?? '';
+            $this->customerPriceLevelId = $salesOrder->customer?->price_level_id
+                ? (int) $salesOrder->customer->price_level_id
+                : null;
             $this->taxManual = true;
             $this->lines = $salesOrder->lines->map(function ($l) {
                 $qty = (float) $l->qty_ordered;
@@ -420,8 +433,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'item_code' => $l->item_code ?? '',
                     'description' => $l->description ?? '',
                     'uom' => $l->uom ?? '',
-                    'qty_ordered' => $this->blankZeroAmount($l->qty_ordered) !== '' ? (string) $l->qty_ordered : '',
-                    'qty_shipped' => $this->blankZeroAmount($l->qty_shipped ?? 0),
+                    'qty_ordered' => $this->formatQty($l->qty_ordered),
+                    'qty_shipped' => $this->formatQty($l->qty_shipped ?? 0),
                     'price' => $this->formatMoney($l->price),
                     'system_price' => $this->formatMoney($l->price),
                     'unit_discount' => $this->formatMoney($unitDiscount),
@@ -710,7 +723,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         return [
             'item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '',
-            'qty_ordered' => '1', 'qty_shipped' => '', 'price' => '',
+            'qty_ordered' => '1.00', 'qty_shipped' => '', 'price' => '',
             'system_price' => '',
             'unit_discount' => '', 'discount' => '',
             'line_message' => '', 'instructions' => '',
@@ -728,6 +741,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         return is_string($value) ? $value : (string) $value;
+    }
+
+    protected function formatQty(mixed $value): string
+    {
+        return $this->formatMoney($value);
     }
 
     /** Money display/storage: always 2 decimal places (e.g. 9.99, never 9.990000). */
@@ -1359,9 +1377,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'oversellingOn' => StockPolicy::allowsNegativeStock(),
             'favorites' => [
-                'all' => 'All Orders',
-                'new' => 'New Orders',
                 'not_invoiced' => 'Not Invoiced',
+                'all' => 'All Open Orders',
+                'new' => 'New Orders',
+                'invoiced' => 'Invoices',
                 'month' => 'This Month',
                 'today' => 'Today & Yesterday',
             ],
@@ -1493,8 +1512,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function selectBrowseRow(int $itemId): void
     {
-        // Whole line click = check/uncheck + select (not checkbox-only).
         $this->toggleBrowseChecked($itemId);
+        $this->skipRender();
     }
 
     public function toggleBrowseChecked(int $itemId): void
@@ -1600,8 +1619,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pickBrowseItem($id);
     }
 
-    public function insertBrowseChecked(): void
+    public function insertBrowseChecked($ids = null): void
     {
+        if (is_array($ids) && $ids !== []) {
+            $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
+        }
+
         $ids = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
         if ($ids === []) {
             $this->insertBrowseSelected();
@@ -1615,7 +1638,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         foreach ($ids as $itemId) {
             $item = Item::query()
-                ->with(['prices', 'taxSchedule', 'substitutes.substituteItem'])
+                ->with(['prices', 'taxSchedule'])
                 ->where('company_id', $companyId)
                 ->find($itemId);
             if (! $item) {
@@ -1665,8 +1688,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->dispatch('open-item-record', url: route('inventory.items.create'));
     }
 
-    public function openBrowseEditSelected(): void
+    public function openBrowseEditSelected(?int $itemId = null): void
     {
+        if ($itemId && $itemId > 0) {
+            $this->browseSelectedId = $itemId;
+            $this->browseCheckedIds = [(string) $itemId];
+        }
+
         if (! $this->browseHasSingleSelection()) {
             $this->notifyAlert(
                 count($this->browseCheckedIds) > 1
@@ -2059,6 +2087,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function updatedFavorite(string $value): void
     {
+        if ($value === 'invoiced') {
+            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            return;
+        }
+
         $this->redirect(route('sales.orders.index', ['favorite' => $value]), navigate: true);
     }
 
@@ -2070,6 +2104,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->customerAlert = '';
             $this->creditWarning = '';
             $this->taxExemptWarning = '';
+            $this->customerPriceLevelId = null;
+            $this->itemTaxRateCache = [];
             $this->showCustomerConfirmModal = false;
             $this->customerConfirmLabel = '';
 
@@ -2106,6 +2142,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function applySelectedCustomer(Customer $customer): void
     {
         $this->customerAlert = $customer->messages_alerts ?? '';
+        $this->customerPriceLevelId = $customer->price_level_id ? (int) $customer->price_level_id : null;
 
         // Bill To always from customer master
         $this->bill_to_name = trim((string) ($customer->company_name ?: $customer->contact)) ?: '';
@@ -2361,7 +2398,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function updatedLines($value = null, $key = null): void
     {
         if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount)$/', $key, $m)) {
-            $this->recalcLineDiscount((int) $m[1]);
+            $i = (int) $m[1];
+            if ($m[2] === 'qty_ordered' && isset($this->lines[$i])) {
+                $this->lines[$i]['qty_ordered'] = $this->formatQty($this->lines[$i]['qty_ordered'] ?? '');
+            }
+            $this->recalcLineDiscount($i);
         }
         if (is_string($key) && (str_ends_with($key, 'qty_ordered') || str_ends_with($key, 'item_id'))) {
             $this->refreshSelectedLineStock();
@@ -2404,7 +2445,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $current = (float) ($this->lines[$index][$field] ?? 0);
         $next = max(0, round($current + $delta, 4));
         if (in_array($field, ['qty_ordered'], true)) {
-            $this->lines[$index][$field] = (string) (fmod($next, 1.0) === 0.0 ? (int) $next : $next);
+            $this->lines[$index][$field] = $this->formatQty($next);
             if ($field === 'qty_ordered') {
                 $this->recalcLineDiscount($index);
             }
@@ -2763,12 +2804,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $itemIds = $filled->pluck('item_id')->filter()->unique()->all();
-        $items = Item::query()->with('taxSchedule')->whereIn('id', $itemIds)->get()->keyBy('id');
+        $itemIds = $filled->pluck('item_id')->filter()->unique()->map(fn ($id) => (int) $id)->all();
+        $missing = array_values(array_filter($itemIds, fn (int $id) => ! array_key_exists($id, $this->itemTaxRateCache)));
+        if ($missing !== []) {
+            $items = Item::query()->with('taxSchedule')->whereIn('id', $missing)->get();
+            foreach ($items as $item) {
+                $this->itemTaxRateCache[(int) $item->id] = (float) ($item->taxSchedule?->rate ?? 0);
+            }
+        }
         $weighted = 0.0;
         foreach ($filled as $line) {
-            $item = $items->get($line['item_id']);
-            $rate = (float) ($item?->taxSchedule?->rate ?? 0);
+            $rate = (float) ($this->itemTaxRateCache[(int) $line['item_id']] ?? 0);
             $lineNet = ((float) $line['qty_ordered'] * (float) $line['price']) - (float) $line['discount'];
             $weighted += $lineNet * ($rate / 100);
         }
@@ -2963,7 +3009,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $existingIndex = $this->findLineIndexForItem((int) $item->id);
         if ($existingIndex !== null && $existingIndex !== $index) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
-            $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->lines[$existingIndex]['qty_ordered'] = $this->formatQty($qty + 1);
             $this->recalcLineDiscount($existingIndex);
             $this->lines[$index] = $this->emptyLine();
             $this->selectedLineIndex = $existingIndex;
@@ -2973,6 +3019,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->suggestTax();
             $this->notifyAlert($item->item_code.' quantity increased to '.$this->lines[$existingIndex]['qty_ordered'].'.', 'success');
             $this->refreshSelectedLineStock($existingIndex, $item);
+            $this->highlightScannedLine($existingIndex);
 
             return;
         }
@@ -3285,7 +3332,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $line['item_code'] = $item?->item_code ?: (string) ($l['sku'] ?? '');
             $line['description'] = $item?->description ?: (string) ($l['name'] ?? '');
             $line['uom'] = $item?->unit_of_measure ?: '';
-            $line['qty_ordered'] = (string) ($l['quantity'] ?? $l['qty_ordered'] ?? 1);
+            $line['qty_ordered'] = $this->formatQty($l['quantity'] ?? $l['qty_ordered'] ?? 1);
             $line['price'] = $this->formatMoney($l['unit_price'] ?? $l['price'] ?? 0);
             $line['system_price'] = $line['price'];
             $this->lines[] = $line;
@@ -3344,7 +3391,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->lineWarning = '';
-        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder));
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $this->salesOrder).'?v='.time());
     }
 
     /**
@@ -3528,7 +3575,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         abort_if($this->viewMode, 403);
 
         $item = Item::query()
-            ->with('prices')
+            ->with(['prices', 'taxSchedule'])
             ->where('company_id', auth()->user()->company_id)
             ->find($itemId);
         if (! $item) {
@@ -3537,6 +3584,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = '';
         $this->browseSelectedId = $itemId;
         $this->lineWarning = '';
+        $this->closeBrowse();
         $this->queueItemOrPromptSubstitute($item);
     }
 
@@ -3677,10 +3725,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $existingIndex = $this->findLineIndexForItem((int) $item->id);
         if ($existingIndex !== null) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
-            $this->lines[$existingIndex]['qty_ordered'] = (string) ($qty + 1);
+            $this->lines[$existingIndex]['qty_ordered'] = $this->formatQty($qty + 1);
             $this->recalcLineDiscount($existingIndex);
-            $this->selectedLineIndex = $existingIndex;
-            $this->syncLineContextHeader($existingIndex);
             $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
             $instr = trim((string) ($this->lines[$existingIndex]['instructions'] ?? ''));
             $this->orderLineMessagePopup = $msg;
@@ -3690,6 +3736,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->taxManual = false;
             $this->refreshCreditWarning();
             $this->suggestTax();
+            $this->highlightScannedLine($existingIndex);
             $this->playPosSound('success');
 
             return;
@@ -3697,7 +3744,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->lines[] = $this->emptyLine();
         $this->fillLineFromItem(count($this->lines) - 1, $item);
+        $this->highlightScannedLine(count($this->lines) - 1);
         $this->playPosSound('success');
+    }
+
+    protected function highlightScannedLine(int $index): void
+    {
+        $this->selectedLineIndex = $index;
+        $this->syncLineContextHeader($index);
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-line-row-'.$index.'"); if (el) el.scrollIntoView({ block: "nearest" }); });');
     }
 
     protected function findLineIndexForItem(int $itemId): ?int
@@ -3726,14 +3781,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function resolveItemPrice(Item $item, ?string $uom = null): string
     {
-        $levelId = null;
-        if ($this->customer_id) {
+        $levelId = $this->customerPriceLevelId;
+        if ($levelId === null && $this->customer_id) {
             $levelId = Customer::query()->whereKey($this->customer_id)->value('price_level_id');
+            $this->customerPriceLevelId = $levelId ? (int) $levelId : null;
+            $levelId = $this->customerPriceLevelId;
         }
 
         return (string) ItemPricing::resolve(
             $item,
-            $levelId ? (int) $levelId : null,
+            $levelId,
             $uom ?? ($item->unit_of_measure ?: null),
             $this->customer_id ? (int) $this->customer_id : null
         );
@@ -3749,7 +3806,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $price = $this->formatMoney($this->resolveItemPrice($item));
         $this->lines[$index]['price'] = $price;
         $this->lines[$index]['system_price'] = $price;
-        $this->lines[$index]['qty_ordered'] = $this->lines[$index]['qty_ordered'] ?: '1';
+        $this->lines[$index]['qty_ordered'] = $this->formatQty($this->lines[$index]['qty_ordered'] ?: '1');
         $this->lines[$index]['qty_shipped'] = $this->blankZeroAmount($this->lines[$index]['qty_shipped'] ?? '');
         if (! isset($this->lines[$index]['unit_discount']) || $this->lines[$index]['unit_discount'] === '' || (float) $this->lines[$index]['unit_discount'] == 0.0) {
             $this->lines[$index]['unit_discount'] = '';
@@ -3758,15 +3815,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         // Do not auto-fill from item master — Msg/Inst icons only after user adds them on this order.
         $this->lines[$index]['line_message'] = '';
         $this->lines[$index]['instructions'] = '';
-        $this->selectedLineIndex = $index;
-        $this->syncLineContextHeader($index);
         $this->orderLineMessagePopup = '';
         $this->orderLineInstructionsPopup = '';
         $this->showLineMessageAlert = false;
         $this->refreshSelectedLineStock($index, $item);
+        if ($item->relationLoaded('taxSchedule') || $item->tax_schedule_id) {
+            $this->itemTaxRateCache[(int) $item->id] = (float) ($item->taxSchedule?->rate ?? 0);
+        }
         $this->taxManual = false;
         $this->refreshCreditWarning();
         $this->suggestTax();
+        $this->highlightScannedLine($index);
     }
 
     public function addBox(): void
@@ -4164,8 +4223,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'item_code' => $l->item_code ?? '',
                     'description' => $l->description ?? '',
                     'uom' => $l->uom ?? '',
-                    'qty_ordered' => $this->blankZeroAmount($l->qty_ordered) !== '' ? (string) $l->qty_ordered : '',
-                    'qty_shipped' => $this->blankZeroAmount($l->qty_shipped ?? 0),
+                    'qty_ordered' => $this->formatQty($l->qty_ordered),
+                    'qty_shipped' => $this->formatQty($l->qty_shipped ?? 0),
                     'price' => $price,
                     'system_price' => $price,
                     'unit_discount' => $this->formatMoney($unitDiscount),
@@ -4248,7 +4307,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $urls[] = route('sales.invoices.pdf', $invoice);
         }
         if ($this->optPrintPickList) {
-            $urls[] = route('sales.orders.pick-list', $order);
+            $urls[] = route('sales.orders.pick-list', $order).'?v='.time();
         }
 
         $this->showPrintDialog = false;
@@ -4329,10 +4388,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return $invoice;
         });
     }
+
+    public function cancelAction(): mixed
+    {
+        if ($this->salesOrder?->exists) {
+            return $this->redirect(route('sales.orders.index'), navigate: true);
+        }
+
+        if ($this->createWindowId) {
+            $this->closeCreateWindow($this->createWindowId);
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.index'), navigate: true);
+    }
 }; ?>
 
 <div class="so-page" wire:key="so-{{ $createWindowId ?? (($salesOrder instanceof \App\Models\SalesOrder) ? $salesOrder->id : 'new') }}-{{ $viewMode ? 'view' : 'edit' }}">
-    <x-action-bar :title="$pageTitle" class="so-action-full" />
+    <x-action-bar :title="$pageTitle" class="so-action-full">
+        <x-slot:menu>
+            <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+            <x-action-item label="Cancel" kbd="Ctrl+Z" sep wire:click="cancelAction" />
+        </x-slot:menu>
+    </x-action-bar>
 
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
         <fieldset class="so-form-fields" @disabled($viewMode)>
@@ -4688,7 +4767,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <col class="col-code" />
                                 <col class="col-desc" />
                                 <col class="col-uom" />
-                                <col class="col-num" />
+                                <col class="col-qty" />
                                 <col class="col-num" />
                                 <col class="col-num" />
                                 <col class="col-num" />
@@ -4699,7 +4778,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     <th class="col-code">Item Code</th>
                                     <th class="col-desc">Description</th>
                                     <th class="col-uom">U of M</th>
-                                    <th class="col-num">Qty Ordered</th>
+                                    <th class="col-qty">Qty Ordered</th>
                                     <th class="col-num">Price</th>
                                     <th class="col-num">Discount</th>
                                     <th class="col-num">Total</th>
@@ -4719,6 +4798,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     @endphp
                                     <tr
                                         wire:key="so-line-{{ $i }}"
+                                        id="so-line-row-{{ $i }}"
                                         @class(['is-selected' => $selectedLineIndex === $i, 'is-filled' => $filled])
                                         wire:click="selectLine({{ $i }})"
                                         @contextmenu="openCtx($event, {{ $i }})"
@@ -4746,7 +4826,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             @endif
                                         </td>
                                         <td class="col-uom">{{ $filled ? ($line['uom'] ?: '—') : '—' }}</td>
-                                        <td class="col-num">
+                                        <td class="col-qty">
                                             @if ($selectedLineIndex === $i && ! $viewMode && $filled)
                                                 <div class="so-qty-stepper" wire:click.stop>
                                                     <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
@@ -4756,11 +4836,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                         wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_ordered', -1)"
                                                         class="so-cell-input text-right"
                                                         placeholder="0"
+                                                        size="4"
                                                     />
                                                     <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
                                                 </div>
                                             @else
-                                                {{ $filled ? number_format($qty, 0) : '' }}
+                                                {{ $filled ? number_format($qty, 2) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num">

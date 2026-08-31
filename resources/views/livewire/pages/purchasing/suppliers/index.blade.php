@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -13,6 +14,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -54,19 +56,11 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
 
         $query = $this->applyDeskSort($query);
 
-        if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
-            $suppliers = (clone $query)
-                ->limit(10)
-                ->get();
-            $total = $suppliers->count();
-            $footerNote = '10 most recently added records with no search criteria.';
-            $isPaginated = false;
-        } else {
-            $suppliers = $query->paginate(50);
-            $total = $suppliers->total();
-            $footerNote = null;
-            $isPaginated = true;
-        }
+        $scroll = $this->scrollDeskList($query);
+        $suppliers = $scroll['rows'];
+        $total = $scroll['shown'];
+        $footerNote = null;
+        $listHasMore = $scroll['hasMore'];
 
         $listTitle = match (true) {
             $this->statusFilter === 'active', $this->favorite === 'active' => 'Supplier List (Active)',
@@ -79,7 +73,8 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
             'suppliers' => $suppliers,
             'total' => $total,
             'footerNote' => $footerNote,
-            'isPaginated' => $isPaginated,
+            'listHasMore' => $listHasMore,
+            'listShown' => $total,
             'favorites' => [
                 'all' => 'All Suppliers',
                 'active' => 'Active Suppliers',
@@ -241,13 +236,30 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
         $supplier->update(['is_inactive' => ! $supplier->is_inactive]);
         $this->selectedId = $id;
     }
+
+    public function createNewSupplier(): mixed
+    {
+        return $this->redirect(route('purchasing.suppliers.create'), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Supplier" kbd="Ctrl+N" wire:click="createNewSupplier" />
+                <x-action-item label="Edit Selected Supplier" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Delete Selected Supplier" sep wire:click="deleteSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -303,7 +315,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                     <span class="desk-title-meta">{{ number_format($total) }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table">
                         <thead>
                             <tr>
@@ -363,16 +375,14 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
                 <x-record-count :count="$total">
                     @if ($footerNote)
                         <span class="text-xs text-slate-600 me-auto">{{ $footerNote }}</span>
                     @endif
                     <a href="{{ route('purchasing.suppliers.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Supplier</a>
-                    @if ($isPaginated)
-                        {{ $suppliers->links() }}
-                    @endif
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 

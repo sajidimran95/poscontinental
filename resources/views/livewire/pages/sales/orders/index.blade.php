@@ -26,7 +26,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     #[Url]
     public string $search = '';
 
-    public string $favorite = 'all';
+    #[Url]
+    public string $favorite = 'not_invoiced';
 
     /** '' | not_invoiced | Invoiced */
     public string $statusFilter = '';
@@ -46,36 +47,74 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
     public array $parkedSalesList = [];
 
+    public function mount(): void
+    {
+        $today = now()->toDateString();
+        if ($this->dateFrom === '') {
+            $this->dateFrom = $today;
+        }
+        if ($this->dateTo === '') {
+            $this->dateTo = $today;
+        }
+    }
+
     public function updatedSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        if ($this->favorite === 'invoiced') {
+            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            return;
+        }
+
         $this->selectedId = null;
+        $today = now()->toDateString();
+        if ($this->favorite === 'not_invoiced') {
+            $this->statusFilter = '';
+            $this->dateFrom = $today;
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'today') {
+            $this->dateFrom = now()->subDay()->toDateString();
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'month') {
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
+        } elseif (in_array($this->favorite, ['all', 'new'], true)) {
+            $this->dateFrom = '';
+            $this->dateTo = '';
+        }
+        $this->resetDeskList();
     }
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        if ($this->statusFilter === 'Invoiced') {
+            $this->redirect(route('sales.invoices.index'), navigate: true);
+
+            return;
+        }
+
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedDateFrom(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedDateTo(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedCustomerId(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
@@ -124,19 +163,20 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
     {
         $this->search = '';
         $this->statusFilter = '';
-        $this->dateFrom = '';
-        $this->dateTo = '';
+        $today = now()->toDateString();
+        $this->dateFrom = $today;
+        $this->dateTo = $today;
         $this->customerId = '';
         $this->selectedId = null;
         $this->clearQueryCriteria();
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function openDeskQuery(): void
@@ -159,7 +199,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function viewSelected(): mixed
@@ -207,12 +247,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function openOrder(int $id): mixed
     {
-        $order = SalesOrder::query()
-            ->with('invoice')
+        $exists = SalesOrder::query()
             ->where('company_id', auth()->user()->company_id)
-            ->find($id);
+            ->whereKey($id)
+            ->exists();
 
-        if (! $order) {
+        if (! $exists) {
             session()->flash('status', 'Order not found.');
 
             return null;
@@ -220,8 +260,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
         $this->selectedId = $id;
 
-        // Double-click / open → view page
-        return $this->redirect(route('sales.orders.show', $order), navigate: true);
+        return $this->redirect(route('sales.orders.edit', $id), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -308,7 +347,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
-        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $order));
+        $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.pick-list', $order).'?v='.time());
     }
 
     public function with(): array
@@ -325,6 +364,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'invoice:id,sales_order_id,invoice_number,status',
             ])
             ->where('company_id', $companyId)
+            ->whereNotIn('status', ['Invoiced', 'Cancelled', 'Void', 'Closed'])
+            ->whereDoesntHave('invoice')
             ->when($this->search !== '', function ($q) {
                 $raw = trim($this->search);
                 $q->where(function ($inner) use ($raw) {
@@ -345,14 +386,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 });
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
-            ->when($this->favorite === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
-            ->when($this->favorite === 'invoiced', fn ($q) => $q->where('status', 'Invoiced'))
-            ->when($this->favorite === 'month', fn ($q) => $q->where('order_date', '>=', now()->startOfMonth()->toDateString()))
-            ->when($this->favorite === 'today', fn ($q) => $q->where('order_date', '>=', now()->subDay()->toDateString()))
-            ->when($this->statusFilter === 'not_invoiced', fn ($q) => $q->where('status', '!=', 'Invoiced'))
-            ->when($this->statusFilter === 'Invoiced', fn ($q) => $q->where('status', 'Invoiced'))
-            ->when($this->dateFrom !== '', fn ($q) => $q->where('order_date', '>=', $this->dateFrom))
-            ->when($this->dateTo !== '', fn ($q) => $q->where('order_date', '<=', $this->dateTo))
+            ->when($this->dateFrom !== '' && $this->dateTo !== '' && $this->dateFrom === $this->dateTo, fn ($q) => $q->whereDate('order_date', $this->dateFrom))
+            ->when($this->dateFrom !== '' && ($this->dateTo === '' || $this->dateFrom !== $this->dateTo), fn ($q) => $q->whereDate('order_date', '>=', $this->dateFrom))
+            ->when($this->dateTo !== '' && ($this->dateFrom === '' || $this->dateFrom !== $this->dateTo), fn ($q) => $q->whereDate('order_date', '<=', $this->dateTo))
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
         $this->applyDeskSort($query, 'order_date', 'desc');
@@ -360,7 +396,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $listTitle = match ($this->favorite) {
             'new' => 'Orders List (New)',
             'not_invoiced' => 'Orders List (Not Invoiced)',
-            'invoiced' => 'Orders List (Invoiced)',
+            'invoiced' => 'Invoice List',
             'month' => 'Orders List (This Month)',
             'today' => 'Orders List (Today & Yesterday)',
             default => 'Orders List',
@@ -378,18 +414,17 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 : 'Query Results ('.count($this->queryCriteria).' criteria)';
         }
 
+        $scroll = $this->scrollDeskList($query);
+
         return [
-            'orders' => $this->paginateDeskList(
-                $query,
-                'orders.list_count.'.(int) $companyId.'.'.$this->favorite.'.'.$this->statusFilter.'.'.$this->dateFrom.'.'.$this->dateTo.'.'.$this->customerId.'.'.$this->search,
-                50,
-                $this->search === '' && $this->queryCriteria === [] ? 20 : 0
-            ),
+            'orders' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'favorites' => [
-                'all' => 'All Orders',
-                'new' => 'New Orders',
                 'not_invoiced' => 'Not Invoiced',
-                'invoiced' => 'Invoiced',
+                'all' => 'All Open Orders',
+                'new' => 'New Orders',
+                'invoiced' => 'Invoices',
                 'month' => 'This Month',
                 'today' => 'Today & Yesterday',
             ],
@@ -462,6 +497,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'order_number' => 'order_number',
             'invoice_number' => ['relation' => 'invoice', 'column' => 'invoice_number'],
             'order_type' => 'order_type',
+            'order_source' => 'order_source',
             'order_date' => 'order_date',
             'ship_date' => 'ship_date',
             'status' => 'status',
@@ -541,13 +577,50 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
         session()->flash('status', 'Invoice created. Stock quantities updated.');
     }
+
+    public function createNewOrder(): mixed
+    {
+        return $this->redirect(route('sales.orders.create'), navigate: true);
+    }
+
+    public function invoiceSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return;
+        }
+
+        $this->invoiceOrder($this->selectedId);
+    }
+
+    public function exportOrders(): void
+    {
+        $this->printSelected();
+        session()->flash('status', 'Use Print for a copy of the selected order. Export uses the same print output.');
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Order" kbd="Ctrl+N" wire:click="createNewOrder" />
+                <x-action-item label="View/Edit Selected Order" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Create/Edit Invoice & Payment" kbd="Ctrl+I" sep wire:click="invoiceSelected" />
+                <x-action-item label="Delete Selected Order" sep wire:click="deleteSelected" />
+                <x-action-item label="Export Orders" sep wire:click="exportOrders" />
+                <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -604,10 +677,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($orders->total()) }} records</span>
+                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                 </div>
 
-                <div class="desk-grid desk-grid-responsive {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="desk-grid-responsive {{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table desk-table-fit desk-list-table">
                         <colgroup>
                             <col style="width:2.1rem" />
@@ -632,7 +705,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 <x-desk-sort-th field="order_number" label="Order #" />
                                 <x-desk-sort-th field="invoice_number" label="Invoice #" />
                                 <x-desk-sort-th field="order_type" label="Type" />
-                                <th>Source</th>
+                                <x-desk-sort-th field="order_source" label="Source" />
                                 <x-desk-sort-th field="order_date" label="Order Date" />
                                 <x-desk-sort-th field="ship_date" label="Ship Date" />
                                 <x-desk-sort-th field="status" label="Status" />
@@ -658,6 +731,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         : null;
                                 @endphp
                                 <tr
+                                    wire:key="so-row-{{ $orderId }}"
                                     wire:click="selectRow({{ $orderId }})"
                                     wire:dblclick="openOrder({{ $orderId }})"
                                     @class(['is-selected' => $selectedId === $orderId, 'cursor-pointer'])
@@ -742,6 +816,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     : null;
                             @endphp
                             <article
+                                wire:key="so-card-{{ $orderId }}"
                                 class="desk-list-card {{ $selectedId === $orderId ? 'is-selected' : '' }}"
                                 wire:click="selectRow({{ $orderId }})"
                                 wire:dblclick="openOrder({{ $orderId }})"
@@ -781,14 +856,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             <div class="desk-list-card is-empty">No orders found.</div>
                         @endforelse
                     </div>
-                </div>
+                </x-desk-scroll-grid>
 
-                <x-record-count :count="$orders->total()" class="is-inline" note="">
+                <x-record-count :count="$listShown" class="is-inline" note="">
                     <button type="button" wire:click="openParkedSalesModal" class="desk-btn">
                         Parked Sales{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}
                     </button>
                     <a href="{{ route('sales.orders.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Sales Order</a>
-                    <x-desk-pager :paginator="$orders" />
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 

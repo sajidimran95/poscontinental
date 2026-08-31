@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
@@ -14,6 +15,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -58,17 +60,11 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 
         $query = $this->applyDeskSort($query, 'receipt_date', 'desc');
 
-        if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
-            $receivings = $query->limit(10)->get();
-            $total = $receivings->count();
-            $footerNote = '10 most recently updated records with no search criteria.';
-            $isPaginated = false;
-        } else {
-            $receivings = $query->paginate(50);
-            $total = $receivings->total();
-            $footerNote = null;
-            $isPaginated = true;
-        }
+        $scroll = $this->scrollDeskList($query);
+        $receivings = $scroll['rows'];
+        $total = $scroll['shown'];
+        $footerNote = null;
+        $listHasMore = $scroll['hasMore'];
 
         $listTitle = match (true) {
             $this->statusFilter === 'New', $this->favorite === 'new' => 'Inventory Receipts List (New)',
@@ -76,11 +72,21 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             default => 'Inventory Receipts List',
         };
 
+        $selectedStatus = null;
+        if ($this->selectedId) {
+            $selectedStatus = optional($receivings->firstWhere('id', $this->selectedId))->status
+                ?? InventoryReceiving::query()
+                    ->where('company_id', $companyId)
+                    ->whereKey($this->selectedId)
+                    ->value('status');
+        }
+
         return [
             'receivings' => $receivings,
             'total' => $total,
             'footerNote' => $footerNote,
-            'isPaginated' => $isPaginated,
+            'listHasMore' => $listHasMore,
+            'canEditSelected' => $this->selectedId && $selectedStatus && $selectedStatus !== 'Processed',
             'openPos' => PurchaseOrder::query()
                 ->where('company_id', $companyId)
                 ->whereIn('status', ['New', 'Partially Received'])
@@ -191,6 +197,12 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             return null;
         }
 
+        if ($rec->status === 'Processed') {
+            session()->flash('status', 'Processed receivings cannot be edited.');
+
+            return $this->redirect(route('purchasing.receivings.show', $rec), navigate: true);
+        }
+
         return $this->redirect(route('purchasing.receivings.edit', $rec), navigate: true);
     }
 
@@ -219,7 +231,11 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('purchasing.receivings.show', $rec), navigate: true);
+        if ($rec->status === 'Processed') {
+            return $this->redirect(route('purchasing.receivings.show', $rec), navigate: true);
+        }
+
+        return $this->redirect(route('purchasing.receivings.edit', $rec), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -334,13 +350,31 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $this->selectedId = $id;
         session()->flash('status', 'Receiving '.$receiving->receipt_number.' processed.');
     }
+
+    public function createNewReceiving(): void
+    {
+        $this->createReceiving();
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Receivings Entry" kbd="Ctrl+N" wire:click="createReceiving" />
+                <x-action-item label="View/Edit Selected Receipt" kbd="Ctrl+E" sep wire:click="editSelected" :disabled="! $canEditSelected" />
+                <x-action-item label="Delete Selected Receipt" sep wire:click="deleteSelected" />
+                <x-action-item label="Print" sep wire:click="printSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -408,7 +442,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                     <span class="desk-title-meta">{{ number_format($total) }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table">
                         <thead>
                             <tr>
@@ -446,7 +480,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('purchasing.receivings.show', $rec) }}" wire:navigate wire:click.stop>{{ $rec->receipt_number }}</a>
+                                        <a href="{{ route($rec->status === 'Processed' ? 'purchasing.receivings.show' : 'purchasing.receivings.edit', $rec) }}" wire:navigate wire:click.stop>{{ $rec->receipt_number }}</a>
                                     </td>
                                     <td>{{ optional($rec->receipt_date)?->format('n/j/Y') }}</td>
                                     <td class="desk-num">{{ $rec->purchaseOrder?->po_number ?: '—' }}</td>
@@ -475,15 +509,13 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
                 <x-record-count :count="$total">
                     @if ($footerNote)
                         <span class="text-xs text-slate-600 me-auto">{{ $footerNote }}</span>
                     @endif
-                    @if ($isPaginated)
-                        {{ $receivings->links() }}
-                    @endif
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 
@@ -502,7 +534,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditSelected ? 'Edit selected' : 'Processed receivings cannot be edited' }}" aria-label="Edit selected" @disabled(! $canEditSelected)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>

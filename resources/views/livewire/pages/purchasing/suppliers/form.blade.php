@@ -229,11 +229,21 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
 
         return 'Unable to save this supplier. Check the form and try again.';
     }
+
+    public function cancelAction(): mixed
+    {
+        return $this->redirect(route('purchasing.suppliers.index'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
     <form wire:submit="save" class="desk-main entity-form item-form">
-        <x-action-bar :title="$supplier ? 'Edit Supplier — '.$supplier_id : 'New Supplier'" />
+        <x-action-bar :title="$supplier ? 'Edit Supplier — '.$supplier_id : 'New Supplier'">
+            <x-slot:menu>
+                <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" />
+                <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
+            </x-slot:menu>
+        </x-action-bar>
 
         @if ($errors->any())
             <div class="desk-flash bp-flash-error" role="alert">

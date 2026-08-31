@@ -1,6 +1,7 @@
 ﻿<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -22,6 +23,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
         closeItemBrowse as closeDocumentItemBrowse;
@@ -137,8 +139,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 return ((float) ($l['qty'] ?? 0)) * ((float) ($l['price'] ?? 0));
             });
 
+        $scroll = $this->scrollDeskList($query);
+
         $data = [
-            'memos' => $query->paginate(50),
+            'memos' => $scroll['rows'],
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'listTitle' => match (true) {
                 $this->statusFilter === 'Open', $this->favorite === 'open' => 'Credit Memos (Open)',
                 $this->statusFilter === 'Applied', $this->favorite === 'applied' => 'Credit Memos (Applied)',
@@ -1183,13 +1189,92 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $msg .= ' Apply it from an unpaid invoice.';
         session()->flash('status', $msg);
     }
+
+    public function viewSalesOrder(): mixed
+    {
+        if ($this->showForm) {
+            if ($this->sales_order_id) {
+                return $this->redirect(route('sales.orders.edit', $this->sales_order_id), navigate: true);
+            }
+            session()->flash('status', 'No sales order on this memo.');
+
+            return null;
+        }
+
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a credit memo first.');
+
+            return null;
+        }
+
+        $memo = CreditMemo::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $memo?->sales_order_id) {
+            session()->flash('status', 'This credit memo has no sales order.');
+
+            return null;
+        }
+
+        return $this->redirect(route('sales.orders.edit', $memo->sales_order_id), navigate: true);
+    }
+
+    public function voidSelectedMemo(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a credit memo first.');
+
+            return;
+        }
+
+        $memo = CreditMemo::query()
+            ->with('applications')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $memo) {
+            session()->flash('status', 'Credit memo not found.');
+
+            return;
+        }
+
+        if ($memo->applications->isNotEmpty()) {
+            session()->flash('status', 'This credit memo is applied to an invoice and cannot be voided.');
+
+            return;
+        }
+
+        $memo->lines()->delete();
+        $memo->delete();
+        $this->selectedId = null;
+        session()->flash('status', 'Credit memo voided and deleted.');
+    }
+
+    public function closeDesk(): mixed
+    {
+        if ($this->showForm) {
+            $this->cancelForm();
+
+            return null;
+        }
+
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page relative">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div @class(['desk-main', 'desk-main-rail-layout' => ! $showForm])>
-        <x-action-bar :title="$showForm ? 'New Credit Memo' : 'Action'" />
+        <x-action-bar :title="$showForm ? 'New Credit Memo' : 'Action'">
+            <x-slot:menu>
+                <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
+                <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
+                <x-action-item label="Void Credit Memo" sep wire:click="voidSelectedMemo" :disabled="$showForm" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         @if ($showForm)
             <form wire:submit="save" class="entity-body cm-form">
@@ -1528,10 +1613,10 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
                     <div class="desk-titlebar">
                         <h2 class="desk-title">{{ $listTitle }}</h2>
-                        <span class="desk-title-meta">{{ number_format($memos->total()) }} records</span>
+                        <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                     </div>
 
-                    <div class="desk-grid cm-list-grid">
+                    <x-desk-scroll-grid :has-more="$listHasMore" class="cm-list-grid">
                         <table class="desk-table desk-table-fit">
                             <thead>
                                 <tr>
@@ -1597,9 +1682,11 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                 @endforelse
                             </tbody>
                         </table>
-                    </div>
+                    </x-desk-scroll-grid>
 
-                    <x-record-count :count="$memos->total()">{{ $memos->links() }}</x-record-count>
+                    <x-record-count :count="$listShown">
+                        <x-desk-load-more :has-more="$listHasMore" />
+                    </x-record-count>
                 </div>
 
                 <aside class="desk-rail" aria-label="Credit memo actions">

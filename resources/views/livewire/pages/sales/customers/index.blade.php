@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -16,6 +17,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 {
     use WithPagination;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -65,10 +67,11 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             $listTitle = 'Customers List (Inactive)';
         }
 
-        $customers = $query->paginate(25);
+        $scroll = $this->scrollDeskList($query);
+        $customers = $scroll['rows'];
 
         $openCreditsByCustomer = [];
-        $pageIds = $customers->getCollection()->pluck('id')->all();
+        $pageIds = $customers->pluck('id')->all();
         if ($pageIds !== []) {
             $memos = CreditMemo::query()
                 ->where('company_id', $companyId)
@@ -89,6 +92,8 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         return [
             'customers' => $customers,
+            'listHasMore' => $scroll['hasMore'],
+            'listShown' => $scroll['shown'],
             'openCreditsByCustomer' => $openCreditsByCustomer,
             'salesReps' => User::assignableSalesRepsQuery($companyId)->get(['id', 'name', 'is_active', 'role_id']),
             'canEditCustomers' => auth()->user()?->canAccessFeature('sales.customers', 'edit') ?? false,
@@ -221,7 +226,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('sales.customers.show', $customer), navigate: true);
+        return $this->redirect(route('sales.customers.edit', $customer), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -354,13 +359,30 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             ? 'Sales rep assigned for '.$customer->customer_id.'.'
             : 'Sales rep cleared for '.$customer->customer_id.'.');
     }
+
+    public function createNewCustomer(): mixed
+    {
+        return $this->redirect(route('sales.customers.create'), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page">
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Customer" kbd="Ctrl+N" wire:click="createNewCustomer" />
+                <x-action-item label="View/Edit Selected Customer" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Delete Selected Customer" sep wire:click="deleteSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -414,10 +436,10 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($customers->total()) }} records</span>
+                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
                 </div>
 
-                <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
+                <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table">
                         <thead>
                             <tr>
@@ -539,11 +561,11 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
-                <x-record-count :count="$customers->total()">
+                <x-record-count :count="$listShown">
                     <a href="{{ route('sales.customers.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Customer</a>
-                    {{ $customers->links() }}
+                    <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
 

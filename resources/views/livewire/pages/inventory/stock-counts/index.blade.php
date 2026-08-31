@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\InteractsWithDeskQuery;
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\StockCount;
 use App\Services\InventoryService;
@@ -15,6 +16,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     use WithPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
+    use PaginatesDeskLists;
 
     #[Url]
     public string $search = '';
@@ -50,16 +52,11 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
         $query = $this->applyDeskSort($query, 'date_created', 'desc');
 
-        // Chief: with no search criteria, show 10 most recently updated
-        if (! $hasSearch && ! $hasQuery && $this->favorite === 'all') {
-            $counts = $query->limit(10)->get();
-            $total = $counts->count();
-            $footerNote = '10 most recently updated records with no search criteria.';
-        } else {
-            $counts = $query->paginate(50);
-            $total = $counts->total();
-            $footerNote = null;
-        }
+        $scroll = $this->scrollDeskList($query);
+        $counts = $scroll['rows'];
+        $total = $scroll['shown'];
+        $footerNote = null;
+        $listHasMore = $scroll['hasMore'];
 
         $listTitle = match ($this->favorite) {
             'new' => 'Stock Counts List (New)',
@@ -77,7 +74,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             'counts' => $counts,
             'total' => $total,
             'footerNote' => $footerNote,
-            'isPaginated' => $hasSearch || $hasQuery || $this->favorite !== 'all',
+            'listHasMore' => $listHasMore,
             'favorites' => [
                 'all' => 'All Stock Counts',
                 'new' => 'New',
@@ -281,6 +278,16 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
         $this->dispatch('print-stock-count', id: $this->selectedId);
     }
 
+    public function createNewCount(): mixed
+    {
+        return $this->redirect(route('inventory.stock-counts.create'), navigate: true);
+    }
+
+    public function closeDesk(): mixed
+    {
+        return $this->redirect(route('home'), navigate: true);
+    }
+
     public function process(int $id): void
     {
         $count = StockCount::query()->findOrFail($id);
@@ -295,7 +302,15 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     <x-favorite-list :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
-        <x-action-bar title="Action" />
+        <x-action-bar title="Action">
+            <x-slot:menu>
+                <x-action-item label="Add New Stock Count" kbd="Ctrl+N" wire:click="createNewCount" />
+                <x-action-item label="View/Edit Selected Stock Count" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Delete Selected Stock Count" sep wire:click="deleteSelected" />
+                <x-action-item label="Print" sep wire:click="printSelected" />
+                <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <div class="desk-main-split">
             <div class="desk-main-body">
@@ -348,7 +363,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                     <span class="desk-title-meta">{{ number_format($total) }} records</span>
                 </div>
 
-                <div class="desk-grid">
+                <x-desk-scroll-grid :has-more="$listHasMore">
                     <table class="desk-table">
                         <thead>
                             <tr>
@@ -407,16 +422,15 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                </x-desk-scroll-grid>
 
                 <x-record-count :count="$total">
                     @if ($footerNote)
                         <span class="text-xs text-slate-600 me-auto">{{ $footerNote }}</span>
                     @endif
                     <a href="{{ route('inventory.stock-counts.create') }}" wire:navigate class="desk-btn desk-btn-primary">New Stock Count</a>
-                    @if ($isPaginated)
-                        {{ $counts->links() }}
-                    @endif
+                    <x-desk-load-more :has-more="$listHasMore" />
+                </x-record-count>
                 </x-record-count>
             </div>
 

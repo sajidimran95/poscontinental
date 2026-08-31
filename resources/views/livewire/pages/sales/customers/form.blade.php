@@ -507,13 +507,29 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
     {
         return in_array($this->portal_active, [true, 1, '1'], true);
     }
+
+    public function refreshForm(): void
+    {
+        session()->flash('status', 'Refresh is not used until the customer is saved.');
+    }
+
+    public function cancelAction(): mixed
+    {
+        return $this->redirect(route('sales.customers.index'), navigate: true);
+    }
 }; ?>
 
 <div class="desk-page entity-page">
     <form wire:submit="save" class="desk-main entity-form" @class(['entity-form-readonly' => $viewMode])>
         <x-action-bar :title="$viewMode
             ? 'View Customer — '.$customer_id
-            : ($customer ? 'Edit Customer — '.$customer_id : 'New Customer')" />
+            : ($customer ? 'Edit Customer — '.$customer_id : 'New Customer')">
+            <x-slot:menu>
+                <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+                <x-action-item label="Refresh" :disabled="true" sep />
+                <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
+            </x-slot:menu>
+        </x-action-bar>
 
         <fieldset class="entity-body" @disabled($viewMode)>
             <div class="entity-header">

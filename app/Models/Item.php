@@ -239,54 +239,76 @@ class Item extends Model
         $lower = mb_strtolower($code);
         $shortSell = $mode === 'sell' && mb_strlen($lower) < 8;
 
-        $query = static::query()
-            ->where('company_id', $companyId)
-            ->where('is_inactive', false);
-
-        if ($mode === 'sell') {
-            $query->where('can_sell', true);
-        } elseif ($mode === 'order') {
-            $query->where('can_order', true);
-        }
-
-        $query->where(function ($q) use ($lower, $shortSell, $mode) {
-            $q->whereRaw('LOWER(TRIM(item_code)) = ?', [$lower]);
-            if ($shortSell) {
-                return;
+        $scoped = function () use ($companyId, $mode) {
+            $query = static::query()
+                ->where('company_id', $companyId)
+                ->where('is_inactive', false);
+            if ($mode === 'sell') {
+                $query->where('can_sell', true);
+            } elseif ($mode === 'order') {
+                $query->where('can_order', true);
             }
-            $q->orWhereRaw('LOWER(TRIM(COALESCE(primary_upc, ?))) = ?', ['', $lower])
-                ->orWhereHas('upcs', function ($upc) use ($lower) {
-                    $upc->whereRaw('LOWER(TRIM(upc)) = ?', [$lower]);
-                })
-                ->orWhereHas('prices', function ($p) use ($lower) {
-                    $p->whereRaw('LOWER(TRIM(COALESCE(alias_code, ?))) = ?', ['', $lower]);
-                });
-            if ($mode !== 'sell') {
-                $q->orWhereHas('itemSuppliers', function ($s) use ($lower) {
-                    $s->whereRaw('LOWER(TRIM(COALESCE(supplier_item_code, ?))) = ?', ['', $lower]);
-                });
-            }
-        });
 
-        $matches = $query->get();
-        if ($matches->isEmpty()) {
-            return null;
-        }
+            return $query;
+        };
 
-        $byItemCode = $matches->first(
-            fn (self $item) => mb_strtolower(trim((string) $item->item_code)) === $lower
-        );
-        if ($byItemCode) {
-            return $byItemCode;
+        $hit = $scoped()->where('item_code', $code)->first()
+            ?? $scoped()->whereRaw('LOWER(item_code) = ?', [$lower])->first();
+        if ($hit) {
+            return $hit;
         }
 
         if ($shortSell) {
             return null;
         }
 
-        foreach ($matches as $item) {
-            if (self::itemMatchesScanCode($item, $code, $mode)) {
-                return $item;
+        $hit = $scoped()->where('primary_upc', $code)->first()
+            ?? $scoped()->whereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])->first();
+        if ($hit) {
+            return $hit;
+        }
+
+        $upcItemId = \Illuminate\Support\Facades\DB::table('item_upcs')
+            ->where('upc', $code)
+            ->value('item_id');
+        if (! $upcItemId) {
+            $upcItemId = \Illuminate\Support\Facades\DB::table('item_upcs')
+                ->whereRaw('LOWER(upc) = ?', [$lower])
+                ->value('item_id');
+        }
+        if ($upcItemId) {
+            $hit = $scoped()->whereKey($upcItemId)->first();
+            if ($hit) {
+                return $hit;
+            }
+        }
+
+        $aliasItemId = \Illuminate\Support\Facades\DB::table('item_prices')
+            ->where('alias_code', $code)
+            ->whereNotNull('alias_code')
+            ->where('alias_code', '!=', '')
+            ->value('item_id');
+        if (! $aliasItemId) {
+            $aliasItemId = \Illuminate\Support\Facades\DB::table('item_prices')
+                ->whereRaw('LOWER(COALESCE(alias_code, ?)) = ?', ['', $lower])
+                ->value('item_id');
+        }
+        if ($aliasItemId) {
+            $hit = $scoped()->whereKey($aliasItemId)->first();
+            if ($hit) {
+                return $hit;
+            }
+        }
+
+        if ($mode !== 'sell') {
+            $supplierItemId = \Illuminate\Support\Facades\DB::table('item_suppliers')
+                ->where('supplier_item_code', $code)
+                ->value('item_id');
+            if ($supplierItemId) {
+                $hit = $scoped()->whereKey($supplierItemId)->first();
+                if ($hit) {
+                    return $hit;
+                }
             }
         }
 

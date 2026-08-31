@@ -2,13 +2,22 @@
     $companyId = auth()->user()->company_id;
     $user = auth()->user();
 
-    $lowStockItems = \App\Models\Item::query()
-        ->where('company_id', $companyId)
-        ->lowStock()
-        ->orderBy('item_code')
-        ->get(['id', 'item_code', 'description', 'quantity_in_stock', 'reorder_point']);
-
-    $lowStockCount = $lowStockItems->count();
+    $lowStockCount = (int) \Illuminate\Support\Facades\Cache::remember(
+        'home.low_stock_count.'.$companyId,
+        60,
+        fn () => \App\Models\Item::query()
+            ->where('company_id', $companyId)
+            ->lowStock()
+            ->count()
+    );
+    $lowStockItems = $lowStockCount > 0
+        ? \App\Models\Item::query()
+            ->where('company_id', $companyId)
+            ->lowStock()
+            ->orderBy('item_code')
+            ->limit(3)
+            ->get(['id', 'item_code', 'description', 'quantity_in_stock', 'reorder_point'])
+        : collect();
 
     $can = fn (string $feature, string $action = 'view') => $user->canAccessFeature($feature, $action);
 

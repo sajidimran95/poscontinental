@@ -22,6 +22,7 @@ use App\Support\ItemSearch;
 use App\Support\SalesOrderLinePresentation;
 use App\Support\StockPolicy;
 use App\Livewire\Concerns\SortsItemBrowse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -1135,6 +1136,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->dispatch('open-item-record', url: route('inventory.items.edit', $item));
     }
 
+    public function hydrate(): void
+    {
+        $this->viewMode = request()->routeIs('sales.orders.show');
+    }
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -1179,7 +1185,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
                 ->orderByDesc('is_favorite')
                 ->orderBy('company_name')
+                ->limit(80)
                 ->get(['id', 'customer_id', 'company_name', 'is_favorite']);
+
+            if ($this->customer_id && $customers->every(fn ($c) => (int) $c->id !== (int) $this->customer_id)) {
+                $selectedOpt = Customer::query()->find($this->customer_id, ['id', 'customer_id', 'company_name', 'is_favorite']);
+                if ($selectedOpt) {
+                    $customers = $customers->prepend($selectedOpt);
+                }
+            }
         }
 
         $selectedCustomer = null;
@@ -1205,19 +1219,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     : 'New Sales Order'),
             'returnToInvoiceList' => $this->shouldReturnToInvoiceList(),
             'salesReps' => $onGeneral
-                ? User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get()
+                ? Cache::remember(
+                    'lookups.sales_reps.'.$companyId.'.'.(int) $this->sales_rep_id,
+                    120,
+                    fn () => User::assignableSalesRepsQuery($companyId, $this->sales_rep_id)->get()
+                )
                 : collect(),
             'paymentTerms' => $onShipping
-                ? PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get()
+                ? Cache::remember('lookups.payment_terms.'.$companyId, 180, fn () => PaymentTerm::query()->where('company_id', $companyId)->orderBy('name')->get())
                 : collect(),
             'routes' => $onShipping
-                ? RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get()
+                ? Cache::remember('lookups.routes.'.$companyId, 180, fn () => RouteLookup::query()->where('company_id', $companyId)->orderBy('name')->get())
                 : collect(),
             'shipVias' => $onShipping
-                ? ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get()
+                ? Cache::remember('lookups.ship_vias.'.$companyId, 180, fn () => ShipVia::query()->where('company_id', $companyId)->orderBy('name')->get())
                 : collect(),
             'sites' => $onShipping
-                ? Site::query()->where('company_id', $companyId)->orderBy('code')->get()
+                ? Cache::remember('lookups.sites.'.$companyId, 180, fn () => Site::query()->where('company_id', $companyId)->orderBy('code')->get())
                 : collect(),
             'browseItems' => collect($this->browseRows)->map(function (array $row) {
                 $id = (int) ($row['id'] ?? 0);
@@ -3279,6 +3297,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = $code;
 
         if ($code === '') {
+            $this->skipRender();
             $this->focusItemEntry(true);
 
             return;
@@ -3310,18 +3329,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? '')) ?? '');
         // Need a complete code — ignore very short noise while typing.
         if ($code === '' || mb_strlen($code) < 2) {
+            $this->skipRender();
+
             return;
         }
 
         // 1) Full exact match only (item_code / UPC / alias) — never LIKE/% partial.
         $item = $this->findItem($code);
         if (! $item) {
-            // Still typing (e.g. only "25" of "2593a") — leave field alone, no browse/flash.
+            $this->skipRender();
+
             return;
         }
 
-        // 2) Longer codes still start with this text → user not finished typing.
         if ($this->codeIsPrefixOfLongerItemCode($code)) {
+            $this->skipRender();
+
             return;
         }
 
@@ -3343,6 +3366,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $lower = mb_strtolower(trim($code));
         $len = mb_strlen($lower);
         if ($len < 1) {
+            return false;
+        }
+        // Full UPC / long barcode is already complete — skip expensive prefix scan.
+        if ($len >= 8) {
             return false;
         }
 
@@ -3623,7 +3650,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'sell');
         if ($item) {
-            $item->load(['prices', 'taxSchedule', 'substitutes.substituteItem']);
+            $item->load(['prices', 'taxSchedule']);
         }
 
         return $item;
@@ -4236,7 +4263,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 }; ?>
 
-<div class="so-page" wire:key="so-create-{{ $createWindowId ?? ($salesOrder?->id ?? 'edit') }}">
+<div class="so-page" wire:key="so-{{ $createWindowId ?? ($salesOrder?->id ?? 'new') }}-{{ $viewMode ? 'view' : 'edit' }}">
     <x-action-bar :title="$pageTitle" class="so-action-full" />
 
     <form id="so-form" wire:submit="save" class="so-screen" @class(['so-form-readonly' => $viewMode])>
@@ -5126,7 +5153,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         <div class="so-bottom-actions">
             <a href="{{ $returnToInvoiceList ? route('sales.invoices.index') : route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
             @if ($viewMode && $salesOrder)
-                <a href="{{ route('sales.orders.edit', $salesOrder) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" wire:navigate class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
+                <a href="{{ route('sales.orders.edit', $salesOrder) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)

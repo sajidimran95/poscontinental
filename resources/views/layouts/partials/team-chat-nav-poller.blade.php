@@ -96,7 +96,7 @@
         } catch (e) {}
     }
     tick();
-    setInterval(tick, 4000);
+    setInterval(tick, 25000);
 })();
 </script>
 @endif

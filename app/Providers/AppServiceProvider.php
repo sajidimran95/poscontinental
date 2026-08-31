@@ -32,6 +32,13 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(DeliveryRoute::class, DeliveryRoutePolicy::class);
 
+        \Illuminate\Support\Facades\Event::listen(
+            \Illuminate\Auth\Events\Authenticated::class,
+            function ($event): void {
+                $event->user->loadMissing('role');
+            }
+        );
+
         Blade::directive('userTime', function ($expression) {
             return "<?php echo user_time($expression); ?>";
         });

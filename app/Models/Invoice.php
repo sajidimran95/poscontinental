@@ -78,6 +78,51 @@ class Invoice extends Model
         return (float) $this->invoice_total - $this->total_payments - $this->total_credits;
     }
 
+    /**
+     * Other unpaid invoices for this customer (invoice no + due amount).
+     *
+     * @return array{lines: list<array{invoice_number: string, invoice_date: ?string, balance: float}>, total: float}
+     */
+    public static function previousOpenInvoices(int $companyId, ?int $customerId, ?int $exceptInvoiceId = null): array
+    {
+        if (! $customerId) {
+            return ['lines' => [], 'total' => 0.0];
+        }
+
+        $rows = static::query()
+            ->where('company_id', $companyId)
+            ->where('customer_id', $customerId)
+            ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
+            ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('PAID', 'VOID', 'CANCELLED')")
+            ->withSum('payments as payments_sum_amount', 'amount')
+            ->withSum('credits as credits_sum_amount', 'amount')
+            ->orderBy('invoice_date')
+            ->orderBy('invoice_number')
+            ->get(['id', 'invoice_number', 'invoice_date', 'invoice_total']);
+
+        $lines = [];
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $balance = round(max(0, (float) $row->invoice_total - (float) ($row->payments_sum_amount ?? 0) - (float) ($row->credits_sum_amount ?? 0)), 2);
+            if ($balance < 0.005) {
+                continue;
+            }
+            $lines[] = [
+                'invoice_number' => (string) $row->invoice_number,
+                'invoice_date' => optional($row->invoice_date)?->format('m/d/Y'),
+                'balance' => $balance,
+            ];
+            $total += $balance;
+        }
+
+        return ['lines' => $lines, 'total' => round($total, 2)];
+    }
+
+    public static function previousOpenBalance(int $companyId, ?int $customerId, ?int $exceptInvoiceId = null): float
+    {
+        return self::previousOpenInvoices($companyId, $customerId, $exceptInvoiceId)['total'];
+    }
+
     public static function nextNumber(int|string $companyId): string
     {
         $companyId = (int) $companyId;

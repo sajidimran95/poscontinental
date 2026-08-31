@@ -37,6 +37,8 @@ class DocumentPdfService
         $invoice->loadMissing([
             'customer',
             'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
+            'salesOrder.lines.item.category',
+            'salesOrder.lines.item.subcategory',
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
@@ -73,7 +75,7 @@ class DocumentPdfService
             }
         }
 
-        return Pdf::loadView('pdf.sales-order', [
+        return $this->salesOrderPdfWithPageCount([
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
@@ -88,7 +90,7 @@ class DocumentPdfService
                 ['label' => 'Order No:', 'value' => $order->order_number],
                 ['label' => 'Order Status:', 'value' => $invoice->status],
             ],
-        ])->setPaper('letter')->setOption('defaultFont', 'Helvetica');
+        ]);
     }
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)
@@ -243,12 +245,14 @@ class DocumentPdfService
     public function salesOrderPdf(SalesOrder $order, ?User $user = null)
     {
         $order->loadMissing([
-            'lines.item',
+            'lines.item.category',
+            'lines.item.subcategory',
             'customer',
             'salesRep',
             'paymentTerm',
             'route',
-            'invoice',
+            'invoice.payments',
+            'invoice.credits',
         ]);
 
         $company = $user?->company ?? $order->customer?->company ?? auth()->user()?->company;
@@ -267,13 +271,13 @@ class DocumentPdfService
             }
         }
 
-        return Pdf::loadView('pdf.sales-order', [
+        return $this->salesOrderPdfWithPageCount([
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
             ...$this->letterhead($company),
             'showLineMessage' => true,
-        ])->setPaper('letter');
+        ]);
     }
 
     public function streamSalesOrder(SalesOrder $order, ?User $user = null): Response
@@ -293,14 +297,16 @@ class DocumentPdfService
     public function salesOrderInvoiceStylePdf(SalesOrder $order, ?User $user = null)
     {
         $order->loadMissing([
-            'lines',
+            'lines.item.category',
+            'lines.item.subcategory',
             'customer',
             'salesRep',
             'paymentTerm',
             'invoice.payments',
             'invoice.credits',
             'invoice.customer',
-            'invoice.salesOrder.lines',
+            'invoice.salesOrder.lines.item.category',
+            'invoice.salesOrder.lines.item.subcategory',
             'invoice.salesOrder.salesRep',
             'invoice.salesOrder.paymentTerm',
         ]);
@@ -591,6 +597,24 @@ class DocumentPdfService
             ->orderBy('item_code')
             ->limit(2000)
             ->get();
+    }
+
+    /**
+     * Put the total page count only in the invoice PAGE cell (not on other pages).
+     */
+    protected function salesOrderPdfWithPageCount(array $data)
+    {
+        $data['pageLabel'] = '1';
+        $probe = Pdf::loadView('pdf.sales-order', $data)
+            ->setPaper('letter')
+            ->setOption('defaultFont', 'Helvetica');
+        $probe->render();
+        $count = max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
+        $data['pageLabel'] = (string) $count;
+
+        return Pdf::loadView('pdf.sales-order', $data)
+            ->setPaper('letter')
+            ->setOption('defaultFont', 'Helvetica');
     }
 
     /**

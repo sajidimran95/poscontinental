@@ -350,7 +350,7 @@
         .ca-main.ca-main--create #stepShipping {
             padding: 12px 14px calc(88px + env(safe-area-inset-bottom, 0px));
             max-width: none;
-            width: 100%;
+                width: 100%;
             box-sizing: border-box;
         }
         .ca-main.ca-main--create #stepShipping .sale-create-bar {
@@ -385,7 +385,7 @@
             .ca-main.ca-main--create #stepShipping .sale-create-bar {
                 position: static !important;
                 margin: 16px 0 32px;
-                padding: 0;
+            padding: 0;
             }
         }
     </style>
@@ -482,17 +482,17 @@
             <div class="ca-menu">
                 <button type="button" class="ca-side-link js-menu-btn" data-menu="menuSide">
                     <span class="ca-avatar" style="width:28px;height:28px;font-size:12px;pointer-events:none;">{{ $letter }}</span>
-                    Account
+                Account
                 </button>
                 <div class="ca-drop" id="menuSide" style="left:0;right:auto;width:100%;">
                     <div class="px-3 py-2 text-xs text-slate-600 font-semibold flex items-center gap-1.5 border-b border-slate-100 mb-1">
                         <span class="text-brand">📍</span>
                         <span class="truncate">{{ $caLocationName }}</span>
-                    </div>
+        </div>
                     <a href="{{ route('customer.profile') }}#location">Update Profile</a>
                     <a href="{{ route('customer.profile') }}#location">Location</a>
                     <form method="POST" action="{{ route('customer.logout') }}">@csrf<button type="submit" class="danger">Logout</button></form>
-                </div>
+            </div>
             </div>
         </div>
     </aside>
@@ -508,11 +508,11 @@
                     <div class="px-3 py-2 text-xs text-slate-600 font-semibold flex items-center gap-1.5 border-b border-slate-100 mb-1">
                         <span class="text-brand">📍</span>
                         <span class="truncate">{{ $caLocationName }}</span>
-                    </div>
+                        </div>
                     <a href="{{ route('customer.profile') }}#location">Update Profile</a>
                     <a href="{{ route('customer.profile') }}#location">Location</a>
                     <form method="POST" action="{{ route('customer.logout') }}">@csrf<button type="submit" class="danger">Logout</button></form>
-                </div>
+                    </div>
             </div>
         </div>
         @endunless
@@ -527,8 +527,8 @@
             @php $st = session('status'); @endphp
             <div class="ca-flash {{ !empty($st['success']) ? 'ca-flash--ok' : 'ca-flash--err' }}">{{ is_array($st) ? ($st['msg'] ?? '') : $st }}</div>
         @endif
-        @yield('content')
-    </div>
+                @yield('content')
+</div>
 
     <nav class="ca-bottom" aria-label="Customer navigation">
         <a href="{{ route('customer.home') }}" class="ca-tab {{ $isHome ? 'active' : '' }}">
@@ -547,14 +547,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
             Orders
         </a>
-    </nav>
-</div>
+</nav>
+        </div>
 
 <div id="caScanOverlay" class="ca-scan-overlay" hidden aria-hidden="true">
     <div class="ca-scan-overlay__head">
         <div class="ca-scan-overlay__title">Scan barcode</div>
         <button type="button" id="caScanCloseBtn" class="ca-scan-overlay__close" aria-label="Close">×</button>
-    </div>
+        </div>
     <div class="ca-scan-overlay__body">
         <div id="caScanReader"></div>
         <div class="ca-scan-overlay__hint">Point your camera at the product barcode</div>

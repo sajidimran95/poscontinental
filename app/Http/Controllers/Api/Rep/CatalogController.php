@@ -40,15 +40,7 @@ class CatalogController extends Controller
             ->where('company_id', $companyId)
             ->where('is_inactive', false)
             ->where('can_sell', true)
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $term = '%'.$request->string('search').'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term)
-                        ->orWhere('manufacturer', 'like', $term);
-                });
-            })
+            ->when($request->filled('search'), fn ($q) => $q->looseSearch((string) $request->string('search')))
             ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
             ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->integer('category_id')))
             ->when($request->filled('subcategory_id'), fn ($q) => $q->where('subcategory_id', $request->integer('subcategory_id')))

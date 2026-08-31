@@ -83,10 +83,7 @@ Route::middleware('auth:sanctum')->group(function () {
             ->where('company_id', $request->user()->company_id)
             ->where('is_inactive', false)
             ->where('can_sell', true)
-            ->when($request->filled('search'), function ($query) use ($request) {
-                $term = '%'.$request->string('search').'%';
-                $query->where(fn ($i) => $i->where('item_code', 'like', $term)->orWhere('description', 'like', $term));
-            })
+            ->when($request->filled('search'), fn ($query) => $query->looseSearch((string) $request->string('search')))
             ->when($request->boolean('new_only'), fn ($query) => $query->newItems())
             ->orderBy('item_code');
 

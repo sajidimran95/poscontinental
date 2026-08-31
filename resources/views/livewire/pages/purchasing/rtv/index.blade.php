@@ -8,6 +8,7 @@ use App\Models\Site;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Support\ItemSearch;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -98,7 +99,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
             ->when($this->statusFilter === 'Returned', fn ($q) => $q->where('status', 'Returned'));
 
-        $query = $this->applyDeskSort($query);
+        $query = $this->applyDeskSort($query, 'rtv_date', 'desc');
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '' && ! $this->showForm) {
             $records = $query->limit(10)->get();
@@ -148,13 +149,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             ? InventoryReceivingLine::query()
                 ->where('inventory_receiving_id', $this->inventory_receiving_id)
                 ->where('qty_received', '>', 0)
-                ->when($this->itemBrowseSearch !== '', function ($q) {
-                    $term = '%'.$this->itemBrowseSearch.'%';
-                    $q->where(function ($inner) use ($term) {
-                        $inner->where('item_code', 'like', $term)
-                            ->orWhere('description', 'like', $term);
-                    });
-                })
+                ->when($this->itemBrowseSearch !== '', fn ($q) => ItemSearch::constrainCodeDescription($q, $this->itemBrowseSearch))
                 ->orderBy('line_no')
                 ->limit(100)
                 ->get()

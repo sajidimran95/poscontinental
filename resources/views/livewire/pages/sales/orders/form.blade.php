@@ -18,6 +18,7 @@ use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
 use App\Services\SalesOrderWindowManager;
 use App\Support\ItemPricing;
+use App\Support\ItemSearch;
 use App\Support\SalesOrderLinePresentation;
 use App\Support\StockPolicy;
 use App\Livewire\Concerns\SortsItemBrowse;
@@ -1861,24 +1862,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ->when($this->browseQtyLtZero, fn ($q) => $q->where('quantity_in_stock', '<', 0))
             ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
             ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
-            ->when(filled($this->browseSearch), function ($q) {
-                $raw = trim($this->browseSearch);
-                $term = '%'.$raw.'%';
-                $q->where(function ($inner) use ($term, $raw) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term)
-                        ->orWhereExists(function ($sub) use ($term, $raw) {
-                            $sub->select(DB::raw(1))
-                                ->from('item_upcs')
-                                ->whereColumn('item_upcs.item_id', 'items.id')
-                                ->where(function ($u) use ($term, $raw) {
-                                    $u->where('item_upcs.upc', $raw)
-                                        ->orWhere('item_upcs.upc', 'like', $term);
-                                });
-                        });
-                });
-            });
+            ->when(filled($this->browseSearch), fn ($q) => ItemSearch::constrain($q, $this->browseSearch));
     }
 
     /**

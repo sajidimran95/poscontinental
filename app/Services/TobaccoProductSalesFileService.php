@@ -335,12 +335,12 @@ class TobaccoProductSalesFileService
 
     protected function isTobaccoItem(?Item $item): bool
     {
-        return TobaccoItem::isTobacco($item);
+        return TobaccoItem::reportsMsa($item);
     }
 
     protected function itemMatchesFileProduct(?Item $item, string $product): bool
     {
-        if (! $item || ! TobaccoItem::isTobacco($item) || $this->isExcludedFromTobFile($item)) {
+        if (! $item || ! TobaccoItem::reportsMsa($item) || $this->isExcludedFromTobFile($item)) {
             return false;
         }
 

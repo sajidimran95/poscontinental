@@ -52,8 +52,8 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->with(['payments', 'credits', 'salesOrder'])
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
-                ->orderBy('invoice_date')
-                ->orderBy('id')
+                ->orderByDesc('invoice_date')
+                ->orderByDesc('id')
                 ->get()
                 ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
                 ->values();
@@ -63,14 +63,14 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 'inv_order' => fn ($inv) => (string) ($inv->salesOrder?->order_number ?? ''),
                 'inv_total' => fn ($inv) => (float) $inv->invoice_total,
                 'inv_balance' => fn ($inv) => (float) $inv->invoice_balance,
-            ], 'inv_date', 'asc');
+            ], 'inv_date', 'desc');
 
             $openCredits = CreditMemo::query()
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
-                ->orderBy('memo_date')
-                ->orderBy('id')
+                ->orderByDesc('memo_date')
+                ->orderByDesc('id')
                 ->get()
                 ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
                 ->values();
@@ -79,7 +79,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 'cr_date' => fn ($m) => optional($m->memo_date)?->format('Y-m-d') ?? '',
                 'cr_reason' => 'reason',
                 'cr_remaining' => fn ($m) => (float) $m->remaining_amount,
-            ], 'cr_date', 'asc');
+            ], 'cr_date', 'desc');
 
             $openCreditTotal = round((float) $openCredits->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
@@ -145,6 +145,8 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         });
                 })
                 ->with(['invoice.customer', 'invoice.salesOrder'])
+                ->orderByDesc('payment_date')
+                ->orderByDesc('id')
                 ->limit(50)
                 ->get();
             $checkHits = $this->sortCollection($checkHits, [

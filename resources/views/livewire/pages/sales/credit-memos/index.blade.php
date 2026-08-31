@@ -10,6 +10,7 @@ use App\Models\SalesOrder;
 use App\Models\SalesOrderLine;
 use App\Models\UomSchedule;
 use App\Services\InventoryService;
+use App\Support\ItemSearch;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -120,7 +121,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $query->where('status', 'Applied');
         }
 
-        $query = $this->applyDeskSort($query);
+        $query = $this->applyDeskSort($query, 'memo_date', 'desc');
 
         $selectedOrder = null;
         if ($this->sales_order_id) {
@@ -193,13 +194,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             'browseOrderLines' => ($this->showOrderItemBrowse && $this->sales_order_id)
                 ? SalesOrderLine::query()
                     ->where('sales_order_id', $this->sales_order_id)
-                    ->when(filled($this->itemBrowseSearch), function ($q) {
-                        $term = '%'.$this->itemBrowseSearch.'%';
-                        $q->where(function ($inner) use ($term) {
-                            $inner->where('item_code', 'like', $term)
-                                ->orWhere('description', 'like', $term);
-                        });
-                    })
+                    ->when(filled($this->itemBrowseSearch), fn ($q) => ItemSearch::constrainCodeDescription($q, $this->itemBrowseSearch))
                     ->orderBy('line_no')
                     ->get(['id', 'item_id', 'item_code', 'description', 'uom', 'qty_ordered', 'qty_shipped', 'price', 'line_total', 'line_no'])
                 : collect(),

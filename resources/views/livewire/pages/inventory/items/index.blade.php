@@ -11,6 +11,7 @@ use App\Models\SalesOrderLine;
 use App\Models\Site;
 use App\Models\Subcategory;
 use App\Services\InventoryService;
+use App\Support\ItemSearch;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
@@ -111,28 +112,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 'subcategory:id,code,name',
             ])
             ->where('company_id', $companyId)
-            ->when($this->search !== '', function ($q) {
-                $raw = trim($this->search);
-                $q->where(function ($inner) use ($raw) {
-                    $term = '%'.$raw.'%';
-                    if (preg_match('/^[A-Za-z0-9\-]{2,}$/', $raw)) {
-                        $prefix = $raw.'%';
-                        $inner->where('item_code', 'like', $prefix)
-                            ->orWhere('primary_upc', 'like', $prefix)
-                            ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $prefix))
-                            ->orWhere('description', 'like', $term)
-                            ->orWhere('extended_description', 'like', $term);
-
-                        return;
-                    }
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('extended_description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term)
-                        ->orWhere('manufacturer', 'like', $term)
-                        ->orWhereHas('upcs', fn ($upc) => $upc->where('upc', 'like', $term));
-                });
-            })
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->when($this->categoryFilter !== '', function ($q) {
                 $q->where('category_id', (int) $this->categoryFilter);
             })
@@ -693,6 +673,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'is_inactive' => ['label' => 'Inactive', 'type' => 'inactive'],
             'primary_upc' => ['label' => 'UPC', 'type' => 'text'],
             'manufacturer' => ['label' => 'Manufacturer', 'type' => 'text'],
+            'msa_reporting' => ['label' => 'MSA Reporting', 'type' => 'bool'],
+            'state_reporting' => ['label' => 'State Reporting', 'type' => 'bool'],
             'last_received_at' => ['label' => 'Last Received', 'type' => 'date'],
             'last_sold_at' => ['label' => 'Last Sold', 'type' => 'date'],
             'last_count_date' => ['label' => 'Last Count Date', 'type' => 'date'],
@@ -1349,16 +1331,16 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             return;
         }
 
-        // Text fields
+        // Text fields — contains is case-insensitive partial match (not whole-string exact).
         match ($operator) {
-            'ne' => $q->where($column, '!=', $value),
-            'contains' => $q->where($column, 'like', '%'.$value.'%'),
-            'starts' => $q->where($column, 'like', $value.'%'),
+            'ne' => $q->whereRaw("LOWER({$column}) <> LOWER(?)", [$value]),
+            'contains' => ItemSearch::constrainColumn($q, $column, $value),
+            'starts' => $q->whereRaw("LOWER({$column}) LIKE LOWER(?)", [ItemSearch::escapeLike($value).'%']),
             'lt' => $q->where($column, '<', $value),
             'lte' => $q->where($column, '<=', $value),
             'gt' => $q->where($column, '>', $value),
             'gte' => $q->where($column, '>=', $value),
-            default => $q->where($column, $value),
+            default => $q->whereRaw("LOWER({$column}) = LOWER(?)", [$value]),
         };
     }
 
@@ -1471,9 +1453,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 type="text"
                                 wire:model.live.debounce.300ms="search"
                                 wire:keydown.enter.prevent="scanFindItem($event.target.value)"
-                                placeholder="Code, UPC, or description"
+                                placeholder="Code, UPC, or words in the description"
                                 class="items-sku-input"
-                                aria-label="Search items by code, UPC, or description"
+                                aria-label="Search items by code, UPC, or description (any case, any word order)"
                                 autocomplete="off"
                             />
                             @if ($search !== '')
@@ -1547,15 +1529,18 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </div>
 
                 <div class="desk-grid {{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table desk-table-fit">
+                    <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="items-list">
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
+                                <th class="text-center desk-sort-th" data-col="_select" style="width:2.25rem">
+                                    <span class="desk-col-resizer" title="Drag to make this column wider or narrower" aria-hidden="true"></span>
+                                </th>
                                 @foreach ($visibleColumnKeys as $colKey)
                                     @php $col = $itemColumnCatalog[$colKey]; @endphp
                                     <x-desk-sort-th
                                         :field="$colKey"
                                         :label="$col['label']"
+                                        resize
                                         :align="in_array($col['type'], ['money', 'qty'], true) ? 'money' : (in_array($col['type'], ['new', 'bool', 'can_sell', 'inactive'], true) ? 'center' : 'left')"
                                     />
                                 @endforeach
@@ -1622,6 +1607,10 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                             </td>
                                         @elseif ($colKey === 'allow_back_order')
                                             <td class="text-center">{{ $item->allow_back_order ? 'Yes' : 'No' }}</td>
+                                        @elseif ($colKey === 'msa_reporting')
+                                            <td class="text-center">{{ $item->msa_reporting ? 'Yes' : 'No' }}</td>
+                                        @elseif ($colKey === 'state_reporting')
+                                            <td class="text-center">{{ $item->state_reporting ? 'Yes' : 'No' }}</td>
                                         @elseif ($col['type'] === 'money')
                                             <td class="desk-money">${{ number_format((float) $item->{$colKey}, 2) }}</td>
                                         @elseif ($col['type'] === 'qty')

@@ -48,7 +48,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             ->when($this->favorite === 'processed', fn ($q) => $q->where('status', 'Processed'))
             ->when($hasQuery, fn ($q) => $this->applyQueryCriteria($q));
 
-        $query = $this->applyDeskSort($query);
+        $query = $this->applyDeskSort($query, 'date_created', 'desc');
 
         // Chief: with no search criteria, show 10 most recently updated
         if (! $hasSearch && ! $hasQuery && $this->favorite === 'all') {

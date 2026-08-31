@@ -56,7 +56,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             ->when($this->statusFilter === 'New', fn ($q) => $q->where('status', 'New'))
             ->when($this->statusFilter === 'Processed', fn ($q) => $q->where('status', 'Processed'));
 
-        $query = $this->applyDeskSort($query);
+        $query = $this->applyDeskSort($query, 'receipt_date', 'desc');
 
         if (! $hasSearch && $this->favorite === 'all' && $this->statusFilter === '') {
             $receivings = $query->limit(10)->get();

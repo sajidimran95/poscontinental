@@ -64,7 +64,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             ->when($this->supplierId !== '' && ctype_digit((string) $this->supplierId), fn ($q) => $q->where('supplier_id', (int) $this->supplierId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
 
-        $query = $this->applyDeskSort($query);
+        $query = $this->applyDeskSort($query, 'requisition_date', 'desc');
 
         $listTitle = match (true) {
             $this->statusFilter === 'pending', $this->favorite === 'pending' => 'Purchase Orders List (Pending)',

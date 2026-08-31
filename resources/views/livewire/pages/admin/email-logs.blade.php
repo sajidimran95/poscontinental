@@ -33,7 +33,7 @@ new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
             });
 
         return [
-            'logs' => $this->applyDeskSort($logsQuery)->paginate(50),
+            'logs' => $this->applyDeskSort($logsQuery, 'created_at', 'desc')->paginate(50),
             'favorites' => ['all' => 'All Sends'],
         ];
     }

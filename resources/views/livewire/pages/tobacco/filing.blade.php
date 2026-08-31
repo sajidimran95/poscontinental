@@ -3,7 +3,6 @@
 use App\Models\CreditMemo;
 use App\Models\InventoryReceiving;
 use App\Models\Invoice;
-use App\Models\Item;
 use App\Models\TobaccoStampInventory;
 use App\Services\TobaccoXmlService;
 use App\Services\TobaccoXmlValidator;
@@ -48,6 +47,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
 
     public bool $includes_stamps = false;
 
+    public bool $countsLoaded = false;
+
     /**
      * Show a page alert instead of the Laravel debug screen.
      */
@@ -79,7 +80,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     public function mount(): void
     {
         $this->applySundayToSaturdayWeek();
-        $this->refreshPreviewCounts();
+        // Preview counts run after first paint (wire:init) so the page opens immediately.
     }
 
     public function updatedReturnType(): void
@@ -379,23 +380,23 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         return $this->return_type === 'msa_report';
     }
 
-    private function refreshPreviewCounts(): void
+    public function refreshPreviewCounts(): void
     {
         if ($this->period_start === '' || $this->period_end === '') {
+            $this->countsLoaded = true;
+
             return;
         }
 
+        $companyId = (int) auth()->user()->company_id;
+
         if ($this->isMsaFileReport()) {
             try {
-                $companyId = (int) auth()->user()->company_id;
-                $allIds = Item::query()->select('id');
-                TobaccoItem::constrainItemQuery($allIds);
-                $cigIds = Item::query()->select('id');
-                TobaccoItem::constrainCigarettesQuery($cigIds);
-
+                $allIds = TobaccoItem::itemIds($companyId, 'all', 'msa');
+                $cigIds = TobaccoItem::itemIds($companyId, 'cigarettes', 'msa');
                 $this->purchase_rows = 0;
-                $this->cig_sale_rows = $this->countInvoiceLinesForItemIds($companyId, $cigIds);
                 $this->sale_rows = $this->countInvoiceLinesForItemIds($companyId, $allIds);
+                $this->cig_sale_rows = $this->countInvoiceLinesForItemIds($companyId, $cigIds);
                 $this->otp_sale_rows = max(0, $this->sale_rows - $this->cig_sale_rows);
                 $this->return_rows = 0;
             } catch (\Throwable) {
@@ -405,40 +406,44 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 $this->otp_sale_rows = 0;
                 $this->return_rows = 0;
             }
+            $this->countsLoaded = true;
 
             return;
         }
 
         try {
             [$filer, $product] = $this->resolveReturn();
-            $companyId = (int) auth()->user()->company_id;
-            $itemIds = Item::query()->select('id');
-            if ($product === 'otp') {
-                TobaccoItem::constrainItemQuery($itemIds);
-                $cigIds = Item::query()->select('id');
-                TobaccoItem::constrainCigarettesQuery($cigIds);
-                $itemIds->whereNotIn('id', $cigIds);
-            } else {
-                TobaccoItem::constrainCigarettesQuery($itemIds);
-            }
+            $itemIds = $product === 'otp'
+                ? array_values(array_diff(
+                    TobaccoItem::itemIds($companyId, 'all', 'state'),
+                    TobaccoItem::itemIds($companyId, 'cigarettes', 'state')
+                ))
+                : TobaccoItem::itemIds($companyId, 'cigarettes', 'state');
 
-            $this->purchase_rows = $this->countReceivingLinesForItemIds($companyId, $itemIds->clone());
-            $this->sale_rows = $this->countInvoiceLinesForItemIds($companyId, $itemIds->clone());
-            $this->return_rows = $this->countCreditMemoLinesForItemIds($companyId, $itemIds->clone());
+            $this->purchase_rows = $this->countReceivingLinesForItemIds($companyId, $itemIds);
+            $this->sale_rows = $this->countInvoiceLinesForItemIds($companyId, $itemIds);
+            $this->return_rows = $this->countCreditMemoLinesForItemIds($companyId, $itemIds);
         } catch (\Throwable) {
             $this->purchase_rows = 0;
             $this->sale_rows = 0;
             $this->return_rows = 0;
         }
+        $this->countsLoaded = true;
     }
 
-    private function countInvoiceLinesForItemIds(int $companyId, $itemIds): int
+    /**
+     * @param  list<int>  $itemIds
+     */
+    private function countInvoiceLinesForItemIds(int $companyId, array $itemIds): int
     {
-        return (int) DB::table('sales_order_lines as l')
-            ->join('invoices as inv', 'inv.sales_order_id', '=', 'l.sales_order_id')
+        if ($itemIds === []) {
+            return 0;
+        }
+
+        return (int) DB::table('invoices as inv')
+            ->join('sales_order_lines as l', 'l.sales_order_id', '=', 'inv.sales_order_id')
             ->where('inv.company_id', $companyId)
-            ->whereDate('inv.invoice_date', '>=', $this->period_start)
-            ->whereDate('inv.invoice_date', '<=', $this->period_end)
+            ->whereBetween('inv.invoice_date', [$this->period_start, $this->period_end])
             ->whereIn('l.item_id', $itemIds)
             ->where(function ($q) {
                 $q->where('l.qty_shipped', '>', 0)->orWhere('l.qty_ordered', '>', 0);
@@ -446,13 +451,19 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             ->count();
     }
 
-    private function countReceivingLinesForItemIds(int $companyId, $itemIds): int
+    /**
+     * @param  list<int>  $itemIds
+     */
+    private function countReceivingLinesForItemIds(int $companyId, array $itemIds): int
     {
-        return (int) DB::table('inventory_receiving_lines as l')
-            ->join('inventory_receivings as r', 'r.id', '=', 'l.inventory_receiving_id')
+        if ($itemIds === []) {
+            return 0;
+        }
+
+        return (int) DB::table('inventory_receivings as r')
+            ->join('inventory_receiving_lines as l', 'l.inventory_receiving_id', '=', 'r.id')
             ->where('r.company_id', $companyId)
-            ->whereDate('r.receipt_date', '>=', $this->period_start)
-            ->whereDate('r.receipt_date', '<=', $this->period_end)
+            ->whereBetween('r.receipt_date', [$this->period_start, $this->period_end])
             ->whereIn('l.item_id', $itemIds)
             ->where(function ($q) {
                 $q->where('l.qty_received', '>', 0)->orWhere('l.qty_ordered', '>', 0);
@@ -460,13 +471,19 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             ->count();
     }
 
-    private function countCreditMemoLinesForItemIds(int $companyId, $itemIds): int
+    /**
+     * @param  list<int>  $itemIds
+     */
+    private function countCreditMemoLinesForItemIds(int $companyId, array $itemIds): int
     {
-        return (int) DB::table('credit_memo_lines as l')
-            ->join('credit_memos as m', 'm.id', '=', 'l.credit_memo_id')
+        if ($itemIds === []) {
+            return 0;
+        }
+
+        return (int) DB::table('credit_memos as m')
+            ->join('credit_memo_lines as l', 'l.credit_memo_id', '=', 'm.id')
             ->where('m.company_id', $companyId)
-            ->whereDate('m.memo_date', '>=', $this->period_start)
-            ->whereDate('m.memo_date', '<=', $this->period_end)
+            ->whereBetween('m.memo_date', [$this->period_start, $this->period_end])
             ->whereIn('l.item_id', $itemIds)
             ->where('l.qty', '>', 0)
             ->count();
@@ -634,7 +651,7 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     }
 }; ?>
 
-<div class="msa-report-page">
+<div class="msa-report-page" wire:init="refreshPreviewCounts">
     <x-action-bar title="MSA Report" />
 
     <div class="msa-report-body">
@@ -795,33 +812,33 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
             @if ($isFileReport)
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">All tobacco sales</span>
-                    <strong class="msa-stat-val">{{ $sale_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $sale_rows : '…' }}</strong>
                     <span class="msa-stat-code">Cig + OTP</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">Cigarette sales</span>
-                    <strong class="msa-stat-val">{{ $cig_sale_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $cig_sale_rows : '…' }}</strong>
                     <span class="msa-stat-code">Cigarettes</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">OTP / tobacco sales</span>
-                    <strong class="msa-stat-val">{{ $otp_sale_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $otp_sale_rows : '…' }}</strong>
                     <span class="msa-stat-code">OTP</span>
                 </div>
             @else
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">Purchases</span>
-                    <strong class="msa-stat-val">{{ $purchase_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $purchase_rows : '…' }}</strong>
                     <span class="msa-stat-code">{{ $scheduleCodes['purchases'] }}</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">Sales</span>
-                    <strong class="msa-stat-val">{{ $sale_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $sale_rows : '…' }}</strong>
                     <span class="msa-stat-code">{{ $scheduleCodes['sales'] }}</span>
                 </div>
                 <div class="msa-stat">
                     <span class="msa-stat-lbl">Returns</span>
-                    <strong class="msa-stat-val">{{ $return_rows }}</strong>
+                    <strong class="msa-stat-val">{{ $countsLoaded ? $return_rows : '…' }}</strong>
                     <span class="msa-stat-code">{{ $scheduleCodes['returns'] }}</span>
                 </div>
                 <div class="msa-stat">

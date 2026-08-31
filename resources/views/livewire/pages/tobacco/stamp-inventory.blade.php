@@ -49,7 +49,9 @@ new #[Layout('layouts.app'), Title('Stamp Inventory')] class extends Component
                 'r6' => 'R6 — Tribal 25 (1,500)',
             ],
             'rows' => $this->applyDeskSort(
-                TobaccoStampInventory::query()->where('company_id', auth()->user()->company_id)
+                TobaccoStampInventory::query()->where('company_id', auth()->user()->company_id),
+                'period_start',
+                'desc'
             )->limit(50)->get(),
         ];
     }

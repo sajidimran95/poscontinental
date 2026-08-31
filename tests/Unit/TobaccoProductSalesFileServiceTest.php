@@ -100,6 +100,7 @@ class TobaccoProductSalesFileServiceTest extends TestCase
             'primary_upc' => '012345678901',
             'description' => 'TEST CIGARETTE',
             'tobacco_product_type' => 'cigarettes',
+            'msa_reporting' => true,
             'list_price' => 10,
         ]);
         $item->id = 9;
@@ -283,6 +284,7 @@ class TobaccoProductSalesFileServiceTest extends TestCase
             'primary_upc' => '012345678901',
             'description' => 'MARLBORO BOX KING',
             'tobacco_product_type' => 'cigarettes',
+            'msa_reporting' => true,
         ]);
         $item->id = 3;
         $item->setRelation('category', new Category(['name' => 'MI Cigarettes']));
@@ -342,6 +344,7 @@ class TobaccoProductSalesFileServiceTest extends TestCase
     private function sampleFile(Item $item, float $qty = 1, float $price = 10): string
     {
         $item->id = $item->id ?: 9;
+        $item->msa_reporting = true;
         if (! $item->relationLoaded('category')) {
             $item->setRelation('category', new Category(['name' => 'MI Cigarettes']));
         }

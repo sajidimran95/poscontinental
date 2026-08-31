@@ -160,15 +160,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
             ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
             ->when($this->subcategory_id, fn ($q) => $q->where('subcategory_id', $this->subcategory_id))
-            ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term)
-                        ->orWhere('manufacturer', 'like', $term);
-                });
-            })
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->orderBy('item_code');
     }
 
@@ -522,7 +514,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                             wire:model.live.debounce.300ms="search"
                             wire:keydown.enter.prevent="scanSearch($event.target.value)"
                             class="so-input desk-search"
-                            placeholder="Scan or type code / UPC…"
+                            placeholder="Code, UPC, or words in the description"
                             autocomplete="off"
                         />
                     </div>

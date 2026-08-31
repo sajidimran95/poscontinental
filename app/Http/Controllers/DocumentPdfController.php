@@ -128,15 +128,7 @@ class DocumentPdfController extends Controller
         $items = Item::query()
             ->with('department')
             ->where('company_id', $companyId)
-            ->when($search !== '', function ($q) use ($search) {
-                $term = '%'.$search.'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term)
-                        ->orWhere('manufacturer', 'like', $term);
-                });
-            })
+            ->when($search !== '', fn ($q) => $q->looseSearch($search))
             ->when($favorite === 'new', fn ($q) => $q->newItems())
             ->when($favorite === 'active' || $status === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($favorite === 'inactive' || $status === 'inactive', fn ($q) => $q->where('is_inactive', true))

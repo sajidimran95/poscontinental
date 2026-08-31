@@ -52,14 +52,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             ->when(! $this->includeInactive, fn ($q) => $q->where('is_inactive', false))
             ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
             ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
-            ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term);
-                });
-            })
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->orderBy('item_code')
             ->limit(500)
             ->get()
@@ -169,14 +162,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             ->when(! $this->includeInactive, fn ($q) => $q->where('is_inactive', false))
             ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
             ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
-            ->when($this->search !== '', function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term);
-                });
-            })
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->orderBy('item_code')
             ->limit(500)
             ->pluck('id')
@@ -328,14 +314,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                 ->when(! $includeInactive, fn ($q) => $q->where('is_inactive', false))
                 ->when($departmentId, fn ($q) => $q->where('department_id', $departmentId))
                 ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
-                ->when($search !== '', function ($q) use ($search) {
-                    $term = '%'.$search.'%';
-                    $q->where(function ($inner) use ($term) {
-                        $inner->where('item_code', 'like', $term)
-                            ->orWhere('description', 'like', $term)
-                            ->orWhere('primary_upc', 'like', $term);
-                    });
-                })
+                ->when($search !== '', fn ($q) => $q->looseSearch($search))
                 ->orderBy('item_code')
                 ->chunk(200, function ($rows) use ($out, $priceLevelId) {
                     foreach ($rows as $item) {
@@ -453,7 +432,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                                 wire:model.live.debounce.300ms="search"
                                 wire:keydown.enter.prevent="scanSearch($event.target.value)"
                                 class="so-input desk-search"
-                                placeholder="Scan or type code / UPC…"
+                                placeholder="Code, UPC, or words in the description"
                                 autocomplete="off"
                             />
                         </div>

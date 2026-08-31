@@ -18,7 +18,7 @@ trait SortsDeskList
 {
     public string $sortField = '';
 
-    public string $sortDir = 'asc';
+    public string $sortDir = 'desc';
 
     public function sortBy(string $field): void
     {
@@ -31,7 +31,7 @@ trait SortsDeskList
             $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
         } else {
             $this->sortField = $field;
-            $this->sortDir = 'asc';
+            $this->sortDir = $this->deskSortDefaultDir($field);
         }
 
         if (method_exists($this, 'resetPage')) {
@@ -45,34 +45,58 @@ trait SortsDeskList
         return [];
     }
 
+    protected function deskSortDefaultDir(string $field): string
+    {
+        if (preg_match('/(?:^|_)(date|total|amount|balance|qty|id|created|updated|time)(?:$|_)/i', $field)
+            || preg_match('/(?:date|total|amount|balance|created_at|updated_at)$/i', $field)) {
+            return 'desc';
+        }
+
+        return 'asc';
+    }
+
     protected function applyDeskSort(Builder $query, string $defaultColumn = 'id', string $defaultDir = 'desc'): Builder
     {
         $map = $this->deskSortMap();
         $table = $query->getModel()->getTable();
         $dir = strtolower($this->sortDir) === 'desc' ? 'desc' : 'asc';
+        $idCol = $table.'.id';
 
         $key = $this->sortField;
         if ($key === '' || ! isset($map[$key])) {
             $col = str_contains($defaultColumn, '.') ? $defaultColumn : $table.'.'.$defaultColumn;
+            $query->orderBy($col, $defaultDir);
+            if ($col !== $idCol) {
+                $query->orderBy($idCol, $defaultDir);
+            }
 
-            return $query->orderBy($col, $defaultDir);
+            return $query;
         }
 
         $spec = $map[$key];
         if (is_string($spec)) {
             $col = str_contains($spec, '.') ? $spec : $table.'.'.$spec;
+            $query->orderBy($col, $dir);
+            if ($col !== $idCol) {
+                $query->orderBy($idCol, $dir);
+            }
 
-            return $query->orderBy($col, $dir);
+            return $query;
         }
 
         if (is_array($spec) && isset($spec['raw']) && is_string($spec['raw']) && $spec['raw'] !== '') {
-            return $query->orderByRaw($spec['raw'].' '.$dir);
+            return $query->orderByRaw($spec['raw'].' '.$dir)->orderBy($idCol, $dir);
         }
 
         $relationName = (string) ($spec['relation'] ?? '');
         $column = (string) ($spec['column'] ?? '');
         if ($relationName === '' || $column === '' || ! method_exists($query->getModel(), $relationName)) {
-            return $query->orderBy($table.'.'.$defaultColumn, $defaultDir);
+            $query->orderBy($table.'.'.$defaultColumn, $defaultDir);
+            if ($defaultColumn !== 'id') {
+                $query->orderBy($idCol, $defaultDir);
+            }
+
+            return $query;
         }
 
         $relation = $query->getModel()->{$relationName}();
@@ -86,19 +110,27 @@ trait SortsDeskList
         } elseif ($relation instanceof HasOne) {
             $sub->whereColumn($relation->getQualifiedForeignKeyName(), $relation->getQualifiedParentKeyName());
         } else {
-            return $query->orderBy($table.'.'.$defaultColumn, $defaultDir);
+            $query->orderBy($table.'.'.$defaultColumn, $defaultDir);
+            if ($defaultColumn !== 'id') {
+                $query->orderBy($idCol, $defaultDir);
+            }
+
+            return $query;
         }
 
-        return $query->orderBy($sub, $dir);
+        return $query->orderBy($sub, $dir)->orderBy($idCol, $dir);
     }
 
     /**
      * @param  array<string, callable|string>  $accessors
      */
-    protected function sortCollection(Collection $rows, array $accessors, string $defaultKey, string $defaultDir = 'asc'): Collection
+    protected function sortCollection(Collection $rows, array $accessors, string $defaultKey, string $defaultDir = 'desc'): Collection
     {
-        $key = $this->sortField !== '' && isset($accessors[$this->sortField]) ? $this->sortField : $defaultKey;
-        $dir = strtolower($this->sortDir) === 'desc' ? 'desc' : 'asc';
+        $usingDefault = $this->sortField === '' || ! isset($accessors[$this->sortField]);
+        $key = $usingDefault ? $defaultKey : $this->sortField;
+        $dir = $usingDefault
+            ? (strtolower($defaultDir) === 'desc' ? 'desc' : 'asc')
+            : (strtolower($this->sortDir) === 'desc' ? 'desc' : 'asc');
         $accessor = $accessors[$key] ?? $accessors[$defaultKey];
 
         $sorted = $rows->sortBy(function ($row) use ($accessor) {

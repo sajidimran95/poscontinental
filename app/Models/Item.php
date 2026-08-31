@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ItemSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -59,6 +60,8 @@ class Item extends Model
         'cigarette_pack_size',
         'tobacco_total_oz',
         'tobacco_stick_count',
+        'msa_reporting',
+        'state_reporting',
         'item_line_message',
         'comments',
         'manu_product_id',
@@ -99,6 +102,8 @@ class Item extends Model
             'can_sell' => 'boolean',
             'allow_back_order' => 'boolean',
             'available_on_website' => 'boolean',
+            'msa_reporting' => 'boolean',
+            'state_reporting' => 'boolean',
         ];
     }
 
@@ -198,6 +203,13 @@ class Item extends Model
         return $query->whereColumn('quantity_in_stock', '<=', 'reorder_point')
             ->where('reorder_point', '>', 0)
             ->where('is_inactive', false);
+    }
+
+    public function scopeLooseSearch(Builder $query, ?string $search): Builder
+    {
+        ItemSearch::constrain($query, $search);
+
+        return $query;
     }
 
     /**

@@ -109,6 +109,10 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public bool $available_on_website = false;
 
+    public bool $msa_reporting = false;
+
+    public bool $state_reporting = false;
+
     public string $item_tracking = 'None';
 
     public string $barcode_format = 'UPC-A';
@@ -191,6 +195,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'available_on_website', 'item_tracking', 'barcode_format',
                 'shipping_weight', 'tare_weight', 'manufacturer', 'tobacco_product_type', 'tobacco_brand_code',
                 'cigarette_pack_size', 'tobacco_total_oz', 'tobacco_stick_count',
+                'msa_reporting', 'state_reporting',
                 'item_line_message', 'comments',
                 'manu_product_id', 'manu_promotion_item', 'manu_promotion_description',
                 'manu_promotion_code', 'manu_base_count', 'primary_upc', 'image_path', 'thumbnail_path',
@@ -215,6 +220,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             }
 
             $this->fill($data);
+
+            $this->msa_reporting = (bool) $item->msa_reporting;
+            $this->state_reporting = (bool) $item->state_reporting;
 
             // Keep image paths as plain strings for reliable preview URLs.
             $this->image_path = filled($item->image_path) ? (string) $item->image_path : null;
@@ -1124,6 +1132,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'can_order' => $this->can_order,
             'allow_back_order' => $this->allow_back_order,
             'available_on_website' => $this->available_on_website,
+            'msa_reporting' => $this->msa_reporting,
+            'state_reporting' => $this->state_reporting,
             'item_tracking' => $this->item_tracking,
             'barcode_format' => $this->barcode_format,
             'shipping_weight' => $amount($this->shipping_weight),
@@ -1380,6 +1390,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                 @endif
                             </div>
                         </div>
+                        <div class="so-form-row so-form-row-side so-form-row-top">
+                            <span class="so-form-lbl">Reporting</span>
+                            <div class="item-flag-list">
+                                <label class="entity-check"><input type="checkbox" wire:model="msa_reporting" /> MSA Reporting</label>
+                                <label class="entity-check"><input type="checkbox" wire:model="state_reporting" /> State Reporting</label>
+                            </div>
+                        </div>
+                        <p class="item-hint" style="margin:0.25rem 0 0">
+                            Check the box for each filing this item belongs in. If neither is checked, the item is left off MSA and Michigan state tobacco reports.
+                        </p>
                     </div>
                 </div>
 
@@ -1973,7 +1993,17 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         </div>
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="shipping_weight">Shipping Weight</label><input id="shipping_weight" wire:model="shipping_weight" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
                         <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tare_weight">Tare Weight</label><input id="tare_weight" wire:model="tare_weight" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
-                        <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manufacturer">Manufacturer</label><input id="manufacturer" wire:model="manufacturer" class="so-input" /></div>
+                        <div class="so-form-row so-form-row-side">
+                            <label class="so-form-lbl" for="manufacturer">Manufacturer</label>
+                            <input id="manufacturer" wire:model="manufacturer" class="so-input" />
+                        </div>
+                        <div class="item-flag-list" style="margin:0.35rem 0">
+                            <label class="entity-check"><input type="checkbox" wire:model="msa_reporting" /> MSA Reporting</label>
+                            <label class="entity-check"><input type="checkbox" wire:model="state_reporting" /> State Reporting</label>
+                        </div>
+                        <p class="item-hint" style="grid-column:1/-1;margin:0 0 0.35rem">
+                            Unchecked items are excluded from that filing. Tobacco Type is only used for cigarettes vs OTP on reports that include this item.
+                        </p>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="tobacco_product_type">Tobacco Type</label>
                             <select id="tobacco_product_type" wire:model.live="tobacco_product_type" class="so-input">
@@ -1985,7 +2015,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                             </select>
                         </div>
                         <p class="item-hint" style="grid-column:1/-1;margin:0 0 0.35rem">
-                            Picking a tobacco category (MI Cigarettes, Tobacco, cigars, nic pouch, vape, RYO/tube) sets this automatically. Sold invoices in the MSA period then include this item.
+                            Optional. Used to split cigarettes vs OTP when this item is included on a report.
                         </p>
                         @if ($tobacco_product_type !== '')
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="tobacco_brand_code">Brand Code</label><input id="tobacco_brand_code" wire:model="tobacco_brand_code" class="so-input" placeholder="CIG / OTP / PC1 / 034…" /></div>

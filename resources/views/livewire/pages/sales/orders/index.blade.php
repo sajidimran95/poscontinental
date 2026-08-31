@@ -355,7 +355,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->when($this->dateTo !== '', fn ($q) => $q->where('order_date', '<=', $this->dateTo))
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
-        $this->applyDeskSort($query, 'id', 'desc');
+        $this->applyDeskSort($query, 'order_date', 'desc');
 
         $listTitle = match ($this->favorite) {
             'new' => 'Orders List (New)',

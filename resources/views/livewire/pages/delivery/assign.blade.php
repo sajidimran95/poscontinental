@@ -177,7 +177,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             ->when($this->listFilter === 'unassigned', fn ($q) => $q->whereHas('salesOrder', fn ($o) => $o->whereNull('delivery_user_id')))
             ->when($this->listFilter === 'assigned', fn ($q) => $q->whereHas('salesOrder', fn ($o) => $o->whereNotNull('delivery_user_id')));
 
-        $invoices = $this->applyDeskSort($invoicesQuery)->paginate(40);
+        $invoices = $this->applyDeskSort($invoicesQuery, 'invoice_date', 'desc')->paginate(40);
 
         $custTerm = trim($this->customerSearch);
         $customerSuggestions = (! $this->customer_id && $custTerm !== '')

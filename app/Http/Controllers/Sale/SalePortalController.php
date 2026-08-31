@@ -16,6 +16,7 @@ use App\Services\DocumentPdfService;
 use App\Services\Rep\CreateSalesOrderFromRep;
 use App\Services\Rep\SalesRepScope;
 use App\Support\ItemPricing;
+use App\Support\ItemSearch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -682,11 +683,7 @@ class SalePortalController extends Controller
             return response()->json([$this->mapProduct($scanned, $customer)]);
         }
         if ($term !== '') {
-            $query->where(function ($q) use ($term) {
-                $q->where('item_code', 'like', "%{$term}%")
-                    ->orWhere('description', 'like', "%{$term}%")
-                    ->orWhere('primary_upc', 'like', "%{$term}%");
-            });
+            ItemSearch::constrain($query, $term);
         }
         if ($categoryId === -1) {
             $query->whereNull('category_id');

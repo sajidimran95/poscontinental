@@ -167,6 +167,8 @@ class MsaDummySalesSeeder extends Seeder
                     'can_sell' => true,
                     'can_order' => true,
                     'is_inactive' => false,
+                    'msa_reporting' => true,
+                    'state_reporting' => true,
                     'unit_of_measure' => 'EA',
                 ])
             );

@@ -2,12 +2,14 @@
     'field',
     'label',
     'align' => 'left',
+    'resize' => false,
 ])
 @php
     $active = ($sortField ?? '') === $field;
     $dir = $sortDir ?? 'asc';
 @endphp
 <th
+    data-col="{{ $field }}"
     {{ $attributes->class([
         'desk-sort-th',
         'is-sorted' => $active,
@@ -28,4 +30,7 @@
             @endif
         </span>
     </button>
+    @if ($resize)
+        <span class="desk-col-resizer" title="Drag to make this column wider or narrower" aria-hidden="true"></span>
+    @endif
 </th>

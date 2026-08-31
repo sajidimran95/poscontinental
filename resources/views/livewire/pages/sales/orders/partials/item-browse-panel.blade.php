@@ -921,7 +921,7 @@
                                 wire:model.live.debounce.300ms="browseSearch"
                                 wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
                                 class="so-input so-item-browse-search-bottom"
-                                placeholder="{{ $browseSearchPlaceholder ?? 'Type or scan code — matching item adds to cart' }}"
+                                placeholder="{{ $browseSearchPlaceholder ?? 'Code, UPC, or words in the description' }}"
                                 aria-label="Scan or search items"
                                 id="so-browse-search"
                                 data-pos-search

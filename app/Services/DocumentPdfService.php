@@ -587,14 +587,7 @@ class DocumentPdfService
             ->when($deptIds === [] && $departmentId, fn ($q) => $q->where('department_id', $departmentId))
             ->when($catIds !== [], fn ($q) => $q->whereIn('category_id', $catIds))
             ->when($catIds === [] && $categoryId, fn ($q) => $q->where('category_id', $categoryId))
-            ->when($search !== '', function ($q) use ($search) {
-                $term = '%'.$search.'%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->where('item_code', 'like', $term)
-                        ->orWhere('description', 'like', $term)
-                        ->orWhere('primary_upc', 'like', $term);
-                });
-            })
+            ->when($search !== '', fn ($q) => $q->looseSearch($search))
             ->orderBy('item_code')
             ->limit(2000)
             ->get();

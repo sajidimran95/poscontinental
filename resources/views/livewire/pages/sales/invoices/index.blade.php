@@ -138,7 +138,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
 
         $invoices = $this->paginateDeskList(
-            $this->applyDeskSort($query),
+            $this->applyDeskSort($query, 'invoice_date', 'desc'),
             'invoices.list_count.'.(int) $companyId.'.'.$this->statusFilter.'.'.$this->favorite.'.'.$this->search.'.'.$this->sortField.'.'.$this->sortDir,
             50,
             $this->search === '' ? 20 : 0

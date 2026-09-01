@@ -1261,9 +1261,15 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             throw $e;
         }
 
-        $hasLines = collect($this->lines)->contains(fn ($l) => filled($l['item_code'] ?? null) && (float) ($l['qty_ordered'] ?? 0) > 0);
+        $hasLines = collect($this->lines)->contains(function ($l) {
+            $hasItem = (int) ($l['item_id'] ?? 0) > 0 || filled(trim((string) ($l['item_code'] ?? '')));
+
+            return $hasItem && (float) ($l['qty_ordered'] ?? 0) > 0;
+        });
         if (! $hasLines) {
-            $this->addError('lines', 'Add at least one line item with an item code and quantity.');
+            $this->addError('lines', 'This purchase order is not complete. Add at least one item before saving.');
+            $this->lineWarning = 'This purchase order is not complete. Add at least one item before saving.';
+            $this->lineWarningKind = 'error';
             $this->activeTab = 'items';
 
             return null;
@@ -1371,6 +1377,14 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $po = $this->purchaseOrder->load('lines');
+        if ($po->lines->isEmpty()) {
+            $this->addError('lines', 'This purchase order is not complete. Add at least one item before receiving.');
+            $this->lineWarning = 'This purchase order is not complete. Add at least one item before receiving.';
+            $this->lineWarningKind = 'error';
+            $this->activeTab = 'items';
+
+            return null;
+        }
         $receiving = InventoryReceiving::query()->create([
             'company_id' => $po->company_id,
             'receipt_number' => InventoryReceiving::nextNumber($po->company_id),
@@ -1612,6 +1626,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             @else
                 <div class="so-expand-panel po-expand-panel">
                 <div class="so-expand-main">
+                @error('lines')
+                    <div class="so-browse-alert so-browse-alert-error" role="alert">{{ $message }}</div>
+                @enderror
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-grid" wire:key="po-lines-wrap-{{ $linesSig }}">
                         <table class="so-lines-table po-lines-table" data-excel-grid>

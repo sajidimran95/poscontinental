@@ -1226,7 +1226,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                                 clearTimeout(this.timer);
                                                 const scanOn = !!$wire.scanModeActive;
                                                 if (!scanOn && !this.rapid) return;
-                                                const delay = this.rapid ? 100 : 750;
+                                                const delay = this.rapid ? 35 : 150;
                                                 this.timer = setTimeout(() => {
                                                     const v = ($el.value || '').trim();
                                                     if (v.length < 2) { this.rapid = false; return; }

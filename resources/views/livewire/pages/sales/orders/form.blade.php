@@ -3604,7 +3604,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $now = (int) floor(microtime(true) * 1000);
-        if ($this->lastScanClaimCode === $norm && ($now - $this->lastScanClaimAt) < 400) {
+        if ($this->lastScanClaimCode === $norm && ($now - $this->lastScanClaimAt) < 180) {
             return false;
         }
 
@@ -5223,7 +5223,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     // Wait for FULL code (e.g. 2593a). Resets on every key — never add on '25' mid-type.
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        const delay = this.rapid ? 80 : 400;
+                                        const delay = this.rapid ? 35 : 150;
                                         this.timer = setTimeout(() => {
                                             const el = document.getElementById('so-item-entry');
                                             const v = (el?.value || '').trim();
@@ -5266,7 +5266,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             return;
                                         }
                                         const now = Date.now();
-                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) {
+                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 70) {
                                             this.rapid = true;
                                         }
                                         this.lastKeyAt = now;

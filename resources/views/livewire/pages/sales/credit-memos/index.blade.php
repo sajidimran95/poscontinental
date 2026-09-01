@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
 use App\Livewire\Concerns\PaginatesDeskLists;
@@ -1458,7 +1458,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                         clearTimeout(this.timer);
                                         const scanOn = !!$wire.scanModeActive;
                                         if (!scanOn && !this.rapid) return;
-                                        const delay = this.rapid ? 100 : 750;
+                                        const delay = this.rapid ? 35 : 150;
                                         this.timer = setTimeout(() => {
                                             const v = ($el.value || '').trim();
                                             if (v.length < 2) { this.rapid = false; return; }

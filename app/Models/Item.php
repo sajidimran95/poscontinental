@@ -252,67 +252,34 @@ class Item extends Model
             return $query;
         };
 
-        $hit = $scoped()->where('item_code', $code)->first()
-            ?? $scoped()->whereRaw('LOWER(item_code) = ?', [$lower])->first();
-        if ($hit) {
-            return $hit;
-        }
+        $query = $scoped()->where(function ($q) use ($code, $lower, $shortSell, $mode) {
+            $q->where('item_code', $code)
+                ->orWhereRaw('LOWER(item_code) = ?', [$lower]);
 
-        if ($shortSell) {
-            return null;
-        }
+            if (! $shortSell) {
+                $q->orWhere('primary_upc', $code)
+                    ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])
+                    ->orWhereHas('upcs', function ($u) use ($code, $lower) {
+                        $u->where('upc', $code)->orWhereRaw('LOWER(upc) = ?', [$lower]);
+                    })
+                    ->orWhereHas('prices', function ($p) use ($code, $lower) {
+                        $p->whereNotNull('alias_code')
+                            ->where('alias_code', '!=', '')
+                            ->where(function ($a) use ($code, $lower) {
+                                $a->where('alias_code', $code)
+                                    ->orWhereRaw('LOWER(alias_code) = ?', [$lower]);
+                            });
+                    });
 
-        $hit = $scoped()->where('primary_upc', $code)->first()
-            ?? $scoped()->whereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])->first();
-        if ($hit) {
-            return $hit;
-        }
-
-        $upcItemId = \Illuminate\Support\Facades\DB::table('item_upcs')
-            ->where('upc', $code)
-            ->value('item_id');
-        if (! $upcItemId) {
-            $upcItemId = \Illuminate\Support\Facades\DB::table('item_upcs')
-                ->whereRaw('LOWER(upc) = ?', [$lower])
-                ->value('item_id');
-        }
-        if ($upcItemId) {
-            $hit = $scoped()->whereKey($upcItemId)->first();
-            if ($hit) {
-                return $hit;
-            }
-        }
-
-        $aliasItemId = \Illuminate\Support\Facades\DB::table('item_prices')
-            ->where('alias_code', $code)
-            ->whereNotNull('alias_code')
-            ->where('alias_code', '!=', '')
-            ->value('item_id');
-        if (! $aliasItemId) {
-            $aliasItemId = \Illuminate\Support\Facades\DB::table('item_prices')
-                ->whereRaw('LOWER(COALESCE(alias_code, ?)) = ?', ['', $lower])
-                ->value('item_id');
-        }
-        if ($aliasItemId) {
-            $hit = $scoped()->whereKey($aliasItemId)->first();
-            if ($hit) {
-                return $hit;
-            }
-        }
-
-        if ($mode !== 'sell') {
-            $supplierItemId = \Illuminate\Support\Facades\DB::table('item_suppliers')
-                ->where('supplier_item_code', $code)
-                ->value('item_id');
-            if ($supplierItemId) {
-                $hit = $scoped()->whereKey($supplierItemId)->first();
-                if ($hit) {
-                    return $hit;
+                if ($mode !== 'sell') {
+                    $q->orWhereHas('itemSuppliers', function ($s) use ($code) {
+                        $s->where('supplier_item_code', $code);
+                    });
                 }
             }
-        }
+        });
 
-        return null;
+        return $query->with(['prices', 'taxSchedule'])->first();
     }
 
     public static function itemMatchesScanCode(self $item, string $code, string $mode = 'any'): bool

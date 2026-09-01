@@ -1501,7 +1501,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
                 <div class="desk-toolbar items-toolbar">
                     <div class="items-toolbar-left">
-                        <div class="items-sku-bar" role="search">
+                        <div class="items-sku-bar" role="search" wire:ignore x-data="{ q: {{ \Illuminate\Support\Js::from($search) }} }">
                             <button
                                 type="button"
                                 class="items-sku-scan"
@@ -1522,18 +1522,24 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             </span>
                             <input
                                 id="items-search" data-pos-search
-                                wire:ignore.self
                                 type="text"
-                                wire:model.live.debounce.300ms="search"
-                                wire:keydown.enter.prevent="scanFindItem($event.target.value)"
+                                x-model="q"
+                                x-on:input.debounce.300ms="$wire.set('search', q)"
+                                x-on:keydown.enter.prevent="$wire.scanFindItem(q)"
                                 placeholder="Code, UPC, or words in the description"
                                 class="items-sku-input"
                                 aria-label="Search items by code, UPC, or description (any case, any word order)"
                                 autocomplete="off"
                             />
-                            @if ($search !== '')
-                                <button type="button" wire:click="clearSearch" class="items-sku-clear" title="Clear" aria-label="Clear">×</button>
-                            @endif
+                            <button
+                                type="button"
+                                class="items-sku-clear"
+                                x-show="q !== ''"
+                                x-cloak
+                                x-on:click="q = ''; $wire.clearSearch()"
+                                title="Clear"
+                                aria-label="Clear"
+                            >×</button>
                         </div>
                         <button
                             type="button"
@@ -1643,7 +1649,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                         @php $col = $itemColumnCatalog[$colKey]; @endphp
                                         @if ($colKey === 'item_code')
                                             <td class="desk-num" data-excel-value="{{ $item->item_code }}">
-                                                <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
+                                                <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
                                             </td>
                                         @elseif ($colKey === 'is_new')
                                             <td class="text-center">
@@ -1701,7 +1707,19 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                             <td>{{ $item->subcategory?->name ?: '—' }}</td>
                                         @elseif ($colKey === 'description' || $colKey === 'extended_description' || $colKey === 'item_line_message')
                                             @php $text = (string) ($item->{$colKey} ?? ''); @endphp
-                                            <td title="{{ $text }}">{{ $text !== '' ? \Illuminate\Support\Str::limit($text, 48) : '—' }}</td>
+                                            <td title="{{ $text }}">
+                                                @if ($text === '')
+                                                    —
+                                                @else
+                                                    <button
+                                                        type="button"
+                                                        class="item-desc-toggle text-left w-full"
+                                                        data-desc-expand="{{ $item->id }}:{{ $colKey }}"
+                                                    >
+                                                        <span class="item-desc-text">{{ $text }}</span>
+                                                    </button>
+                                                @endif
+                                            </td>
                                         @else
                                             <td>{{ filled($item->{$colKey} ?? null) ? $item->{$colKey} : '—' }}</td>
                                         @endif
@@ -1744,12 +1762,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <circle cx="7" cy="7" r="4.5"/>
                         <path d="M10.5 10.5L14 14"/>
                         <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
-                    </svg>
-                </button>
-                <button type="button" wire:click="newSearch" class="desk-rail-btn" title="New Search (clear filters)" aria-label="New Search">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
-                        <path d="M10.8 2.8l2.4 2.4L6.5 12H4v-2.5L10.8 2.8z"/>
-                        <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="openItem({{ $selectedId ?: 0 }})" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>

@@ -31,18 +31,37 @@ function initDeskColResize() {
     window.applyDeskColWidths = function applyDeskColWidths() {
         document.querySelectorAll('table.desk-table-resizable').forEach(function (table) {
             const map = loadMap(table);
-            table.querySelectorAll('thead th[data-col]').forEach(function (th) {
+            table.style.tableLayout = 'fixed';
+            const ths = Array.from(table.querySelectorAll('thead th[data-col]'));
+            ths.forEach(function (th, index) {
                 const col = th.getAttribute('data-col');
                 const w = map[col];
                 if (! w) {
                     return;
                 }
-                th.style.width = w + 'px';
-                th.style.minWidth = w + 'px';
-                th.style.maxWidth = w + 'px';
+                setColumnWidth(table, index, w);
             });
         });
     };
+
+    function setColumnWidth(table, index, w) {
+        const px = w + 'px';
+        const th = table.querySelectorAll('thead th')[index];
+        if (th) {
+            th.style.width = px;
+            th.style.minWidth = px;
+            th.style.maxWidth = px;
+        }
+        table.querySelectorAll('tbody tr').forEach(function (tr) {
+            const td = tr.cells[index];
+            if (! td) {
+                return;
+            }
+            td.style.width = px;
+            td.style.minWidth = px;
+            td.style.maxWidth = px;
+        });
+    }
 
     applyDeskColWidths();
 
@@ -75,9 +94,8 @@ function initDeskColResize() {
             return;
         }
         const w = Math.min(MAX, Math.max(MIN, drag.startW + (e.pageX - drag.startX)));
-        drag.th.style.width = w + 'px';
-        drag.th.style.minWidth = w + 'px';
-        drag.th.style.maxWidth = w + 'px';
+        const index = Array.from(drag.th.parentNode.children).indexOf(drag.th);
+        setColumnWidth(drag.table, index, w);
     });
 
     document.addEventListener('mouseup', function () {
@@ -101,6 +119,11 @@ function initDeskColResize() {
         if (window.Livewire && Livewire.hook) {
             Livewire.hook('morph.updated', function () {
                 applyDeskColWidths();
+            });
+            Livewire.hook('commit', function ({ succeed }) {
+                succeed(function () {
+                    requestAnimationFrame(applyDeskColWidths);
+                });
             });
         }
     });
@@ -456,3 +479,71 @@ function initExcelGrid() {
     document.addEventListener('livewire:navigated', enableDragRows);
     enableDragRows();
 }
+
+(function initListStayPut() {
+    const SCROLL = '.desk-grid, .so-item-browse-scroll, .so-items-grid';
+
+    function restoreDesc() {
+        const map = window.__itemListDescExpanded || {};
+        document.querySelectorAll('[data-desc-expand]').forEach(function (btn) {
+            const key = btn.getAttribute('data-desc-expand');
+            btn.classList.toggle('is-open', !!map[key]);
+        });
+        const browse = window.__browseDescExpanded || {};
+        document.querySelectorAll('[data-browse-desc]').forEach(function (btn) {
+            const id = btn.getAttribute('data-browse-desc');
+            btn.classList.toggle('is-open', !!browse[Number(id)]);
+        });
+    }
+
+    document.addEventListener('click', function (e) {
+        const browseBtn = e.target.closest('[data-browse-desc]');
+        if (browseBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = Number(browseBtn.getAttribute('data-browse-desc'));
+            const map = window.__browseDescExpanded || {};
+            map[id] = ! map[id];
+            window.__browseDescExpanded = map;
+            browseBtn.classList.toggle('is-open', !!map[id]);
+            return;
+        }
+        const btn = e.target.closest('[data-desc-expand]');
+        if (! btn) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.getAttribute('data-desc-expand');
+        const listMap = window.__itemListDescExpanded || {};
+        listMap[key] = ! listMap[key];
+        window.__itemListDescExpanded = listMap;
+        btn.classList.toggle('is-open', !!listMap[key]);
+    }, true);
+
+    document.addEventListener('livewire:init', function () {
+        if (! window.Livewire || ! Livewire.hook) {
+            return;
+        }
+        Livewire.hook('commit', function ({ succeed }) {
+            const saved = Array.from(document.querySelectorAll(SCROLL)).map(function (el) {
+                return { el: el, top: el.scrollTop, left: el.scrollLeft };
+            });
+            succeed(function () {
+                requestAnimationFrame(function () {
+                    saved.forEach(function (s) {
+                        if (s.el.isConnected) {
+                            s.el.scrollTop = s.top;
+                            s.el.scrollLeft = s.left;
+                        }
+                    });
+                    restoreDesc();
+                    if (typeof applyDeskColWidths === 'function') {
+                        applyDeskColWidths();
+                    }
+                });
+            });
+        });
+        Livewire.hook('morph.updated', restoreDesc);
+    });
+})();

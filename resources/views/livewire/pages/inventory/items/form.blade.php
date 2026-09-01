@@ -221,6 +221,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             $this->fill($data);
 
+            $this->reorder_point = $this->formatMoneyTwo($this->reorder_point);
+            $this->restock_level = $this->formatMoneyTwo($this->restock_level);
+
             $this->msa_reporting = (bool) $item->msa_reporting;
             $this->state_reporting = (bool) $item->state_reporting;
 
@@ -347,6 +350,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     {
         $this->unit_of_measure = strtoupper(trim((string) $value));
         $this->syncPricingUomFromInventory();
+    }
+
+    protected function formatMoneyTwo(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        return number_format((float) $value, 2, '.', '');
     }
 
     /**

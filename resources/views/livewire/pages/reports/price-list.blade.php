@@ -222,7 +222,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             return null;
         }
 
-        return $this->redirect(route('inventory.items.show', $item), navigate: true);
+        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
 
     public function refreshList(): void

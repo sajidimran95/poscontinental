@@ -126,14 +126,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if ($purchaseOrder?->exists) {
             abort_unless($purchaseOrder->company_id === $companyId, 403);
 
-            if ($purchaseOrder->status === 'Received' && request()->routeIs('purchasing.orders.edit')) {
-                $this->redirect(route('purchasing.orders.show', $purchaseOrder), navigate: true);
-
-                return;
-            }
-
-            $this->viewMode = request()->routeIs('purchasing.orders.show')
-                || $purchaseOrder->status === 'Received';
+            $this->viewMode = request()->routeIs('purchasing.orders.show');
             $this->purchaseOrder = $purchaseOrder->load('lines');
             $this->po_number = (string) ($purchaseOrder->po_number ?? '');
             $this->order_type = (string) ($purchaseOrder->order_type ?: 'Standard');
@@ -618,6 +611,22 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
         $item = Item::query()->where('company_id', auth()->user()->company_id)->find($id);
+        if (! $item) {
+            return;
+        }
+        $this->dispatch('open-item-record', url: route('inventory.items.edit', $item));
+    }
+
+    public function openLineItemRecord(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+        $itemId = (int) ($this->lines[$index]['item_id'] ?? 0);
+        if ($itemId <= 0 || ! Route::has('inventory.items.edit')) {
+            return;
+        }
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
         if (! $item) {
             return;
         }
@@ -1665,6 +1674,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             id="po-line-row-{{ $i }}"
                                             @class(['is-selected' => $selectedLineIndex === $i])
                                             wire:click="$set('selectedLineIndex', {{ $i }})"
+                                            wire:dblclick="openLineItemRecord({{ $i }})"
                                         >
                                             <td class="col-code font-mono desk-num" data-excel-value="{{ $line['item_code'] ?? '' }}" title="{{ $line['item_code'] ?? '' }}">
                                                 {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}

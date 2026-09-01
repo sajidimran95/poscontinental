@@ -571,7 +571,14 @@
                 dy: 0,
                 checked: @js(array_values(array_map('intval', $browseCheckedIds))),
                 selected: {{ (int) ($browseSelectedId ?? 0) }},
+                expanded: (window.__browseDescExpanded && typeof window.__browseDescExpanded === 'object') ? window.__browseDescExpanded : {},
                 isChecked(id) { return this.checked.indexOf(Number(id)) !== -1; },
+                isDescOpen(id) { return !!this.expanded[Number(id)]; },
+                toggleDesc(id) {
+                    id = Number(id);
+                    this.expanded = { ...this.expanded, [id]: !this.expanded[id] };
+                    window.__browseDescExpanded = this.expanded;
+                },
                 toggleRow(id) {
                     id = Number(id);
                     if (this.isChecked(id)) {
@@ -820,10 +827,9 @@
                                             />
                                         </td>
                                         <td class="font-mono" data-excel-value="{{ $bi['item_code'] }}">{{ $bi['item_code'] }}</td>
-                                        <td class="col-desc-cell" x-data="{ expanded: false }">
-                                            <button type="button" class="so-browse-desc-toggle text-left w-full" @click.stop="expanded = !expanded">
-                                                <span x-show="!expanded">{{ \Illuminate\Support\Str::limit((string) ($bi['description'] ?? ''), 48) }}</span>
-                                                <span x-show="expanded" x-cloak>{{ $bi['description'] }}</span>
+                                        <td class="col-desc-cell">
+                                            <button type="button" class="item-desc-toggle text-left w-full" data-browse-desc="{{ $itemId }}">
+                                                <span class="item-desc-text">{{ $bi['description'] }}</span>
                                             </button>
                                         </td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
@@ -963,14 +969,17 @@
                             <input
                                 type="text"
                                 inputmode="text"
-                                wire:model.live.debounce.300ms="browseSearch"
-                                wire:keydown.enter.prevent="scanBrowseAndPick($event.target.value)"
+                                wire:ignore
+                                x-data
+                                x-on:input.debounce.300ms="$wire.set('browseSearch', $el.value)"
+                                x-on:keydown.enter.prevent="$wire.scanBrowseAndPick($el.value)"
                                 class="so-input so-item-browse-search-bottom"
                                 placeholder="{{ $browseSearchPlaceholder ?? 'Code, UPC, or words in the description' }}"
                                 aria-label="Scan or search items"
                                 id="so-browse-search"
                                 data-pos-search
                                 autocomplete="off"
+                                value="{{ $browseSearch }}"
                             />
                         </div>
                     </div>

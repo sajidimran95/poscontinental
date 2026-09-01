@@ -4570,6 +4570,21 @@
         table-layout: auto;
     }
 
+    .desk-table.desk-table-resizable {
+        table-layout: fixed;
+    }
+
+    .desk-table.desk-table-resizable th,
+    .desk-table.desk-table-resizable td {
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .desk-table.desk-table-resizable td:has(.item-desc-toggle) {
+        white-space: normal;
+        vertical-align: top;
+    }
+
     .desk-table thead th.desk-sort-th {
         padding: 0;
         text-align: left;
@@ -10686,6 +10701,27 @@
         padding-top: 0.55rem;
         border-top: 1px solid #f1f5f9;
         font-size: 13px;
+    }
+    .item-desc-toggle {
+        background: none;
+        border: 0;
+        padding: 0;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        max-width: 100%;
+    }
+    .item-desc-text {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 1;
+        overflow: hidden;
+        word-break: break-word;
+    }
+    .item-desc-toggle.is-open .item-desc-text {
+        -webkit-line-clamp: unset;
+        display: block;
+        white-space: pre-wrap;
     }
     .desk-list-card__foot a {
         font-weight: 700;

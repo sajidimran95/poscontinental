@@ -4672,7 +4672,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
             @if ($viewMode)
                 <x-action-item label="Edit Order" kbd="Ctrl+E" sep wire:click="enterEditMode" />
-            @else
+            @elseif (! ($salesOrder instanceof \App\Models\SalesOrder && $salesOrder->exists))
                 <x-action-item label="Edit" kbd="Ctrl+E" sep wire:click="openOpenOrderModal" />
             @endif
             <x-action-item label="Cancel" kbd="Ctrl+Z" sep wire:click="cancelAction" />
@@ -5065,6 +5065,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         id="so-line-row-{{ $i }}"
                                         @class(['is-selected' => $selectedLineIndex === $i, 'is-filled' => $filled])
                                         wire:click="selectLine({{ $i }})"
+                                        wire:dblclick="openItemRecord({{ $i }})"
                                         @contextmenu="openCtx($event, {{ $i }})"
                                     >
                                         <td class="col-code desk-num" data-excel-value="{{ $filled ? $line['item_code'] : '' }}">{{ $filled ? $line['item_code'] : '—' }}</td>
@@ -5631,11 +5632,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)
-                <button type="button" wire:click="openOpenOrderModal" class="so-btn-save" title="Edit an existing New order">Edit</button>
-                <button type="button" wire:click="parkSale" class="so-btn-cancel" title="Hold this sale and start another">Park Sale</button>
-                <button type="button" wire:click="openParkedSalesModal" class="so-btn-cancel">
-                    Parked{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}
-                </button>
+                @unless ($salesOrder instanceof \App\Models\SalesOrder && $salesOrder->exists)
+                    <button type="button" wire:click="openOpenOrderModal" class="so-btn-save" title="Edit an existing New order">Edit</button>
+                    <button type="button" wire:click="parkSale" class="so-btn-cancel" title="Hold this sale and start another">Park Sale</button>
+                    <button type="button" wire:click="openParkedSalesModal" class="so-btn-cancel">
+                        Parked{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}
+                    </button>
+                @endunless
                 <button type="submit" form="so-form" class="so-btn-save" data-pos-save>Save Changes</button>
             @endif
         </div>

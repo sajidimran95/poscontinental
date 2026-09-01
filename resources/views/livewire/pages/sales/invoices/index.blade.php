@@ -1329,7 +1329,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             @forelse ($invoices as $inv)
                                 <tr
                                     wire:click="selectRow({{ $inv->id }})"
-                                    wire:dblclick="viewInvoice({{ $inv->id }})"
+                                    wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                                     class="cursor-pointer"
                                     @class(['is-selected' => $selectedId === $inv->id || $modalInvoiceId === $inv->id])
                                 >
@@ -1391,7 +1391,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <article
                                 class="desk-list-card {{ $selectedId === $inv->id || $modalInvoiceId === $inv->id ? 'is-selected' : '' }}"
                                 wire:click="selectRow({{ $inv->id }})"
-                                wire:dblclick="viewInvoice({{ $inv->id }})"
+                                wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                             >
                                 <div class="desk-list-card__top">
                                     <a href="{{ route('sales.invoices.pdf', $inv) }}" target="_blank" rel="noopener" wire:click.stop class="desk-list-card__id">{{ $inv->invoice_number }}</a>

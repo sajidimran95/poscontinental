@@ -4675,7 +4675,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             @else
                 <x-action-item label="Edit" kbd="Ctrl+E" sep wire:click="openOpenOrderModal" />
             @endif
-            <x-action-item label="Export Lines to Excel" sep wire:click="exportLinesToExcel" />
             <x-action-item label="Cancel" kbd="Ctrl+Z" sep wire:click="cancelAction" />
         </x-slot:menu>
     </x-action-bar>
@@ -5332,7 +5331,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                             </button>
                             <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F3)" data-pos-browse>Browse (F3)</button>
-                            <button type="button" wire:click="exportLinesToExcel" class="so-browse-btn" title="Download Excel, or select rows then Ctrl+C / drag into Excel">Excel</button>
                             </div>
                         @endunless
                     </div>
@@ -5348,7 +5346,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     role="menu"
                     aria-label="Line actions"
                 >
-                    <button type="button" role="menuitem" @click="closeCtx(); window.posExcelCopyRowIndex && window.posExcelCopyRowIndex('so-line-row-', ctxLine)">Copy for Excel</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineSubstitutes(ctxLine)">Substitutes</button>
                     <button type="button" role="menuitem" class="is-danger" @click="closeCtx(); $wire.removeLine(ctxLine)">Remove Item</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineUom(ctxLine)">Unit of Measures</button>

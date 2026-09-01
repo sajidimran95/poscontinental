@@ -866,12 +866,6 @@
                             $sideCanAdd = $sideCheckedCount >= 1 || $sideCanSingle;
                             $sideHasRows = count($browseRows) > 0;
                         @endphp
-                        <button type="button" class="so-browse-tool-btn" title="Export list to Excel" aria-label="Export to Excel" wire:click="exportBrowseToExcel">
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
-                                <path d="M5 8h6M8 5v6"/>
-                            </svg>
-                        </button>
                         <button type="button" class="so-browse-tool-btn" title="Clear filters" aria-label="Clear filters" wire:click="clearBrowseFilters">
                             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                                 <path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5L2 3z"/>

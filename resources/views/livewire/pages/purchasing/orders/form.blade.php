@@ -1881,7 +1881,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                                 </button>
                                 <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F3)">Browse (F3)</button>
-                                <button type="button" wire:click="exportLinesToExcel" class="so-browse-btn" title="Download Excel, or select rows then Ctrl+C / drag into Excel">Excel</button>
                             </div>
                         @endunless
                     </div>

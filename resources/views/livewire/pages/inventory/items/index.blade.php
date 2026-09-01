@@ -11,6 +11,7 @@ use App\Models\SalesOrderLine;
 use App\Models\Site;
 use App\Models\Subcategory;
 use App\Services\InventoryService;
+use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Session;
@@ -105,37 +106,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $companyId = auth()->user()->company_id;
         $itemNewDays = Item::NEW_ITEM_DAYS;
 
-            $query = Item::query()
-            ->with([
-                'department:id,code,name',
-                'category:id,code,name',
-                'subcategory:id,code,name',
-            ])
-            ->where('company_id', $companyId)
-            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
-            ->when($this->categoryFilter !== '', function ($q) {
-                $q->where('category_id', (int) $this->categoryFilter);
-            })
-            ->when($this->favorite === 'new', fn ($q) => $q->newItems())
-            ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
-            ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->when($this->favorite === 'low_stock', fn ($q) => $q->lowStock())
-            ->when(str_starts_with($this->favorite, 'dept:'), function ($q) {
-                $deptId = (int) substr($this->favorite, 5);
-                $q->where('department_id', $deptId);
-            })
-            ->when(str_starts_with($this->favorite, 'cat:'), function ($q) {
-                $catId = (int) substr($this->favorite, 4);
-                $q->where('category_id', $catId);
-            })
-            ->when(str_starts_with($this->favorite, 'sub:'), function ($q) {
-                $subId = (int) substr($this->favorite, 4);
-                $q->where('subcategory_id', $subId);
-            })
-            ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
-            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
-            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
-
+        $query = $this->filteredItemsQuery();
         $query = $this->applyDeskSort($query, $this->favorite === 'new' ? 'created_at' : 'id', 'desc');
 
         $nav = Cache::remember('items.list_nav.'.(int) $companyId, 180, function () use ($companyId, $itemNewDays) {
@@ -1412,6 +1383,84 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         return 'items_query_saved_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
+    public function exportItemsToExcel(): mixed
+    {
+        $catalog = $this->itemListColumnCatalog();
+        $keys = $this->normalizedVisibleColumns();
+        $headers = array_map(fn (string $key) => $catalog[$key]['label'], $keys);
+        $query = $this->applyDeskSort(
+            $this->filteredItemsQuery(),
+            $this->favorite === 'new' ? 'created_at' : 'id',
+            'desc'
+        );
+
+        if (! $query->exists()) {
+            $this->scanStatus = 'No items to export.';
+
+            return null;
+        }
+
+        $self = $this;
+
+        return ExcelCsv::download('items.csv', $headers, (static function () use ($query, $keys, $catalog, $self) {
+            foreach ($query->cursor() as $item) {
+                yield array_map(fn (string $key) => $self->excelCellForItem($item, $key, $catalog[$key]), $keys);
+            }
+        })());
+    }
+
+    protected function filteredItemsQuery()
+    {
+        $companyId = auth()->user()->company_id;
+
+        return Item::query()
+            ->with([
+                'department:id,code,name',
+                'category:id,code,name',
+                'subcategory:id,code,name',
+            ])
+            ->where('company_id', $companyId)
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
+            ->when($this->categoryFilter !== '', fn ($q) => $q->where('category_id', (int) $this->categoryFilter))
+            ->when($this->favorite === 'new', fn ($q) => $q->newItems())
+            ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
+            ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
+            ->when($this->favorite === 'low_stock', fn ($q) => $q->lowStock())
+            ->when(str_starts_with($this->favorite, 'dept:'), fn ($q) => $q->where('department_id', (int) substr($this->favorite, 5)))
+            ->when(str_starts_with($this->favorite, 'cat:'), fn ($q) => $q->where('category_id', (int) substr($this->favorite, 4)))
+            ->when(str_starts_with($this->favorite, 'sub:'), fn ($q) => $q->where('subcategory_id', (int) substr($this->favorite, 4)))
+            ->when($this->statusFilter === 'active', fn ($q) => $q->where('is_inactive', false))
+            ->when($this->statusFilter === 'inactive', fn ($q) => $q->where('is_inactive', true))
+            ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
+    }
+
+    /**
+     * @param  array{label:string,type:string}  $col
+     */
+    protected function excelCellForItem(Item $item, string $colKey, array $col): string
+    {
+        return match ($colKey) {
+            'is_new' => $item->isNew() ? 'New' : '',
+            'can_sell' => $item->can_sell ? 'Yes' : 'No',
+            'is_inactive' => $item->is_inactive ? 'Inactive' : 'Active',
+            'allow_back_order', 'msa_reporting', 'state_reporting' => $item->{$colKey} ? 'Yes' : 'No',
+            'department' => (string) ($item->department?->name ?? ''),
+            'category' => (string) ($item->category?->name ?? ''),
+            'subcategory' => (string) ($item->subcategory?->name ?? ''),
+            default => match ($col['type']) {
+                'money' => $this->excelNumber((float) $item->{$colKey}, 2),
+                'qty' => $this->excelNumber((float) ($colKey === 'available_quantity' ? $item->available_quantity : $item->{$colKey}), 2),
+                'date' => optional($item->{$colKey})?->format('n/j/Y') ?: '',
+                default => filled($item->{$colKey} ?? null) ? (string) $item->{$colKey} : '',
+            },
+        };
+    }
+
+    protected function excelNumber(float $value, int $decimals): string
+    {
+        return number_format($value, $decimals, '.', '');
+    }
+
     public function createNewItem(): mixed
     {
         return $this->redirect(route('inventory.items.create'), navigate: true);
@@ -1438,6 +1487,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 <x-action-item label="View/Edit Selected Item" kbd="Ctrl+E" sep wire:click="editSelected" />
                 <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Group Update" sep wire:click="openUpdatePrices" />
+                <x-action-item label="Export to Excel" sep wire:click="exportItemsToExcel" />
                 <x-action-item label="Delete Selected Item" sep wire:click="deleteSelected" />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
@@ -1472,6 +1522,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             </span>
                             <input
                                 id="items-search" data-pos-search
+                                wire:ignore.self
                                 type="text"
                                 wire:model.live.debounce.300ms="search"
                                 wire:keydown.enter.prevent="scanFindItem($event.target.value)"
@@ -1538,6 +1589,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         >
                             New ({{ \App\Models\Item::NEW_ITEM_DAYS }}d)
                         </button>
+                        <button type="button" wire:click="exportItemsToExcel" class="desk-btn" title="Move this list to Excel">
+                            Excel
+                        </button>
                         <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary" title="Add new item">+ Item</a>
                     </div>
                 </div>
@@ -1551,10 +1605,10 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="items-list">
+                    <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="items-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center desk-sort-th" data-col="_select" style="width:2.25rem">
+                                <th class="text-center desk-sort-th" data-col="_select" data-excel-skip style="width:2.25rem">
                                     <span class="desk-col-resizer" title="Drag to make this column wider or narrower" aria-hidden="true"></span>
                                 </th>
                                 @foreach ($visibleColumnKeys as $colKey)
@@ -1575,7 +1629,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                     wire:dblclick="openItem({{ $item->id }})"
                                     @class(['is-selected' => $selectedId === $item->id, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="item_select"
@@ -1588,7 +1642,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                     @foreach ($visibleColumnKeys as $colKey)
                                         @php $col = $itemColumnCatalog[$colKey]; @endphp
                                         @if ($colKey === 'item_code')
-                                            <td class="desk-num">
+                                            <td class="desk-num" data-excel-value="{{ $item->item_code }}">
                                                 <a href="{{ route('inventory.items.show', $item) }}" wire:navigate wire:click.stop>{{ $item->item_code }}</a>
                                             </td>
                                         @elseif ($colKey === 'is_new')

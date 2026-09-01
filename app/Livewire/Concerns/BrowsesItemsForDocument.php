@@ -5,6 +5,7 @@ namespace App\Livewire\Concerns;
 use App\Models\Category;
 use App\Models\Item;
 use App\Models\Subcategory;
+use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -34,6 +35,8 @@ trait BrowsesItemsForDocument
     /** @var list<string> */
     public array $browseCheckedIds = [];
 
+    public int $browseChecksVersion = 0;
+
     /** @var list<array<string, mixed>> */
     public array $browseRows = [];
 
@@ -51,7 +54,7 @@ trait BrowsesItemsForDocument
 
     protected const BROWSE_PAGE_SIZE = 80;
 
-    abstract public function pickBrowseItem(int $itemId): void;
+    abstract public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void;
 
     public function openItemBrowse(?int $lineIndex = null, ?string $search = null): void
     {
@@ -103,6 +106,31 @@ trait BrowsesItemsForDocument
             return;
         }
         $this->resetBrowseAndLoadFirstPage();
+    }
+
+    public function exportBrowseToExcel(): mixed
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $query = $this->applyBrowseOrder($this->browseBaseQuery($companyId));
+
+        if (! $query->exists()) {
+            return null;
+        }
+
+        $rows = (static function () use ($query) {
+            foreach ($query->cursor() as $row) {
+                yield [
+                    (string) $row->item_code,
+                    (string) ($row->description ?? ''),
+                    (string) ($row->unit_of_measure ?? ''),
+                    $row->list_price,
+                    (float) $row->quantity_in_stock - (float) $row->allocated_qty,
+                    (float) $row->quantity_in_stock,
+                ];
+            }
+        })();
+
+        return ExcelCsv::download('browse-items.csv', ['Item Code', 'Description', 'UOM', 'Price', 'Available', 'On Hand'], $rows);
     }
 
     public function updatedBrowseNewOnly(): void
@@ -236,11 +264,15 @@ trait BrowsesItemsForDocument
 
             return;
         }
-        $this->pickBrowseItem($id);
+        $this->pickBrowseItem($id, true);
     }
 
-    public function insertBrowseChecked(): void
+    public function insertBrowseChecked($ids = null): void
     {
+        if (is_array($ids) && $ids !== []) {
+            $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
+        }
+
         $ids = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
         if ($ids === []) {
             $this->insertBrowseSelected();
@@ -249,10 +281,13 @@ trait BrowsesItemsForDocument
         }
 
         foreach ($ids as $itemId) {
-            $this->pickBrowseItem($itemId);
+            $this->pickBrowseItem($itemId, true);
         }
         $this->browseCheckedIds = [];
         $this->browseSelectedId = null;
+        $this->browseChecksVersion++;
+        $this->dispatch('browse-checks-cleared');
+        $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
     }
 
     public function openBrowseNewItem(): void
@@ -307,7 +342,7 @@ trait BrowsesItemsForDocument
         $item = Item::findByScanCode((int) auth()->user()->company_id, $resolved, 'any');
         if ($item) {
             $this->browseSearch = '';
-            $this->pickBrowseItem((int) $item->id);
+            $this->pickBrowseItem((int) $item->id, true);
             $this->resetBrowseAndLoadFirstPage();
             $this->focusBrowseSearch();
 

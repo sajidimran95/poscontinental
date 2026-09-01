@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
 use App\Services\SalesOrderWindowManager;
+use App\Support\ExcelCsv;
 use App\Support\ItemPricing;
 use App\Support\ItemSearch;
 use App\Support\SalesOrderLinePresentation;
@@ -79,6 +80,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $showParkedSalesModal = false;
 
+    public bool $showOpenOrderModal = false;
+
+    public string $openOrderSearch = '';
+
+    /** @var array<int, array{id:int,order_number:string,customer_label:string,total:float,order_date:?string}> */
+    public array $openOrderList = [];
+
+    public string $lastScanClaimCode = '';
+
+    public int $lastScanClaimAt = 0;
+
     /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
     public array $parkedSalesList = [];
 
@@ -110,6 +122,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /** Multi-select checkboxes for insert-all */
     public array $browseCheckedIds = [];
+
+    public int $browseChecksVersion = 0;
 
     public string $favorite = 'new';
 
@@ -652,7 +666,69 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'custom_field_1', 'custom_field_2', 'custom_field_3', 'custom_field_4', 'custom_field_5',
             'comments', 'freight', 'trade_discount', 'miscellaneous', 'tax', 'taxManual', 'orderTaxScheduleId',
             'lines', 'boxes', 'customerAlert', 'creditWarning', 'taxExemptWarning',
+            'itemEntry', 'browseSearch', 'showBrowse', 'browseCategoryId', 'browseSubcategoryId', 'browseNewOnly',
         ];
+    }
+
+    public function updatedActiveTab(): void
+    {
+        $this->persistCreateWindowDraft();
+    }
+
+    public function exportLinesToExcel(): mixed
+    {
+        $rows = collect($this->lines)->filter(fn ($line) => filled($line['item_code'] ?? null));
+        if ($rows->isEmpty()) {
+            $this->notifyAlert('Add at least one item before exporting.', 'warning');
+
+            return null;
+        }
+
+        $export = [];
+        foreach ($rows as $line) {
+            $qty = (float) ($line['qty_ordered'] ?? 0);
+            $price = (float) ($line['price'] ?? 0);
+            $disc = (float) ($line['discount'] ?? ($qty * (float) ($line['unit_discount'] ?? 0)));
+            $export[] = [
+                $line['item_code'] ?? '',
+                $line['description'] ?? '',
+                $line['uom'] ?? '',
+                $qty,
+                $price,
+                $disc,
+                round(($qty * $price) - $disc, 2),
+            ];
+        }
+
+        $filename = 'order-'.preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $this->order_number).'-lines.csv';
+
+        return ExcelCsv::download($filename, ['Item Code', 'Description', 'UOM', 'Qty Ordered', 'Price', 'Discount', 'Line Total'], $export);
+    }
+
+    public function exportBrowseToExcel(): mixed
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $query = $this->applyBrowseOrder($this->browseBaseQuery($companyId));
+        if (! $query->exists()) {
+            $this->notifyAlert('No browse items to export.', 'warning');
+
+            return null;
+        }
+
+        $rows = (static function () use ($query) {
+            foreach ($query->cursor() as $row) {
+                yield [
+                    (string) $row->item_code,
+                    (string) ($row->description ?? ''),
+                    (string) ($row->unit_of_measure ?? ''),
+                    $row->list_price,
+                    (float) $row->quantity_in_stock - (float) $row->allocated_qty,
+                    (float) $row->quantity_in_stock,
+                ];
+            }
+        })();
+
+        return ExcelCsv::download('browse-items.csv', ['Item Code', 'Description', 'UOM', 'Price', 'Available', 'On Hand'], $rows);
     }
 
     protected function persistCreateWindowDraft(): void
@@ -723,7 +799,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         return [
             'item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '',
-            'qty_ordered' => '1.00', 'qty_shipped' => '', 'price' => '',
+            'qty_ordered' => '1', 'qty_shipped' => '', 'price' => '',
             'system_price' => '',
             'unit_discount' => '', 'discount' => '',
             'line_message' => '', 'instructions' => '',
@@ -745,7 +821,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function formatQty(mixed $value): string
     {
-        return $this->formatMoney($value);
+        if (is_string($value)) {
+            $trim = trim(str_replace(',', '', $value));
+            if ($trim === '') {
+                return '';
+            }
+            if (preg_match('/^-?\d+\.$/', $trim)) {
+                return $trim;
+            }
+        }
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return '';
+        }
+
+        $n = round((float) $value, 4);
+        if (abs($n) < 0.0000001) {
+            return '';
+        }
+
+        $formatted = number_format($n, 4, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
     }
 
     /** Money display/storage: always 2 decimal places (e.g. 9.99, never 9.990000). */
@@ -1158,6 +1254,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->dispatch('open-item-record', url: route('inventory.items.edit', $item));
     }
 
+    public function enterEditMode(): mixed
+    {
+        $this->ensureSalesOrderModel();
+        $order = $this->salesOrder;
+        if (! $order instanceof SalesOrder || ! $order->exists) {
+            $this->notifyAlert('Open a saved order first.', 'warning');
+            $this->openOpenOrderModal();
+
+            return null;
+        }
+
+        $this->viewMode = false;
+        $url = route('sales.orders.edit', $order);
+        if ($this->shouldReturnToInvoiceList()) {
+            $url .= '?from=invoices';
+        }
+
+        return $this->redirect($url, navigate: false);
+    }
+
     public function hydrate(): void
     {
         $this->viewMode = request()->routeIs('sales.orders.show');
@@ -1426,7 +1542,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->browseSearch = '';
         $this->lineWarning = '';
-        $this->pickBrowseItem((int) $item->id);
+        $this->pickBrowseItem((int) $item->id, true);
         $this->resetBrowseAndLoadFirstPage();
         $this->focusBrowseSearch();
 
@@ -1616,7 +1732,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             return;
         }
-        $this->pickBrowseItem($id);
+        $this->pickBrowseItem($id, true);
     }
 
     public function insertBrowseChecked($ids = null): void
@@ -1660,6 +1776,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = '';
         $this->browseSelectedId = null;
         $this->browseCheckedIds = [];
+        $this->browseChecksVersion++;
+        $this->dispatch('browse-checks-cleared');
+        $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
 
         if ($deferredSubstitute !== null && $added === 0 && count($ids) === 1) {
             $this->queueItemOrPromptSubstitute($deferredSubstitute);
@@ -1675,6 +1794,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($deferredSubstitute !== null) {
             $this->notifyAlert($added.' item(s) added. Some out-of-stock items were skipped (need substitute).', 'warning');
+        }
+
+        if ($this->showBrowse) {
+            $this->resetBrowseAndLoadFirstPage();
+            $this->focusBrowseSearch();
         }
     }
 
@@ -2004,7 +2128,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $item = $this->findItem($resolved);
         if ($item) {
             $this->browseSearch = '';
-            $this->pickBrowseItem((int) $item->id);
+            $this->pickBrowseItem((int) $item->id, true);
             $this->focusItemEntry();
 
             return;
@@ -2400,7 +2524,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount)$/', $key, $m)) {
             $i = (int) $m[1];
             if ($m[2] === 'qty_ordered' && isset($this->lines[$i])) {
-                $this->lines[$i]['qty_ordered'] = $this->formatQty($this->lines[$i]['qty_ordered'] ?? '');
+                $raw = trim((string) ($this->lines[$i]['qty_ordered'] ?? ''));
+                if ($raw !== '' && is_numeric($raw) && ! str_ends_with($raw, '.')) {
+                    $this->lines[$i]['qty_ordered'] = $this->formatQty($raw);
+                }
             }
             $this->recalcLineDiscount($i);
         }
@@ -3163,6 +3290,78 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showParkedSalesModal = false;
     }
 
+    public function updatedOpenOrderSearch(): void
+    {
+        if ($this->showOpenOrderModal) {
+            $this->refreshOpenOrderList();
+        }
+    }
+
+    public function openOpenOrderModal(): void
+    {
+        $this->openOrderSearch = '';
+        $this->refreshOpenOrderList();
+        $this->showOpenOrderModal = true;
+        $this->showParkedSalesModal = false;
+    }
+
+    public function closeOpenOrderModal(): void
+    {
+        $this->showOpenOrderModal = false;
+    }
+
+    public function refreshOpenOrderList(): void
+    {
+        $companyId = (int) auth()->user()->company_id;
+        $term = trim($this->openOrderSearch);
+
+        $query = SalesOrder::query()
+            ->with('customer:id,customer_id,company_name')
+            ->where('company_id', $companyId)
+            ->where('status', 'New')
+            ->orderByDesc('id')
+            ->limit(40);
+
+        if ($term !== '') {
+            $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term).'%';
+            $query->where(function ($q) use ($like) {
+                $q->where('order_number', 'like', $like)
+                    ->orWhereHas('customer', function ($c) use ($like) {
+                        $c->where('company_name', 'like', $like)
+                            ->orWhere('customer_id', 'like', $like);
+                    });
+            });
+        }
+
+        $this->openOrderList = $query->get()->map(fn (SalesOrder $o) => [
+            'id' => (int) $o->id,
+            'order_number' => (string) $o->order_number,
+            'customer_label' => trim((string) ($o->customer?->company_name ?: $o->customer?->customer_id ?: 'Customer')),
+            'total' => (float) $o->total,
+            'order_date' => optional($o->order_date)?->format('n/j/Y'),
+        ])->all();
+    }
+
+    public function openExistingOrder(int $id): mixed
+    {
+        abort_if($this->viewMode, 403);
+
+        $order = SalesOrder::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->whereKey($id)
+            ->first();
+
+        if (! $order) {
+            $this->notifyAlert('Order not found.', 'error');
+
+            return null;
+        }
+
+        $this->showOpenOrderModal = false;
+
+        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
+    }
+
     public function parkSale(): void
     {
         abort_if($this->viewMode, 403);
@@ -3395,6 +3594,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 
     /**
+     * Block Enter + auto-add (or CR+LF) from counting as two scans of the same code.
+     */
+    protected function claimScanAdd(string $code): bool
+    {
+        $norm = mb_strtolower(trim($code));
+        if ($norm === '') {
+            return false;
+        }
+
+        $now = (int) floor(microtime(true) * 1000);
+        if ($this->lastScanClaimCode === $norm && ($now - $this->lastScanClaimAt) < 400) {
+            return false;
+        }
+
+        $this->lastScanClaimCode = $norm;
+        $this->lastScanClaimAt = $now;
+
+        return true;
+    }
+
+    /**
      * Add item from entry bar (✓ tick or Enter).
      * Exact match → add line. Unknown scan → blocking alert (stay on this order).
      */
@@ -3414,6 +3634,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($code === '') {
             $this->skipRender();
             $this->focusItemEntry(true);
+
+            return;
+        }
+
+        if (! $this->claimScanAdd($code)) {
+            $this->itemEntry = '';
+            $this->skipRender();
+            $this->clearAndFocusEntry();
 
             return;
         }
@@ -3457,13 +3685,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        if ($this->codeIsPrefixOfLongerItemCode($code)) {
+        if (! $this->claimScanAdd($code)) {
             $this->skipRender();
 
             return;
         }
 
-        // Full unique match — add line.
+        // Full exact match — add after typing pause (no Enter needed).
         $this->itemEntry = '';
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
@@ -3570,7 +3798,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-item-entry"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
     {
         abort_if($this->viewMode, 403);
 
@@ -3584,8 +3812,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->itemEntry = '';
         $this->browseSelectedId = $itemId;
         $this->lineWarning = '';
-        $this->closeBrowse();
-        $this->queueItemOrPromptSubstitute($item);
+        if ($keepBrowseOpen) {
+            $this->browseCheckedIds = [];
+            $this->browseSelectedId = null;
+            $this->dispatch('browse-checks-cleared');
+            $this->queueItemOrPromptSubstitute($item);
+            if ($this->showBrowse) {
+                $this->resetBrowseAndLoadFirstPage();
+                $this->focusBrowseSearch();
+            }
+        } else {
+            $this->closeBrowse();
+            $this->queueItemOrPromptSubstitute($item);
+        }
     }
 
     protected function queueItemOrPromptSubstitute(Item $item): void
@@ -4329,7 +4568,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             session()->flash('status', 'Order '.$order->order_number.' saved.');
         }
 
-        $this->finishCreateWindowAndRedirect();
+        $this->finishSaveStayOnOrder();
     }
 
     public function cancelPrintDialog(): void
@@ -4337,6 +4576,28 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showPrintDialog = false;
         $number = $this->salesOrder?->order_number;
         session()->flash('status', $number !== '' && $number !== null ? 'Order '.$number.' saved.' : 'Order saved.');
+        $this->finishSaveStayOnOrder();
+    }
+
+    /**
+     * After save/print: keep editing a New order instead of dumping to Park-only create.
+     */
+    protected function finishSaveStayOnOrder(): void
+    {
+        if ($this->shouldReturnToInvoiceList()) {
+            $this->finishCreateWindowAndRedirect();
+
+            return;
+        }
+
+        $order = $this->salesOrder?->fresh(['invoice']);
+        if ($order?->exists && $order->status !== 'Invoiced' && ! $order->invoice) {
+            $this->createWindowId = null;
+            $this->redirect(route('sales.orders.edit', $order), navigate: true);
+
+            return;
+        }
+
         $this->finishCreateWindowAndRedirect();
     }
 
@@ -4409,6 +4670,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     <x-action-bar :title="$pageTitle" class="so-action-full">
         <x-slot:menu>
             <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+            @if ($viewMode)
+                <x-action-item label="Edit Order" kbd="Ctrl+E" sep wire:click="enterEditMode" />
+            @else
+                <x-action-item label="Edit" kbd="Ctrl+E" sep wire:click="openOpenOrderModal" />
+            @endif
+            <x-action-item label="Export Lines to Excel" sep wire:click="exportLinesToExcel" />
             <x-action-item label="Cancel" kbd="Ctrl+Z" sep wire:click="cancelAction" />
         </x-slot:menu>
     </x-action-bar>
@@ -4468,8 +4735,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         @endif
 
         <div class="so-body">
-            @if ($activeTab === 'general')
-            <div class="so-header" id="mode-panel-general" role="tabpanel" aria-labelledby="mode-tab-general">
+            <div class="so-header" id="mode-panel-general" role="tabpanel" aria-labelledby="mode-tab-general" @style(['display: none' => $activeTab !== 'general'])>
                 <div class="so-form-card">
                     <div class="so-form-layout">
                         <div class="so-form-main" aria-label="Order customer and address">
@@ -4738,8 +5004,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     </div>
                 </div>
             </div>
-            @elseif ($activeTab === 'items')
-                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items"
+                <div class="so-expand-panel" id="mode-panel-items" role="tabpanel" aria-labelledby="mode-tab-items" @style(['display: none' => $activeTab !== 'items'])
                     x-data="{
                         ctxOpen: false,
                         ctxX: 0,
@@ -4762,7 +5027,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <div class="so-items-wrap so-items-wrap-tall">
                     <div class="so-items-title">Items</div>
                     <div class="so-items-grid">
-                        <table class="so-lines-table">
+                        <table class="so-lines-table" data-excel-grid>
                             <colgroup>
                                 <col class="col-code" />
                                 <col class="col-desc" />
@@ -4803,7 +5068,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         wire:click="selectLine({{ $i }})"
                                         @contextmenu="openCtx($event, {{ $i }})"
                                     >
-                                        <td class="col-code desk-num">{{ $filled ? $line['item_code'] : '—' }}</td>
+                                        <td class="col-code desk-num" data-excel-value="{{ $filled ? $line['item_code'] : '' }}">{{ $filled ? $line['item_code'] : '—' }}</td>
                                         <td class="col-desc" title="{{ $line['description'] ?? '' }}">
                                             <span class="so-line-desc-text">{{ $filled ? ($line['description'] ?: '—') : '—' }}</span>
                                             @if ($filled && filled($line['line_message'] ?? null))
@@ -4831,17 +5096,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 <div class="so-qty-stepper" wire:click.stop>
                                                     <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
                                                     <input
-                                                        wire:model.live="lines.{{ $i }}.qty_ordered"
+                                                        type="text"
+                                                        wire:model.blur="lines.{{ $i }}.qty_ordered"
                                                         wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'qty_ordered', 1)"
                                                         wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_ordered', -1)"
+                                                        wire:keydown.enter.prevent="$wire.selectLine({{ $i + 1 }}).then(() => requestAnimationFrame(() => document.querySelector('#so-line-row-{{ $i + 1 }} .so-cell-input')?.focus()))"
                                                         class="so-cell-input text-right"
                                                         placeholder="0"
                                                         size="4"
+                                                        step="0.01"
+                                                        inputmode="decimal"
                                                     />
                                                     <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
                                                 </div>
                                             @else
-                                                {{ $filled ? number_format($qty, 2) : '' }}
+                                                {{ $filled ? $this->formatQty($qty) : '' }}
                                             @endif
                                         </td>
                                         <td class="col-num">
@@ -4940,12 +5209,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     timer: null,
                                     lastKeyAt: 0,
                                     rapid: false,
+                                    lastClaim: '',
+                                    lastClaimAt: 0,
+                                    claim(v) {
+                                        const n = (v || '').trim().toLowerCase();
+                                        if (!n) return false;
+                                        const now = Date.now();
+                                        if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
+                                        this.lastClaim = n;
+                                        this.lastClaimAt = now;
+                                        return true;
+                                    },
                                     // Wait for FULL code (e.g. 2593a). Resets on every key — never add on '25' mid-type.
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        // Human typing needs longer pause so 25…2593a finishes first.
-                                        // Barcode gun: short pause after last char.
-                                        const delay = this.rapid ? 100 : 750;
+                                        const delay = this.rapid ? 80 : 400;
                                         this.timer = setTimeout(() => {
                                             const el = document.getElementById('so-item-entry');
                                             const v = (el?.value || '').trim();
@@ -4953,7 +5231,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 this.rapid = false;
                                                 return;
                                             }
-                                            // Only full exact match (and no longer prefix codes) is added server-side
+                                            if (!this.claim(v)) {
+                                                this.rapid = false;
+                                                return;
+                                            }
                                             $wire.autoAddIfExactMatch(v);
                                             this.rapid = false;
                                         }, delay);
@@ -4964,8 +5245,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             e.stopPropagation();
                                             clearTimeout(this.timer);
                                             const v = ($el.value || '').trim();
-                                            // Enter = commit whatever is fully typed now
-                                            $wire.addItemFromEntry(v);
+                                            $el.value = '';
+                                            if (v && this.claim(v)) {
+                                                $wire.addItemFromEntry(v);
+                                            }
                                             this.rapid = false;
                                             return;
                                         }
@@ -5000,8 +5283,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                     rapid = false;
-                                    if (($el.value || '').trim().length >= 2) {
-                                        $wire.addItemFromEntry($el.value);
+                                    const v = ($el.value || '').trim();
+                                    if (v.length >= 2 && claim(v)) {
+                                        $el.value = '';
+                                        $wire.addItemFromEntry(v);
                                     }
                                 "
                             />
@@ -5047,6 +5332,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
                             </button>
                             <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F3)" data-pos-browse>Browse (F3)</button>
+                            <button type="button" wire:click="exportLinesToExcel" class="so-browse-btn" title="Download Excel, or select rows then Ctrl+C / drag into Excel">Excel</button>
                             </div>
                         @endunless
                     </div>
@@ -5062,6 +5348,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     role="menu"
                     aria-label="Line actions"
                 >
+                    <button type="button" role="menuitem" @click="closeCtx(); window.posExcelCopyRowIndex && window.posExcelCopyRowIndex('so-line-row-', ctxLine)">Copy for Excel</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineSubstitutes(ctxLine)">Substitutes</button>
                     <button type="button" role="menuitem" class="is-danger" @click="closeCtx(); $wire.removeLine(ctxLine)">Remove Item</button>
                     <button type="button" role="menuitem" @click="closeCtx(); $wire.openLineUom(ctxLine)">Unit of Measures</button>
@@ -5075,8 +5362,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         <div class="so-counter-col">
                             <div>Total Lines: <strong>{{ $totalLines }}</strong></div>
                             <div>Total Items: <strong>{{ $totalItems }}</strong></div>
-                            <div>Total quantity ordered: <strong>{{ number_format($totalQty, 0) }}</strong></div>
-                            <div>Total items Shipped: <strong>{{ $totalShipped }}</strong></div>
+                            <div>Total quantity ordered: <strong>{{ $this->formatQty($totalQty) }}</strong></div>
+                            <div>Total items Shipped: <strong>{{ $this->formatQty($totalShipped) ?: '0' }}</strong></div>
                         </div>
                         <div class="so-counter-col">
                             <div>Total Discounts: <strong>${{ number_format($totalDiscounts, 2) }}</strong></div>
@@ -5144,8 +5431,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 </div>
                 </div>{{-- /.so-expand-main --}}
                 </div>
-            @elseif ($activeTab === 'shipping')
-                <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping">
+                <div class="so-ship-panel" id="mode-panel-shipping" role="tabpanel" aria-labelledby="mode-tab-shipping" @style(['display: none' => $activeTab !== 'shipping'])>
                     <div class="so-ship-grid">
                         <div class="so-ship-col">
                             <div class="so-ship-row">
@@ -5244,12 +5530,52 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </table>
                     </div>
                 </div>
-            @endif
         </div>
         </fieldset>
     </form>
 
     @include('livewire.pages.sales.orders.partials.item-browse-panel')
+
+    @if ($showOpenOrderModal && ! $viewMode)
+        <div
+            class="desk-modal-backdrop desk-modal-top"
+            wire:click.self="closeOpenOrderModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="open-order-title"
+        >
+            <div class="desk-modal" style="max-width:36rem;" wire:keydown.escape.window="closeOpenOrderModal">
+                <div class="desk-modal-head">
+                    <span id="open-order-title">Open / edit order</span>
+                    <button type="button" wire:click="closeOpenOrderModal" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="padding:.75rem 1rem 0;">
+                    <input
+                        type="search"
+                        wire:model.live.debounce.300ms="openOrderSearch"
+                        class="so-input"
+                        placeholder="Search order # or customer…"
+                        aria-label="Search orders"
+                        autofocus
+                    />
+                </div>
+                <div class="desk-modal-body" style="padding:0; max-height:22rem; overflow:auto;">
+                    @forelse ($openOrderList as $row)
+                        <button
+                            type="button"
+                            wire:click="openExistingOrder({{ $row['id'] }})"
+                            style="display:block; width:100%; text-align:left; border:0; border-bottom:1px solid #e2e8f0; background:#fff; padding:.85rem 1rem; cursor:pointer;"
+                        >
+                            <div style="font-weight:700;">{{ $row['order_number'] }} · {{ $row['customer_label'] }}</div>
+                            <div style="font-size:.8rem; color:#64748b;">${{ number_format($row['total'], 2) }}@if($row['order_date']) · {{ $row['order_date'] }}@endif</div>
+                        </button>
+                    @empty
+                        <p style="padding:1rem; color:#64748b; margin:0;">No New orders found.</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
 
     @if ($showParkedSalesModal && ! $viewMode)
         <div
@@ -5302,10 +5628,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         <div class="so-bottom-actions">
             <a href="{{ $returnToInvoiceList ? route('sales.invoices.index') : route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
             @if ($viewMode && $salesOrder instanceof \App\Models\SalesOrder)
-                <a href="{{ route('sales.orders.edit', $salesOrder->id) }}{{ $returnToInvoiceList ? '?from=invoices' : '' }}" class="so-btn-save">{{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}</a>
+                <button type="button" wire:click="enterEditMode" class="so-btn-save">
+                    {{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}
+                </button>
                 <button type="button" wire:click="printInvoiceStyle" class="so-btn-save" data-pos-print>Print Invoice</button>
                 <button type="button" wire:click="printPickList" class="so-btn-save">Print Pick List</button>
             @elseif (! $viewMode)
+                <button type="button" wire:click="openOpenOrderModal" class="so-btn-save" title="Edit an existing New order">Edit</button>
                 <button type="button" wire:click="parkSale" class="so-btn-cancel" title="Hold this sale and start another">Park Sale</button>
                 <button type="button" wire:click="openParkedSalesModal" class="so-btn-cancel">
                     Parked{{ $parkedCount ? ' ('.$parkedCount.')' : '' }}

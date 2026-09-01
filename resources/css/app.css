@@ -2478,8 +2478,15 @@
     }
 
     .so-lines-table tbody tr {
-        cursor: pointer;
+        cursor: grab;
         background: #fff;
+    }
+
+    .so-lines-table tbody tr.is-excel-picked:not(.is-selected),
+    .so-item-browse-table tbody tr.is-excel-picked {
+        background: #dbeafe;
+        outline: 2px solid #2563eb;
+        outline-offset: -2px;
     }
 
     .so-lines-table tbody tr.is-filled:hover {
@@ -6417,27 +6424,83 @@
         padding: 0.2rem 0;
     }
 
-    .po-lines-table .col-code { width: 8.5rem; min-width: 7rem; }
-    .po-lines-table .col-desc { width: 22%; max-width: 16rem; }
-    .po-lines-table .col-uom { width: 4.5rem; }
-    .po-lines-table .col-qty { width: 10.5rem; }
-    .po-lines-table .col-cost { width: 7.25rem; }
-    .po-lines-table .col-ext { width: 7.5rem; }
-    .po-lines-table .col-action { width: 6.5rem; }
-
-    .po-lines-table td:nth-child(2) .item-cell-ctl {
+    .po-lines-table {
+        table-layout: fixed;
         width: 100%;
-        max-width: 16rem;
     }
 
-    .po-line-desc-input {
-        max-width: 16rem !important;
-        width: 100%;
+    .po-lines-table col.col-code,
+    .po-lines-table th.col-code,
+    .po-lines-table td.col-code { width: 7.25rem; min-width: 0; }
+
+    .po-lines-table col.col-desc,
+    .po-lines-table th.col-desc,
+    .po-lines-table td.col-desc { width: auto; min-width: 0; max-width: none; }
+
+    .po-lines-table col.col-uom,
+    .po-lines-table th.col-uom,
+    .po-lines-table td.col-uom { width: 4.25rem; min-width: 0; }
+
+    .po-lines-table col.col-price,
+    .po-lines-table th.col-price,
+    .po-lines-table td.col-price { width: 5.75rem; min-width: 0; }
+
+    .po-lines-table col.col-qty-ord,
+    .po-lines-table th.col-qty-ord,
+    .po-lines-table td.col-qty-ord { width: 7.75rem; min-width: 0; }
+
+    .po-lines-table col.col-qty-rcv,
+    .po-lines-table th.col-qty-rcv,
+    .po-lines-table td.col-qty-rcv { width: 6.5rem; min-width: 0; }
+
+    .po-lines-table col.col-cost,
+    .po-lines-table th.col-cost,
+    .po-lines-table td.col-cost { width: 6.5rem; min-width: 0; }
+
+    .po-lines-table col.col-ext,
+    .po-lines-table th.col-ext,
+    .po-lines-table td.col-ext { width: 7.25rem; min-width: 0; }
+
+    .po-lines-table th,
+    .po-lines-table td {
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .po-lines-table td.col-qty-ord {
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .po-lines-table .po-line-desc-input,
+    .po-lines-table td:nth-child(2) .item-cell-ctl {
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+    }
+
+    .po-lines-table .item-cell-qty,
+    .po-lines-table td .so-input {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0;
+        display: block;
+        box-sizing: border-box;
     }
 
     .po-lines-table .so-qty-stepper {
-        justify-content: center;
-        min-width: 8.5rem;
+        justify-content: flex-end;
+        min-width: 0;
+        width: 100%;
+        gap: 0.12rem;
+    }
+
+    .po-lines-table .so-qty-stepper .so-cell-input {
+        width: 3.25rem;
+        min-width: 0;
+        flex: 1 1 auto;
+        max-width: 4.25rem;
     }
 
     .po-line-code-cell {
@@ -6479,10 +6542,211 @@
         padding: 0;
     }
 
-    .po-totals {
+    .po-page {
+        overflow: hidden;
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+        width: 100%;
+    }
+
+    main.chief-main:has(.po-page) {
+        overflow: hidden;
+    }
+
+    .po-form {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100%;
+        max-height: 100%;
         display: flex;
-        justify-content: flex-end;
-        margin-top: 1rem;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .po-form > .so-form-fields {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        min-inline-size: 0;
+    }
+
+    .po-form > .entity-footer {
+        flex-shrink: 0;
+        position: static;
+        box-shadow: none;
+        padding-top: 0.3rem;
+        padding-bottom: 0.3rem;
+    }
+
+    .po-form .entity-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0.45rem 0.75rem 0;
+    }
+
+    .po-form .entity-header {
+        flex-shrink: 0;
+        margin-bottom: 0.4rem;
+        padding-bottom: 0.4rem;
+    }
+
+    .po-form .po-expand-panel {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        height: auto !important;
+        width: 100%;
+        max-width: none;
+        align-self: stretch;
+        gap: 0;
+        overflow: hidden;
+    }
+
+    .po-form .so-expand-main {
+        min-height: 0;
+        height: auto;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    .po-form .so-expand-main > .so-items-wrap {
+        flex: 1 1 0;
+        min-height: 0;
+    }
+
+    .po-form .so-expand-main > .so-entry {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+        overflow: hidden;
+    }
+
+    .po-items-head {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 0.5rem 0.7rem;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .po-items-head .so-form-lbl {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        margin: 0;
+        min-width: 0 !important;
+    }
+
+    .po-head-po {
+        width: 13rem;
+        flex: 0 0 13rem;
+    }
+
+    .po-head-supplier {
+        flex: 1 1 auto;
+        min-width: 10rem;
+        max-width: 28rem;
+    }
+
+    .po-chief-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 0.3rem;
+        padding: 0.3rem 0.45rem;
+        background: #ececec;
+        border: 1px solid #c5cad3;
+        border-top: 0;
+        flex: 0 0 auto;
+        overflow: hidden;
+    }
+
+    .po-chief-lookup {
+        width: 16rem;
+        flex: 0 0 16rem;
+        height: 1.85rem;
+        border: 1px solid #93c5fd;
+        background: #dbeafe;
+        padding: 0 0.4rem;
+        font-size: 13px;
+        font-family: ui-monospace, Consolas, monospace;
+        box-sizing: border-box;
+    }
+
+    .po-chief-lookup:focus {
+        outline: 2px solid #3b82f6;
+        outline-offset: 0;
+        background: #eff6ff;
+    }
+
+    .po-chief-ico {
+        width: 1.85rem;
+        height: 1.85rem;
+        min-width: 1.85rem;
+        border: 1px solid #94a3b8;
+        background: #fff;
+        color: #334155;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        flex: 0 0 auto;
+    }
+
+    .po-chief-ico svg {
+        width: 12px;
+        height: 12px;
+        display: block;
+    }
+
+    .po-chief-ico:hover {
+        background: #f1f5f9;
+    }
+
+    .po-chief-del {
+        color: #b91c1c;
+    }
+
+    .po-chief-browse {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        height: 1.85rem;
+        padding: 0 0.55rem;
+        border: 1px solid #94a3b8;
+        background: #fff;
+        color: #1e3a8a;
+        font-size: 13px;
+        cursor: pointer;
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .po-expand-panel .so-items-wrap {
+        border-radius: 0;
+        border-bottom: 0;
+    }
+
+    .po-expand-panel .so-footer {
+        border-radius: 0;
+        border-top: 0;
+        margin-top: 0;
+        padding: 0.35rem 0.55rem;
+        max-height: none;
+    }
+
+    .po-form .so-totals-row {
+        padding: 0.08rem 0;
     }
 
     .po-totals-card {
@@ -7057,6 +7321,11 @@
 
         .entity-form {
             width: 100%;
+        }
+
+        .entity-form .po-expand-panel {
+            min-height: 0;
+            height: auto;
         }
     }
 

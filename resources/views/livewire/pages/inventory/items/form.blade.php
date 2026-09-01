@@ -1341,7 +1341,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             @error('item_code') <p class="so-field-error mb-2" role="alert">{{ $message }}</p> @enderror
 
-            @if ($activeTab === 'general')
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'general'])>
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card">
                         <div class="inv-card-title">Item identity</div>
@@ -1525,7 +1525,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                 </div>
 
-            @elseif ($activeTab === 'inventory')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'inventory'])>
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card">
                         <div class="inv-card-title">Units</div>
@@ -1611,7 +1612,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Quantities update from receiving, sales, and stock counts (read-only here).</p>
                 </div>
 
-            @elseif ($activeTab === 'pricing')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'pricing'])>
                 <div class="item-price-summary">
                     <div class="item-price-stat">
                         <span>List Price</span>
@@ -1761,7 +1763,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Default U of M comes from Inventory. Add rows per Price Level (e.g. Wholesale) so Sales Orders and Price Lists use the customer’s level.</p>
                 </div>
 
-            @elseif ($activeTab === 'extended')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'extended'])>
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card" style="grid-column: span 2">
                         <div class="inv-card-title">Descriptions</div>
@@ -1780,7 +1783,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                 </div>
 
-            @elseif ($activeTab === 'suppliers')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'suppliers'])>
                 <div class="entity-section" style="margin-top:0">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Item Suppliers</h3>
@@ -1838,7 +1842,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Set one default supplier. Lead time and costs update from purchasing.</p>
                 </div>
 
-            @elseif ($activeTab === 'substitutes')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'substitutes'])>
                 <div class="entity-section" style="margin-top:0">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Substitutes</h3>
@@ -1892,7 +1897,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Suggested replacements when this item is out of stock.</p>
                 </div>
 
-            @elseif ($activeTab === 'batches')
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'batches'])>
                 <div class="entity-section" style="margin-top:0">
                     <div class="entity-section-head" style="flex-wrap:wrap;gap:0.5rem">
                         <h3 class="entity-section-title">Item Batches</h3>
@@ -1985,8 +1991,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     </div>
                     <p class="item-hint">Lot/serial batches for this item. Shown on Sales Order → Item Batch details.</p>
                 </div>
-
-            @else
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'options'])>
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card">
                         <div class="inv-card-title">Flags</div>
@@ -2095,7 +2101,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                         </div>
                     </div>
                 </div>
-            @endif
+            </div>
         </div>
         </fieldset>
 

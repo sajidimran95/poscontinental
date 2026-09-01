@@ -582,15 +582,17 @@
                     this.selected = this.checked.length === 1 ? this.checked[0] : 0;
                 },
                 pickRow(id) {
-                    $wire.pickBrowseItem(Number(id));
+                    $wire.pickBrowseItem(Number(id), true);
                 },
                 insertChecked() {
-                    $wire.insertBrowseChecked(this.checked);
+                    const ids = [...this.checked];
+                    this.clearChecked();
+                    $wire.insertBrowseChecked(ids).then(() => this.clearChecked());
                 },
                 insertSelected() {
                     const id = this.checked.length === 1 ? this.checked[0] : this.selected;
                     if (!id) return;
-                    $wire.pickBrowseItem(Number(id));
+                    $wire.pickBrowseItem(Number(id), true);
                 },
                 editSelected() {
                     if (this.checked.length !== 1) return;
@@ -603,6 +605,12 @@
                 clearChecked() {
                     this.checked = [];
                     this.selected = 0;
+                    this.$el.querySelectorAll('.so-item-browse-table input[type="checkbox"]').forEach((el) => {
+                        el.checked = false;
+                    });
+                    this.$el.querySelectorAll('.so-item-browse-table tr.is-checked').forEach((el) => {
+                        el.classList.remove('is-checked');
+                    });
                 },
                 actionOpen: false,
                 start(e) {
@@ -630,6 +638,8 @@
             :style="x === null ? {} : { left: x + 'px', top: y + 'px', right: 'auto' }"
             @mousemove.window="move($event)"
             @mouseup.window="stop()"
+            @browse-checks-cleared.window="clearChecked()"
+            wire:key="browse-dock-checks-{{ $browseChecksVersion ?? 0 }}"
         >
             <div class="desk-modal-head" @mousedown="start($event)">
                     <span id="item-browse-title">Browse Items</span>
@@ -723,7 +733,7 @@
                             }
                         "
                     >
-                        <table class="so-item-browse-table">
+                        <table class="so-item-browse-table" data-excel-grid>
                             <colgroup>
                                 <col style="width:2.1rem" />
                                 <col style="width:7.25rem" />
@@ -809,8 +819,13 @@
                                                 aria-label="Check item {{ $bi['item_code'] }}"
                                             />
                                         </td>
-                                        <td class="font-mono">{{ $bi['item_code'] }}</td>
-                                        <td class="col-desc-cell" title="{{ $bi['description'] }}">{{ $bi['description'] }}</td>
+                                        <td class="font-mono" data-excel-value="{{ $bi['item_code'] }}">{{ $bi['item_code'] }}</td>
+                                        <td class="col-desc-cell" x-data="{ expanded: false }">
+                                            <button type="button" class="so-browse-desc-toggle text-left w-full" @click.stop="expanded = !expanded">
+                                                <span x-show="!expanded">{{ \Illuminate\Support\Str::limit((string) ($bi['description'] ?? ''), 48) }}</span>
+                                                <span x-show="expanded" x-cloak>{{ $bi['description'] }}</span>
+                                            </button>
+                                        </td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
                                         <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>
                                         <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
@@ -851,6 +866,12 @@
                             $sideCanAdd = $sideCheckedCount >= 1 || $sideCanSingle;
                             $sideHasRows = count($browseRows) > 0;
                         @endphp
+                        <button type="button" class="so-browse-tool-btn" title="Export list to Excel" aria-label="Export to Excel" wire:click="exportBrowseToExcel">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
+                                <path d="M5 8h6M8 5v6"/>
+                            </svg>
+                        </button>
                         <button type="button" class="so-browse-tool-btn" title="Clear filters" aria-label="Clear filters" wire:click="clearBrowseFilters">
                             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                                 <path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5L2 3z"/>

@@ -248,6 +248,13 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->resetPage();
     }
 
+    protected function purchaseOrderRoute(PurchaseOrder $order): string
+    {
+        return in_array($order->status, ['New', 'Partially Received'], true)
+            ? route('purchasing.orders.edit', $order)
+            : route('purchasing.orders.show', $order);
+    }
+
     public function viewSelected(): mixed
     {
         if (! $this->selectedId) {
@@ -266,7 +273,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             return null;
         }
 
-        return $this->redirect(route('purchasing.orders.show', $order), navigate: true);
+        return $this->redirect($this->purchaseOrderRoute($order), navigate: true);
     }
 
     public function editSelected(): mixed
@@ -304,7 +311,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('purchasing.orders.show', $order), navigate: true);
+        return $this->redirect($this->purchaseOrderRoute($order), navigate: true);
     }
 
     public function deleteSelected(): void
@@ -537,7 +544,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('purchasing.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->po_number }}</a>
+                                        <a href="{{ in_array($order->status, ['New', 'Partially Received'], true) ? route('purchasing.orders.edit', $order) : route('purchasing.orders.show', $order) }}" wire:navigate wire:click.stop>{{ $order->po_number }}</a>
                                     </td>
                                     <td>{{ optional($order->requisition_date)?->format('n/j/Y') }}</td>
                                     <td class="text-center">

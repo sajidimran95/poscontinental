@@ -4,6 +4,7 @@ use App\Models\BulkPriceChangeLog;
 use App\Models\Category;
 use App\Models\Department;
 use App\Models\Item;
+use App\Models\ItemPrice;
 use App\Models\ItemType;
 use App\Models\Subcategory;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,9 +31,11 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
 
     public bool $apply_list_price = true;
 
-    public bool $apply_standard_cost = false;
+    public bool $apply_standard_cost = true;
 
     public bool $apply_current_cost = false;
+
+    public bool $apply_uom_prices = true;
 
     public string $adjustment_type = 'percent';
 
@@ -62,6 +65,16 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
         $preview = $items->map(function (Item $item) use ($targets, $value, $selectedSet) {
             $fields = [];
             foreach ($targets as $field) {
+                if ($field === 'uom_prices') {
+                    $before = (float) $item->list_price;
+                    $after = $this->computeAfter($before, $this->adjustment_type, $value);
+                    $fields[$field] = [
+                        'before' => $before,
+                        'after' => $after,
+                        'delta' => $after - $before,
+                    ];
+                    continue;
+                }
                 $before = (float) $item->{$field};
                 $after = $this->computeAfter($before, $this->adjustment_type, $value);
                 $fields[$field] = [
@@ -145,6 +158,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                 'list_price' => 'List Price',
                 'standard_cost' => 'Standard Cost',
                 'current_cost' => 'Current Cost',
+                'uom_prices' => 'Standard / UOM prices',
             ],
         ];
     }
@@ -199,6 +213,9 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
         }
         if ($this->apply_current_cost) {
             $targets[] = 'current_cost';
+        }
+        if ($this->apply_uom_prices) {
+            $targets[] = 'uom_prices';
         }
 
         return $targets;
@@ -364,6 +381,9 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                         ];
 
                         foreach ($targets as $field) {
+                            if ($field === 'uom_prices') {
+                                continue;
+                            }
                             $before = (float) $item->{$field};
                             $after = $this->computeAfter($before, $type, $value);
                             $updates[$field] = $after;
@@ -371,7 +391,21 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                             $audit[$field.'_after'] = $after;
                         }
 
-                        $item->update($updates);
+                        if ($updates !== []) {
+                            $item->update($updates);
+                        }
+
+                        if (in_array('uom_prices', $targets, true)) {
+                            ItemPrice::query()
+                                ->where('item_id', $item->id)
+                                ->get()
+                                ->each(function (ItemPrice $priceRow) use ($type, $value) {
+                                    $priceRow->update([
+                                        'price' => $this->computeAfter((float) $priceRow->price, $type, $value),
+                                    ]);
+                                });
+                        }
+
                         $log->items()->create($audit);
                         $affected++;
                     }
@@ -527,6 +561,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                     <div class="bp-target-checks">
                         <label class="entity-check"><input type="checkbox" wire:model.live="apply_list_price" /> List Price</label>
                         <label class="entity-check"><input type="checkbox" wire:model.live="apply_standard_cost" /> Standard Cost</label>
+                        <label class="entity-check"><input type="checkbox" wire:model.live="apply_uom_prices" /> Standard / UOM prices</label>
                         <label class="entity-check"><input type="checkbox" wire:model.live="apply_current_cost" /> Current Cost</label>
                     </div>
                 </div>

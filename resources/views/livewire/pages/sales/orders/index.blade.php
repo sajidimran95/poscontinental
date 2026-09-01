@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\SalesOrder;
 use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
+use App\Support\ExcelCsv;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -220,7 +221,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        return $this->redirect(route('sales.orders.show', $order), navigate: true);
+        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
     }
 
     public function editSelected(): mixed
@@ -594,10 +595,44 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->invoiceOrder($this->selectedId);
     }
 
-    public function exportOrders(): void
+    public function exportOrders(): mixed
     {
-        $this->printSelected();
-        session()->flash('status', 'Use Print for a copy of the selected order. Export uses the same print output.');
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an order first.');
+
+            return null;
+        }
+
+        $order = SalesOrder::query()
+            ->with('lines')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $order) {
+            session()->flash('status', 'Order not found.');
+
+            return null;
+        }
+
+        $export = [];
+        foreach ($order->lines as $line) {
+            $qty = (float) $line->qty_ordered;
+            $price = (float) $line->price;
+            $disc = (float) ($line->discount ?? ($qty * (float) $line->unit_discount));
+            $export[] = [
+                $line->item_code,
+                $line->description,
+                $line->uom,
+                $qty,
+                $price,
+                $disc,
+                round(($qty * $price) - $disc, 2),
+            ];
+        }
+
+        $filename = 'order-'.preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $order->order_number).'-lines.csv';
+
+        return ExcelCsv::download($filename, ['Item Code', 'Description', 'UOM', 'Qty Ordered', 'Price', 'Discount', 'Line Total'], $export);
     }
 
     public function closeDesk(): mixed
@@ -747,7 +782,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         />
                                     </td>
                                     <td class="desk-num">
-                                        <a href="{{ route('sales.orders.show', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+                                        <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
                                     </td>
                                     <td class="desk-num">
                                         @if ($rowInvoice)
@@ -822,7 +857,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">
-                                    <a href="{{ route('sales.orders.show', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
                                     <span @class([
                                         'desk-pill',
                                         'desk-pill-new' => $order->status === 'New',

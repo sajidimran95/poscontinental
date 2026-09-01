@@ -254,7 +254,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->openDocumentItemBrowse($lineIndex, $search);
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
     {
         if ($this->status === 'Processed') {
             return;

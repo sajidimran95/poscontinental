@@ -12,6 +12,7 @@ use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -94,6 +95,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public array $browseCheckedIds = [];
 
+    public int $browseChecksVersion = 0;
+
     public string $lineWarning = '';
 
     public string $lineWarningKind = 'error';
@@ -107,6 +110,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     /** Entry bar armed for Scan / barcode gun. */
     public bool $scanModeActive = false;
 
+    public string $lastScanClaimCode = '';
+
+    public int $lastScanClaimAt = 0;
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_received:string,unit_cost:string}> */
     public array $lines = [];
 
@@ -114,11 +121,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function mount(?PurchaseOrder $purchaseOrder = null): void
     {
-        $this->viewMode = request()->routeIs('purchasing.orders.show');
         $companyId = auth()->user()->company_id;
 
         if ($purchaseOrder?->exists) {
             abort_unless($purchaseOrder->company_id === $companyId, 403);
+
+            if ($purchaseOrder->status === 'Received' && request()->routeIs('purchasing.orders.edit')) {
+                $this->redirect(route('purchasing.orders.show', $purchaseOrder), navigate: true);
+
+                return;
+            }
+
+            $this->viewMode = request()->routeIs('purchasing.orders.show')
+                || $purchaseOrder->status === 'Received';
             $this->purchaseOrder = $purchaseOrder->load('lines');
             $this->po_number = (string) ($purchaseOrder->po_number ?? '');
             $this->order_type = (string) ($purchaseOrder->order_type ?: 'Standard');
@@ -142,11 +157,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'item_code' => $l->item_code ?? '',
                 'description' => $l->description ?? '',
                 'uom' => $l->uom ?? '',
-                'qty_ordered' => $this->formatTwoDecimals($l->qty_ordered),
-                'qty_received' => $this->formatTwoDecimals($l->qty_received),
+                'qty_ordered' => $this->formatQty($l->qty_ordered),
+                'qty_received' => $this->formatQty($l->qty_received),
                 'unit_cost' => $this->formatTwoDecimals($l->unit_cost),
+                'list_price' => $this->formatTwoDecimals($l->unit_cost),
             ])->all();
         } else {
+            $this->viewMode = false;
             $this->po_number = PurchaseOrder::nextNumber($companyId);
             $this->requisition_date = now()->toDateString();
             $this->buyer_id = auth()->id();
@@ -168,6 +185,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             'qty_ordered' => '',
             'qty_received' => '',
             'unit_cost' => '',
+            'list_price' => '',
         ];
     }
 
@@ -185,11 +203,69 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     /** Always 2 decimal places (1.00, 25.61) — never 1.0000. */
     protected function formatTwoDecimals(mixed $value): string
     {
+        if (is_string($value)) {
+            $trim = trim(str_replace(',', '', $value));
+            if ($trim === '') {
+                return '';
+            }
+            if (preg_match('/^-?\d+\.$/', $trim)) {
+                return $trim;
+            }
+        }
         if ($value === null || $value === '' || ! is_numeric($value)) {
             return '';
         }
 
         return number_format(round((float) $value, 2), 2, '.', '');
+    }
+
+    public function exportLinesToExcel(): mixed
+    {
+        $rows = collect($this->lines)->filter(fn ($line) => filled($line['item_code'] ?? null));
+        if ($rows->isEmpty()) {
+            $this->lookupMessage = 'Add at least one item before exporting.';
+
+            return null;
+        }
+
+        $export = $rows->map(function ($line) {
+            $qty = (float) ($line['qty_ordered'] ?? 0);
+            $cost = (float) ($line['unit_cost'] ?? 0);
+
+            return [
+                $line['item_code'] ?? '',
+                $line['description'] ?? '',
+                $line['uom'] ?? '',
+                $qty,
+                $cost,
+                round($qty * $cost, 2),
+            ];
+        })->all();
+
+        $filename = 'po-'.preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $this->po_number).'-lines.csv';
+
+        return ExcelCsv::download($filename, ['Item Code', 'Description', 'UOM', 'Qty Ordered', 'Cost', 'Extended Cost'], $export);
+    }
+
+    public function exportBrowseToExcel(): mixed
+    {
+        $rows = collect($this->browseRows);
+        if ($rows->isEmpty()) {
+            $this->lookupMessage = 'No browse items to export.';
+
+            return null;
+        }
+
+        $export = $rows->map(fn ($row) => [
+            $row['item_code'] ?? '',
+            $row['description'] ?? '',
+            $row['unit_of_measure'] ?? '',
+            $row['list_price'] ?? '',
+            $row['available'] ?? '',
+            $row['on_hand'] ?? '',
+        ])->all();
+
+        return ExcelCsv::download('browse-items.csv', ['Item Code', 'Description', 'UOM', 'Price', 'Available', 'On Hand'], $export);
     }
 
     public function updatedLines($value, string $key): void
@@ -201,7 +277,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if (! isset($this->lines[$i])) {
             return;
         }
-        $this->lines[$i][$m[2]] = $this->formatTwoDecimals($this->lines[$i][$m[2]]);
+        $raw = trim((string) ($this->lines[$i][$m[2]] ?? ''));
+        if ($raw === '' || str_ends_with($raw, '.')) {
+            return;
+        }
+        $this->lines[$i][$m[2]] = $m[2] === 'unit_cost'
+            ? $this->formatTwoDecimals($raw)
+            : $this->formatQty($raw);
     }
 
     /** Persist empty amount fields as 0. */
@@ -311,7 +393,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->closeBrowse();
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
     {
         abort_if($this->viewMode, 403);
 
@@ -328,9 +410,18 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->browseSelectedId = $itemId;
         $this->lineWarning = '';
         $this->lookupMessage = '';
-        $this->closeBrowse();
-        $this->applyItemToOrder($item);
-        $this->clearAndFocusEntry();
+        if ($keepBrowseOpen) {
+            $this->applyItemToOrder($item);
+            $this->browseCheckedIds = [];
+            $this->browseSelectedId = null;
+            $this->dispatch('browse-checks-cleared');
+            $this->resetBrowseAndLoadFirstPage();
+            $this->focusBrowseSearch();
+        } else {
+            $this->closeBrowse();
+            $this->applyItemToOrder($item);
+            $this->clearAndFocusEntry();
+        }
     }
 
     protected const BROWSE_PAGE_SIZE = 80;
@@ -476,11 +567,15 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
             return;
         }
-        $this->pickBrowseItem($id);
+        $this->pickBrowseItem($id, true);
     }
 
-    public function insertBrowseChecked(): void
+    public function insertBrowseChecked($ids = null): void
     {
+        if (is_array($ids) && $ids !== []) {
+            $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
+        }
+
         $ids = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
         if ($ids === []) {
             $this->insertBrowseSelected();
@@ -489,10 +584,23 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         foreach ($ids as $itemId) {
-            $this->pickBrowseItem($itemId);
+            $item = Item::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->where('is_inactive', false)
+                ->where('can_order', true)
+                ->find($itemId);
+            if ($item) {
+                $this->applyItemToOrder($item);
+            }
         }
+
         $this->browseCheckedIds = [];
         $this->browseSelectedId = null;
+        $this->browseChecksVersion++;
+        $this->dispatch('browse-checks-cleared');
+        $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
+        $this->resetBrowseAndLoadFirstPage();
+        $this->focusBrowseSearch();
     }
 
     public function openBrowseNewItem(): void
@@ -650,7 +758,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function addLine(): void
     {
+        abort_if($this->viewMode, 403);
         $this->lines[] = $this->emptyLine();
+    }
+
+    public function removeSelectedLine(): void
+    {
+        if ($this->selectedLineIndex === null) {
+            return;
+        }
+        $this->removeLine($this->selectedLineIndex);
     }
 
     public function removeLine(int $index): void
@@ -683,7 +800,27 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     protected function formatQty(mixed $value): string
     {
-        return $this->formatTwoDecimals($value);
+        if (is_string($value)) {
+            $trim = trim(str_replace(',', '', $value));
+            if ($trim === '') {
+                return '';
+            }
+            if (preg_match('/^-?\d+\.$/', $trim)) {
+                return $trim;
+            }
+        }
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return '';
+        }
+
+        $n = round((float) $value, 4);
+        if (abs($n) < 0.0000001) {
+            return '';
+        }
+
+        $formatted = number_format($n, 4, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
     }
 
     /**
@@ -692,6 +829,27 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     protected function findPurchaseItem(string $code): ?Item
     {
         return Item::findByScanCode((int) auth()->user()->company_id, $code, 'order');
+    }
+
+    /**
+     * Block Enter + auto-add from counting as two scans of the same code.
+     */
+    protected function claimScanAdd(string $code): bool
+    {
+        $norm = mb_strtolower(trim($code));
+        if ($norm === '') {
+            return false;
+        }
+
+        $now = (int) floor(microtime(true) * 1000);
+        if ($this->lastScanClaimCode === $norm && ($now - $this->lastScanClaimAt) < 400) {
+            return false;
+        }
+
+        $this->lastScanClaimCode = $norm;
+        $this->lastScanClaimAt = $now;
+
+        return true;
     }
 
     /**
@@ -707,7 +865,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $item = $this->findPurchaseItem($code);
-        if (! $item || $this->codeIsPrefixOfLongerOrderableCode($code)) {
+        if (! $item) {
+            return;
+        }
+
+        if (! $this->claimScanAdd($code)) {
             return;
         }
 
@@ -730,6 +892,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->itemLookup = $code;
 
         if ($code === '') {
+            $this->clearAndFocusEntry();
+
+            return;
+        }
+
+        if (! $this->claimScanAdd($code)) {
+            $this->itemLookup = '';
             $this->clearAndFocusEntry();
 
             return;
@@ -930,6 +1099,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ? (string) $item->unit_of_measure
             : 'EA';
         $lines[$index]['unit_cost'] = $this->formatTwoDecimals($cost !== null && $cost !== '' ? $cost : 0);
+        $lines[$index]['list_price'] = $this->formatTwoDecimals($item->list_price ?? $cost ?? 0);
         if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
             $lines[$index]['qty_ordered'] = $this->formatQty(1);
         }
@@ -1068,7 +1238,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
     }
 
-    public function save(): void
+    public function save(): mixed
     {
         abort_if($this->viewMode, 403);
 
@@ -1096,7 +1266,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->addError('lines', 'Add at least one line item with an item code and quantity.');
             $this->activeTab = 'items';
 
-            return;
+            return null;
         }
 
         $nullableId = static fn ($v) => filled($v) ? (int) $v : null;
@@ -1142,7 +1312,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 ->all();
         }
 
-        DB::transaction(function () use ($data) {
+        $po = null;
+        DB::transaction(function () use ($data, &$po) {
             if ($this->purchaseOrder) {
                 $this->purchaseOrder->update($data);
                 $po = $this->purchaseOrder->fresh();
@@ -1181,7 +1352,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $itemIds = array_values(array_unique(array_merge($itemIds, $previousPoItemIds)));
         app(InventoryService::class)->syncOnOrderQty($itemIds);
 
-        $this->redirect(route('purchasing.orders.index'), navigate: true);
+        session()->flash('status', 'Purchase order saved.');
+
+        return $this->redirect(route('purchasing.orders.edit', $po), navigate: true);
     }
 
     public function cancelAction(): mixed
@@ -1245,8 +1418,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 }; ?>
 
-<div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+<div class="desk-page entity-page po-page">
+    <form wire:submit="save" class="desk-main entity-form item-form po-form" @class(['item-form-readonly' => $viewMode])>
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'">
             <x-slot:menu>
                 <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
@@ -1261,25 +1434,33 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         <div class="entity-body">
             <div class="entity-header">
-                <div class="so-form-row so-form-row-pair entity-header-row">
-                    <label class="so-form-lbl so-field-req" for="po_number">PO No.</label>
-                    <div class="so-form-ctl">
-                        <input id="po_number" wire:model="po_number" class="so-input font-mono @error('po_number') is-invalid @enderror" @disabled($purchaseOrder) />
-                        @error('po_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
-                    </div>
-                    <span class="so-form-lbl">Status</span>
-                    <span @class([
-                        'desk-pill',
-                        'desk-pill-new' => in_array($status, ['New', 'Partially Received'], true),
-                        'desk-pill-invoiced' => $status === 'Received',
-                        'desk-pill-muted' => ! in_array($status, ['New', 'Partially Received', 'Received'], true),
-                    ])>{{ $status }}</span>
-                </div>
-                @error('lines')
-                    <div class="mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div>
-                @enderror
                 @if ($activeTab === 'items')
-                    <div class="entity-balance">Total: <strong>${{ number_format($orderTotal, 2) }}</strong></div>
+                    <div class="po-items-head">
+                        <label class="so-form-lbl" for="po_number_items">Purchase Order No</label>
+                        <input id="po_number_items" wire:model="po_number" class="so-input font-mono po-head-po" @disabled($purchaseOrder) />
+                        <label class="so-form-lbl" for="supplier_id_items">Supplier ID</label>
+                        <select id="supplier_id_items" wire:model.live="supplier_id" class="so-input po-head-supplier">
+                            <option value="">—</option>
+                            @foreach ($suppliers as $sup)
+                                <option value="{{ $sup->id }}">{{ $sup->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @else
+                    <div class="so-form-row so-form-row-pair entity-header-row">
+                        <label class="so-form-lbl so-field-req" for="po_number">PO No.</label>
+                        <div class="so-form-ctl">
+                            <input id="po_number" wire:model="po_number" class="so-input font-mono @error('po_number') is-invalid @enderror" @disabled($purchaseOrder) />
+                            @error('po_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                        </div>
+                        <span class="so-form-lbl">Status</span>
+                        <span @class([
+                            'desk-pill',
+                            'desk-pill-new' => in_array($status, ['New', 'Partially Received'], true),
+                            'desk-pill-invoiced' => $status === 'Received',
+                            'desk-pill-muted' => ! in_array($status, ['New', 'Partially Received', 'Received'], true),
+                        ])>{{ $status }}</span>
+                    </div>
                 @endif
             </div>
 
@@ -1429,140 +1610,31 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 </div>
 
             @else
-                <div class="item-price-summary" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 36rem;">
-                    <div class="item-price-stat">
-                        <span>Items Ordered</span>
-                        <strong>{{ number_format($totalItemsOrdered, 2) }}</strong>
-                    </div>
-                    <div class="item-price-stat">
-                        <span>Items Received</span>
-                        <strong>{{ number_format($totalItemsReceived, 2) }}</strong>
-                    </div>
-                    <div class="item-price-stat">
-                        <span>Order Total</span>
-                        <strong>${{ number_format($orderTotal, 2) }}</strong>
-                    </div>
-                </div>
-
-                <div class="entity-section" style="margin-top:0">
-                    <div class="entity-section-head">
-                        <h3 class="entity-section-title">Order Lines</h3>
-                        <div class="flex gap-2">
-                            <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm" @disabled($viewMode)>Browse Items</button>
-                            <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm" @disabled($viewMode)>Add Line</button>
-                        </div>
-                    </div>
-
-                    @unless ($viewMode)
-                        <div class="so-entry po-order-entry" style="padding:0.65rem 0.75rem 0.5rem;border-bottom:1px solid #e2e8f0">
-                            <span class="so-entry-label">Add item — scan or type code</span>
-                            <div class="so-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive]) style="max-width:28rem;min-width:16rem;height:2.15rem">
-                                <button
-                                    type="button"
-                                    wire:click="focusScanAndAdd"
-                                    class="so-scan-btn"
-                                    title="Scan: click to focus, or add the code already in the box"
-                                >
-                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                    </svg>
-                                    <span>Scan</span>
-                                </button>
-                                <input
-                                    id="po-item-entry"
-                                    type="text"
-                                    class="so-input so-entry-input font-mono"
-                                    placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
-                                    autocomplete="off"
-                                    x-data="{
-                                        timer: null,
-                                        lastKeyAt: 0,
-                                        rapid: false,
-                                        scheduleAuto() {
-                                            clearTimeout(this.timer);
-                                            const scanOn = !!$wire.scanModeActive;
-                                            if (!scanOn && !this.rapid) return;
-                                            const delay = this.rapid ? 100 : 750;
-                                            this.timer = setTimeout(() => {
-                                                const v = ($el.value || '').trim();
-                                                if (v.length < 2) { this.rapid = false; return; }
-                                                $wire.autoAddEntryIfExactMatch(v);
-                                                this.rapid = false;
-                                            }, delay);
-                                        },
-                                        onKey(e) {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                clearTimeout(this.timer);
-                                                $wire.addItemFromEntry(($el.value || '').trim());
-                                                this.rapid = false;
-                                                return;
-                                            }
-                                            if (e.key === 'F2') {
-                                                e.preventDefault();
-                                                clearTimeout(this.timer);
-                                                $wire.openItemBrowse();
-                                                return;
-                                            }
-                                            const now = Date.now();
-                                            if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
-                                            this.lastKeyAt = now;
-                                        }
-                                    }"
-                                    x-on:keydown="onKey($event)"
-                                    x-on:input="scheduleAuto()"
-                                    x-on:paste.prevent="
-                                        clearTimeout(timer);
-                                        const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
-                                        $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                        rapid = false;
-                                        if (($el.value || '').trim().length >= 2) {
-                                            $wire.addItemFromEntry($el.value);
-                                        }
-                                    "
-                                />
-                                <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">
-                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('po-item-entry')?.value || '')"
-                                    class="so-icon-btn so-entry-add-btn"
-                                    title="Add item (✓)"
-                                    aria-label="Add item"
-                                >
-                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                                </button>
-                            </div>
-                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)" style="margin-left:0.5rem">Browse (F2)</button>
-                        </div>
-                    @endunless
-
-                    @if ($lookupMessage)
-                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
-                    @endif
-                    <div class="desk-grid item-lines-wrap" wire:key="po-lines-wrap-{{ $linesSig }}">
-                        <table class="desk-table item-lines-table po-lines-table">
+                <div class="so-expand-panel po-expand-panel">
+                <div class="so-expand-main">
+                <div class="so-items-wrap so-items-wrap-tall">
+                    <div class="so-items-grid" wire:key="po-lines-wrap-{{ $linesSig }}">
+                        <table class="so-lines-table po-lines-table" data-excel-grid>
                             <colgroup>
                                 <col class="col-code" />
                                 <col class="col-desc" />
                                 <col class="col-uom" />
-                                <col class="col-qty" />
-                                <col class="col-qty" />
+                                <col class="col-price" />
+                                <col class="col-qty-ord" />
+                                <col class="col-qty-rcv" />
                                 <col class="col-cost" />
                                 <col class="col-ext" />
-                                <col class="col-action" />
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Item Code</th>
-                                    <th>Description</th>
-                                    <th class="text-center">UOM</th>
-                                    <th class="text-center">Qty Ordered</th>
-                                    <th class="text-center">Qty Received</th>
-                                    <th class="text-center">Cost</th>
-                                    <th class="text-center">Extended</th>
-                                    <th></th>
+                                    <th class="col-code">Item Code</th>
+                                    <th class="col-desc">Description</th>
+                                    <th class="col-uom text-center">U of M</th>
+                                    <th class="col-price text-center">Price</th>
+                                    <th class="col-qty-ord text-center">Qty Ordered</th>
+                                    <th class="col-qty-rcv text-center">Qty Received</th>
+                                    <th class="col-cost text-center">Cost</th>
+                                    <th class="col-ext text-center">Extended Cost</th>
                                 </tr>
                             </thead>
                             <tbody wire:key="po-lines-body-{{ $linesSig }}">
@@ -1577,10 +1649,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             @class(['is-selected' => $selectedLineIndex === $i])
                                             wire:click="$set('selectedLineIndex', {{ $i }})"
                                         >
-                                            <td class="font-mono desk-num" title="{{ $line['item_code'] ?? '' }}">
+                                            <td class="col-code font-mono desk-num" data-excel-value="{{ $line['item_code'] ?? '' }}" title="{{ $line['item_code'] ?? '' }}">
                                                 {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
                                             </td>
-                                            <td>
+                                            <td class="col-desc">
                                                 <input
                                                     wire:model="lines.{{ $i }}.description"
                                                     wire:click.stop
@@ -1588,7 +1660,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     @disabled($viewMode)
                                                 />
                                             </td>
-                                            <td class="text-center">
+                                            <td class="col-uom text-center">
                                                 @if ($viewMode)
                                                     <span class="font-mono">{{ $line['uom'] ?: '—' }}</span>
                                                 @else
@@ -1613,27 +1685,34 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     @endif
                                                 @endif
                                             </td>
-                                            <td class="text-center col-qty">
+                                            <td class="col-price desk-money">
+                                                {{ (float) ($line['list_price'] ?? $line['unit_cost'] ?? 0) != 0.0 ? number_format((float) ($line['list_price'] ?? $line['unit_cost'] ?? 0), 2) : '' }}
+                                            </td>
+                                            <td class="col-qty-ord text-center">
                                                 @php $qty = (float) ($line['qty_ordered'] ?? 0); @endphp
                                                 @if ($selectedLineIndex === $i && ! $viewMode)
                                                     <div class="so-qty-stepper" wire:click.stop>
                                                         <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
                                                         <input
-                                                            wire:model.live="lines.{{ $i }}.qty_ordered"
+                                                            type="text"
+                                                            wire:model.blur="lines.{{ $i }}.qty_ordered"
                                                             wire:keydown.up.prevent="adjustLineQty({{ $i }}, 1)"
                                                             wire:keydown.down.prevent="adjustLineQty({{ $i }}, -1)"
+                                                            wire:keydown.enter.prevent="$wire.set('selectedLineIndex', {{ $i + 1 }}); $nextTick(() => document.querySelector('#po-line-row-{{ $i + 1 }} .so-cell-input')?.focus())"
                                                             class="so-cell-input text-right"
                                                             placeholder="0"
                                                             size="4"
+                                                            step="0.01"
+                                                            inputmode="decimal"
                                                             aria-label="Qty ordered"
                                                         />
                                                         <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
                                                     </div>
                                                 @else
-                                                    {{ $qty != 0.0 ? number_format($qty, 2) : '' }}
+                                                    {{ $qty != 0.0 ? $this->formatQty($qty) : '' }}
                                                 @endif
                                             </td>
-                                            <td class="text-center">
+                                            <td class="col-qty-rcv text-center">
                                                 <input
                                                     wire:model="lines.{{ $i }}.qty_received"
                                                     class="so-input text-right item-cell-qty so-input-ro"
@@ -1641,7 +1720,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     placeholder="0"
                                                 />
                                             </td>
-                                            <td class="text-center">
+                                            <td class="col-cost text-center">
                                                 <input
                                                     wire:model.blur="lines.{{ $i }}.unit_cost"
                                                     wire:click.stop
@@ -1650,13 +1729,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     @disabled($viewMode)
                                                 />
                                             </td>
-                                            <td class="desk-money">
+                                            <td class="col-ext desk-money">
                                                 ${{ number_format((float) ($line['qty_ordered'] ?? 0) * (float) ($line['unit_cost'] ?? 0), 2) }}
-                                            </td>
-                                            <td class="text-center">
-                                                @unless ($viewMode)
-                                                    <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
-                                                @endunless
                                             </td>
                                         </tr>
                                     @endif
@@ -1664,41 +1738,182 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                             </tbody>
                         </table>
                         @if ($filledLineCount === 0)
-                            <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
-                                Scan or type an item code above, or click Browse Items
-                            </div>
+                            <div class="so-items-empty" role="status">Enter item code or click Browse to add items</div>
                         @endif
                     </div>
                 </div>
 
-                <div class="po-totals">
-                    <div class="inv-card po-totals-card">
-                        <div class="inv-card-title">Totals</div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl">Subtotal</label>
-                            <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
+                    <div class="so-entry">
+                        <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
+                        <div
+                            class="so-scan-bar"
+                            role="search"
+                            @class(['is-scan-ready' => $scanModeActive])
+                        >
+                            <button
+                                type="button"
+                                wire:click="focusScanAndAdd"
+                                class="so-scan-btn"
+                                title="Scan: click to focus, or add the code already in the box"
+                                @disabled($viewMode)
+                            >
+                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                </svg>
+                                <span>Scan</span>
+                            </button>
+                            <input
+                                wire:ignore.self
+                                type="text"
+                                class="so-input so-entry-input"
+                                id="po-item-entry"
+                                data-pos-item-entry
+                                placeholder="Scan or type full code — adds when it matches"
+                                autocomplete="off"
+                                inputmode="text"
+                                @disabled($viewMode)
+                                x-data="{
+                                    timer: null,
+                                    lastKeyAt: 0,
+                                    rapid: false,
+                                    lastClaim: '',
+                                    lastClaimAt: 0,
+                                    claim(v) {
+                                        const n = (v || '').trim().toLowerCase();
+                                        if (!n) return false;
+                                        const now = Date.now();
+                                        if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
+                                        this.lastClaim = n;
+                                        this.lastClaimAt = now;
+                                        return true;
+                                    },
+                                    scheduleAuto() {
+                                        clearTimeout(this.timer);
+                                        const delay = this.rapid ? 80 : 400;
+                                        this.timer = setTimeout(() => {
+                                            const v = ($el.value || '').trim();
+                                            if (v.length < 2) { this.rapid = false; return; }
+                                            if (!this.claim(v)) { this.rapid = false; return; }
+                                            $wire.autoAddEntryIfExactMatch(v);
+                                            this.rapid = false;
+                                        }, delay);
+                                    },
+                                    onKey(e) {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            clearTimeout(this.timer);
+                                            const v = ($el.value || '').trim();
+                                            $el.value = '';
+                                            if (v && this.claim(v)) {
+                                                $wire.addItemFromEntry(v);
+                                            }
+                                            this.rapid = false;
+                                            return;
+                                        }
+                                        if (e.key === 'F2') {
+                                            e.preventDefault();
+                                            clearTimeout(this.timer);
+                                            $el.focus();
+                                            $el.select?.();
+                                            return;
+                                        }
+                                        if (e.key === 'F3') {
+                                            e.preventDefault();
+                                            clearTimeout(this.timer);
+                                            $wire.openItemBrowse();
+                                            return;
+                                        }
+                                        const now = Date.now();
+                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
+                                        this.lastKeyAt = now;
+                                    },
+                                    onInput() {
+                                        this.scheduleAuto();
+                                    }
+                                }"
+                                x-on:keydown="onKey($event)"
+                                x-on:input="onInput()"
+                                x-on:paste.prevent="
+                                    clearTimeout(timer);
+                                    const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
+                                    $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
+                                    rapid = false;
+                                    const v = ($el.value || '').trim();
+                                    if (v.length >= 2 && claim(v)) {
+                                        $el.value = '';
+                                        $wire.addItemFromEntry(v);
+                                    }
+                                "
+                            />
+                            @unless ($viewMode)
+                                <button
+                                    type="button"
+                                    wire:click="clearItemLookup"
+                                    class="so-icon-btn"
+                                    title="Clear item code"
+                                    aria-label="Clear item code"
+                                >
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                </button>
+                                <button
+                                    type="button"
+                                    x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('po-item-entry')?.value || '')"
+                                    class="so-icon-btn so-entry-add-btn"
+                                    title="Add item (✓) — use after typing item code"
+                                    aria-label="Add item"
+                                    wire:loading.attr="disabled"
+                                    wire:target="addItemFromEntry,focusScanAndAdd"
+                                >
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                </button>
+                            @endunless
                         </div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="trade_discount">Discount</label>
-                            <input id="trade_discount" wire:model.live="trade_discount" class="so-input text-right sc-date" placeholder="0" />
+                        @unless ($viewMode)
+                            <div class="so-entry-tools">
+                                <button type="button" wire:click="printThisOrder" class="so-icon-btn" title="Print" tabindex="-1" aria-label="Print" @disabled(! $purchaseOrder)>
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
+                                </button>
+                                <button type="button" wire:click="removeSelectedLine" class="so-icon-btn" title="Delete selected line" tabindex="-1" aria-label="Delete line">
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                </button>
+                                <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                                </button>
+                                <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F3)">Browse (F3)</button>
+                                <button type="button" wire:click="exportLinesToExcel" class="so-browse-btn" title="Download Excel, or select rows then Ctrl+C / drag into Excel">Excel</button>
+                            </div>
+                        @endunless
+                    </div>
+                    <div class="so-footer">
+                        <div class="so-counters">
+                            <div class="so-counter-col">
+                                <div>Total items ordered: <strong>{{ $this->formatQty($totalItemsOrdered) ?: '0' }}</strong></div>
+                                <div>Total items received: <strong>{{ $this->formatQty($totalItemsReceived) ?: '0' }}</strong></div>
+                            </div>
                         </div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="freight">Freight</label>
-                            <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" placeholder="0" />
-                        </div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="miscellaneous">Miscellaneous</label>
-                            <input id="miscellaneous" wire:model.live="miscellaneous" class="so-input text-right sc-date" placeholder="0" />
-                        </div>
-                        <div class="so-form-row so-form-row-side sc-field">
-                            <label class="so-form-lbl" for="tax">Tax</label>
-                            <input id="tax" wire:model.live="tax" class="so-input text-right sc-date" placeholder="0" />
-                        </div>
-                        <div class="so-form-row so-form-row-side sc-field po-total-row">
-                            <label class="so-form-lbl">Total</label>
-                            <strong class="entity-value text-right" style="display:block;width:100%;font-size:1.15rem">${{ number_format($orderTotal, 2) }}</strong>
+                        <div class="so-totals">
+                            <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
+                            <div class="so-totals-row">
+                                <span class="so-totals-lbl">Trade Discount:</span>
+                                <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="trade_discount" wire:model.live="trade_discount" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                            </div>
+                            <div class="so-totals-row">
+                                <span class="so-totals-lbl">Freight:</span>
+                                <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="freight" wire:model.live="freight" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                            </div>
+                            <div class="so-totals-row">
+                                <span class="so-totals-lbl">Miscellaneous:</span>
+                                <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="miscellaneous" wire:model.live="miscellaneous" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                            </div>
+                            <div class="so-totals-row">
+                                <span class="so-totals-lbl">Tax:</span>
+                                <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="tax" wire:model.live="tax" class="so-totals-input" placeholder="0" @disabled($viewMode) /></label>
+                            </div>
+                            <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
                         </div>
                     </div>
+                </div>
                 </div>
             @endif
         </div>

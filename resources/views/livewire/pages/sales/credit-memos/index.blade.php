@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
 use App\Livewire\Concerns\PaginatesDeskLists;
@@ -773,7 +773,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->closeDocumentItemBrowse();
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
     {
         if (! $this->showForm) {
             return;

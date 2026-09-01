@@ -605,7 +605,7 @@
                 clearChecked() {
                     this.checked = [];
                     this.selected = 0;
-                    this.$el.querySelectorAll('.so-item-browse-table input[type="checkbox"]').forEach((el) => {
+                    this.$el.querySelectorAll('.so-item-browse-table input[type=checkbox]').forEach((el) => {
                         el.checked = false;
                     });
                     this.$el.querySelectorAll('.so-item-browse-table tr.is-checked').forEach((el) => {

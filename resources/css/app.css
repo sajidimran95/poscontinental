@@ -6800,13 +6800,68 @@
         box-sizing: border-box;
     }
 
-    .rtv-lines-table .col-code { width: 18rem; min-width: 16rem; }
+    .rtv-form.po-form > .rtv-doc-form {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        width: 100%;
+    }
+
+    .rtv-form .so-form-fields {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        min-inline-size: 0;
+    }
+
+    .rtv-form .entity-footer {
+        flex-shrink: 0;
+        position: static;
+        box-shadow: none;
+        padding-top: 0.3rem;
+        padding-bottom: 0.3rem;
+    }
+
+    .rtv-form .rtv-expand-panel {
+        flex: 1 1 auto;
+        min-height: 16rem;
+        width: 100%;
+        max-width: none;
+    }
+
+    .rtv-form .rtv-expand-panel .so-expand-main {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    .po-lines-table.rtv-lines-table col.col-qty,
+    .po-lines-table.rtv-lines-table th.col-qty,
+    .po-lines-table.rtv-lines-table td.col-qty {
+        width: 7.75rem;
+        min-width: 0;
+    }
+
+    .po-lines-table.rtv-lines-table td.col-qty {
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .rtv-lines-table .col-code { width: 7.25rem; min-width: 0; }
     .rtv-lines-table .col-desc { width: auto; }
-    .rtv-lines-table .col-uom { width: 4.5rem; }
-    .rtv-lines-table .col-qty { width: 7rem; }
-    .rtv-lines-table .col-cost { width: 7.25rem; }
-    .rtv-lines-table .col-ext { width: 7.5rem; }
-    .rtv-lines-table .col-action { width: 6.5rem; }
+    .rtv-lines-table .col-uom { width: 4.25rem; }
+    .rtv-lines-table .col-qty { width: 7.75rem; }
+    .rtv-lines-table .col-cost { width: 6.5rem; }
+    .rtv-lines-table .col-ext { width: 7.25rem; }
 
     .sup-contact-table .col-dept { width: 10rem; }
     .sup-contact-table .col-name { width: auto; }

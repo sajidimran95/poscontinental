@@ -78,6 +78,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public bool $scanModeActive = false;
 
+    public ?int $selectedLineIndex = null;
+
     public function with(): array
     {
         $companyId = auth()->user()->company_id;
@@ -168,6 +170,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'canEditSelected' => $this->selectedId && $selectedStatus && $selectedStatus !== 'Returned',
             'linesSig' => $linesSig,
             'filledLineCount' => $filledLineCount,
+            'totalItemsQty' => $this->formatQtyDisplay(collect($this->lines)->sum(fn ($l) => (float) ($l['qty'] ?? 0))),
             'suppliers' => Supplier::query()->where('company_id', $companyId)->where('is_inactive', false)->orderBy('name')->get(),
             'users' => User::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(),
             'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
@@ -470,14 +473,52 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->lines[] = $this->emptyLine();
     }
 
+    public function removeSelectedLine(): void
+    {
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
+        if ($this->selectedLineIndex === null) {
+            return;
+        }
+        $this->removeLine($this->selectedLineIndex);
+    }
+
     public function removeLine(int $i): void
     {
         abort_if($this->viewMode || $this->status === 'Returned', 403);
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
+        if ($this->selectedLineIndex === $i) {
+            $this->selectedLineIndex = null;
+        } elseif ($this->selectedLineIndex !== null && $this->selectedLineIndex > $i) {
+            $this->selectedLineIndex--;
+        }
         if ($this->lines === []) {
             $this->addLine();
         }
+    }
+
+    public function adjustLineQty(int $index, int $delta): void
+    {
+        abort_if($this->viewMode || $this->status === 'Returned', 403);
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+        if (! filled($this->lines[$index]['item_code'] ?? null) && (int) ($this->lines[$index]['item_id'] ?? 0) <= 0) {
+            return;
+        }
+
+        $next = max(0, round((float) ($this->lines[$index]['qty'] ?? 0) + $delta, 2));
+        $this->lines[$index]['qty'] = $this->formatQtyDisplay($next);
+        $this->selectedLineIndex = $index;
+    }
+
+    public function printThisRtv(): void
+    {
+        if (! $this->rtv) {
+            return;
+        }
+
+        $this->dispatch('open-rtv-pdf', url: route('purchasing.rtv.print', $this->rtv));
     }
 
     public function openItemBrowse(?int $lineIndex = null, ?string $search = null): void
@@ -669,6 +710,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     $lines[$i]['uom'] = $this->resolveUomFromReceivingLine($recvLine);
                 }
                 $this->lines = $lines;
+                $this->selectedLineIndex = $i;
 
                 return;
             }
@@ -694,6 +736,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
         $this->lines = $lines;
         $this->fillLineFromReceivingLine($target, $recvLine);
+        $this->selectedLineIndex = $target;
 
         $hasEmpty = collect($this->lines)->contains(
             fn ($l) => ! filled($l['item_code'] ?? null) && empty($l['item_id'])
@@ -1007,7 +1050,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     }
 
     /** Show 10 not 10.0000 (keeps decimals only when needed). */
-    protected function formatQtyDisplay(mixed $value): string
+    public function formatQtyDisplay(mixed $value): string
     {
         if ($value === null || $value === '') {
             return '';
@@ -1053,12 +1096,12 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     }
 }; ?>
 
-<div class="desk-page {{ $showForm ? 'entity-page' : '' }} relative">
+<div class="desk-page {{ $showForm ? 'entity-page po-page' : '' }} relative">
     @unless ($showForm)
         <x-favorite-list :favorites="$favorites" :active="$favorite" />
     @endunless
 
-    <div class="desk-main {{ $showForm ? 'entity-form item-form' : 'desk-main-rail-layout' }}">
+    <div class="desk-main {{ $showForm ? 'entity-form item-form po-form rtv-form' : 'desk-main-rail-layout' }}">
         <x-action-bar :title="$showForm ? ($rtv ? ($viewMode ? 'View RTV '.$rtv_number : 'RTV '.$rtv_number) : 'New RTV') : 'Action'">
             <x-slot:menu>
                 @if ($showForm)
@@ -1079,7 +1122,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         @endif
 
         @if ($showForm)
-            <form wire:submit="save" class="contents">
+            <form wire:submit="save" class="rtv-doc-form">
                 <fieldset class="so-form-fields">
                 <div class="entity-body">
                     <div class="entity-header">
@@ -1183,29 +1226,141 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                         </div>
                     </div>
 
-                    <div class="entity-section">
-                        <div class="entity-section-head">
-                            <h3 class="entity-section-title">Return Lines</h3>
-                            @unless ($isReadonly)
-                                <div class="flex gap-2">
-                                    <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items</button>
-                                    <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
-                                </div>
-                            @endunless
-                        </div>
-                        <p class="item-hint" style="border-bottom:1px solid #e2e8f0">
+                    <div class="so-expand-panel po-expand-panel rtv-expand-panel">
+                        <div class="so-expand-main">
+                        <p class="item-hint" style="border-bottom:1px solid #e2e8f0;margin:0">
                             Select <strong>supplier</strong> and <strong>receiving</strong> first. Scan/type codes from that receipt only.
                         </p>
+                        @if ($lookupMessage)
+                            <div class="desk-flash" style="margin:0" role="status">{{ $lookupMessage }}</div>
+                        @endif
+                        <div class="so-items-wrap so-items-wrap-tall">
+                            <div class="so-items-grid" wire:key="rtv-lines-wrap-{{ $linesSig }}">
+                                <table class="so-lines-table po-lines-table rtv-lines-table" data-excel-grid>
+                                    <colgroup>
+                                        <col class="col-code" />
+                                        <col class="col-desc" />
+                                        <col class="col-uom" />
+                                        <col class="col-qty" />
+                                        <col class="col-cost" />
+                                        <col class="col-ext" />
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th class="col-code">Item Code</th>
+                                            <th class="col-desc">Description</th>
+                                            <th class="col-uom text-center">U of M</th>
+                                            <th class="col-qty text-center">Qty</th>
+                                            <th class="col-cost text-center">Cost</th>
+                                            <th class="col-ext text-center">Extended</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody wire:key="rtv-lines-body-{{ $linesSig }}">
+                                        @foreach ($lines as $i => $line)
+                                            @php
+                                                $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
+                                            @endphp
+                                            @if ($filled)
+                                                <tr
+                                                    wire:key="rtv-line-row-{{ $i }}-{{ $line['item_id'] ?? 0 }}-{{ $line['item_code'] ?? '' }}"
+                                                    id="rtv-line-row-{{ $i }}"
+                                                    @class(['is-selected' => $selectedLineIndex === $i])
+                                                    wire:click="$set('selectedLineIndex', {{ $i }})"
+                                                >
+                                                    <td class="col-code font-mono desk-num" data-excel-value="{{ $line['item_code'] ?? '' }}" title="{{ $line['item_code'] ?? '' }}">
+                                                        {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
+                                                    </td>
+                                                    <td class="col-desc">
+                                                        <input
+                                                            wire:model="lines.{{ $i }}.description"
+                                                            wire:click.stop
+                                                            class="so-input item-cell-ctl po-line-desc-input"
+                                                            @disabled($isReadonly)
+                                                        />
+                                                    </td>
+                                                    <td class="col-uom text-center">
+                                                        @if ($isReadonly)
+                                                            <span class="font-mono">{{ $line['uom'] ?: '—' }}</span>
+                                                        @else
+                                                            @php $uomOpts = $this->uomOptionsForLine($i); @endphp
+                                                            @if (count($uomOpts) <= 1)
+                                                                <span class="font-mono" style="display:inline-block;min-width:2.5rem">
+                                                                    {{ $line['uom'] ?: ($uomOpts[0] ?? 'EA') }}
+                                                                </span>
+                                                            @else
+                                                                <select
+                                                                    wire:model="lines.{{ $i }}.uom"
+                                                                    class="so-input text-center item-cell-ctl"
+                                                                    style="max-width:5.5rem;margin:0 auto"
+                                                                    aria-label="Unit of measure line {{ $i + 1 }}"
+                                                                >
+                                                                    @foreach ($uomOpts as $uomOpt)
+                                                                        <option value="{{ $uomOpt }}">{{ $uomOpt }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            @endif
+                                                        @endif
+                                                    </td>
+                                                    <td class="col-qty text-center">
+                                                        @php $qty = (float) ($line['qty'] ?? 0); @endphp
+                                                        @if ($selectedLineIndex === $i && ! $isReadonly)
+                                                            <div class="so-qty-stepper" wire:click.stop>
+                                                                <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, -1)" aria-label="Decrease qty">−</button>
+                                                                <input
+                                                                    type="text"
+                                                                    wire:model.blur="lines.{{ $i }}.qty"
+                                                                    wire:keydown.up.prevent="adjustLineQty({{ $i }}, 1)"
+                                                                    wire:keydown.down.prevent="adjustLineQty({{ $i }}, -1)"
+                                                                    wire:keydown.enter.prevent="$wire.set('selectedLineIndex', {{ $i + 1 }})"
+                                                                    class="so-cell-input text-right"
+                                                                    placeholder="0"
+                                                                    size="4"
+                                                                    step="0.01"
+                                                                    inputmode="decimal"
+                                                                    aria-label="Qty"
+                                                                />
+                                                                <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
+                                                            </div>
+                                                        @else
+                                                            {{ $qty != 0.0 ? $this->formatQtyDisplay($qty) : '' }}
+                                                        @endif
+                                                    </td>
+                                                    <td class="col-cost text-center">
+                                                        <input
+                                                            wire:model.blur="lines.{{ $i }}.unit_cost"
+                                                            wire:click.stop
+                                                            class="so-input text-right item-cell-qty"
+                                                            placeholder="0"
+                                                            @disabled($isReadonly)
+                                                        />
+                                                    </td>
+                                                    <td class="col-ext desk-money">
+                                                        ${{ number_format((float) ($line['qty'] ?? 0) * (float) ($line['unit_cost'] ?? 0), 2) }}
+                                                    </td>
+                                                </tr>
+                                            @endif
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                                @if ($filledLineCount === 0)
+                                    <div class="so-items-empty" role="status">Enter item code or click Browse to add items</div>
+                                @endif
+                            </div>
+                        </div>
 
                         @unless ($isReadonly)
-                            <div class="so-entry po-order-entry" style="padding:0.65rem 0.75rem 0.5rem;border-bottom:1px solid #e2e8f0">
-                                <span class="so-entry-label">Add item — scan or type code</span>
-                                <div class="so-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive]) style="max-width:28rem;min-width:16rem;height:2.15rem">
+                            <div class="so-entry">
+                                <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
+                                <div
+                                    class="so-scan-bar"
+                                    role="search"
+                                    @class(['is-scan-ready' => $scanModeActive])
+                                >
                                     <button
                                         type="button"
                                         wire:click="focusScanAndAdd"
                                         class="so-scan-btn"
-                                        title="Scan: full code auto-adds when match"
+                                        title="Scan: click to focus, or add the code already in the box"
                                     >
                                         <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
                                             <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
@@ -1213,23 +1368,36 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                         <span>Scan</span>
                                     </button>
                                     <input
-                                        id="rtv-item-entry"
+                                        wire:ignore.self
                                         type="text"
-                                        class="so-input so-entry-input font-mono"
-                                        placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan or type full code then ✓' }}"
+                                        class="so-input so-entry-input"
+                                        id="rtv-item-entry"
+                                        data-pos-item-entry
+                                        placeholder="Scan or type full code — adds when it matches"
                                         autocomplete="off"
+                                        inputmode="text"
                                         x-data="{
                                             timer: null,
                                             lastKeyAt: 0,
                                             rapid: false,
+                                            lastClaim: '',
+                                            lastClaimAt: 0,
+                                            claim(v) {
+                                                const n = (v || '').trim().toLowerCase();
+                                                if (!n) return false;
+                                                const now = Date.now();
+                                                if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
+                                                this.lastClaim = n;
+                                                this.lastClaimAt = now;
+                                                return true;
+                                            },
                                             scheduleAuto() {
                                                 clearTimeout(this.timer);
-                                                const scanOn = !!$wire.scanModeActive;
-                                                if (!scanOn && !this.rapid) return;
                                                 const delay = this.rapid ? 35 : 150;
                                                 this.timer = setTimeout(() => {
                                                     const v = ($el.value || '').trim();
                                                     if (v.length < 2) { this.rapid = false; return; }
+                                                    if (!this.claim(v)) { this.rapid = false; return; }
                                                     $wire.autoAddEntryIfExactMatch(v);
                                                     this.rapid = false;
                                                 }, delay);
@@ -1237,156 +1405,99 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             onKey(e) {
                                                 if (e.key === 'Enter') {
                                                     e.preventDefault();
+                                                    e.stopPropagation();
                                                     clearTimeout(this.timer);
-                                                    $wire.addItemFromEntry(($el.value || '').trim());
+                                                    const v = ($el.value || '').trim();
+                                                    $el.value = '';
+                                                    if (v && this.claim(v)) {
+                                                        $wire.addItemFromEntry(v);
+                                                    }
                                                     this.rapid = false;
                                                     return;
                                                 }
                                                 if (e.key === 'F2') {
                                                     e.preventDefault();
                                                     clearTimeout(this.timer);
+                                                    $el.focus();
+                                                    $el.select?.();
+                                                    return;
+                                                }
+                                                if (e.key === 'F3') {
+                                                    e.preventDefault();
+                                                    clearTimeout(this.timer);
                                                     $wire.openItemBrowse();
                                                     return;
                                                 }
                                                 const now = Date.now();
-                                                if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
+                                                if (this.lastKeyAt && (now - this.lastKeyAt) < 70) this.rapid = true;
                                                 this.lastKeyAt = now;
+                                            },
+                                            onInput() {
+                                                this.scheduleAuto();
                                             }
                                         }"
                                         x-on:keydown="onKey($event)"
-                                        x-on:input="scheduleAuto()"
+                                        x-on:input="onInput()"
                                         x-on:paste.prevent="
                                             clearTimeout(timer);
                                             const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                             $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                             rapid = false;
-                                            if (($el.value || '').trim().length >= 2) {
-                                                $wire.addItemFromEntry($el.value);
+                                            const v = ($el.value || '').trim();
+                                            if (v.length >= 2 && claim(v)) {
+                                                $el.value = '';
+                                                $wire.addItemFromEntry(v);
                                             }
                                         "
                                     />
-                                    <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">
+                                    <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear item code" aria-label="Clear item code">
                                         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
                                     </button>
                                     <button
                                         type="button"
                                         x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('rtv-item-entry')?.value || '')"
                                         class="so-icon-btn so-entry-add-btn"
-                                        title="Add item (✓)"
+                                        title="Add item (✓) — use after typing item code"
                                         aria-label="Add item"
+                                        wire:loading.attr="disabled"
+                                        wire:target="addItemFromEntry,focusScanAndAdd"
                                     >
                                         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                                     </button>
                                 </div>
-                                <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)" style="margin-left:0.5rem">Browse (F2)</button>
+                                <div class="so-entry-tools">
+                                    <button type="button" wire:click="printThisRtv" class="so-icon-btn" title="Print" tabindex="-1" aria-label="Print" @disabled(! $rtv)>
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
+                                    </button>
+                                    <button type="button" wire:click="removeSelectedLine" class="so-icon-btn" title="Delete selected line" tabindex="-1" aria-label="Delete line">
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                    </button>
+                                    <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2v8M2 6h8"/></svg>
+                                    </button>
+                                    <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F3)">Browse (F3)</button>
+                                </div>
                             </div>
                         @endunless
-
-                        @if ($lookupMessage)
-                            <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
-                        @endif
-                        <div class="desk-grid item-lines-wrap" wire:key="rtv-lines-wrap-{{ $linesSig }}">
-                            <table class="desk-table item-lines-table rtv-lines-table">
-                                <colgroup>
-                                    <col class="col-code" />
-                                    <col class="col-desc" />
-                                    <col class="col-uom" />
-                                    <col class="col-qty" />
-                                    <col class="col-cost" />
-                                    <col class="col-ext" />
-                                    <col class="col-action" />
-                                </colgroup>
-                                <thead>
-                                    <tr>
-                                        <th>Item Code</th>
-                                        <th>Description</th>
-                                        <th class="text-center">UOM</th>
-                                        <th class="text-center">Qty</th>
-                                        <th class="text-center">Cost</th>
-                                        <th class="text-center">Extended</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody wire:key="rtv-lines-body-{{ $linesSig }}">
-                                    @foreach ($lines as $i => $line)
-                                        @php
-                                            $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
-                                        @endphp
-                                        @if ($filled)
-                                            <tr wire:key="rtv-line-row-{{ $i }}-{{ $line['item_id'] ?? 0 }}-{{ $line['item_code'] ?? '' }}">
-                                                <td class="font-mono desk-num" title="{{ $line['item_code'] ?? '' }}">
-                                                    {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}
-                                                </td>
-                                                <td>
-                                                    <input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl" @disabled($isReadonly) />
-                                                </td>
-                                                <td class="text-center">
-                                                    @if ($isReadonly)
-                                                        <span class="font-mono">{{ $line['uom'] ?: '—' }}</span>
-                                                    @else
-                                                        @php $uomOpts = $this->uomOptionsForLine($i); @endphp
-                                                        @if (count($uomOpts) <= 1)
-                                                            <span class="font-mono" style="display:inline-block;min-width:2.5rem">
-                                                                {{ $line['uom'] ?: ($uomOpts[0] ?? 'EA') }}
-                                                            </span>
-                                                        @else
-                                                            <select
-                                                                wire:model="lines.{{ $i }}.uom"
-                                                                class="so-input text-center item-cell-ctl"
-                                                                style="max-width:5.5rem;margin:0 auto"
-                                                                aria-label="Unit of measure line {{ $i + 1 }}"
-                                                            >
-                                                                @foreach ($uomOpts as $uomOpt)
-                                                                    <option value="{{ $uomOpt }}">{{ $uomOpt }}</option>
-                                                                @endforeach
-                                                            </select>
-                                                        @endif
-                                                    @endif
-                                                </td>
-                                                <td class="text-center">
-                                                    <input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" placeholder="0" @disabled($isReadonly) />
-                                                </td>
-                                                <td class="text-center">
-                                                    <input wire:model.live="lines.{{ $i }}.unit_cost" class="so-input text-right item-cell-qty" placeholder="0" @disabled($isReadonly) />
-                                                </td>
-                                                <td class="desk-money">${{ number_format((float) ($line['qty'] ?? 0) * (float) ($line['unit_cost'] ?? 0), 2) }}</td>
-                                                <td class="text-center">
-                                                    @unless ($isReadonly)
-                                                        <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
-                                                    @endunless
-                                                </td>
-                                            </tr>
-                                        @endif
-                                    @endforeach
-                                </tbody>
-                            </table>
-                            @if ($filledLineCount === 0)
-                                <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
-                                    Scan or type an item code above, or click Browse Items
+                        <div class="so-footer">
+                            <div class="so-counters">
+                                <div class="so-counter-col">
+                                    <div>Total items: <strong>{{ $totalItemsQty ?: '0' }}</strong></div>
                                 </div>
-                            @endif
+                            </div>
+                            <div class="so-totals">
+                                <div class="so-totals-row"><span class="so-totals-lbl">Subtotal:</span><span class="so-totals-amt">${{ number_format($subtotal, 2) }}</span></div>
+                                <div class="so-totals-row">
+                                    <span class="so-totals-lbl">Discount:</span>
+                                    <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="discount" wire:model.live="discount" class="so-totals-input" placeholder="0" @disabled($isReadonly) /></label>
+                                </div>
+                                <div class="so-totals-row">
+                                    <span class="so-totals-lbl">Freight:</span>
+                                    <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="freight" wire:model.live="freight" class="so-totals-input" placeholder="0" @disabled($isReadonly) /></label>
+                                </div>
+                                <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Total:</span><strong class="so-totals-amt">${{ number_format($orderTotal, 2) }}</strong></div>
+                            </div>
                         </div>
-                    </div>
-
-                    <div class="po-totals">
-                        <div class="inv-card po-totals-card">
-                            <div class="inv-card-title">Totals</div>
-                            <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl">RTV Subtotal</label>
-                                <span class="entity-value text-right" style="display:block;width:100%">${{ number_format($subtotal, 2) }}</span>
-                            </div>
-                            <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="discount">Discount</label>
-                                <input id="discount" wire:model.live="discount" class="so-input text-right sc-date" @disabled($isReadonly) />
-                            </div>
-                            <div class="so-form-row so-form-row-side sc-field">
-                                <label class="so-form-lbl" for="freight">Freight</label>
-                                <input id="freight" wire:model.live="freight" class="so-input text-right sc-date" @disabled($isReadonly) />
-                            </div>
-                            <div class="so-form-row so-form-row-side sc-field po-total-row">
-                                <label class="so-form-lbl">RTV Total</label>
-                                <strong class="entity-value text-right" style="display:block;width:100%;font-size:1.15rem">${{ number_format($orderTotal, 2) }}</strong>
-                            </div>
                         </div>
                     </div>
                 </div>

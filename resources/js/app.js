@@ -987,6 +987,7 @@ function initPosTabKeepAlive() {
                     type: 'pos-return-list',
                     list_url: data.listUrl || data.list_url || '',
                     close_desk: data.closeDesk || data.close_desk || selfDeskKey,
+                    message: data.message || '',
                 }, window.location.origin);
             });
         });
@@ -1200,6 +1201,11 @@ function initPosTabKeepAlive() {
     function persistDocTab(href) {
         const key = posDeskKey(href);
         if (key === '/home' || key === '/' || (key && key.indexOf('so:') === 0)) {
+            return;
+        }
+        const existingTab = document.querySelector('.chief-tab[data-desk-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+        if (existingTab) {
+            setActiveTab(currentDeskKey);
             return;
         }
         const epoch = deskEpoch;
@@ -1492,6 +1498,9 @@ function initPosTabKeepAlive() {
             }
             if (e.data.list_url) {
                 showFrame(e.data.list_url);
+            }
+            if (e.data.message) {
+                window.showPosSaveToast && window.showPosSaveToast(e.data.message);
             }
             return;
         }

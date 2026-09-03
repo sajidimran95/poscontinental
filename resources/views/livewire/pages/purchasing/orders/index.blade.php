@@ -51,7 +51,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = PurchaseOrder::query()
-            ->with(['supplier', 'buyer'])
+            ->with(['supplier:id,name,supplier_id', 'buyer:id,name'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -68,9 +68,9 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             ->when($this->favorite === 'month', fn ($q) => $q->where('requisition_date', '>=', now()->startOfMonth()))
             ->when($this->favorite === 'today', fn ($q) => $q->whereDate('requisition_date', today()))
             ->when($this->statusFilter === 'pending', fn ($q) => $q->whereIn('status', ['New', 'Partially Received']))
-            ->when($this->statusFilter === 'received', fn ($q) => $q->where('status', 'Received'))
-            ->when($this->dateFrom !== '', fn ($q) => $q->whereDate('requisition_date', '>=', $this->dateFrom))
-            ->when($this->dateTo !== '', fn ($q) => $q->whereDate('requisition_date', '<=', $this->dateTo))
+            ->when($this->statusFilter === 'received', fn ($q) => $q->where('status', 'Received'));
+        $this->constrainDeskDateColumn($query, 'requisition_date', $this->dateFrom, $this->dateTo);
+        $query
             ->when($this->supplierId !== '' && ctype_digit((string) $this->supplierId), fn ($q) => $q->where('supplier_id', (int) $this->supplierId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
 

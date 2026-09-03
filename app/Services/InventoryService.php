@@ -436,44 +436,51 @@ class InventoryService
         }
 
         if ($invoice) {
-            $company = Company::query()->find($order->company_id);
+            $changed = [];
             foreach ($itemIds as $itemId) {
                 $delta = (float) ($newByItem[$itemId] ?? 0) - (float) ($oldQtyByItemId[$itemId] ?? 0);
                 if (abs($delta) < 0.0001) {
                     continue;
                 }
+                $changed[(int) $itemId] = $delta;
+            }
 
-                $item = Item::query()->lockForUpdate()->find($itemId);
-                if (! $item) {
-                    continue;
-                }
-
-                $onHand = (float) $item->quantity_in_stock;
-                if ($delta > 0) {
-                    $err = StockPolicy::invoiceQtyError($item, $delta, $onHand, $company);
-                    if ($err) {
-                        throw \Illuminate\Validation\ValidationException::withMessages([
-                            'invoice' => $err,
-                        ]);
+            if ($changed !== []) {
+                $company = Company::query()->find($order->company_id);
+                $items = Item::query()->whereIn('id', array_keys($changed))->lockForUpdate()->get()->keyBy('id');
+                foreach ($changed as $itemId => $delta) {
+                    $item = $items->get($itemId);
+                    if (! $item) {
+                        continue;
                     }
+
+                    $onHand = (float) $item->quantity_in_stock;
+                    if ($delta > 0) {
+                        $err = StockPolicy::invoiceQtyError($item, $delta, $onHand, $company);
+                        if ($err) {
+                            throw \Illuminate\Validation\ValidationException::withMessages([
+                                'invoice' => $err,
+                            ]);
+                        }
+                    }
+
+                    $newQty = $onHand - $delta;
+                    $item->update(['quantity_in_stock' => $newQty]);
+
+                    InventoryJournalEntry::query()->create([
+                        'company_id' => $order->company_id,
+                        'item_id' => $item->id,
+                        'site_id' => $order->ship_from_site_id,
+                        'source_type' => Invoice::class,
+                        'source_id' => $invoice->id,
+                        'reference' => $invoice->invoice_number,
+                        'qty_change' => -$delta,
+                        'qty_after' => $newQty,
+                        'unit_cost' => $item->current_cost,
+                        'user_id' => auth()->id(),
+                        'notes' => 'Invoice revision '.$invoice->invoice_number.' (SO '.$order->order_number.')',
+                    ]);
                 }
-
-                $newQty = $onHand - $delta;
-                $item->update(['quantity_in_stock' => $newQty]);
-
-                InventoryJournalEntry::query()->create([
-                    'company_id' => $order->company_id,
-                    'item_id' => $item->id,
-                    'site_id' => $order->ship_from_site_id,
-                    'source_type' => Invoice::class,
-                    'source_id' => $invoice->id,
-                    'reference' => $invoice->invoice_number,
-                    'qty_change' => -$delta,
-                    'qty_after' => $newQty,
-                    'unit_cost' => $item->current_cost,
-                    'user_id' => auth()->id(),
-                    'notes' => 'Invoice revision '.$invoice->invoice_number.' (SO '.$order->order_number.')',
-                ]);
             }
         }
 
@@ -621,9 +628,15 @@ class InventoryService
             ->groupBy('sales_order_lines.item_id')
             ->pluck('qty', 'item_id');
 
+        $case = '';
         foreach ($ids as $itemId) {
-            Item::query()->whereKey($itemId)->update([
-                'allocated_qty' => round((float) ($allocated[$itemId] ?? 0), 4),
+            $id = (int) $itemId;
+            $qty = round((float) ($allocated[$itemId] ?? 0), 4);
+            $case .= ' WHEN '.$id.' THEN '.$qty;
+        }
+        if ($case !== '') {
+            Item::query()->whereIn('id', $ids)->update([
+                'allocated_qty' => DB::raw('CASE id'.$case.' ELSE allocated_qty END'),
             ]);
         }
     }

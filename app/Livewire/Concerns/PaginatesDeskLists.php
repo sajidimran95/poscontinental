@@ -13,7 +13,22 @@ trait PaginatesDeskLists
 
     protected function deskListPageSize(): int
     {
-        return 40;
+        return 25;
+    }
+
+    /**
+     * Date filter without wrapping the column in DATE(), so indexes stay usable.
+     */
+    protected function constrainDeskDateColumn($query, string $column, string $from, string $to)
+    {
+        if ($from !== '') {
+            $query->where($column, '>=', $from);
+        }
+        if ($to !== '') {
+            $query->where($column, '<=', $to);
+        }
+
+        return $query;
     }
 
     public function loadMoreList(): void

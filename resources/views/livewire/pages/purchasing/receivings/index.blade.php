@@ -45,7 +45,12 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $hasSearch = $this->search !== '';
 
         $query = InventoryReceiving::query()
-            ->with(['supplier', 'purchaseOrder', 'site', 'buyer'])
+            ->with([
+                'supplier:id,name,supplier_id',
+                'purchaseOrder:id,po_number',
+                'site:id,code,name',
+                'buyer:id,name',
+            ])
             ->where('company_id', $companyId)
             ->when($hasSearch, function ($q) {
                 $term = '%'.$this->search.'%';

@@ -373,7 +373,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ])
             ->where('company_id', $companyId)
             ->whereNotIn('status', ['Invoiced', 'Cancelled', 'Void', 'Closed'])
-            ->whereDoesntHave('invoice')
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('invoices')
+                    ->whereColumn('invoices.sales_order_id', 'sales_orders.id');
+            })
             ->when($this->search !== '', function ($q) {
                 $raw = trim($this->search);
                 $q->where(function ($inner) use ($raw) {
@@ -393,10 +397,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             ->orWhere('telephone', 'like', $term));
                 });
             })
-            ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
-            ->when($this->dateFrom !== '' && $this->dateTo !== '' && $this->dateFrom === $this->dateTo, fn ($q) => $q->whereDate('order_date', $this->dateFrom))
-            ->when($this->dateFrom !== '' && ($this->dateTo === '' || $this->dateFrom !== $this->dateTo), fn ($q) => $q->whereDate('order_date', '>=', $this->dateFrom))
-            ->when($this->dateTo !== '' && ($this->dateFrom === '' || $this->dateFrom !== $this->dateTo), fn ($q) => $q->whereDate('order_date', '<=', $this->dateTo))
+            ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'));
+        $this->constrainDeskDateColumn($query, 'order_date', $this->dateFrom, $this->dateTo);
+        $query
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
         $this->applyDeskSort($query, 'order_date', 'desc');

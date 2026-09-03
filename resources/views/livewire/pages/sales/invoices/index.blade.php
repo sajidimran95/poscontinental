@@ -103,6 +103,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = Invoice::query()
+            ->select([
+                'id', 'company_id', 'invoice_number', 'invoice_date', 'customer_id', 'sales_order_id',
+                'status', 'invoice_total', 'subtotal', 'tax', 'freight', 'trade_discount', 'miscellaneous',
+                'driver',
+            ])
             ->with([
                 'customer:id,customer_id,company_name',
                 'salesOrder:id,order_number,bill_to_name,delivery_status',

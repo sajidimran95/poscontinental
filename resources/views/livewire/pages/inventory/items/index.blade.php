@@ -1446,6 +1446,15 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $companyId = auth()->user()->company_id;
 
         return Item::query()
+            ->select([
+                'id', 'company_id', 'item_code', 'description', 'item_type', 'class',
+                'department_id', 'category_id', 'subcategory_id', 'unit_of_measure',
+                'list_price', 'msrp', 'standard_cost', 'current_cost', 'last_cost', 'average_cost',
+                'quantity_in_stock', 'allocated_qty', 'on_order_qty', 'reorder_point',
+                'allow_back_order', 'can_sell', 'is_inactive', 'primary_upc', 'manufacturer',
+                'msa_reporting', 'state_reporting', 'last_received_at', 'last_sold_at', 'last_count_date',
+                'created_at',
+            ])
             ->with([
                 'department:id,code,name',
                 'category:id,code,name',

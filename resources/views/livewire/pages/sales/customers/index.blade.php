@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -46,7 +47,12 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = Customer::query()
-            ->with('salesRep')
+            ->select([
+                'id', 'company_id', 'customer_id', 'company_name', 'contact', 'telephone', 'email',
+                'address', 'city', 'state', 'balance', 'credit_limit', 'is_inactive', 'sales_rep_id',
+                'opt_out_telemarketing', 'opt_out_email', 'comments',
+            ])
+            ->with('salesRep:id,name')
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -105,7 +111,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             'listHasMore' => $scroll['hasMore'],
             'listShown' => $scroll['shown'],
             'openCreditsByCustomer' => $openCreditsByCustomer,
-            'salesReps' => User::assignableSalesRepsQuery($companyId)->get(['id', 'name', 'is_active', 'role_id']),
+            'salesReps' => Cache::remember('customers.sales_reps.'.$companyId, 180, fn () => User::assignableSalesRepsQuery($companyId)->get(['id', 'name', 'is_active', 'role_id'])),
             'canEditCustomers' => auth()->user()?->canAccessFeature('sales.customers', 'edit') ?? false,
             'favorites' => [
                 'all' => 'All Customers',

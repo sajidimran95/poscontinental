@@ -373,11 +373,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** @var list<int> */
     public array $pendingBrowseAddIds = [];
 
-    /** After invoice save: stay until OK so the user can see it succeeded. */
-    public bool $showInvoiceSavedModal = false;
-
-    public string $invoiceSavedMessage = '';
-
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_shipped:string,price:string,discount:string}> */
     public array $lines = [];
 
@@ -3755,7 +3750,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        if ($this->showUnknownScanModal || $this->showLineChangeConfirmModal || $this->showInvoiceSavedModal) {
+        if ($this->showUnknownScanModal || $this->showLineChangeConfirmModal) {
             return;
         }
 
@@ -4692,6 +4687,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
         $itemIds = array_values(array_unique(array_merge($itemIds, $previousItemIds)));
+
+        if ($this->shouldReturnToInvoiceList()) {
+            if ($this->salesOrder?->exists) {
+                $this->salesOrder->releaseEditLock(auth()->user());
+            }
+            $this->salesOrder?->loadMissing('invoice');
+            $number = $this->salesOrder?->invoice?->invoice_number
+                ?: $this->salesOrder?->order_number;
+            $this->returnToDeskList(
+                'sales.invoices.index',
+                $number ? 'Invoice '.$number.' saved.' : 'Invoice saved.'
+            );
+
+            return;
+        }
+
         if ($savedOrder) {
             $itemIds = array_values(array_unique(array_merge(
                 $itemIds,
@@ -4726,18 +4737,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         app(InventoryService::class)->syncAllocatedQty($itemIds);
         $this->refreshBrowseStockFromDatabase($itemIds);
         $this->refreshSelectedLineStock();
-
-        if ($this->shouldReturnToInvoiceList()) {
-            $number = $this->salesOrder?->invoice?->invoice_number
-                ?: $this->salesOrder?->order_number;
-            $this->invoiceSavedMessage = $number
-                ? 'Invoice '.$number.' saved.'
-                : 'Invoice saved.';
-            $this->showInvoiceSavedModal = true;
-            $this->playPosSound('success');
-
-            return;
-        }
 
         $this->dismissTransientOverlays();
         $this->showPrintDialog = true;
@@ -4831,30 +4830,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->finishSaveStayOnOrder();
     }
 
-    protected function openInvoiceSavedThenLeave(): void
-    {
-        if ($this->showInvoiceSavedModal) {
-            return;
-        }
-
-        $number = $this->salesOrder?->invoice?->invoice_number
-            ?: $this->salesOrder?->order_number;
-        $this->invoiceSavedMessage = $number
-            ? 'Invoice '.$number.' saved.'
-            : 'Invoice saved.';
-        $this->showInvoiceSavedModal = true;
-        $this->playPosSound('success');
-    }
-
-    public function confirmInvoiceSaved(): void
-    {
-        $this->showInvoiceSavedModal = false;
-        if ($this->salesOrder?->exists) {
-            $this->salesOrder->releaseEditLock(auth()->user());
-        }
-        $this->returnToDeskList('sales.invoices.index');
-    }
-
     /**
      * After save/print from New Sales Order:
      * - Several create tabs: close the finished one; remaining renumber 1,2,3…
@@ -4863,7 +4838,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function finishSaveStayOnOrder(): void
     {
         if ($this->shouldReturnToInvoiceList() && ! $this->createWindowId) {
-            $this->openInvoiceSavedThenLeave();
+            if ($this->salesOrder?->exists) {
+                $this->salesOrder->releaseEditLock(auth()->user());
+            }
+            $this->salesOrder?->loadMissing('invoice');
+            $number = $this->salesOrder?->invoice?->invoice_number
+                ?: $this->salesOrder?->order_number;
+            $this->returnToDeskList(
+                'sales.invoices.index',
+                $number ? 'Invoice '.$number.' saved.' : 'Invoice saved.'
+            );
 
             return;
         }
@@ -4918,7 +4902,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         // Existing order edit tab — go back to the list after save.
         if ($this->salesOrder?->exists) {
             $this->salesOrder->releaseEditLock(auth()->user());
-            $this->returnToDeskList($this->shouldReturnToInvoiceList() ? 'sales.invoices.index' : 'sales.orders.index');
+            $this->salesOrder->loadMissing('invoice');
+            if ($this->shouldReturnToInvoiceList()) {
+                $number = $this->salesOrder->invoice?->invoice_number
+                    ?: $this->salesOrder->order_number;
+                $this->returnToDeskList(
+                    'sales.invoices.index',
+                    $number ? 'Invoice '.$number.' saved.' : 'Invoice saved.'
+                );
+
+                return;
+            }
+            $number = $this->salesOrder->order_number;
+            $this->returnToDeskList(
+                'sales.orders.index',
+                $number ? 'Order '.$number.' saved.' : 'Order saved.'
+            );
 
             return;
         }
@@ -6140,35 +6139,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
-    @if ($showInvoiceSavedModal)
-        <div
-            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="invoice-saved-title"
-        >
-            <div class="desk-modal desk-modal-sm" style="max-width:26rem;" wire:keydown.enter.window="confirmInvoiceSaved">
-                <div class="desk-modal-head">
-                    <span id="invoice-saved-title">Chief</span>
-                </div>
-                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
-                    <div
-                        aria-hidden="true"
-                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:#15803d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
-                    >✓</div>
-                    <div style="flex:1; min-width:0;">
-                        <p style="margin:0;font-size:.95rem;line-height:1.4;">
-                            {{ $invoiceSavedMessage !== '' ? $invoiceSavedMessage : 'Invoice saved.' }}
-                        </p>
-                    </div>
-                </div>
-                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
-                    <button type="button" wire:click="confirmInvoiceSaved" class="desk-btn desk-btn-primary" autofocus>OK</button>
-                </div>
-            </div>
-        </div>
-    @endif
-
     @if ($showShipToModal)
         <div class="desk-modal-backdrop desk-modal-top" wire:click.self="closeShipToModal" role="dialog" aria-modal="true" aria-labelledby="ship-to-modal-title">
             <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.escape.window="closeShipToModal">
@@ -6737,9 +6707,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     });
     $wire.$watch('showLineChangeConfirmModal', (open) => {
         if (open) window.playPosAlert && window.playPosAlert('warning');
-    });
-    $wire.$watch('showInvoiceSavedModal', (open) => {
-        if (open) window.playPosAlert && window.playPosAlert('success');
     });
 
     $wire.on('pos-alert', (e) => {

@@ -8,8 +8,11 @@
         <meta name="pos-tab-ensure" content="{{ route('pos.tabs.ensure') }}">
         @include('layouts.partials.user-timezone')
         <title>{{ $title ?? ($pageTitle ?? config('app.name', 'Continental Wholesale')) }} — JAPS POS</title>
-        <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500&display=swap" rel="stylesheet" />
+        @php $isPosEmbed = \App\Support\PosEmbed::isEmbed(); @endphp
+        @unless ($isPosEmbed)
+            <link rel="preconnect" href="https://fonts.bunny.net">
+            <link href="https://fonts.bunny.net/css?family=ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500&display=swap" rel="stylesheet" />
+        @endunless
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
         <style>
@@ -238,7 +241,6 @@
         </style>
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
-        @php $isPosEmbed = \App\Support\PosEmbed::isEmbed(); @endphp
         @if ($isPosEmbed)
             <script>document.cookie = 'pos_iframe=1; path=/; SameSite=Lax';</script>
             <div id="main-content" class="h-screen min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" role="main">
@@ -736,7 +738,12 @@
         @endauth
         @endif
         <style>
-            .pos-permission-toast {
+            .pos-permission-toast.is-success {
+                background: #ecfdf5;
+                color: #14532d;
+                border: 1px solid #86efac;
+                border-left: 5px solid #16a34a;
+            }
                 position: fixed;
                 top: 3.6rem;
                 left: 50%;
@@ -894,6 +901,7 @@
                 function showPermissionToast(message) {
                     const el = document.getElementById('pos-permission-toast');
                     if (! el) return;
+                    el.classList.remove('is-success');
                     el.textContent = message;
                     el.hidden = false;
                     window.clearTimeout(toastTimer);
@@ -901,6 +909,22 @@
                         el.hidden = true;
                     }, 4500);
                 }
+
+                window.showPosSaveToast = function (message) {
+                    const text = String(message || '').trim();
+                    if (! text) return;
+                    const el = document.getElementById('pos-permission-toast');
+                    if (! el) return;
+                    el.classList.add('is-success');
+                    el.textContent = text;
+                    el.hidden = false;
+                    window.clearTimeout(toastTimer);
+                    toastTimer = window.setTimeout(function () {
+                        el.hidden = true;
+                        el.classList.remove('is-success');
+                    }, 4000);
+                    window.playPosAlert && window.playPosAlert('success');
+                };
 
                 window.showPosTabLimit = function () {
                     showPermissionToast(@json(\App\Services\DocumentTabManager::tabLimitMessage()));

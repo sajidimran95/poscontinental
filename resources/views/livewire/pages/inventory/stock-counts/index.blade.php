@@ -183,13 +183,13 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
@@ -201,7 +201,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -210,7 +210,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
         $this->favorite = 'all';
         $this->selectedId = null;
         $this->clearQueryCriteria();
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function openDeskQuery(): void
@@ -228,7 +228,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function openSelected(): mixed

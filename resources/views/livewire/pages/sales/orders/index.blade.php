@@ -8,6 +8,7 @@ use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\SalesOrder;
+use App\Models\User;
 use App\Services\InventoryService;
 use App\Services\ParkedSaleService;
 use App\Support\ExcelCsv;
@@ -41,6 +42,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public string $dateTo = '';
 
     public string $customerId = '';
+
+    /** User who created the order (created_by / sales_rep fallback). */
+    public string $createdByUserId = '';
 
     public ?int $selectedId = null;
 
@@ -126,6 +130,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->selectedId = null;
     }
 
+    public function updatedCreatedByUserId(): void
+    {
+        $this->resetDeskList();
+        $this->selectedId = null;
+    }
+
     public function selectRow(int $id): void
     {
         $this->selectedId = $id;
@@ -182,6 +192,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->dateFrom = $today;
         $this->dateTo = $today;
         $this->customerId = '';
+        $this->createdByUserId = '';
         $this->selectedId = null;
         $this->clearQueryCriteria();
         $this->resetDeskList();
@@ -401,6 +412,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $this->constrainDeskDateColumn($query, 'order_date', $this->dateFrom, $this->dateTo);
         $query
             ->when($this->customerId !== '' && ctype_digit((string) $this->customerId), fn ($q) => $q->where('customer_id', (int) $this->customerId))
+            ->when($this->createdByUserId !== '' && ctype_digit((string) $this->createdByUserId), function ($q) {
+                $uid = (int) $this->createdByUserId;
+                $q->where(function ($inner) use ($uid) {
+                    $inner->where('created_by', $uid)
+                        ->orWhere(function ($o) use ($uid) {
+                            $o->whereNull('created_by')->where('sales_rep_id', $uid);
+                        });
+                });
+            })
             ->when($this->queryCriteria !== [], fn ($q) => $this->applyQueryCriteria($q));
         $this->applyDeskSort($query, 'order_date', 'desc');
 
@@ -455,6 +475,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     'id' => (int) data_get($c, 'id'),
                     'customer_id' => (string) data_get($c, 'customer_id'),
                     'company_name' => (string) data_get($c, 'company_name'),
+                ])
+                ->values()
+                ->all()),
+            'filterUsers' => Cache::remember('orders.filter_users.v1.'.$companyId, 180, fn () => User::assignableSalesRepsQuery($companyId)
+                ->get(['id', 'name'])
+                ->map(fn ($u) => [
+                    'id' => (int) $u->id,
+                    'name' => (string) $u->name,
                 ])
                 ->values()
                 ->all()),
@@ -752,6 +780,18 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 @endphp
                                 @if ($filterCustId !== '')
                                     <option value="{{ $filterCustId }}">{{ $filterCustCode }} — {{ $filterCustName }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                        <select wire:model.live="createdByUserId" class="desk-select orders-party-select" aria-label="Created by user" title="User who created the order">
+                            <option value="">All users</option>
+                            @foreach ($filterUsers as $user)
+                                @php
+                                    $filterUserId = is_array($user) ? ($user['id'] ?? '') : (is_object($user) ? ($user->id ?? '') : '');
+                                    $filterUserName = is_array($user) ? ($user['name'] ?? '') : (is_object($user) ? ($user->name ?? '') : '');
+                                @endphp
+                                @if ($filterUserId !== '')
+                                    <option value="{{ $filterUserId }}">{{ $filterUserName }}</option>
                                 @endif
                             @endforeach
                         </select>

@@ -12,11 +12,9 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
 
 new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 {
-    use WithPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
 
@@ -306,13 +304,13 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->showUserForm = false;
         $this->showRoleForm = false;
@@ -322,7 +320,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
@@ -334,7 +332,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -342,7 +340,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->selectedId = null;
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function toggleCompactView(): void
@@ -352,7 +350,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function viewSelected(): void

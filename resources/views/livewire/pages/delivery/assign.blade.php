@@ -10,11 +10,9 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
 
 new #[Layout('layouts.app'), Title('Delivery Management')] class extends Component
 {
-    use WithPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
 
@@ -64,29 +62,29 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedDateFrom(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedDateTo(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function clearDates(): void
     {
         $this->date_from = '';
         $this->date_to = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedListFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedCustomerSearch(): void
@@ -94,7 +92,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         if ($this->customer_id) {
             $this->customer_id = null;
         }
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function pickCustomer(int $id): void
@@ -107,14 +105,14 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         }
         $this->customer_id = $customer->id;
         $this->customerSearch = trim($customer->customer_id.' — '.$customer->company_name);
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function clearCustomer(): void
     {
         $this->customer_id = null;
         $this->customerSearch = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function selectVisible(array $ids): void

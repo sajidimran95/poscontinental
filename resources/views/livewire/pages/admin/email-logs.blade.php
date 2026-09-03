@@ -7,11 +7,9 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
 
 new #[Layout('layouts.app'), Title('Email Send Log')] class extends Component
 {
-    use WithPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
 

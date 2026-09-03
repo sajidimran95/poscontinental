@@ -51,6 +51,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
         ->where('token', '[0-9a-fA-F\-]{36}')
         ->name('exports.xlsx');
     Route::get('team-chat/unread', [TeamChatNavController::class, 'unread'])->name('team-chat.unread');
+    Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
 
     Volt::route('profile', 'pages.profile')->name('profile');
 

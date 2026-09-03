@@ -7,11 +7,9 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
-use Livewire\WithPagination;
 
 new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
 {
-    use WithPagination;
     use WithFileUploads;
     use PaginatesDeskLists;
 
@@ -38,7 +36,7 @@ new #[Layout('layouts.app'), Title('Delivery Areas')] class extends Component
 
     public function updatingQ(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function with(): array

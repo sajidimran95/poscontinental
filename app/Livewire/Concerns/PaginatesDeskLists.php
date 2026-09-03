@@ -36,11 +36,6 @@ trait PaginatesDeskLists
         $this->listLimit += $this->deskListPageSize();
     }
 
-    public function resetPage(): void
-    {
-        $this->resetDeskList();
-    }
-
     protected function resetDeskList(): void
     {
         $this->listLimit = $this->deskListPageSize();

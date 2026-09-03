@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
+use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -35,6 +36,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public ?int $pay = null;
 
     public string $favorite = 'all';
+
+    /** User who created the related sales order. */
+    public string $createdByUserId = '';
 
     public ?int $selectedId = null;
 
@@ -141,6 +145,18 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             $query->where('status', 'PAID');
         }
 
+        if ($this->createdByUserId !== '' && ctype_digit((string) $this->createdByUserId)) {
+            $uid = (int) $this->createdByUserId;
+            $query->whereHas('salesOrder', function ($o) use ($uid) {
+                $o->where(function ($inner) use ($uid) {
+                    $inner->where('created_by', $uid)
+                        ->orWhere(function ($x) use ($uid) {
+                            $x->whereNull('created_by')->where('sales_rep_id', $uid);
+                        });
+                });
+            });
+        }
+
         $sortNeedsSums = in_array($this->sortField, ['payments', 'credits', 'balance'], true);
         if ($sortNeedsSums) {
             $query->withSum('payments', 'amount')->withSum('credits', 'amount');
@@ -206,6 +222,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 $this->statusFilter === 'PAID', $this->favorite === 'paid' => 'Invoices List (PAID)',
                 default => 'Invoices List',
             },
+            'filterUsers' => Cache::remember('orders.filter_users.v1.'.$companyId, 180, fn () => User::assignableSalesRepsQuery($companyId)
+                ->get(['id', 'name'])
+                ->map(fn ($u) => [
+                    'id' => (int) $u->id,
+                    'name' => (string) $u->name,
+                ])
+                ->values()
+                ->all()),
             'modalInvoice' => $modalInvoice,
             'openCredits' => $modalInvoice
                 ? CreditMemo::query()
@@ -310,6 +334,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
     }
 
+    public function updatedCreatedByUserId(): void
+    {
+        $this->resetPage();
+        $this->selectedId = null;
+    }
+
     public function updatedStatusFilter(): void
     {
         $this->resetPage();
@@ -337,6 +367,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->favorite = 'all';
+        $this->createdByUserId = '';
         $this->selectedId = null;
         $this->resetPage();
     }
@@ -1307,6 +1338,23 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
+                        <select
+                            wire:model.live="createdByUserId"
+                            class="desk-select orders-party-select"
+                            aria-label="Created by user"
+                            title="User who created the order"
+                        >
+                            <option value="">All users</option>
+                            @foreach ($filterUsers as $user)
+                                @php
+                                    $filterUserId = is_array($user) ? ($user['id'] ?? '') : (is_object($user) ? ($user->id ?? '') : '');
+                                    $filterUserName = is_array($user) ? ($user['name'] ?? '') : (is_object($user) ? ($user->name ?? '') : '');
+                                @endphp
+                                @if ($filterUserId !== '')
+                                    <option value="{{ $filterUserId }}">{{ $filterUserName }}</option>
+                                @endif
+                            @endforeach
+                        </select>
                         <select
                             id="invoice-status-filter"
                             wire:model.live="statusFilter"

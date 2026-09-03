@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
 use App\Models\Department;
@@ -20,22 +21,20 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
 
 new #[Layout('layouts.app'), Title('Items')] class extends Component
 {
-    use WithPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'all';
 
     /** Category filter (id as string, '' = all) */
-    #[Url(as: 'category')]
+    #[Url(as: 'category', except: '', history: false)]
     public string $categoryFilter = '';
 
     /** '' | active | inactive */
@@ -270,16 +269,23 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function mount(): void
     {
         $this->visibleColumns = $this->loadVisibleColumns();
+        $this->hydrateDeskTabSearchFromStore();
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->rememberDeskTabSearch();
     }
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
+        $this->rememberDeskTabSearch();
     }
 
     public function updatedCategoryFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
@@ -287,7 +293,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     {
         $this->search = '';
         $this->scanStatus = '';
-        $this->resetPage();
+        $this->rememberDeskTabSearch();
+        $this->resetDeskList();
+        $this->js('var el=document.getElementById("items-search"); if(el) el.value="";');
     }
 
     public function newSearch(): void
@@ -302,7 +310,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->querySelectedIndex = null;
         $this->queryLoadedName = '';
         $this->queryStatus = '';
-        $this->resetPage();
+        $this->rememberDeskTabSearch();
+        $this->resetDeskList();
+        $this->js('var el=document.getElementById("items-search"); if(el) el.value="";');
     }
 
     /**
@@ -330,14 +340,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         if ($item) {
             $this->selectedId = (int) $item->id;
             $this->search = (string) $item->item_code;
-            $this->resetPage();
+            $this->resetDeskList();
             $this->scanStatus = 'Found: '.$item->item_code;
 
             return null;
         }
 
         // Partial / unknown: show filtered item list (do not auto-create).
-        $this->resetPage();
+        $this->resetDeskList();
         $this->scanStatus = 'No exact match for “'.$resolved.'”. Showing matching items in the list.';
 
         return null;
@@ -368,7 +378,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->restoreDeskTabSearch();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->statusFilter = match ($this->favorite) {
             'active' => 'active',
@@ -379,7 +390,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         if ($this->statusFilter === 'active') {
             $this->favorite = 'active';
@@ -490,7 +501,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->querySelectedIndex = null;
         $this->queryLoadedName = '';
         $this->queryStatus = 'Criteria cleared.';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function runItemQuery(): void
@@ -514,7 +525,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->selectedId = null;
         $this->showItemQuery = false;
         $this->queryStatus = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function saveItemQuery(): void
@@ -673,6 +684,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'item_code',
             'is_new',
             'description',
+            'item_type',
             'department',
             'unit_of_measure',
             'list_price',
@@ -713,16 +725,31 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     protected function loadVisibleColumns(): array
     {
         $saved = Session::get($this->visibleColumnsSessionKey(), []);
+        if (! is_array($saved) || $saved === []) {
+            $cached = Cache::get($this->visibleColumnsSessionKey(), []);
+            $saved = is_array($cached) ? $cached : [];
+        }
 
-        return is_array($saved) && $saved !== []
-            ? $this->sanitizeColumnKeys($saved)
-            : $this->defaultVisibleColumns();
+        $keys = $this->sanitizeColumnKeys($saved);
+        if ($keys === []) {
+            return $this->defaultVisibleColumns();
+        }
+        if (! in_array('item_type', $keys, true) && isset($this->itemListColumnCatalog()['item_type'])) {
+            $at = array_search('description', $keys, true);
+            $at = $at === false ? array_search('item_code', $keys, true) : $at;
+            $insert = $at === false ? 1 : $at + 1;
+            array_splice($keys, $insert, 0, ['item_type']);
+            $this->storeVisibleColumns($keys);
+        }
+
+        return $keys;
     }
 
     /** @param  list<string>  $keys */
     protected function storeVisibleColumns(array $keys): void
     {
         Session::put($this->visibleColumnsSessionKey(), $keys);
+        Cache::forever($this->visibleColumnsSessionKey(), $keys);
     }
 
     protected function visibleColumnsSessionKey(): string
@@ -732,7 +759,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function printList(): void
@@ -1402,11 +1429,16 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
         $self = $this;
 
-        return ExcelCsv::download('items.csv', $headers, (static function () use ($query, $keys, $catalog, $self) {
+        $token = ExcelCsv::queue('items.xlsx', $headers, (static function () use ($query, $keys, $catalog, $self) {
             foreach ($query->cursor() as $item) {
                 yield array_map(fn (string $key) => $self->excelCellForItem($item, $key, $catalog[$key]), $keys);
             }
-        })());
+        })(), 'Items');
+
+        $url = route('exports.xlsx', $token);
+        $this->js('window.__posDownloadXlsx('.json_encode($url).')');
+
+        return null;
     }
 
     protected function filteredItemsQuery()
@@ -1477,7 +1509,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     }
 }; ?>
 
-<div class="desk-page">
+<div class="desk-page" wire:key="inventory-items-desk">
     <x-favorite-list :nodes="$nodes" :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
@@ -1499,9 +1531,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar items-toolbar">
+                <div class="desk-toolbar items-toolbar" wire:ignore>
                     <div class="items-toolbar-left">
-                        <div class="items-sku-bar" role="search" wire:ignore x-data="{ q: {{ \Illuminate\Support\Js::from($search) }} }">
+                        <div class="items-sku-bar" role="search" x-data>
                             <button
                                 type="button"
                                 class="items-sku-scan"
@@ -1521,11 +1553,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 Search
                             </span>
                             <input
+                                wire:ignore
                                 id="items-search" data-pos-search
                                 type="text"
-                                x-model="q"
-                                x-on:input.debounce.300ms="$wire.set('search', q)"
-                                x-on:keydown.enter.prevent="$wire.scanFindItem(q)"
+                                value="{{ $search }}"
+                                x-on:input.debounce.300ms="$wire.set('search', $el.value)"
+                                x-on:keydown.enter.prevent="$wire.scanFindItem($el.value)"
                                 placeholder="Code, UPC, or words in the description"
                                 class="items-sku-input"
                                 aria-label="Search items by code, UPC, or description (any case, any word order)"
@@ -1534,9 +1567,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             <button
                                 type="button"
                                 class="items-sku-clear"
-                                x-show="q !== ''"
+                                x-show="$wire.search !== ''"
                                 x-cloak
-                                x-on:click="q = ''; $wire.clearSearch()"
+                                x-on:click="$wire.clearSearch()"
                                 title="Clear"
                                 aria-label="Clear"
                             >×</button>
@@ -1976,6 +2009,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             },
             apply() {
                 this.pickerOpen = false;
+                try { localStorage.setItem('desk.cols.items-list', JSON.stringify(this.draft)); } catch (e) {}
                 $wire.applyColumnPicker(this.draft);
             }
         }"
@@ -1985,6 +2019,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             class="desk-modal-backdrop shf-backdrop"
             x-show="pickerOpen"
             x-cloak
+            :style="pickerOpen ? { display: 'flex' } : { display: 'none' }"
             x-transition.opacity.duration.80ms
             @click.self="closePicker()"
             @keydown.escape.window="if (pickerOpen) closePicker()"
@@ -1995,7 +2030,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             <div class="desk-modal shf-modal" @click.stop>
                 <div class="desk-modal-head">
                     <span id="item-fields-title">Show/Hide Fields</span>
-                    <button type="button" class="desk-modal-close" aria-label="Close" @click="closePicker()">×</button>
+                    <button type="button" class="desk-modal-close" aria-label="Close" @click.prevent.stop="closePicker()">×</button>
                 </div>
                 <div class="shf-body">
                     <div class="shf-grid">
@@ -2051,8 +2086,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     </div>
                 </div>
                 <div class="shf-foot">
-                    <button type="button" class="desk-btn desk-btn-primary" @click="apply()">OK</button>
-                    <button type="button" class="desk-btn" @click="closePicker()">Cancel</button>
+                    <button type="button" class="desk-btn desk-btn-primary" @click.prevent.stop="apply()">OK</button>
+                    <button type="button" class="desk-btn" @click.prevent.stop="closePicker()">Cancel</button>
                 </div>
             </div>
         </div>

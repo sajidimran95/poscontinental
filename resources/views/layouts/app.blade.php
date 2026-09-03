@@ -4,6 +4,8 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        <meta name="pos-tab-remember" content="{{ route('pos.tabs.remember') }}">
+        <meta name="pos-tab-ensure" content="{{ route('pos.tabs.ensure') }}">
         @include('layouts.partials.user-timezone')
         <title>{{ $title ?? ($pageTitle ?? config('app.name', 'Continental Wholesale')) }} — JAPS POS</title>
         <link rel="preconnect" href="https://fonts.bunny.net">
@@ -236,6 +238,13 @@
         </style>
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
+        @php $isPosEmbed = \App\Support\PosEmbed::isEmbed(); @endphp
+        @if ($isPosEmbed)
+            <script>document.cookie = 'pos_iframe=1; path=/; SameSite=Lax';</script>
+            <div id="main-content" class="h-screen min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" role="main">
+                {{ $slot }}
+            </div>
+        @else
         <a href="#main-content" class="skip-link">Skip to main content</a>
         <div class="h-screen flex flex-col overflow-hidden">
             <nav class="chief-menu select-none" role="navigation" aria-label="Main menu">
@@ -256,6 +265,14 @@
                             return $menuUser?->canAccessFeature($feature, $action) ?? false;
                         };
                         $routeExists = fn (?string $route) => $route && Route::has($route);
+                        $menuDocTabs = app(\App\Services\DocumentTabManager::class);
+                        $menuSoWins = app(\App\Services\SalesOrderWindowManager::class);
+                        $menuOpenByRoute = [];
+                        foreach ($menuDocTabs->list() as $openTab) {
+                            $menuOpenByRoute[$openTab['route']] = $openTab['url'];
+                        }
+                        $menuOpenTotal = $menuDocTabs->count() + $menuSoWins->count();
+                        $menuWindowMax = \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS;
                         $menus = [
                             'File' => [
                                 ['My Profile', 'profile'],
@@ -289,7 +306,7 @@
                             'Purchasing' => [
                                 ['Purchase Orders', 'purchasing.orders.index'],
                                 ['New Purchase Order', 'purchasing.orders.create'],
-                                ['Inventory Receivings', 'purchasing.receivings.index'],
+                                ['Receivings', 'purchasing.receivings.index'],
                                 ['Return to Vendor', 'purchasing.rtv.index'],
                                 ['Suppliers', 'purchasing.suppliers.index'],
                                 ['New Supplier', 'purchasing.suppliers.create'],
@@ -340,8 +357,18 @@
                             <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
                                 @foreach ($menuItems as [$label, $route, $allowed])
                                     @if ($allowed)
+                                        @php
+                                            $isSoCreate = $route === 'sales.orders.create';
+                                            $menuHref = route('pos.tabs.open', ['route' => $route, 'label' => $label]);
+                                            $menuBlocked = ! $isSoCreate
+                                                && empty($menuOpenByRoute[$route])
+                                                && $menuOpenTotal >= $menuWindowMax;
+                                        @endphp
                                         <a
-                                            href="{{ route('pos.tabs.open', ['route' => $route, 'label' => $label]) }}"
+                                            href="{{ $menuHref }}"
+                                            @if ($menuBlocked)
+                                                onclick="event.preventDefault(); window.showPosTabLimit && window.showPosTabLimit();"
+                                            @endif
                                             class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
                                             role="menuitem"
                                         >{{ $label }}</a>
@@ -360,7 +387,7 @@
                         </div>
                     @endforeach
 
-                    {{-- Window: open list + Close All (max 9) --}}
+                    {{-- Window: open list + Close All (max 9) — list/count synced by JS when tabs change --}}
                     @php
                         $windowMenuSo = app(\App\Services\SalesOrderWindowManager::class);
                         $windowMenuDocs = app(\App\Services\DocumentTabManager::class);
@@ -380,13 +407,14 @@
                                 'url' => $tab['url'],
                                 'active' => (request()->route()?->getName() === ($tab['route'] ?? '')),
                                 'kind' => 'doc',
+                                'tab_id' => $tab['id'] ?? null,
                             ];
                         }
                         $windowOpenCount = count($windowMenuItems);
                         $windowMax = \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS;
                         $windowHomeActive = (request()->route()?->getName() ?? 'home') === 'home';
                     @endphp
-                    <div class="relative group">
+                    <div class="relative group" data-pos-window-menu>
                         <button
                             type="button"
                             class="px-2 py-1 rounded-sm hover:bg-slate-200"
@@ -396,7 +424,7 @@
                         <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-60 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
                             <a
                                 href="{{ route('home') }}"
-                                wire:navigate
+                                data-pos-window-home
                                 @class([
                                     'block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap',
                                     'font-semibold bg-sky-50' => $windowHomeActive,
@@ -404,39 +432,45 @@
                                 role="menuitem"
                             >{{ $windowHomeActive ? '✓ ' : '' }}Home</a>
 
-                            @if ($windowMenuItems !== [])
+                            <div data-pos-window-list @if ($windowMenuItems === []) hidden @endif>
                                 <div class="my-1 border-t border-slate-200" role="separator"></div>
-                                @foreach ($windowMenuItems as $wi => $wItem)
-                                    <a
-                                        href="{{ $wItem['url'] }}"
-                                        @class([
-                                            'block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap',
-                                            'font-semibold bg-sky-50' => $wItem['active'],
-                                        ])
-                                        role="menuitem"
-                                    >{{ $wItem['active'] ? '✓ ' : '' }}{{ $wi + 1 }}. {{ $wItem['label'] }}</a>
-                                @endforeach
-                            @endif
+                                <div data-pos-window-items>
+                                    @foreach ($windowMenuItems as $wi => $wItem)
+                                        <a
+                                            href="{{ $wItem['url'] }}"
+                                            @class([
+                                                'block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap',
+                                                'font-semibold bg-sky-50' => $wItem['active'],
+                                            ])
+                                            role="menuitem"
+                                            data-pos-window-item
+                                        >{{ $wItem['active'] ? '✓ ' : '' }}{{ $wi + 1 }}. {{ $wItem['label'] }}</a>
+                                    @endforeach
+                                </div>
+                            </div>
 
                             <div class="my-1 border-t border-slate-200" role="separator"></div>
-                            @if ($windowOpenCount > 0)
-                                <form method="POST" action="{{ route('pos.tabs.close-all') }}" class="m-0" onsubmit="return confirm('Close all open windows and return to Home?');">
-                                    @csrf
+                            <div data-pos-window-close-all-wrap>
+                                @if ($windowOpenCount > 0)
+                                    <form method="POST" action="{{ route('pos.tabs.close-all') }}" class="m-0" data-pos-window-close-all>
+                                        @csrf
+                                        <button
+                                            type="submit"
+                                            class="block w-full text-left px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
+                                            role="menuitem"
+                                        >Close All</button>
+                                    </form>
+                                @else
                                     <button
-                                        type="submit"
-                                        class="block w-full text-left px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
+                                        type="button"
+                                        class="chief-menu-item-disabled block w-full text-left"
                                         role="menuitem"
+                                        disabled
+                                        data-pos-window-close-all-disabled
                                     >Close All</button>
-                                </form>
-                            @else
-                                <button
-                                    type="button"
-                                    class="chief-menu-item-disabled block w-full text-left"
-                                    role="menuitem"
-                                    disabled
-                                >Close All</button>
-                            @endif
-                            <div class="px-3 py-1 text-[11px] text-slate-500 select-none" aria-hidden="true">
+                                @endif
+                            </div>
+                            <div class="px-3 py-1 text-[11px] text-slate-500 select-none" aria-hidden="true" data-pos-window-count data-max="{{ $windowMax }}">
                                 {{ $windowOpenCount }}/{{ $windowMax }} windows
                             </div>
                         </div>
@@ -476,8 +510,12 @@
                     'sales.customers.index' => 'Customers',
                     'sales.orders.index' => 'Orders',
                     'sales.invoices.index' => 'Invoices',
+                    'sales.invoices.edit' => 'Invoice',
+                    'sales.invoices.show' => 'Invoice',
                     'sales.payments.index' => 'Payments',
                     'sales.credit-memos.index' => 'Credit Memos',
+                    'sales.credit-memos.edit' => 'Credit Memo',
+                    'sales.credit-memos.show' => 'Credit Memo',
                     'inventory.items.create' => 'New Item',
                     'inventory.items.edit' => 'Item',
                     'inventory.items.show' => 'Item',
@@ -494,7 +532,9 @@
                     'purchasing.suppliers.index' => 'Suppliers',
                     'purchasing.receivings.index' => 'Receivings',
                     'purchasing.receivings.edit' => 'Receiving',
+                    'purchasing.receivings.show' => 'Receiving',
                     'purchasing.rtv.index' => 'RTV',
+                    'purchasing.rtv.edit' => 'RTV',
                     'lookups.index' => 'Lookups',
                     'team-chat.index' => 'Team chat',
                     'reports.sales' => 'Sales Report By Customer',
@@ -541,13 +581,16 @@
                     } else {
                         $activeWindowId = $soWindows->ensureOne();
                     }
-                } elseif ($routeName !== 'home' && $routeName !== 'pos.tabs.open') {
+                } elseif ($routeName === 'home') {
+                    $docTabs->clearActive();
+                    $activeDocTabId = null;
+                } elseif ($routeName !== 'pos.tabs.open') {
                     $label = $docLabelMap[$routeName]
                         ?? str($routeName)->afterLast('.')->headline()->toString();
                     if (in_array($routeName, ['sales.orders.edit', 'sales.orders.show'], true)) {
                         $label = 'Order';
                     }
-                    $docTabs->syncCurrent($routeName, $label, url()->current());
+                    $docTabs->syncCurrent($routeName, $label, url()->full());
                     $activeDocTabId = $docTabs->activeId();
                 }
 
@@ -582,8 +625,8 @@
                     || $soWindows->count() >= \App\Services\SalesOrderWindowManager::MAX_WINDOWS;
             @endphp
             <div class="chief-tabs">
-                <div @class(['chief-tab', 'chief-tab-active' => $homeIsActive])>
-                    <a href="{{ route('home') }}" wire:navigate class="chief-tab-link">Home</a>
+                <div @class(['chief-tab', 'chief-tab-active' => $homeIsActive]) data-desk-key="{{ \App\Support\PosDeskKey::fromUrl(route('home')) }}" data-desk-home="1">
+                    <a href="{{ route('home') }}" class="chief-tab-link">Home</a>
                 </div>
 
                 <button
@@ -592,28 +635,27 @@
                     title="{{ $windowsAtMax ? \App\Services\DocumentTabManager::tabLimitMessage() : 'New Sales Order' }}"
                     aria-label="Open another New Sales Order"
                     style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:3.5rem;padding:0 1.35rem;margin:0;border:none;border-right:1px solid #15803d;border-radius:0;background:#22c55e;color:#fff;font-size:1.4rem;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;"
-                    onclick="if ({{ $windowsAtMax ? 'true' : 'false' }}) { window.showPosTabLimit && window.showPosTabLimit(); return false; } if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-open'); } else { window.location.href = {{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }}; }"
+                    onclick="if ({{ $windowsAtMax ? 'true' : 'false' }}) { window.showPosTabLimit && window.showPosTabLimit(); return false; } window.__posOpenHref && window.__posOpenHref({{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }});"
                 >+</button>
 
                 @foreach ($builtTabs as $tab)
                     @php
                         $isSo = ($tab['kind'] ?? '') === 'so';
-                        $isActive = $isSo
-                            ? ($routeName === 'sales.orders.create' && ($tab['window_id'] ?? null) === $activeWindowId)
-                            : ($routeName === ($tab['route'] ?? '') && (
-                                $activeDocTabId === null || ($tab['tab_id'] ?? null) === $activeDocTabId || $routeName !== 'home'
-                            ) && $routeName === ($tab['route'] ?? ''));
-                        // Active when current route matches this tab's route (singleton docs)
-                        if (! $isSo) {
-                            $isActive = $routeName === ($tab['route'] ?? '');
+                        if ($isSo) {
+                            $isActive = $routeName === 'sales.orders.create'
+                                && ($tab['window_id'] ?? null) === $activeWindowId;
+                        } else {
+                            $tabDesk = \App\Support\PosDeskKey::fromUrl($tab['url'] ?? '');
+                            $currentDesk = \App\Support\PosDeskKey::fromUrl(url()->current());
+                            $isActive = $routeName !== 'home'
+                                && $routeName !== 'sales.orders.create'
+                                && $tabDesk !== '/home'
+                                && $tabDesk === $currentDesk;
                         }
                     @endphp
-                    <div @class(['chief-tab', 'chief-tab-active' => $isActive])>
+                    <div @class(['chief-tab', 'chief-tab-active' => $isActive]) data-desk-key="{{ \App\Support\PosDeskKey::fromUrl($tab['url']) }}" data-tab-id="{{ $tab['tab_id'] ?? $tab['window_id'] ?? '' }}">
                         <a
                             href="{{ $tab['url'] }}"
-                            @if ($isSo)
-                                onclick="event.preventDefault(); if (window.Livewire && {{ $routeName === 'sales.orders.create' ? 'true' : 'false' }}) { Livewire.dispatch('so-windows-switch', { id: {{ json_encode($tab['window_id']) }} }); } else { window.location.href = {{ json_encode($tab['url']) }}; }"
-                            @endif
                             class="chief-tab-link"
                         >{{ $tab['label'] }}</a>
                         @if ($isSo)
@@ -635,8 +677,7 @@
                         method="POST"
                         action="{{ route('pos.tabs.close-all') }}"
                         class="chief-tab-close-all-form"
-                        style="display:inline-flex;align-self:stretch;margin:0;margin-left:auto;height:100%;"
-                        onsubmit="return confirm('Close all open windows and return to Home?');"
+                        style="display:inline-flex;align-self:stretch;margin:0;margin-left:auto;height:100%;position:sticky;right:0;background:var(--chief-chrome);z-index:10;"
                     >
                         @csrf
                         <button
@@ -650,12 +691,18 @@
                 @endif
             </div>
 
-            <main class="chief-main flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-[#ececec]" role="main" id="main-content" aria-label="Document content">
-                {{ $slot }}
+            <main class="chief-main pos-frame-host flex-1 min-h-0 overflow-hidden bg-[#ececec]" role="main" id="main-content" aria-label="Document content">
+                {{-- Visible first paint (avoids blank Home after login while iframe would re-fetch) --}}
+                <div
+                    id="pos-boot-slot"
+                    class="pos-keep-frame pos-keep-panel is-active"
+                    data-desk-key="{{ \App\Support\PosDeskKey::fromUrl(url()->current()) }}"
+                    data-pos-boot="1"
+                >{{ $slot }}</div>
             </main>
 
             <footer class="chief-status-bar" role="contentinfo" aria-label="Status bar">
-                <a href="{{ route('profile') }}" wire:navigate class="chief-status-user" title="My Profile">
+                <a href="{{ route('pos.tabs.open', ['route' => 'profile', 'label' => 'My Profile']) }}" class="chief-status-user" title="My Profile">
                     @php $statusUser = auth()->user(); $statusAvatar = $statusUser?->avatarUrl(); @endphp
                     @if ($statusAvatar)
                         <img
@@ -687,6 +734,7 @@
                 @endpersist
             @endif
         @endauth
+        @endif
         <style>
             .pos-permission-toast {
                 position: fixed;
@@ -1026,6 +1074,10 @@
 
                 function go(url) {
                     if (! url) return;
+                    if (window.__posOpenHref) {
+                        window.__posOpenHref(url);
+                        return;
+                    }
                     if (window.Livewire && typeof Livewire.navigate === 'function') {
                         Livewire.navigate(url);
                     } else {
@@ -1204,7 +1256,7 @@
                 }, true);
             })();
         </script>
-        @if ($routeExists('team-chat.unread') && (auth()->user()?->canAccessFeature('team.chat', 'view') ?? false))
+        @if (! $isPosEmbed && \Illuminate\Support\Facades\Route::has('team-chat.unread') && (auth()->user()?->canAccessFeature('team.chat', 'view') ?? false))
             @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('team-chat.unread')])
         @endif
     </body>

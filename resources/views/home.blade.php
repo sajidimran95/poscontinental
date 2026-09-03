@@ -56,7 +56,7 @@
             'feature' => 'purchasing.orders',
             'links' => [
                 ['Purchase Orders', 'purchasing.orders.index', 'purchasing.orders', 'view'],
-                ['Receiving', 'purchasing.receivings.index', 'purchasing.receivings', 'view'],
+                ['Receivings', 'purchasing.receivings.index', 'purchasing.receivings', 'view'],
                 ['Return to Vendor', 'purchasing.rtv.index', 'purchasing.rtv', 'view'],
                 ['Suppliers', 'purchasing.suppliers.index', 'purchasing.suppliers', 'view'],
                 ['New Purchase Order', 'purchasing.orders.create', 'purchasing.orders', 'edit'],

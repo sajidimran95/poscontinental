@@ -1,6 +1,8 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -14,15 +16,16 @@ use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
     #[Url]
@@ -81,6 +84,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function mount(): void
     {
+        $this->bootDeskListColumns();
         if ($this->pay) {
             $id = (int) $this->pay;
             $this->pay = null;
@@ -233,7 +237,38 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 + (float) str_replace(',', '', $this->edit_tax),
                 2
             ),
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'invoice_number' => ['label' => 'Invoice No'],
+            'invoice_date' => ['label' => 'Invoice Date'],
+            'order_number' => ['label' => 'Order No'],
+            'customer_code' => ['label' => 'Customer ID'],
+            'bill_to' => ['label' => 'Bill to'],
+            'subtotal' => ['label' => 'Subtotal', 'type' => 'money'],
+            'total_discount' => ['label' => 'Total Discount', 'type' => 'money'],
+            'trade_discount' => ['label' => 'Trade Discount', 'type' => 'money'],
+            'freight' => ['label' => 'Freight', 'type' => 'money'],
+            'miscellaneous' => ['label' => 'Misc', 'type' => 'money'],
+            'invoice_total' => ['label' => 'Invoice Total', 'type' => 'money'],
+            'payments' => ['label' => 'Payments', 'type' => 'money'],
+            'credits' => ['label' => 'Credits', 'type' => 'money'],
+            'balance' => ['label' => 'Balance', 'type' => 'money'],
+            'status' => ['label' => 'Status', 'type' => 'center'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'invoices_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     protected function deskSortMap(): array
@@ -1255,7 +1290,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="invoices-search">Search Invoices:</label>
                     <input
                         id="invoices-search" data-pos-search
@@ -1286,43 +1321,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="desk-grid-responsive">
-                    <table class="desk-table desk-table-fit desk-list-table">
-                        <colgroup>
-                            <col style="width:2.1rem" />
-                            <col style="width:8%" />
-                            <col style="width:7%" />
-                            <col style="width:7%" />
-                            <col style="width:7%" />
-                            <col style="width:14%" />
-                            <col style="width:7%" />
-                            <col style="width:7%" />
-                            <col style="width:6%" />
-                            <col style="width:5%" />
-                            <col style="width:5%" />
-                            <col style="width:8%" />
-                            <col style="width:7%" />
-                            <col style="width:6%" />
-                            <col style="width:7%" />
-                            <col style="width:6%" />
-                        </colgroup>
+                    <table class="desk-table desk-table-fit desk-list-table desk-table-resizable" data-col-resize="invoices-list" data-excel-grid data-excel-copy-all>
+                        <colgroup></colgroup>
                         <thead>
                             <tr>
-                                <th class="text-center"></th>
-                                <x-desk-sort-th field="invoice_number" label="Invoice No" />
-                                <x-desk-sort-th field="invoice_date" label="Invoice Date" />
-                                <x-desk-sort-th field="order_number" label="Order No" />
-                                <x-desk-sort-th field="customer_code" label="Customer ID" />
-                                <x-desk-sort-th field="bill_to" label="Bill to" />
-                                <x-desk-sort-th field="subtotal" label="Subtotal" align="money" />
-                                <x-desk-sort-th field="total_discount" label="Total Discount" align="money" />
-                                <x-desk-sort-th field="trade_discount" label="Trade Discount" align="money" />
-                                <x-desk-sort-th field="freight" label="Freight" align="money" />
-                                <x-desk-sort-th field="miscellaneous" label="Misc" align="money" />
-                                <x-desk-sort-th field="invoice_total" label="Invoice Total" align="money" />
-                                <x-desk-sort-th field="payments" label="Payments" align="money" />
-                                <x-desk-sort-th field="credits" label="Credits" align="money" />
-                                <x-desk-sort-th field="balance" label="Balance" align="money" />
-                                <x-desk-sort-th field="status" label="Status" align="center" />
+                                <th class="text-center" data-excel-skip></th>
+                                <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                             </tr>
                         </thead>
                         <tbody>
@@ -1333,7 +1337,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     class="cursor-pointer"
                                     @class(['is-selected' => $selectedId === $inv->id || $modalInvoiceId === $inv->id])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="invoice_select"
@@ -1343,44 +1347,13 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                             aria-label="Select invoice {{ $inv->invoice_number }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a
-                                            href="{{ route('sales.invoices.pdf', $inv) }}"
-                                            target="_blank"
-                                            rel="noopener"
-                                            wire:click.stop
-                                        >{{ $inv->invoice_number }}</a>
-                                    </td>
-                                    <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
-                                    <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
-                                    <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
-                                    <td title="{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
-                                    <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->total_discount, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->trade_discount, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->freight, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->miscellaneous, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->invoice_total, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->total_payments, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->total_credits, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
-                                    <td class="text-center">
-                                        <span @class([
-                                            'desk-pill',
-                                            'desk-pill-new' => $inv->status === 'NOT PAID',
-                                            'desk-pill-invoiced' => $inv->status === 'PAID',
-                                            'desk-pill-muted' => ! in_array($inv->status, ['NOT PAID', 'PAID'], true),
-                                        ])>{{ $inv->status }}</span>
-                                        @if ($inv->salesOrder?->delivery_status === 'delivered')
-                                            <div style="margin-top:0.2rem"><span class="dlv-pill is-delivered">Delivered</span></div>
-                                        @elseif (in_array($inv->salesOrder?->delivery_status, ['failed', 'en_route', 'arrived', 'assigned'], true))
-                                            <div class="dlv-muted" style="margin-top:0.2rem">{{ ucfirst(str_replace('_', ' ', (string) $inv->salesOrder->delivery_status)) }}</div>
-                                        @endif
-                                    </td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.sales.invoices.partials.list-cell', ['inv' => $inv, 'colKey' => $colKey])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="16">No invoices. Invoice a sales order from the Orders list.</td>
+                                    <td colspan="{{ $columnColspan }}">No invoices. Invoice a sales order from the Orders list.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -1428,6 +1401,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
             {{-- Right icons: view, print, pick list, edit, payment, void, refresh --}}
             <aside class="desk-rail" aria-label="Invoice actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View invoice" aria-label="View invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
@@ -1859,6 +1833,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             </div>
         </div>
     @endif
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="invoice_number" />
 </div>
 
 @script

@@ -1,7 +1,9 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\StockCount;
 use App\Services\InventoryService;
@@ -9,22 +11,28 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
+
+    public function mount(): void
+    {
+        $this->bootDeskListColumns();
+    }
 
     public function with(): array
     {
@@ -86,7 +94,32 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             'queryOperators' => $this->deskQueryOperatorOptions(),
             'savedDeskQueries' => $this->loadSavedDeskQueries(),
             'deskQueryTitle' => 'Stock Count Query',
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'stock_count_no' => ['label' => 'Stock Count #'],
+            'status' => ['label' => 'Status', 'type' => 'center'],
+            'description' => ['label' => 'Description'],
+            'date_created' => ['label' => 'Date Created'],
+            'last_count_date' => ['label' => 'Last Count Date'],
+            'date_entered' => ['label' => 'Date Entered'],
+            'date_processed' => ['label' => 'Date Processed'],
+            'site' => ['label' => 'Site'],
+            'processed_by' => ['label' => 'Processed By'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'stock_counts_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     /** @return array<string, array{label: string, column: string, has?: string, type?: string}> */
@@ -318,7 +351,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="stock-counts-search">Search Stock Counts:</label>
                     <input
                         id="stock-counts-search" data-pos-search
@@ -364,19 +397,11 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-resizable" data-col-resize="stock-counts-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
-                                <x-desk-sort-th field="stock_count_no" label="Stock Count #" />
-                                <x-desk-sort-th field="status" label="Status" align="center" />
-                                <x-desk-sort-th field="description" label="Description" />
-                                <x-desk-sort-th field="date_created" label="Date Created" />
-                                <x-desk-sort-th field="last_count_date" label="Last Count Date" />
-                                <x-desk-sort-th field="date_entered" label="Date Entered" />
-                                <x-desk-sort-th field="date_processed" label="Date Processed" />
-                                <x-desk-sort-th field="site" label="Site" />
-                                <x-desk-sort-th field="processed_by" label="Processed By" />
+                                <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                             </tr>
                         </thead>
                         <tbody>
@@ -386,7 +411,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                                     wire:dblclick="openCount({{ $count->id }})"
                                     @class(['is-selected' => $selectedId === $count->id, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="stock_count_select"
@@ -396,28 +421,13 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                                             aria-label="Select stock count {{ $count->stock_count_no }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('inventory.stock-counts.edit', $count) }}" wire:navigate wire:click.stop>{{ $count->stock_count_no }}</a>
-                                    </td>
-                                    <td class="text-center">
-                                        <span @class([
-                                            'desk-pill',
-                                            'desk-pill-new' => $count->status === 'New',
-                                            'desk-pill-invoiced' => $count->status === 'Processed',
-                                            'desk-pill-muted' => ! in_array($count->status, ['New', 'Processed'], true),
-                                        ])>{{ $count->status }}</span>
-                                    </td>
-                                    <td title="{{ $count->description }}">{{ $count->description ? \Illuminate\Support\Str::limit($count->description, 40) : '' }}</td>
-                                    <td>{{ user_time($count->date_created) }}</td>
-                                    <td>{{ user_time($count->last_count_date) }}</td>
-                                    <td>{{ user_time($count->date_entered ?? $count->created_at) }}</td>
-                                    <td>{{ user_time($count->date_processed) }}</td>
-                                    <td class="desk-num">{{ $count->site?->code ?: '—' }}</td>
-                                    <td>{{ $count->processedByUser?->name ?: '—' }}</td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.inventory.stock-counts.partials.list-cell', ['count' => $count, 'colKey' => $colKey])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="10">No stock counts found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="{{ $columnColspan }}">No stock counts found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -435,6 +445,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
 
             {{-- Right rail: document, pen, print, delete, refresh, + --}}
             <aside class="desk-rail" aria-label="Stock count actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="openDeskQuery" class="desk-rail-btn" title="Query stock counts by field" aria-label="Query stock counts">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true">
                         <circle cx="7" cy="7" r="4.5"/>
@@ -488,6 +499,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
         </div>
     </div>
     @include('livewire.partials.desk-query-modal')
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="stock_count_no" />
 </div>
 
 @script

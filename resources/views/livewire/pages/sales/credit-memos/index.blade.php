@@ -1,7 +1,9 @@
 ﻿<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -17,19 +19,20 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
         closeItemBrowse as closeDocumentItemBrowse;
     }
 
-    #[Url]
     public string $search = '';
 
     #[Url]
@@ -218,7 +221,33 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             'browseItems' => collect($this->browseRows),
         ];
 
-        return array_merge($this->documentBrowseViewData(), $data);
+        return array_merge($this->documentBrowseViewData(), $data, $this->deskListColumnViewData(1));
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'memo_number' => ['label' => 'Memo No.'],
+            'memo_date' => ['label' => 'Date'],
+            'customer_code' => ['label' => 'Customer ID'],
+            'customer_name' => ['label' => 'Customer'],
+            'order_number' => ['label' => 'Order No.'],
+            'invoice_number' => ['label' => 'Invoice No.'],
+            'reason' => ['label' => 'Reason'],
+            'amount' => ['label' => 'Amount', 'type' => 'money'],
+            'remaining' => ['label' => 'Remaining', 'type' => 'money'],
+            'status' => ['label' => 'Status', 'type' => 'center'],
+        ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'credit_memos_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     protected function deskSortMap(): array
@@ -418,6 +447,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function mount(): void
     {
+        $this->bootDeskListColumns();
         $customerId = request()->integer('customer_id') ?: null;
         $orderId = request()->integer('sales_order_id') ?: null;
         $openNew = request()->boolean('new');
@@ -1586,7 +1616,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                         <div class="desk-flash" role="status">{{ session('status') }}</div>
                     @endif
 
-                    <div class="desk-toolbar orders-toolbar cm-list-toolbar">
+                    <div class="desk-toolbar orders-toolbar cm-list-toolbar" wire:ignore>
                         <label class="desk-toolbar-label" for="cm-search">Search Credit Memos:</label>
                         <input
                             id="cm-search" data-pos-search
@@ -1617,35 +1647,22 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     </div>
 
                     <x-desk-scroll-grid :has-more="$listHasMore" class="cm-list-grid">
-                        <table class="desk-table desk-table-fit">
+                        <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="credit-memos-list" data-excel-grid data-excel-copy-all>
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width:2rem"></th>
-                                    <x-desk-sort-th field="memo_number" label="Memo No." />
-                                    <x-desk-sort-th field="memo_date" label="Date" />
-                                    <x-desk-sort-th field="customer_code" label="Customer ID" />
-                                    <x-desk-sort-th field="customer_name" label="Customer" />
-                                    <x-desk-sort-th field="order_number" label="Order No." />
-                                    <x-desk-sort-th field="invoice_number" label="Invoice No." />
-                                    <x-desk-sort-th field="reason" label="Reason" />
-                                    <x-desk-sort-th field="amount" label="Amount" align="money" />
-                                    <x-desk-sort-th field="remaining" label="Remaining" align="money" />
-                                    <x-desk-sort-th field="status" label="Status" align="center" />
+                                    <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                    <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                                 </tr>
                             </thead>
                             <tbody>
                                 @forelse ($memos as $m)
-                                    @php
-                                        $applied = (float) ($m->applied_sum ?? 0);
-                                        $remaining = max(0, (float) $m->amount - $applied);
-                                    @endphp
                                     <tr
                                         wire:click="selectRow({{ $m->id }})"
                                         wire:dblclick="openMemoPdf({{ $m->id }})"
                                         class="cursor-pointer"
                                         @class(['is-selected' => $selectedId === $m->id])
                                     >
-                                        <td class="text-center" wire:click.stop>
+                                        <td class="text-center" data-excel-skip wire:click.stop>
                                             <input
                                                 type="radio"
                                                 name="cm_select"
@@ -1655,29 +1672,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                                 aria-label="Select credit memo {{ $m->memo_number }}"
                                             />
                                         </td>
-                                        <td class="desk-num">
-                                            <a href="{{ route('sales.credit-memos.pdf', $m) }}" target="_blank" rel="noopener" wire:click.stop>{{ $m->memo_number }}</a>
-                                        </td>
-                                        <td>{{ optional($m->memo_date)?->format('n/j/Y') }}</td>
-                                        <td class="desk-num">{{ $m->customer?->customer_id }}</td>
-                                        <td>{{ $m->customer?->company_name }}</td>
-                                        <td class="desk-num">{{ $m->salesOrder?->order_number ?: '—' }}</td>
-                                        <td class="desk-num">{{ $m->salesOrder?->invoice?->invoice_number ?: '—' }}</td>
-                                        <td>{{ $m->reason ?: '—' }}</td>
-                                        <td class="desk-money">${{ number_format($m->amount, 2) }}</td>
-                                        <td class="desk-money">${{ number_format($remaining, 2) }}</td>
-                                        <td class="text-center">
-                                            <span @class([
-                                                'desk-pill',
-                                                'desk-pill-new' => $m->status === 'Open',
-                                                'desk-pill-invoiced' => $m->status === 'Applied',
-                                                'desk-pill-muted' => ! in_array($m->status, ['Open', 'Applied'], true),
-                                            ])>{{ $m->status }}</span>
-                                        </td>
+                                        @foreach ($visibleColumnKeys as $colKey)
+                                            @include('livewire.pages.sales.credit-memos.partials.list-cell', ['m' => $m, 'colKey' => $colKey])
+                                        @endforeach
                                     </tr>
                                 @empty
                                     <tr class="is-empty">
-                                        <td colspan="11">No credit memos yet. Click <strong>New Credit Memo</strong> to create one.</td>
+                                        <td colspan="{{ $columnColspan }}">No credit memos yet. Click <strong>New Credit Memo</strong> to create one.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -1690,6 +1691,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 </div>
 
                 <aside class="desk-rail" aria-label="Credit memo actions">
+                    <x-desk-fields-rail-btn />
                     <button type="button" wire:click="startNew" class="desk-rail-btn desk-rail-btn-primary" title="New credit memo" aria-label="New credit memo">
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                             <path d="M8 3v10M3 8h10"/>
@@ -1921,6 +1923,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     @endif
 
     @include('livewire.pages.sales.orders.partials.item-browse-panel')
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="memo_number" />
 
 @script
 <script>

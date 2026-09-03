@@ -1,7 +1,9 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -15,19 +17,20 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Orders')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use PersistsDeskTabSearch;
+    use CustomizesDeskListColumns;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'not_invoiced';
 
     /** '' | not_invoiced | Invoiced */
@@ -57,10 +60,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         if ($this->dateTo === '') {
             $this->dateTo = $today;
         }
+        $this->bootDeskListColumns();
+        $this->hydrateDeskTabSearchFromStore();
     }
 
     public function updatedSearch(): void
     {
+        $this->rememberDeskTabSearch();
         $this->resetDeskList();
     }
 
@@ -72,6 +78,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
+        $this->restoreDeskTabSearch();
         $this->selectedId = null;
         $today = now()->toDateString();
         if ($this->favorite === 'not_invoiced') {
@@ -221,7 +228,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
+        return $this->redirectToOrder($order);
     }
 
     public function editSelected(): mixed
@@ -243,17 +250,16 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return null;
         }
 
-        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
+        return $this->redirectToOrder($order);
     }
 
     public function openOrder(int $id): mixed
     {
-        $exists = SalesOrder::query()
+        $order = SalesOrder::query()
             ->where('company_id', auth()->user()->company_id)
-            ->whereKey($id)
-            ->exists();
+            ->find($id);
 
-        if (! $exists) {
+        if (! $order) {
             session()->flash('status', 'Order not found.');
 
             return null;
@@ -261,7 +267,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
         $this->selectedId = $id;
 
-        return $this->redirect(route('sales.orders.edit', $id), navigate: true);
+        return $this->redirectToOrder($order);
     }
 
     public function deleteSelected(): void
@@ -353,6 +359,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function with(): array
     {
+        $this->hydrateDeskTabSearchFromStore();
         $companyId = auth()->user()->company_id;
 
         $query = SalesOrder::query()
@@ -459,7 +466,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     ->where('user_id', auth()->id())
                     ->count()
             ),
-        ];
+        ] + $this->deskListColumnViewData(1);
     }
 
     /** @return array<string, array{label: string, column: string, has?: string}> */
@@ -490,6 +497,55 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'customer_city' => ['label' => 'Customer City', 'has' => 'customer', 'column' => 'city'],
             'customer_state' => ['label' => 'Customer State', 'has' => 'customer', 'column' => 'state'],
         ];
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'order_number' => ['label' => 'Order #', 'type' => 'text'],
+            'invoice_number' => ['label' => 'Invoice #', 'type' => 'text'],
+            'order_type' => ['label' => 'Type', 'type' => 'text'],
+            'order_source' => ['label' => 'Source', 'type' => 'text'],
+            'order_date' => ['label' => 'Order Date', 'type' => 'date'],
+            'ship_date' => ['label' => 'Ship Date', 'type' => 'date'],
+            'status' => ['label' => 'Status', 'type' => 'text'],
+            'customer_code' => ['label' => 'Customer ID', 'type' => 'text'],
+            'customer_contact' => ['label' => 'Name', 'type' => 'text'],
+            'customer_company' => ['label' => 'Company', 'type' => 'text'],
+            'customer_address' => ['label' => 'Address', 'type' => 'text'],
+            'customer_phone' => ['label' => 'Telephone', 'type' => 'text'],
+            'total' => ['label' => 'Total', 'type' => 'money'],
+            'invoice_action' => ['label' => 'Invoice', 'type' => 'action'],
+        ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return ['order_number', 'invoice_number', 'order_type', 'order_source', 'order_date', 'ship_date', 'status', 'customer_code', 'customer_contact', 'customer_company', 'customer_address', 'customer_phone', 'total', 'invoice_action'];
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'orders_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
+    }
+
+    protected function redirectToOrder(SalesOrder $order): mixed
+    {
+        $user = auth()->user();
+        if (! $order->canBeEditedBy($user)) {
+            session()->flash('status', 'Only the sales rep who created this order can edit it.');
+
+            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+        }
+
+        $held = $order->editLockHolder();
+        if ($held && (int) $held['user_id'] !== (int) $user->id) {
+            session()->flash('status', ($held['name'] ?? 'Another user').' has this order open.');
+
+            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+        }
+
+        return $this->redirect(route('sales.orders.edit', $order), navigate: true);
     }
 
     protected function deskSortMap(): array
@@ -663,7 +719,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="orders-search">Search Orders:</label>
                     <input
                         id="orders-search" data-pos-search
@@ -716,62 +772,33 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="desk-grid-responsive {{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table desk-table-fit desk-list-table">
-                        <colgroup>
-                            <col style="width:2.1rem" />
-                            <col style="width:7%" />
-                            <col style="width:7%" />
-                            <col style="width:6%" />
-                            <col style="width:7%" />
-                            <col style="width:6.5%" />
-                            <col style="width:6.5%" />
-                            <col style="width:6%" />
-                            <col style="width:6%" />
-                            <col style="width:8%" />
-                            <col style="width:10%" />
-                            <col style="width:9%" />
-                            <col style="width:7%" />
-                            <col style="width:8%" />
-                            <col style="width:4.5rem" />
-                        </colgroup>
+                    <table class="desk-table desk-table-fit desk-list-table desk-table-resizable" data-col-resize="orders-list" data-excel-grid data-excel-copy-all>
+                        <colgroup></colgroup>
                         <thead>
                             <tr>
-                                <th class="text-center"></th>
-                                <x-desk-sort-th field="order_number" label="Order #" />
-                                <x-desk-sort-th field="invoice_number" label="Invoice #" />
-                                <x-desk-sort-th field="order_type" label="Type" />
-                                <x-desk-sort-th field="order_source" label="Source" />
-                                <x-desk-sort-th field="order_date" label="Order Date" />
-                                <x-desk-sort-th field="ship_date" label="Ship Date" />
-                                <x-desk-sort-th field="status" label="Status" />
-                                <x-desk-sort-th field="customer_code" label="Customer ID" />
-                                <x-desk-sort-th field="customer_contact" label="Name" />
-                                <x-desk-sort-th field="customer_company" label="Company" />
-                                <x-desk-sort-th field="customer_address" label="Address" />
-                                <x-desk-sort-th field="customer_phone" label="Telephone" />
-                                <x-desk-sort-th field="total" label="Total" align="right" />
-                                <th></th>
+                                <th class="text-center" data-excel-skip></th>
+                                @foreach ($visibleColumnKeys as $colKey)
+                                    @php $col = $listColumnCatalog[$colKey]; @endphp
+                                    <x-desk-sort-th
+                                        :field="$colKey"
+                                        :label="$col['label']"
+                                        resize
+                                        :align="($col['type'] ?? '') === 'money' ? 'money' : 'left'"
+                                    />
+                                @endforeach
                             </tr>
                         </thead>
                         <tbody>
                             @forelse ($orders as $order)
                                 @continue(! $order instanceof \App\Models\SalesOrder)
-                                @php
-                                    $orderId = (int) $order->getKey();
-                                    $oc = ($order->relationLoaded('customer') && $order->getRelation('customer') instanceof \App\Models\Customer)
-                                        ? $order->getRelation('customer')
-                                        : null;
-                                    $rowInvoice = ($order->relationLoaded('invoice') && $order->getRelation('invoice') instanceof \App\Models\Invoice)
-                                        ? $order->getRelation('invoice')
-                                        : null;
-                                @endphp
+                                @php $orderId = (int) $order->getKey(); @endphp
                                 <tr
                                     wire:key="so-row-{{ $orderId }}"
                                     wire:click="selectRow({{ $orderId }})"
                                     wire:dblclick="openOrder({{ $orderId }})"
                                     @class(['is-selected' => $selectedId === $orderId, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="order_select"
@@ -781,57 +808,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                             aria-label="Select order {{ $order->order_number }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
-                                    </td>
-                                    <td class="desk-num">
-                                        @if ($rowInvoice)
-                                            <a
-                                                href="{{ route('sales.invoices.pdf', $rowInvoice->getKey()) }}"
-                                                target="_blank"
-                                                rel="noopener"
-                                                wire:click.stop
-                                                title="Open invoice PDF for order {{ $order->order_number }}"
-                                            >{{ $rowInvoice->invoice_number }}</a>
-                                        @else
-                                            —
-                                        @endif
-                                    </td>
-                                    <td>{{ $order->order_type }}</td>
-                                    <td>
-                                        @php $src = (string) ($order->order_source ?? 'pos'); @endphp
-                                        <span @class([
-                                            'desk-pill',
-                                            'desk-pill-muted' => $src === 'pos',
-                                            'desk-pill-new' => $src === 'sales',
-                                            'desk-pill-invoiced' => $src === 'customer',
-                                        ])>{{ $order->sourceLabel() }}</span>
-                                    </td>
-                                    <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
-                                    <td>{{ optional($order->ship_date)?->format('n/j/Y') }}</td>
-                                    <td>
-                                        <span @class([
-                                            'desk-pill',
-                                            'desk-pill-new' => $order->status === 'New',
-                                            'desk-pill-invoiced' => $order->status === 'Invoiced',
-                                            'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
-                                        ])>{{ $order->status }}</span>
-                                    </td>
-                                    <td class="desk-num">{{ $oc?->customer_id }}</td>
-                                    <td title="{{ $oc?->contact }}">{{ $oc?->contact }}</td>
-                                    <td title="{{ $oc?->company_name }}">{{ $oc?->company_name }}</td>
-                                    <td title="{{ $oc?->address }}">{{ $oc?->address }}</td>
-                                    <td title="{{ $oc?->telephone }}">{{ $oc?->telephone }}</td>
-                                    <td class="desk-money">${{ number_format($order->total, 2) }}</td>
-                                    <td wire:click.stop>
-                                        @if ($order->status !== 'Invoiced')
-                                            <button type="button" wire:click="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
-                                        @endif
-                                    </td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.sales.orders.partials.list-cell', ['order' => $order, 'colKey' => $colKey])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="15">No orders found.</td>
+                                    <td colspan="{{ $columnColspan }}">No orders found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -904,6 +887,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
             {{-- Right icon rail: grid, view, edit, delete, print, refresh, + --}}
             <aside class="desk-rail" aria-label="Order actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -1011,6 +995,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         </div>
     @endif
     @include('livewire.partials.desk-query-modal')
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="order_number" />
 </div>
 @script
 <script>

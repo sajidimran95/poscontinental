@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\Site;
 use App\Models\User;
@@ -10,6 +11,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 {
+    use ReturnsToDeskList;
+
     public InventoryReceiving $receiving;
 
     public bool $viewMode = false;
@@ -93,7 +96,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
         // Keep as free-text / selected user name
     }
 
-    public function save(): void
+    public function save(bool $redirect = true): void
     {
         abort_if($this->viewMode || $this->status === 'Processed', 403);
 
@@ -118,6 +121,9 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
         }
 
         session()->flash('status', 'Receiving saved.');
+        if ($redirect) {
+            $this->returnToDeskList('purchasing.receivings.index');
+        }
     }
 
     public function process(): void
@@ -128,9 +134,9 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
             $this->received_by = auth()->user()->name;
         }
 
-        $this->save();
+        $this->save(false);
         app(InventoryService::class)->processReceiving($this->receiving->fresh('lines'));
-        $this->redirect(route('purchasing.receivings.index'), navigate: true);
+        $this->returnToDeskList('purchasing.receivings.index');
     }
 
     public function closeDesk(): mixed

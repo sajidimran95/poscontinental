@@ -1,6 +1,8 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -8,18 +10,19 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'all';
 
     /** '' | active | inactive */
@@ -28,6 +31,11 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
     public ?int $selectedId = null;
 
     public bool $compactView = false;
+
+    public function mount(): void
+    {
+        $this->bootDeskListColumns();
+    }
 
     public function with(): array
     {
@@ -82,7 +90,29 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                 'tobacco' => 'Tobacco Suppliers',
             ],
             'listTitle' => $listTitle,
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'supplier_id' => ['label' => 'Supplier ID'],
+            'name' => ['label' => 'Company Name'],
+            'address' => ['label' => 'Address'],
+            'phone1' => ['label' => 'Telephone'],
+            'email' => ['label' => 'Email Address'],
+            'web_page' => ['label' => 'Web Site'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'suppliers_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     protected function deskSortMap(): array
@@ -267,7 +297,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="suppliers-search">Search Suppliers:</label>
                     <input
                         id="suppliers-search" data-pos-search
@@ -316,32 +346,21 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-resizable" data-col-resize="suppliers-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
-                                <x-desk-sort-th field="supplier_id" label="Supplier ID" />
-                                <x-desk-sort-th field="name" label="Company Name" />
-                                <x-desk-sort-th field="address" label="Address" />
-                                <x-desk-sort-th field="phone1" label="Telephone" />
-                                <x-desk-sort-th field="email" label="Email Address" />
-                                <x-desk-sort-th field="web_page" label="Web Site" />
+                                <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                             </tr>
                         </thead>
                         <tbody>
                             @forelse ($suppliers as $supplier)
-                                @php
-                                    $fullAddress = collect([
-                                        $supplier->address,
-                                        collect([$supplier->city, $supplier->state, $supplier->zip_code])->filter()->implode(', '),
-                                    ])->filter()->implode(' ');
-                                @endphp
                                 <tr
                                     wire:click="selectRow({{ $supplier->id }})"
                                     wire:dblclick="openSupplier({{ $supplier->id }})"
                                     @class(['is-selected' => $selectedId === $supplier->id, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="supplier_select"
@@ -351,26 +370,13 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
                                             aria-label="Select supplier {{ $supplier->supplier_id }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('purchasing.suppliers.edit', $supplier) }}" wire:navigate wire:click.stop>{{ $supplier->supplier_id }}</a>
-                                    </td>
-                                    <td>{{ $supplier->name }}</td>
-                                    <td title="{{ $fullAddress }}">{{ \Illuminate\Support\Str::limit($fullAddress, 40) }}</td>
-                                    <td>{{ $supplier->phone1 ?: '' }}</td>
-                                    <td>
-                                        @if ($supplier->email)
-                                            <a href="mailto:{{ $supplier->email }}" wire:click.stop>{{ $supplier->email }}</a>
-                                        @endif
-                                    </td>
-                                    <td>
-                                        @if ($supplier->web_page)
-                                            <a href="{{ str_starts_with($supplier->web_page, 'http') ? $supplier->web_page : 'https://'.$supplier->web_page }}" target="_blank" rel="noopener" wire:click.stop>{{ $supplier->web_page }}</a>
-                                        @endif
-                                    </td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.purchasing.suppliers.partials.list-cell', ['supplier' => $supplier, 'colKey' => $colKey])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="7">No suppliers found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="{{ $columnColspan }}">No suppliers found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -387,6 +393,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
             </div>
 
             <aside class="desk-rail" aria-label="Supplier actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -440,6 +447,7 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
             </aside>
         </div>
     </div>
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="supplier_id" />
 </div>
 
 @script

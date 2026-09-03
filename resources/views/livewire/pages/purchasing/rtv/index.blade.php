@@ -1,6 +1,8 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\InventoryReceivingLine;
@@ -15,18 +17,19 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'all';
 
     public ?int $selectedId = null;
@@ -77,6 +80,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public string $itemLookup = '';
 
     public bool $scanModeActive = false;
+
+    public function mount(): void
+    {
+        $this->bootDeskListColumns();
+    }
 
     public ?int $selectedLineIndex = null;
 
@@ -193,7 +201,34 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             'isReturned' => $this->status === 'Returned',
             'isReadonly' => $this->viewMode || $this->status === 'Returned',
             'browseLines' => $browseLines,
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'rtv_number' => ['label' => 'RTV Number'],
+            'rtv_date' => ['label' => 'RTV Date'],
+            'status' => ['label' => 'Status', 'type' => 'center'],
+            'reference_no' => ['label' => 'Reference No.'],
+            'supplier_code' => ['label' => 'Supplier ID'],
+            'supplier_name' => ['label' => 'Supplier'],
+            'requested_by' => ['label' => 'Requested By'],
+            'subtotal' => ['label' => 'RTV Subtotal', 'type' => 'money'],
+            'discount' => ['label' => 'Discount', 'type' => 'money'],
+            'freight' => ['label' => 'Freight', 'type' => 'money'],
+            'total' => ['label' => 'RTV Total', 'type' => 'money'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'rtv_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     protected function deskSortMap(): array
@@ -1532,7 +1567,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         @else
             <div class="desk-main-split">
                 <div class="desk-main-body">
-                    <div class="desk-toolbar orders-toolbar">
+                    <div class="desk-toolbar orders-toolbar" wire:ignore>
                         <label class="desk-toolbar-label" for="rtv-search">Search RTVs:</label>
                         <input
                             id="rtv-search" data-pos-search
@@ -1581,21 +1616,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                     </div>
 
                     <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
-                        <table class="desk-table">
+                        <table class="desk-table desk-table-resizable" data-col-resize="rtv-list" data-excel-grid data-excel-copy-all>
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width:2rem"></th>
-                                    <x-desk-sort-th field="rtv_number" label="RTV Number" />
-                                    <x-desk-sort-th field="rtv_date" label="RTV Date" />
-                                    <x-desk-sort-th field="status" label="Status" align="center" />
-                                    <x-desk-sort-th field="reference_no" label="Reference No." />
-                                    <x-desk-sort-th field="supplier_code" label="Supplier ID" />
-                                    <x-desk-sort-th field="supplier_name" label="Supplier" />
-                                    <x-desk-sort-th field="requested_by" label="Requested By" />
-                                    <x-desk-sort-th field="subtotal" label="RTV Subtotal" align="money" />
-                                    <x-desk-sort-th field="discount" label="Discount" align="money" />
-                                    <x-desk-sort-th field="freight" label="Freight" align="money" />
-                                    <x-desk-sort-th field="total" label="RTV Total" align="money" />
+                                    <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                    <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -1605,7 +1630,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                         wire:dblclick="edit({{ $rec->id }})"
                                         @class(['is-selected' => $selectedId === $rec->id, 'cursor-pointer'])
                                     >
-                                        <td class="text-center" wire:click.stop>
+                                        <td class="text-center" data-excel-skip wire:click.stop>
                                             <input
                                                 type="radio"
                                                 name="rtv_select"
@@ -1615,30 +1640,13 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                                 aria-label="Select RTV {{ $rec->rtv_number }}"
                                             />
                                         </td>
-                                        <td class="desk-num">
-                                            <button type="button" wire:click.stop="edit({{ $rec->id }})" class="text-sky-700 font-semibold hover:underline">{{ $rec->rtv_number }}</button>
-                                        </td>
-                                        <td>{{ optional($rec->rtv_date)?->format('n/j/Y') }}</td>
-                                        <td class="text-center">
-                                            <span @class([
-                                                'desk-pill',
-                                                'desk-pill-new' => $rec->status === 'New',
-                                                'desk-pill-invoiced' => $rec->status === 'Returned',
-                                                'desk-pill-muted' => ! in_array($rec->status, ['New', 'Returned'], true),
-                                            ])>{{ $rec->status }}</span>
-                                        </td>
-                                        <td>{{ $rec->reference_no ?: '' }}</td>
-                                        <td class="desk-num">{{ $rec->supplier?->supplier_id ?: '—' }}</td>
-                                        <td>{{ $rec->supplier?->name ?: '—' }}</td>
-                                        <td>{{ $rec->requestedBy?->name ?: '—' }}</td>
-                                        <td class="desk-money">${{ number_format($rec->subtotal, 2) }}</td>
-                                        <td class="desk-money">${{ number_format($rec->discount, 2) }}</td>
-                                        <td class="desk-money">${{ number_format($rec->freight, 2) }}</td>
-                                        <td class="desk-money">${{ number_format($rec->total, 2) }}</td>
+                                        @foreach ($visibleColumnKeys as $colKey)
+                                            @include('livewire.pages.purchasing.rtv.partials.list-cell', ['rec' => $rec, 'colKey' => $colKey])
+                                        @endforeach
                                     </tr>
                                 @empty
                                     <tr class="is-empty">
-                                        <td colspan="12">No RTVs found. Use the <strong>+</strong> button to create one.</td>
+                                        <td colspan="{{ $columnColspan }}">No RTVs found. Use the <strong>+</strong> button to create one.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -1655,6 +1663,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 </div>
 
                 <aside class="desk-rail" aria-label="RTV actions">
+                    <x-desk-fields-rail-btn />
                     <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                             <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -1777,8 +1786,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             </div>
         </div>
     @endif
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="rtv_number" />
 </div>
-
 @script
 <script>
     $wire.on('open-rtv-pdf', (payload) => {

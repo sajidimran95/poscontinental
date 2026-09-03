@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Models\Item;
 use App\Models\Site;
 use App\Models\StockCount;
@@ -16,6 +17,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
     }
+    use ReturnsToDeskList;
     public ?StockCount $stockCount = null;
 
     public string $activeTab = 'general';
@@ -97,6 +99,38 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         if ($this->lines === []) {
             $this->lines[] = $this->emptyLine();
         }
+    }
+
+    public function updatedActiveTab($tab): void
+    {
+        if ($tab !== 'expand' || $this->showBrowse) {
+            return;
+        }
+
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('sc-item-entry');
+                if (el) el.focus();
+            });
+        JS);
+    }
+
+    public function rendered(): void
+    {
+        if ($this->showBrowse || $this->activeTab !== 'expand') {
+            return;
+        }
+
+        $this->js(<<<'JS'
+            requestAnimationFrame(() => {
+                const el = document.getElementById('sc-item-entry');
+                if (!el) return;
+                const a = document.activeElement;
+                if (a && a.closest && a.closest('.sc-lines-table, .item-browse, [data-item-browse], .entity-header')) return;
+                if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') && a !== el) return;
+                el.focus();
+            });
+        JS);
     }
 
     protected function emptyLine(): array
@@ -599,7 +633,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 $this->updatedProcessedBy();
             }
             if ($redirect) {
-                $this->redirect(route('inventory.stock-counts.index'), navigate: true);
+                $this->returnToDeskList('inventory.stock-counts.index');
             }
 
             return;
@@ -664,7 +698,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         });
 
         if ($redirect) {
-            $this->redirect(route('inventory.stock-counts.index'), navigate: true);
+            $this->returnToDeskList('inventory.stock-counts.index');
         }
     }
 
@@ -675,7 +709,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
         $this->save(false);
         app(InventoryService::class)->processStockCount($this->stockCount->fresh('lines'));
-        $this->redirect(route('inventory.stock-counts.index'), navigate: true);
+        $this->returnToDeskList('inventory.stock-counts.index');
     }
 }; ?>
 
@@ -798,7 +832,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                     type="button"
                                     wire:click="focusScanAndAdd"
                                     class="so-scan-btn"
-                                    title="Scan: click to focus, or add the code already in the box"
+                                    title="Scan (F2): click to focus, or add the code already in the box"
                                 >
                                     <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
                                         <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
@@ -807,10 +841,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                 </button>
                                 <input
                                     id="sc-item-entry"
+                                    data-pos-item-entry
                                     type="text"
                                     class="so-input so-entry-input font-mono"
                                     placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
                                     autocomplete="off"
+                                    wire:keydown.enter.prevent="addItemFromEntry($event.target.value)"
+                                    wire:keydown.f3.prevent="openItemBrowse"
                                     x-data="{
                                         timer: null,
                                         lastKeyAt: 0,
@@ -835,7 +872,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                 this.rapid = false;
                                                 return;
                                             }
-                                            if (e.key === 'F2') {
+                                            if (e.key === 'F3') {
                                                 e.preventDefault();
                                                 clearTimeout(this.timer);
                                                 $wire.openItemBrowse();
@@ -871,7 +908,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
                                 </button>
                             </div>
-                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)" style="margin-left:0.5rem">Browse (F2)</button>
+                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)" style="margin-left:0.5rem">Browse (F3)</button>
                         </div>
                     @endunless
 
@@ -951,7 +988,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                         </table>
                         @if ($filledLineCount === 0)
                             <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
-                                Scan or type an item code above, or click Browse (F2)
+                                Scan or type an item code above, or click Browse (F3)
                             </div>
                         @endif
                     </div>

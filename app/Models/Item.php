@@ -75,8 +75,8 @@ class Item extends Model
     protected function casts(): array
     {
         return [
-            'list_price' => 'decimal:4',
-            'msrp' => 'decimal:4',
+            'list_price' => 'decimal:2',
+            'msrp' => 'decimal:2',
             'standard_cost' => 'decimal:4',
             'current_cost' => 'decimal:4',
             'last_cost' => 'decimal:4',

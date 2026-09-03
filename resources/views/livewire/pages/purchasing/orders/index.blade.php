@@ -1,7 +1,9 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
@@ -10,19 +12,20 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use InteractsWithDeskQuery;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use CustomizesDeskListColumns;
+    use PersistsDeskTabSearch;
 
-    #[Url]
     public string $search = '';
 
-    #[Url]
+    #[Url(history: false)]
     public string $favorite = 'all';
 
     /** '' | pending | received */
@@ -37,6 +40,11 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
     public ?int $selectedId = null;
 
     public bool $compactView = false;
+
+    public function mount(): void
+    {
+        $this->bootDeskListColumns();
+    }
 
     public function with(): array
     {
@@ -107,7 +115,35 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 ->orderBy('name')
                 ->limit(500)
                 ->get(['id', 'supplier_id', 'name']),
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'po_number' => ['label' => 'Order Number'],
+            'requisition_date' => ['label' => 'Requisition Date'],
+            'status' => ['label' => 'Status', 'type' => 'center'],
+            'required_date' => ['label' => 'Required Date'],
+            'reference_no' => ['label' => 'Reference No.'],
+            'supplier_code' => ['label' => 'Supplier ID'],
+            'supplier_name' => ['label' => 'Supplier'],
+            'buyer' => ['label' => 'Buyer / Requester'],
+            'subtotal' => ['label' => 'Order Subtotal', 'type' => 'money'],
+            'trade_discount' => ['label' => 'Discount', 'type' => 'money'],
+            'freight' => ['label' => 'Freight', 'type' => 'money'],
+            'total' => ['label' => 'Order Total', 'type' => 'money'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'po_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     /** @return array<string, array{label: string, column: string, has?: string}> */
@@ -462,7 +498,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="po-search">Search Purchase Orders:</label>
                     <input
                         id="po-search" data-pos-search
@@ -508,22 +544,11 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-resizable" data-col-resize="po-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
-                                <x-desk-sort-th field="po_number" label="Order Number" />
-                                <x-desk-sort-th field="requisition_date" label="Requisition Date" />
-                                <x-desk-sort-th field="status" label="Status" align="center" />
-                                <x-desk-sort-th field="required_date" label="Required Date" />
-                                <x-desk-sort-th field="reference_no" label="Reference No." />
-                                <x-desk-sort-th field="supplier_code" label="Supplier ID" />
-                                <x-desk-sort-th field="supplier_name" label="Supplier" />
-                                <x-desk-sort-th field="buyer" label="Buyer / Requester" />
-                                <x-desk-sort-th field="subtotal" label="Order Subtotal" align="money" />
-                                <x-desk-sort-th field="trade_discount" label="Discount" align="money" />
-                                <x-desk-sort-th field="freight" label="Freight" align="money" />
-                                <x-desk-sort-th field="total" label="Order Total" align="money" />
+                                <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                <x-desk-list-col-headers :catalog="$listColumnCatalog" :keys="$visibleColumnKeys" />
                             </tr>
                         </thead>
                         <tbody>
@@ -533,7 +558,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                                     wire:dblclick="openOrder({{ $order->id }})"
                                     @class(['is-selected' => $selectedId === $order->id, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="po_select"
@@ -543,31 +568,13 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                                             aria-label="Select PO {{ $order->po_number }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('purchasing.orders.edit', $order) }}" wire:navigate wire:click.stop>{{ $order->po_number }}</a>
-                                    </td>
-                                    <td>{{ optional($order->requisition_date)?->format('n/j/Y') }}</td>
-                                    <td class="text-center">
-                                        <span @class([
-                                            'desk-pill',
-                                            'desk-pill-new' => in_array($order->status, ['New', 'Partially Received'], true),
-                                            'desk-pill-invoiced' => $order->status === 'Received',
-                                            'desk-pill-muted' => ! in_array($order->status, ['New', 'Partially Received', 'Received'], true),
-                                        ])>{{ $order->status }}</span>
-                                    </td>
-                                    <td>{{ optional($order->required_date)?->format('n/j/Y') ?: '—' }}</td>
-                                    <td>{{ $order->reference_no ?: '' }}</td>
-                                    <td class="desk-num">{{ $order->supplier?->supplier_id ?: '—' }}</td>
-                                    <td>{{ $order->supplier?->name ?: '—' }}</td>
-                                    <td>{{ $order->buyer?->name ?: '—' }}</td>
-                                    <td class="desk-money">${{ number_format($order->subtotal, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($order->trade_discount, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($order->freight, 2) }}</td>
-                                    <td class="desk-money">${{ number_format($order->total, 2) }}</td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.purchasing.orders.partials.list-cell', ['order' => $order, 'colKey' => $colKey])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="13">No purchase orders found. Use the <strong>+</strong> button to create one.</td>
+                                    <td colspan="{{ $columnColspan }}">No purchase orders found. Use the <strong>+</strong> button to create one.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -582,6 +589,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
             {{-- Right rail: grid, view, edit, delete, print, refresh, + --}}
             <aside class="desk-rail" aria-label="Purchase order actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -643,6 +651,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         </div>
     </div>
     @include('livewire.partials.desk-query-modal')
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="po_number" />
 </div>
 @script
 <script>

@@ -22,6 +22,7 @@ use App\Support\ItemPricing;
 use App\Support\ItemSearch;
 use App\Support\SalesOrderLinePresentation;
 use App\Support\StockPolicy;
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Livewire\Concerns\SortsItemBrowse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -35,11 +36,15 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 {
+    use ReturnsToDeskList;
     use SortsItemBrowse;
     public ?SalesOrder $salesOrder = null;
 
     /** View-only (same layout as edit, locked). */
     public bool $viewMode = false;
+
+    /** Creator-only / single-editor lock — stays on after hydrate. */
+    public bool $ownerReadOnly = false;
 
     /** Query: ?from=invoices — Save/Cancel go back to the invoice list. */
     #[Url]
@@ -390,7 +395,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'customer:id,customer_id,company_name,messages_alerts,price_level_id,is_favorite',
                 'invoice:id,invoice_number,sales_order_id,status',
             ]);
-            if ($salesOrder->status === 'Invoiced' || $salesOrder->invoice) {
+            $this->applyOrderEditAccess($salesOrder);
+
+            if (! $this->ownerReadOnly && ($salesOrder->status === 'Invoiced' || $salesOrder->invoice)) {
                 $invNo = $salesOrder->invoice?->invoice_number;
                 $this->orderLockMessage = $invNo
                     ? 'This order is invoiced (#'.$invNo.'). Saving updates the invoice, totals, and stock.'
@@ -780,8 +787,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $windows = app(SalesOrderWindowManager::class);
         if ($this->createWindowId && $windows->has($this->createWindowId)) {
-            $next = $windows->close($this->createWindowId);
+            $closedId = $this->createWindowId;
+            $next = $windows->close($closedId);
             $this->createWindowId = null;
+            $this->dispatch('pos-so-after-save', [
+                'closed_window' => $closedId,
+                'windows' => collect($windows->list())->map(fn ($w) => [
+                    'kind' => 'so',
+                    'id' => $w['id'],
+                    'label' => $w['label'],
+                    'url' => $w['url'],
+                    'close_url' => route('sales.orders.windows.close', $w['id']),
+                ])->values()->all(),
+                'edit' => null,
+            ]);
             if ($next !== null) {
                 $this->redirect(route('sales.orders.create', ['w' => $next]), navigate: false);
 
@@ -1265,6 +1284,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return null;
         }
 
+        if (! $order->canBeEditedBy(auth()->user())) {
+            $this->notifyAlert('Only the sales rep who created this order can edit it.', 'warning');
+
+            return null;
+        }
+
+        if (! $order->claimEditLock(auth()->user())) {
+            $holder = $order->editLockHolder();
+            $this->notifyAlert(($holder['name'] ?? 'Another user').' has this order open.', 'warning');
+
+            return null;
+        }
+
+        $this->ownerReadOnly = false;
         $this->viewMode = false;
         $url = route('sales.orders.edit', $order);
         if ($this->shouldReturnToInvoiceList()) {
@@ -1276,8 +1309,32 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function hydrate(): void
     {
-        $this->viewMode = request()->routeIs('sales.orders.show');
+        $this->viewMode = request()->routeIs('sales.orders.show') || $this->ownerReadOnly;
         $this->ensureSalesOrderModel();
+    }
+
+    protected function applyOrderEditAccess(SalesOrder $order): void
+    {
+        $user = auth()->user();
+        if (! $order->canBeEditedBy($user)) {
+            $this->ownerReadOnly = true;
+            $this->viewMode = true;
+            $this->orderLockMessage = 'Only the sales rep who created this order can edit it.';
+
+            return;
+        }
+
+        if (request()->routeIs('sales.orders.show')) {
+            return;
+        }
+
+        if (! $order->claimEditLock($user)) {
+            $holder = $order->editLockHolder();
+            $this->ownerReadOnly = true;
+            $this->viewMode = true;
+            $name = $holder['name'] ?? 'Another user';
+            $this->orderLockMessage = $name.' has this order open. One person can edit it at a time.';
+        }
     }
 
     protected function ensureSalesOrderModel(): void
@@ -3442,6 +3499,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function resetBlankNewOrder(): void
     {
         $companyId = (int) auth()->user()->company_id;
+        $this->salesOrder = null;
+        $this->viewMode = false;
+        $this->ownerReadOnly = false;
+        $this->orderLockMessage = '';
         $this->lines = [];
         $this->boxes = [['box_number' => '', 'tracking_number' => '']];
         $this->comments = '';
@@ -3459,6 +3520,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->custom_field_4 = '';
         $this->custom_field_5 = '';
         $this->itemEntry = '';
+        $this->selectedLineIndex = null;
         $this->order_number = SalesOrder::nextNumber($companyId);
         $this->order_date = now()->toDateString();
         $this->required_date = now()->toDateString();
@@ -4144,6 +4206,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->flushPendingLineMessageEdits();
 
+        if ($this->salesOrder?->exists && ! $this->salesOrder->canBeEditedBy(auth()->user())) {
+            $this->notifyAlert('Only the sales rep who created this order can edit it.', 'error');
+
+            return;
+        }
+
         if ($this->salesOrder?->exists) {
             $this->salesOrder->refresh()->loadMissing('invoice');
         }
@@ -4580,7 +4648,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     }
 
     /**
-     * After save/print: keep editing a New order instead of dumping to Park-only create.
+     * After save/print from New Sales Order:
+     * - Several create tabs: close the finished one; remaining renumber 1,2,3…
+     * - Only one create tab: keep it active and clear for the next sale (manual × closes it).
      */
     protected function finishSaveStayOnOrder(): void
     {
@@ -4590,10 +4660,57 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $order = $this->salesOrder?->fresh(['invoice']);
-        if ($order?->exists && $order->status !== 'Invoiced' && ! $order->invoice) {
-            $this->createWindowId = null;
-            $this->redirect(route('sales.orders.edit', $order), navigate: true);
+        if ($this->createWindowId) {
+            if ($this->salesOrder?->exists) {
+                $this->salesOrder->releaseEditLock(auth()->user());
+            }
+
+            $windows = app(SalesOrderWindowManager::class);
+            if ($windows->count() > 1 && $windows->has($this->createWindowId)) {
+                $closedId = $this->createWindowId;
+                $this->skipWindowDraftPersist = true;
+                $next = $windows->close($closedId);
+                $this->createWindowId = null;
+                $nextUrl = $next
+                    ? route('sales.orders.create', ['w' => $next])
+                    : route('home');
+                $this->dispatch('pos-so-after-save', [
+                    'closed_window' => $closedId,
+                    'windows' => collect($windows->list())->map(fn ($w) => [
+                        'kind' => 'so',
+                        'id' => $w['id'],
+                        'label' => $w['label'],
+                        'url' => $w['url'],
+                        'close_url' => route('sales.orders.windows.close', $w['id']),
+                    ])->values()->all(),
+                    'next_url' => $nextUrl,
+                    'edit' => null,
+                ]);
+
+                return;
+            }
+
+            $this->skipWindowDraftPersist = true;
+            $this->salesOrder = null;
+            $this->viewMode = false;
+            $this->ownerReadOnly = false;
+            $this->orderLockMessage = '';
+            $this->showPrintDialog = false;
+            $this->optCreateInvoicePayment = false;
+            $this->optPrintSalesOrder = false;
+            $this->optCreatePrintInvoice = false;
+            $this->optPrintPickList = false;
+            $windows->clearDraft($this->createWindowId);
+            $this->skipWindowDraftPersist = false;
+            $this->resetBlankNewOrder();
+
+            return;
+        }
+
+        // Existing order edit tab — go back to the list after save.
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->releaseEditLock(auth()->user());
+            $this->returnToDeskList($this->shouldReturnToInvoiceList() ? 'sales.invoices.index' : 'sales.orders.index');
 
             return;
         }
@@ -4653,6 +4770,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function cancelAction(): mixed
     {
         if ($this->salesOrder?->exists) {
+            $this->salesOrder->releaseEditLock(auth()->user());
+
             return $this->redirect(route('sales.orders.index'), navigate: true);
         }
 
@@ -6260,6 +6379,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');
+    });
+
+    $wire.on('pos-so-after-save', (payload) => {
+        const data = payload?.closed_window !== undefined ? payload : (payload?.[0] || payload || {});
+        const msg = {
+            type: 'pos-so-after-save',
+            closed_window: data.closed_window || null,
+            windows: data.windows || [],
+            next_url: data.next_url || data.nextUrl || null,
+            edit: data.edit || null,
+        };
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage(msg, window.location.origin);
+                return;
+            }
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent('pos-so-after-save', { detail: msg }));
     });
 
     // Focus search when item browse panel opens (ready for barcode gun).

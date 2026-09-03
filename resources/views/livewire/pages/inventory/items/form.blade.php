@@ -18,6 +18,7 @@ use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\TaxSchedule;
 use App\Models\UomSchedule;
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Support\ItemMedia;
 use App\Support\TobaccoItem;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,7 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Item')] class extends Component
 {
+    use ReturnsToDeskList;
 
     public ?Item $item = null;
 
@@ -221,6 +223,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             $this->fill($data);
 
+            $this->list_price = $this->formatMoneyTwo($this->list_price);
+            $this->msrp = $this->formatMoneyTwo($this->msrp);
             $this->reorder_point = $this->formatMoneyTwo($this->reorder_point);
             $this->restock_level = $this->formatMoneyTwo($this->restock_level);
 
@@ -244,7 +248,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             $this->prices = $item->prices->map(fn (ItemPrice $p) => [
                 'uom' => $p->uom ?? '',
-                'price' => (string) $p->price,
+                'price' => $this->formatMoneyTwo($p->price),
                 'alias_code' => $p->alias_code ?? '',
                 'price_level_id' => $p->price_level_id,
             ])->all();
@@ -1279,7 +1283,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             .($wasCreate ? ' Marked as New for '.Item::NEW_ITEM_DAYS.' days (auto-clears after that).' : '')
         );
 
-        $this->redirect(route('inventory.items.index'), navigate: true);
+        $this->returnToDeskList('inventory.items.index');
     }
 
     public function copyItem(): void
@@ -1756,7 +1760,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                                 @endforeach
                                             </select>
                                         </td>
-                                        <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" placeholder="0" /></td>
+                                        <td class="text-center"><input wire:model="prices.{{ $i }}.price" class="so-input text-right item-cell-qty" placeholder="0.00" inputmode="decimal" /></td>
                                         <td><input wire:model="prices.{{ $i }}.alias_code" class="so-input item-cell-ctl" /></td>
                                         <td>
                                             <select wire:model="prices.{{ $i }}.price_level_id" class="so-input item-cell-ctl">

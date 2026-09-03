@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Models\CigaretteTaxClass;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -20,6 +21,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Customer')] class extends Component
 {
+    use ReturnsToDeskList;
+
     public ?Customer $customer = null;
 
     public bool $viewMode = false;
@@ -500,7 +503,7 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
         Cache::forget('orders.filter_customers.'.(int) auth()->user()->company_id);
         Cache::forget('orders.filter_customers.v2.'.(int) auth()->user()->company_id);
 
-        $this->redirect(route('sales.customers.index'), navigate: true);
+        $this->returnToDeskList('sales.customers.index');
     }
 
     public function portalAppOn(): bool

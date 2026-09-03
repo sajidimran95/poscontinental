@@ -1,6 +1,8 @@
 <?php
 
+use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
+use App\Livewire\Concerns\PersistsDeskTabSearch;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -11,15 +13,16 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 
 new #[Layout('layouts.app'), Title('Customers')] class extends Component
 {
-    use WithPagination;
+    use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use PersistsDeskTabSearch;
+    use CustomizesDeskListColumns;
 
-    #[Url]
     public string $search = '';
 
     public string $favorite = 'all';
@@ -31,8 +34,15 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
     public bool $compactView = false;
 
+    public function mount(): void
+    {
+        $this->bootDeskListColumns();
+        $this->hydrateDeskTabSearchFromStore();
+    }
+
     public function with(): array
     {
+        $this->hydrateDeskTabSearchFromStore();
         $companyId = auth()->user()->company_id;
 
         $query = Customer::query()
@@ -103,7 +113,36 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                 'inactive' => 'Inactive Customers',
             ],
             'listTitle' => $listTitle,
+        ] + $this->deskListColumnViewData(1);
+    }
+
+    protected function deskListColumnCatalog(): array
+    {
+        return [
+            'customer_id' => ['label' => 'Customer ID'],
+            'contact' => ['label' => 'Name'],
+            'company_name' => ['label' => 'Company'],
+            'address' => ['label' => 'Address'],
+            'telephone' => ['label' => 'Telephone'],
+            'email' => ['label' => 'Email'],
+            'sales_rep' => ['label' => 'Sales Rep'],
+            'balance' => ['label' => 'Balance Owed'],
+            'open_credit' => ['label' => 'Open Credit'],
+            'opt_out_telemarketing' => ['label' => "Don't Call"],
+            'opt_out_email' => ['label' => "Don't Email"],
+            'comments' => ['label' => 'Comments'],
+            'is_inactive' => ['label' => 'Status'],
         ];
+    }
+
+    protected function defaultVisibleColumns(): array
+    {
+        return array_keys($this->deskListColumnCatalog());
+    }
+
+    protected function visibleColumnsSessionKey(): string
+    {
+        return 'customers_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
     protected function deskSortMap(): array
@@ -129,8 +168,15 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $this->resetPage();
     }
 
+    public function updatedSearch(): void
+    {
+        $this->rememberDeskTabSearch();
+        $this->resetPage();
+    }
+
     public function updatedFavorite(): void
     {
+        $this->restoreDeskTabSearch();
         $this->resetPage();
         $this->selectedId = null;
     }
@@ -390,7 +436,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
-                <div class="desk-toolbar orders-toolbar">
+                <div class="desk-toolbar orders-toolbar" wire:ignore>
                     <label class="desk-toolbar-label" for="customers-search">Search Customers:</label>
                     <input
                         id="customers-search" data-pos-search
@@ -440,23 +486,14 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
-                    <table class="desk-table">
+                    <table class="desk-table desk-table-resizable" data-col-resize="customers-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2rem"></th>
-                                <x-desk-sort-th field="customer_id" label="Customer ID" />
-                                <x-desk-sort-th field="contact" label="Name" />
-                                <x-desk-sort-th field="company_name" label="Company" />
-                                <x-desk-sort-th field="address" label="Address" />
-                                <x-desk-sort-th field="telephone" label="Telephone" />
-                                <x-desk-sort-th field="email" label="Email" />
-                                <x-desk-sort-th field="sales_rep" label="Sales Rep" />
-                                <x-desk-sort-th field="balance" label="Balance Owed" align="right" />
-                                <th class="text-right" title="Unapplied open credit memos (e.g. overpayments)">Open Credit</th>
-                                <x-desk-sort-th field="opt_out_telemarketing" label="Don't Call" align="center" />
-                                <x-desk-sort-th field="opt_out_email" label="Don't Email" align="center" />
-                                <x-desk-sort-th field="comments" label="Comments" />
-                                <x-desk-sort-th field="is_inactive" label="Status" align="center" />
+                                <th class="text-center" style="width:2rem" data-excel-skip></th>
+                                @foreach ($visibleColumnKeys as $colKey)
+                                    @php $col = $listColumnCatalog[$colKey]; @endphp
+                                    <x-desk-sort-th :field="$colKey" :label="$col['label']" resize :align="in_array($colKey, ['balance', 'open_credit'], true) ? 'money' : (str_starts_with($colKey, 'opt_') || $colKey === 'is_inactive' ? 'center' : 'left')" />
+                                @endforeach
                             </tr>
                         </thead>
                         <tbody>
@@ -466,7 +503,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                     wire:dblclick="openCustomer({{ $customer->id }})"
                                     @class(['is-selected' => $selectedId === $customer->id, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="text-center" data-excel-skip wire:click.stop>
                                         <input
                                             type="radio"
                                             name="customer_select"
@@ -476,87 +513,13 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                                             aria-label="Select customer {{ $customer->customer_id }}"
                                         />
                                     </td>
-                                    <td class="desk-num">
-                                        <a href="{{ route('sales.customers.show', $customer) }}" wire:navigate wire:click.stop>{{ $customer->customer_id }}</a>
-                                    </td>
-                                    <td>{{ $customer->contact }}</td>
-                                    <td>{{ $customer->company_name }}</td>
-                                    <td class="max-w-[12rem] truncate" title="{{ $customer->address }}">{{ $customer->address }}</td>
-                                    <td>{{ $customer->telephone }}</td>
-                                    <td>
-                                        @if ($customer->email)
-                                            <a href="mailto:{{ $customer->email }}" wire:click.stop>{{ $customer->email }}</a>
-                                        @else
-                                            —
-                                        @endif
-                                    </td>
-                                    <td wire:click.stop style="min-width:9rem">
-                                        @if ($canEditCustomers)
-                                            <select
-                                                class="so-input so-input-sm"
-                                                style="min-width:8.5rem;max-width:12rem;padding:0.2rem 0.35rem;font-size:0.8rem"
-                                                wire:change="updateSalesRep({{ $customer->id }}, $event.target.value)"
-                                                aria-label="Assign sales rep for {{ $customer->customer_id }}"
-                                                title="Change sales rep"
-                                            >
-                                                <option value="">— None —</option>
-                                                @foreach ($salesReps as $rep)
-                                                    <option value="{{ $rep->id }}" @selected((int) $customer->sales_rep_id === (int) $rep->id)>
-                                                        {{ $rep->name }}@if(! $rep->is_active) (inactive)@endif
-                                                    </option>
-                                                @endforeach
-                                                {{-- Keep current assignment visible if user is no longer sales_rep role --}}
-                                                @if ($customer->sales_rep_id && ! $salesReps->contains('id', $customer->sales_rep_id) && $customer->salesRep)
-                                                    <option value="{{ $customer->salesRep->id }}" selected>
-                                                        {{ $customer->salesRep->name }} (other role)
-                                                    </option>
-                                                @endif
-                                            </select>
-                                        @else
-                                            {{ $customer->salesRep?->name ?: '—' }}
-                                        @endif
-                                    </td>
-                                    <td class="desk-money">${{ number_format((float) $customer->balance, 2) }}</td>
-                                    <td class="desk-money" @if (($openCreditsByCustomer[$customer->id] ?? 0) > 0.0001) style="color:#0a7a32;font-weight:600" @endif>
-                                        @php $oc = (float) ($openCreditsByCustomer[$customer->id] ?? 0); @endphp
-                                        @if ($oc > 0.0001)
-                                            ${{ number_format($oc, 2) }}
-                                        @else
-                                            —
-                                        @endif
-                                    </td>
-                                    <td class="text-center" wire:click.stop>
-                                        <input
-                                            type="checkbox"
-                                            @checked($customer->opt_out_telemarketing)
-                                            wire:click="toggleOptOut({{ $customer->id }}, 'opt_out_telemarketing')"
-                                            aria-label="Don't call for {{ $customer->customer_id }}"
-                                            title="Don't call"
-                                        />
-                                    </td>
-                                    <td class="text-center" wire:click.stop>
-                                        <input
-                                            type="checkbox"
-                                            @checked($customer->opt_out_email)
-                                            wire:click="toggleOptOut({{ $customer->id }}, 'opt_out_email')"
-                                            aria-label="Don't email for {{ $customer->customer_id }}"
-                                            title="Don't email"
-                                        />
-                                    </td>
-                                    <td class="max-w-[12rem] truncate" title="{{ $customer->comments }}">{{ $customer->comments ?: '—' }}</td>
-                                    <td class="text-center" wire:click.stop>
-                                        <button
-                                            type="button"
-                                            wire:click="toggleInactive({{ $customer->id }})"
-                                            class="desk-pill {{ $customer->is_inactive ? 'desk-pill-muted' : 'desk-pill-invoiced' }}"
-                                            title="{{ $customer->is_inactive ? 'Inactive — click to activate' : 'Active — click to deactivate' }}"
-                                            aria-label="Toggle active status"
-                                        >{{ $customer->is_inactive ? 'Inactive' : 'Active' }}</button>
-                                    </td>
+                                    @foreach ($visibleColumnKeys as $colKey)
+                                        @include('livewire.pages.sales.customers.partials.list-cell', ['customer' => $customer, 'colKey' => $colKey, 'openCreditsByCustomer' => $openCreditsByCustomer])
+                                    @endforeach
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="14">No customers found.</td>
+                                    <td colspan="{{ $columnColspan }}">No customers found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -568,8 +531,8 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
                     <x-desk-load-more :has-more="$listHasMore" />
                 </x-record-count>
             </div>
-
             <aside class="desk-rail" aria-label="Customer actions">
+                <x-desk-fields-rail-btn />
                 <button type="button" wire:click="toggleCompactView" class="desk-rail-btn" title="{{ $compactView ? 'Normal view' : 'Compact view' }}" aria-label="Toggle list view">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="2" width="5" height="5" rx="0.5"/>
@@ -629,6 +592,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
             </aside>
         </div>
     </div>
+    <x-desk-column-picker :catalog="$listColumnCatalog" :visible-keys="$visibleColumnKeys" locked="customer_id" />
 </div>
 
 @script

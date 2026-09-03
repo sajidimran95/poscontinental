@@ -40,9 +40,10 @@
                 <li class="desk-sidebar-row">
                     <button
                         type="button"
-                        wire:click="$set('favorite', '{{ $key }}')"
+                        wire:click.prevent="$set('favorite', '{{ $key }}')"
                         aria-current="{{ $active === $key ? 'true' : 'false' }}"
                         title="{{ $kind ? $kind.': '.$label : $label }}"
+                        data-desk-fav="{{ $key }}"
                         @class([
                             'desk-sidebar-item',
                             'is-active' => $active === $key,

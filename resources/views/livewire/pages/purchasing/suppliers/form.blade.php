@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Models\Supplier;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Supplier')] class extends Component
 {
+    use ReturnsToDeskList;
+
     public ?Supplier $supplier = null;
 
     public string $supplier_id = '';
@@ -204,7 +207,7 @@ new #[Layout('layouts.app'), Title('Supplier')] class extends Component
         }
 
         session()->flash('status', 'Supplier saved.');
-        $this->redirect(route('purchasing.suppliers.index'), navigate: true);
+        $this->returnToDeskList('purchasing.suppliers.index');
     }
 
     protected function supplierSaveErrorMessage(QueryException $e): string

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class SalesOrder extends Model
@@ -186,6 +187,70 @@ class SalesOrder extends Model
         }
 
         return $this;
+    }
+
+    public function ownerUserId(): int
+    {
+        return (int) ($this->created_by ?: $this->sales_rep_id ?: 0);
+    }
+
+    public function canBeEditedBy(?User $user): bool
+    {
+        if (! $user || (int) $user->company_id !== (int) $this->company_id) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        if ($user->isSalesRep()) {
+            return $this->ownerUserId() === (int) $user->id;
+        }
+
+        return $user->canAccessFeature('sales.orders', 'edit');
+    }
+
+    public static function editLockCacheKey(int $orderId): string
+    {
+        return 'so.edit.lock.'.$orderId;
+    }
+
+    /** @return array{user_id:int,name:string}|null */
+    public function editLockHolder(): ?array
+    {
+        $held = Cache::get(static::editLockCacheKey((int) $this->id));
+        if (! is_array($held) || (int) ($held['user_id'] ?? 0) < 1) {
+            return null;
+        }
+
+        return $held;
+    }
+
+    public function claimEditLock(User $user): bool
+    {
+        $key = static::editLockCacheKey((int) $this->id);
+        $held = Cache::get($key);
+        $heldId = is_array($held) ? (int) ($held['user_id'] ?? 0) : 0;
+        if ($heldId > 0 && $heldId !== (int) $user->id) {
+            return false;
+        }
+
+        Cache::put($key, [
+            'user_id' => (int) $user->id,
+            'name' => (string) $user->name,
+        ], now()->addMinutes(20));
+
+        return true;
+    }
+
+    public function releaseEditLock(?User $user = null): void
+    {
+        $held = $this->editLockHolder();
+        if ($user && $held && (int) $held['user_id'] !== (int) $user->id) {
+            return;
+        }
+        Cache::forget(static::editLockCacheKey((int) $this->id));
     }
 
     public function portalAmounts(): array

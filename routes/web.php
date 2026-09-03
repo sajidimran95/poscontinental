@@ -19,6 +19,7 @@ use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\Sale\SalePortalController;
 use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\Sale\SalePwaController;
+use App\Http\Controllers\SpreadsheetDownloadController;
 use App\Http\Controllers\SalesOrderWindowController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -39,12 +40,16 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::redirect('dashboard', '/home')->name('dashboard');
 
     Route::get('pos/tabs/open', [DocumentTabController::class, 'open'])->name('pos.tabs.open');
+    Route::post('pos/tabs/remember', [DocumentTabController::class, 'remember'])->name('pos.tabs.remember');
+    Route::post('pos/tabs/ensure', [DocumentTabController::class, 'ensure'])->name('pos.tabs.ensure');
     Route::post('pos/tabs/close-all', [DocumentTabController::class, 'closeAll'])->name('pos.tabs.close-all');
     Route::post('pos/tabs/{tab}/close', [DocumentTabController::class, 'close'])
         ->where('tab', '[0-9a-fA-F\-]{36}')
         ->name('pos.tabs.close');
 
-    Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
+    Route::get('exports/xlsx/{token}', [SpreadsheetDownloadController::class, 'show'])
+        ->where('token', '[0-9a-fA-F\-]{36}')
+        ->name('exports.xlsx');
     Route::get('team-chat/unread', [TeamChatNavController::class, 'unread'])->name('team-chat.unread');
 
     Volt::route('profile', 'pages.profile')->name('profile');

@@ -47,6 +47,10 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
 
     public ?int $historyDetailId = null;
 
+    public int $confirmLimit = 40;
+
+    public int $historyDetailLimit = 50;
+
     /** @var list<int|string> */
     public array $selectedIds = [];
 
@@ -57,7 +61,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
 
         $value = is_numeric($this->adjustment_value) ? (float) $this->adjustment_value : 0.0;
         $targets = $this->activeTargets();
-        $selectedSet = collect($this->selectedIds)->map(fn ($id) => (int) $id)->unique()->all();
+        $selectedSet = collect($this->selectedIds)->map(fn ($id) => (int) $id)->unique()->values()->all();
         $visibleIds = $items->pluck('id')->map(fn ($id) => (int) $id)->all();
         $selectedVisibleCount = count(array_intersect($selectedSet, $visibleIds));
         $allVisibleSelected = $items->isNotEmpty() && $selectedVisibleCount === $items->count();
@@ -92,12 +96,46 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
         });
 
         $confirmSample = [];
+        $confirmShown = 0;
+        $confirmHasMore = false;
         if ($this->confirming && $selectedSet !== []) {
-            $confirmSample = $preview
-                ->filter(fn ($row) => $row['selected'])
-                ->take(12)
-                ->values()
-                ->all();
+            $take = max(40, (int) $this->confirmLimit);
+            $confirmItems = Item::query()
+                ->where('company_id', $companyId)
+                ->whereIn('id', $selectedSet)
+                ->orderBy('item_code')
+                ->limit($take + 1)
+                ->get();
+            $confirmHasMore = $confirmItems->count() > $take;
+            $confirmItems = $confirmHasMore ? $confirmItems->take($take)->values() : $confirmItems->values();
+            $confirmShown = $confirmItems->count();
+            $confirmSample = $confirmItems->map(function (Item $item) use ($targets, $value) {
+                $fields = [];
+                foreach ($targets as $field) {
+                    if ($field === 'uom_prices') {
+                        $before = (float) $item->list_price;
+                        $after = $this->computeAfter($before, $this->adjustment_type, $value);
+                        $fields[$field] = [
+                            'before' => $before,
+                            'after' => $after,
+                            'delta' => $after - $before,
+                        ];
+                        continue;
+                    }
+                    $before = (float) $item->{$field};
+                    $after = $this->computeAfter($before, $this->adjustment_type, $value);
+                    $fields[$field] = [
+                        'before' => $before,
+                        'after' => $after,
+                        'delta' => $after - $before,
+                    ];
+                }
+
+                return [
+                    'item' => $item,
+                    'fields' => $fields,
+                ];
+            })->all();
         }
 
         $history = BulkPriceChangeLog::query()
@@ -108,11 +146,26 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             ->get();
 
         $historyDetail = null;
+        $historyDetailItems = collect();
+        $historyDetailShown = 0;
+        $historyDetailHasMore = false;
+        $historyDetailTotal = 0;
         if ($this->historyDetailId) {
             $historyDetail = BulkPriceChangeLog::query()
-                ->with(['user', 'items' => fn ($q) => $q->orderBy('item_code')->limit(200)])
+                ->with('user')
                 ->where('company_id', $companyId)
                 ->find($this->historyDetailId);
+            if ($historyDetail) {
+                $historyDetailTotal = (int) $historyDetail->items()->count();
+                $take = max(50, (int) $this->historyDetailLimit);
+                $detailRows = $historyDetail->items()
+                    ->orderBy('item_code')
+                    ->limit($take + 1)
+                    ->get();
+                $historyDetailHasMore = $detailRows->count() > $take;
+                $historyDetailItems = $historyDetailHasMore ? $detailRows->take($take)->values() : $detailRows->values();
+                $historyDetailShown = $historyDetailItems->count();
+            }
         }
 
         $brands = Item::query()
@@ -147,8 +200,14 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             'visibleIds' => $visibleIds,
             'activeTargets' => $targets,
             'confirmSample' => $confirmSample,
+            'confirmShown' => $confirmShown,
+            'confirmHasMore' => $confirmHasMore,
             'history' => $history,
             'historyDetail' => $historyDetail,
+            'historyDetailItems' => $historyDetailItems,
+            'historyDetailShown' => $historyDetailShown,
+            'historyDetailHasMore' => $historyDetailHasMore,
+            'historyDetailTotal' => $historyDetailTotal,
             'adjustLabel' => match ($this->adjustment_type) {
                 'amount' => 'Flat amount (+/-)',
                 'set' => 'Set exact value',
@@ -305,6 +364,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             return;
         }
 
+        $this->confirmLimit = 40;
         $this->confirming = true;
         $this->status = '';
     }
@@ -312,6 +372,21 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
     public function cancelConfirm(): void
     {
         $this->confirming = false;
+        $this->confirmLimit = 40;
+    }
+
+    public function loadMoreConfirm(): void
+    {
+        if (! $this->confirming) {
+            return;
+        }
+
+        $selected = collect($this->selectedIds)->map(fn ($id) => (int) $id)->unique()->count();
+        if ($this->confirmLimit >= $selected) {
+            return;
+        }
+
+        $this->confirmLimit += 40;
     }
 
     public function apply(): void
@@ -416,6 +491,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
 
         $this->selectedIds = [];
         $this->confirming = false;
+        $this->confirmLimit = 40;
         $this->status = "Applied successfully — {$affected} item(s) updated. See Change History for the audit trail.";
         $this->activeTab = 'history';
     }
@@ -423,18 +499,40 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
     public function viewHistory(int $id): void
     {
         $this->historyDetailId = $id;
+        $this->historyDetailLimit = 50;
         $this->activeTab = 'history';
     }
 
     public function closeHistoryDetail(): void
     {
         $this->historyDetailId = null;
+        $this->historyDetailLimit = 50;
+    }
+
+    public function loadMoreHistoryDetail(): void
+    {
+        if (! $this->historyDetailId) {
+            return;
+        }
+
+        $log = BulkPriceChangeLog::query()->find($this->historyDetailId);
+        if (! $log) {
+            return;
+        }
+
+        $total = (int) $log->items()->count();
+        if ($this->historyDetailLimit >= $total) {
+            return;
+        }
+
+        $this->historyDetailLimit += 50;
     }
 
     private function resetSelectionState(): void
     {
         $this->selectedIds = [];
         $this->confirming = false;
+        $this->confirmLimit = 40;
         $this->status = '';
     }
 
@@ -674,50 +772,103 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             @if ($confirming)
                 <div class="bp-confirm-overlay" wire:click.self="cancelConfirm">
                     <div class="bp-confirm-card" role="dialog" aria-modal="true" aria-labelledby="bp-confirm-title">
-                        <h3 id="bp-confirm-title" class="bp-confirm-title">Confirm bulk price change</h3>
-                        <p class="bp-confirm-lead">
-                            You are about to update <strong>{{ number_format($selectedCount) }}</strong> item(s)
-                            using <strong>{{ $adjustLabel }}</strong> of <strong>{{ $adjustment_value }}</strong>
-                            on: <strong>{{ collect($activeTargets)->map(fn ($t) => $targetLabels[$t])->implode(', ') }}</strong>.
-                        </p>
-                        <p class="bp-confirm-note">Sample before → after (first {{ count($confirmSample) }} selected):</p>
-                        <div class="bp-confirm-grid">
-                            <table class="desk-table">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        @foreach ($activeTargets as $field)
-                                            <th class="text-right">{{ $targetLabels[$field] }}</th>
-                                        @endforeach
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach ($confirmSample as $row)
+                        <header class="bp-confirm-head">
+                            <div class="bp-confirm-head-text">
+                                <p class="bp-confirm-kicker">Bulk Pricing</p>
+                                <h3 id="bp-confirm-title" class="bp-confirm-title">Confirm price change</h3>
+                            </div>
+                            <button type="button" class="bp-confirm-x" wire:click="cancelConfirm" title="Close" aria-label="Close">×</button>
+                        </header>
+
+                        <div class="bp-confirm-summary">
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">Items</span>
+                                <span class="bp-confirm-stat-val">{{ number_format($selectedCount) }}</span>
+                            </div>
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">Method</span>
+                                <span class="bp-confirm-stat-val">{{ $adjustLabel }}</span>
+                            </div>
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">Value</span>
+                                <span class="bp-confirm-stat-val">{{ $adjustment_value }}{{ $adjustment_type === 'percent' ? '%' : '' }}</span>
+                            </div>
+                            <div class="bp-confirm-stat bp-confirm-stat-wide">
+                                <span class="bp-confirm-stat-lbl">Updating</span>
+                                <span class="bp-confirm-stat-val bp-confirm-stat-targets">
+                                    {{ collect($activeTargets)->map(fn ($t) => $targetLabels[$t])->implode(' · ') }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="bp-confirm-preview">
+                            <div class="bp-confirm-preview-bar">
+                                <span>Preview all selected</span>
+                                <span class="bp-confirm-preview-meta">Showing {{ number_format($confirmShown) }} of {{ number_format($selectedCount) }} · scroll for more</span>
+                            </div>
+                            <div
+                                class="bp-confirm-grid"
+                                x-data="{ loading: false }"
+                                x-on:scroll.debounce.120ms="
+                                    if (loading) return;
+                                    if ($el.scrollTop + $el.clientHeight < $el.scrollHeight - 72) return;
+                                    loading = true;
+                                    $wire.loadMoreConfirm().finally(() => { loading = false; });
+                                "
+                            >
+                                <table class="bp-confirm-table">
+                                    <thead>
                                         <tr>
-                                            <td>
-                                                <span class="desk-num">{{ $row['item']->item_code }}</span>
-                                                <span class="bp-confirm-desc">{{ \Illuminate\Support\Str::limit($row['item']->description, 40) }}</span>
-                                            </td>
+                                            <th class="bp-confirm-col-item">Item</th>
                                             @foreach ($activeTargets as $field)
-                                                @php $f = $row['fields'][$field]; @endphp
-                                                <td class="desk-money">
-                                                    ${{ number_format($f['before'], 2) }}
-                                                    →
-                                                    <strong class="bp-new">${{ number_format($f['after'], 2) }}</strong>
-                                                </td>
+                                                <th class="text-right">{{ $targetLabels[$field] }}</th>
                                             @endforeach
                                         </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($confirmSample as $row)
+                                            <tr>
+                                                <td class="bp-confirm-col-item">
+                                                    <span class="bp-confirm-code">{{ $row['item']->item_code }}</span>
+                                                    <span class="bp-confirm-desc">{{ \Illuminate\Support\Str::limit($row['item']->description, 48) }}</span>
+                                                </td>
+                                                @foreach ($activeTargets as $field)
+                                                    @php $f = $row['fields'][$field]; @endphp
+                                                    <td class="bp-confirm-change">
+                                                        <span class="bp-confirm-before">${{ number_format($f['before'], 2) }}</span>
+                                                        <span class="bp-confirm-arrow" aria-hidden="true">→</span>
+                                                        <span class="bp-confirm-after">${{ number_format($f['after'], 2) }}</span>
+                                                    </td>
+                                                @endforeach
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="{{ 1 + count($activeTargets) }}" class="bp-confirm-empty">No sample rows available.</td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                                @if ($confirmHasMore)
+                                    <div class="bp-confirm-more" wire:click="loadMoreConfirm" role="button" tabindex="0">
+                                        <span wire:loading.remove wire:target="loadMoreConfirm">Scroll or click to load more…</span>
+                                        <span wire:loading wire:target="loadMoreConfirm">Loading more…</span>
+                                    </div>
+                                @elseif ($confirmShown > 0)
+                                    <div class="bp-confirm-more is-done">All {{ number_format($selectedCount) }} selected items listed</div>
+                                @endif
+                            </div>
                         </div>
-                        <div class="bp-confirm-actions">
-                            <button type="button" wire:click="cancelConfirm" class="desk-btn">Cancel</button>
-                            <button type="button" wire:click="apply" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
-                                <span wire:loading.remove wire:target="apply">Commit changes</span>
-                                <span wire:loading wire:target="apply">Applying…</span>
-                            </button>
-                        </div>
+
+                        <footer class="bp-confirm-actions">
+                            <p class="bp-confirm-hint">This will write prices for all {{ number_format($selectedCount) }} selected item(s).</p>
+                            <div class="bp-confirm-btns">
+                                <button type="button" wire:click="cancelConfirm" class="desk-btn">Cancel</button>
+                                <button type="button" wire:click="apply" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
+                                    <span wire:loading.remove wire:target="apply">Commit changes</span>
+                                    <span wire:loading wire:target="apply">Applying…</span>
+                                </button>
+                            </div>
+                        </footer>
                     </div>
                 </div>
             @endif
@@ -730,8 +881,17 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                 </div>
             </div>
 
-            <div class="desk-grid">
-                <table class="desk-table">
+            <div class="bp-history-wrap">
+                <table class="bp-history-table">
+                    <colgroup>
+                        <col class="bp-h-when" />
+                        <col class="bp-h-user" />
+                        <col class="bp-h-adj" />
+                        <col class="bp-h-targets" />
+                        <col class="bp-h-filters" />
+                        <col class="bp-h-items" />
+                        <col class="bp-h-action" />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>When</th>
@@ -740,7 +900,7 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                             <th>Targets</th>
                             <th>Filters</th>
                             <th class="text-right">Items</th>
-                            <th></th>
+                            <th class="text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -755,18 +915,40 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                                     filled($filters['category_id'] ?? null) ? 'Cat #'.$filters['category_id'] : null,
                                     filled($filters['subcategory_id'] ?? null) ? 'Sub #'.$filters['subcategory_id'] : null,
                                 ])->filter()->implode(' · ') ?: 'Selected items only';
+                                $adjValue = (float) $log->adjustment_value;
+                                $adjLabel = match ($log->adjustment_type) {
+                                    'percent' => number_format($adjValue, 2).'%',
+                                    'amount' => ($adjValue >= 0 ? '+' : '').'$'.number_format($adjValue, 2),
+                                    'set' => 'Set $'.number_format($adjValue, 2),
+                                    default => number_format($adjValue, 2),
+                                };
+                                $adjType = match ($log->adjustment_type) {
+                                    'percent' => 'Percent',
+                                    'amount' => 'Flat amount',
+                                    'set' => 'Exact value',
+                                    default => (string) $log->adjustment_type,
+                                };
                             @endphp
                             <tr>
-                                <td>{{ $log->created_at?->format('Y-m-d H:i') }}</td>
+                                <td>
+                                    <span class="bp-h-date">{{ $log->created_at?->format('Y-m-d') }}</span>
+                                    <span class="bp-h-time">{{ $log->created_at?->format('H:i') }}</span>
+                                </td>
                                 <td>{{ $log->user?->name ?: '—' }}</td>
                                 <td>
-                                    {{ $log->adjustment_type }}
-                                    {{ $log->adjustment_type === 'percent' ? $log->adjustment_value.'%' : '$'.number_format((float) $log->adjustment_value, 2) }}
+                                    <span class="bp-h-adj-val">{{ $adjLabel }}</span>
+                                    <span class="bp-h-adj-type">{{ $adjType }}</span>
                                 </td>
-                                <td>{{ collect($log->targets ?? [])->map(fn ($t) => $targetLabels[$t] ?? $t)->implode(', ') }}</td>
-                                <td>{{ $filterBits }}</td>
-                                <td class="text-right">{{ number_format($log->items_affected) }}</td>
                                 <td>
+                                    <div class="bp-h-chips">
+                                        @foreach (($log->targets ?? []) as $t)
+                                            <span class="bp-h-chip">{{ $targetLabels[$t] ?? $t }}</span>
+                                        @endforeach
+                                    </div>
+                                </td>
+                                <td><span class="bp-h-filters-text" title="{{ $filterBits }}">{{ $filterBits }}</span></td>
+                                <td class="text-right bp-h-count">{{ number_format($log->items_affected) }}</td>
+                                <td class="text-center">
                                     <button type="button" wire:click="viewHistory({{ $log->id }})" class="desk-btn desk-btn-sm">Details</button>
                                 </td>
                             </tr>
@@ -778,43 +960,124 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             </div>
 
             @if ($historyDetail)
-                <div class="bp-history-detail">
-                    <div class="desk-titlebar">
-                        <div>
-                            <h2 class="desk-title">Run detail — {{ $historyDetail->created_at?->format('Y-m-d H:i') }}</h2>
-                            <span class="desk-title-meta">{{ $historyDetail->user?->name }} · {{ number_format($historyDetail->items_affected) }} items</span>
+                <div class="bp-confirm-overlay" wire:click.self="closeHistoryDetail">
+                    <div class="bp-detail-card" role="dialog" aria-modal="true" aria-labelledby="bp-detail-title">
+                        <header class="bp-confirm-head">
+                            <div class="bp-confirm-head-text">
+                                <p class="bp-confirm-kicker">Change History</p>
+                                <h3 id="bp-detail-title" class="bp-confirm-title">Run detail — {{ $historyDetail->created_at?->format('Y-m-d H:i') }}</h3>
+                            </div>
+                            <button type="button" class="bp-confirm-x" wire:click="closeHistoryDetail" title="Close" aria-label="Close">×</button>
+                        </header>
+
+                        <div class="bp-confirm-summary">
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">User</span>
+                                <span class="bp-confirm-stat-val">{{ $historyDetail->user?->name ?: '—' }}</span>
+                            </div>
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">Adjustment</span>
+                                <span class="bp-confirm-stat-val">
+                                    {{ $historyDetail->adjustment_type === 'percent'
+                                        ? number_format((float) $historyDetail->adjustment_value, 2).'%'
+                                        : '$'.number_format((float) $historyDetail->adjustment_value, 2) }}
+                                    <span class="bp-detail-type">({{ $historyDetail->adjustment_type }})</span>
+                                </span>
+                            </div>
+                            <div class="bp-confirm-stat">
+                                <span class="bp-confirm-stat-lbl">Items affected</span>
+                                <span class="bp-confirm-stat-val">{{ number_format($historyDetailTotal ?: $historyDetail->items_affected) }}</span>
+                            </div>
+                            <div class="bp-confirm-stat bp-confirm-stat-wide">
+                                <span class="bp-confirm-stat-lbl">Targets</span>
+                                <span class="bp-confirm-stat-val bp-confirm-stat-targets">
+                                    {{ collect($historyDetail->targets ?? [])->map(fn ($t) => $targetLabels[$t] ?? $t)->implode(' · ') ?: '—' }}
+                                </span>
+                            </div>
                         </div>
-                        <button type="button" wire:click="closeHistoryDetail" class="desk-btn desk-btn-sm">Close</button>
-                    </div>
-                    <div class="desk-grid">
-                        <table class="desk-table">
-                            <thead>
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th class="text-right">List before</th>
-                                    <th class="text-right">List after</th>
-                                    <th class="text-right">Std before</th>
-                                    <th class="text-right">Std after</th>
-                                    <th class="text-right">Curr before</th>
-                                    <th class="text-right">Curr after</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($historyDetail->items as $line)
-                                    <tr>
-                                        <td class="desk-num">{{ $line->item_code }}</td>
-                                        <td class="desk-money">{{ $line->list_price_before !== null ? '$'.number_format((float) $line->list_price_before, 2) : '—' }}</td>
-                                        <td class="desk-money bp-new">{{ $line->list_price_after !== null ? '$'.number_format((float) $line->list_price_after, 2) : '—' }}</td>
-                                        <td class="desk-money">{{ $line->standard_cost_before !== null ? '$'.number_format((float) $line->standard_cost_before, 2) : '—' }}</td>
-                                        <td class="desk-money bp-new">{{ $line->standard_cost_after !== null ? '$'.number_format((float) $line->standard_cost_after, 2) : '—' }}</td>
-                                        <td class="desk-money">{{ $line->current_cost_before !== null ? '$'.number_format((float) $line->current_cost_before, 2) : '—' }}</td>
-                                        <td class="desk-money bp-new">{{ $line->current_cost_after !== null ? '$'.number_format((float) $line->current_cost_after, 2) : '—' }}</td>
-                                    </tr>
-                                @empty
-                                    <tr class="is-empty"><td colspan="7">No item rows stored for this run.</td></tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+
+                        <div class="bp-confirm-preview">
+                            <div class="bp-confirm-preview-bar">
+                                <span>Item changes</span>
+                                <span class="bp-confirm-preview-meta">Showing {{ number_format($historyDetailShown) }} of {{ number_format($historyDetailTotal ?: $historyDetail->items_affected) }} · scroll for more</span>
+                            </div>
+                            <div
+                                class="bp-confirm-grid bp-detail-grid"
+                                x-data="{ loading: false }"
+                                x-on:scroll.debounce.120ms="
+                                    if (loading) return;
+                                    if ($el.scrollTop + $el.clientHeight < $el.scrollHeight - 72) return;
+                                    loading = true;
+                                    $wire.loadMoreHistoryDetail().finally(() => { loading = false; });
+                                "
+                            >
+                                <table class="bp-confirm-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="bp-confirm-col-item">Item</th>
+                                            <th class="text-right">List</th>
+                                            <th class="text-right">Standard</th>
+                                            <th class="text-right">Current</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($historyDetailItems as $line)
+                                            <tr>
+                                                <td class="bp-confirm-col-item">
+                                                    <span class="bp-confirm-code">{{ $line->item_code }}</span>
+                                                </td>
+                                                <td class="bp-confirm-change">
+                                                    @if ($line->list_price_before !== null || $line->list_price_after !== null)
+                                                        <span class="bp-confirm-before">{{ $line->list_price_before !== null ? '$'.number_format((float) $line->list_price_before, 2) : '—' }}</span>
+                                                        <span class="bp-confirm-arrow" aria-hidden="true">→</span>
+                                                        <span class="bp-confirm-after">{{ $line->list_price_after !== null ? '$'.number_format((float) $line->list_price_after, 2) : '—' }}</span>
+                                                    @else
+                                                        <span class="bp-confirm-before">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="bp-confirm-change">
+                                                    @if ($line->standard_cost_before !== null || $line->standard_cost_after !== null)
+                                                        <span class="bp-confirm-before">{{ $line->standard_cost_before !== null ? '$'.number_format((float) $line->standard_cost_before, 2) : '—' }}</span>
+                                                        <span class="bp-confirm-arrow" aria-hidden="true">→</span>
+                                                        <span class="bp-confirm-after">{{ $line->standard_cost_after !== null ? '$'.number_format((float) $line->standard_cost_after, 2) : '—' }}</span>
+                                                    @else
+                                                        <span class="bp-confirm-before">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="bp-confirm-change">
+                                                    @if ($line->current_cost_before !== null || $line->current_cost_after !== null)
+                                                        <span class="bp-confirm-before">{{ $line->current_cost_before !== null ? '$'.number_format((float) $line->current_cost_before, 2) : '—' }}</span>
+                                                        <span class="bp-confirm-arrow" aria-hidden="true">→</span>
+                                                        <span class="bp-confirm-after">{{ $line->current_cost_after !== null ? '$'.number_format((float) $line->current_cost_after, 2) : '—' }}</span>
+                                                    @else
+                                                        <span class="bp-confirm-before">—</span>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="4" class="bp-confirm-empty">No item rows stored for this run.</td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                                @if ($historyDetailHasMore)
+                                    <div class="bp-confirm-more" wire:click="loadMoreHistoryDetail" role="button" tabindex="0">
+                                        <span wire:loading.remove wire:target="loadMoreHistoryDetail">Scroll or click to load more…</span>
+                                        <span wire:loading wire:target="loadMoreHistoryDetail">Loading more…</span>
+                                    </div>
+                                @elseif ($historyDetailShown > 0)
+                                    <div class="bp-confirm-more is-done">All {{ number_format($historyDetailTotal ?: $historyDetail->items_affected) }} item rows listed</div>
+                                @endif
+                            </div>
+                        </div>
+
+                        <footer class="bp-confirm-actions">
+                            <p class="bp-confirm-hint">Audit trail for this bulk pricing run.</p>
+                            <div class="bp-confirm-btns">
+                                <button type="button" wire:click="closeHistoryDetail" class="desk-btn desk-btn-primary">Close</button>
+                            </div>
+                        </footer>
                     </div>
                 </div>
             @endif

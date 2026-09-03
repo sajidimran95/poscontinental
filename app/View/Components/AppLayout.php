@@ -32,7 +32,7 @@ class AppLayout extends Component
             $tabs[] = [
                 'label' => $label,
                 'route' => $routeName,
-                'url' => url()->current(),
+                'url' => url()->full(),
             ];
         }
 

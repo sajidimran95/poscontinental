@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Livewire\Concerns\SortsItemBrowse;
 use App\Models\Category;
 use App\Models\Item;
@@ -22,6 +23,7 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 {
+    use ReturnsToDeskList;
     use SortsItemBrowse;
     public ?PurchaseOrder $purchaseOrder = null;
 
@@ -882,12 +884,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
-        $this->itemLookup = '';
         $this->lookupMessage = '';
         $this->browseLineIndex = null;
         $this->applyItemToOrder($item);
         $this->scanModeActive = true;
-        $this->clearAndFocusEntry();
+        $this->keepLookupAndFocus((string) $item->item_code);
     }
 
     /**
@@ -915,12 +916,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $item = $this->findPurchaseItem($code);
         if ($item) {
-            $this->itemLookup = '';
             $this->lookupMessage = '';
             $this->browseLineIndex = null;
             $this->applyItemToOrder($item);
             $this->scanModeActive = true;
-            $this->clearAndFocusEntry();
+            $this->keepLookupAndFocus((string) $item->item_code);
 
             return;
         }
@@ -1008,6 +1008,21 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->lookupMessage = '';
         }
         $this->clearAndFocusEntry();
+    }
+
+    protected function keepLookupAndFocus(string $code): void
+    {
+        $this->itemLookup = $code;
+        $jsCode = json_encode($code, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                const el = document.getElementById('po-item-entry');
+                if (!el) return;
+                el.value = {$jsCode};
+                el.focus();
+                el.select();
+            });
+        JS);
     }
 
     protected function clearAndFocusEntry(): void
@@ -1369,7 +1384,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         session()->flash('status', 'Purchase order saved.');
 
-        return $this->redirect(route('purchasing.orders.edit', $po), navigate: true);
+        return $this->returnToDeskList('purchasing.orders.index');
     }
 
     public function cancelAction(): mixed
@@ -1831,7 +1846,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             e.stopPropagation();
                                             clearTimeout(this.timer);
                                             const v = ($el.value || '').trim();
-                                            $el.value = '';
                                             if (v && this.claim(v)) {
                                                 $wire.addItemFromEntry(v);
                                             }
@@ -1868,7 +1882,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     rapid = false;
                                     const v = ($el.value || '').trim();
                                     if (v.length >= 2 && claim(v)) {
-                                        $el.value = '';
                                         $wire.addItemFromEntry(v);
                                     }
                                 "

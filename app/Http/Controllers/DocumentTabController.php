@@ -155,9 +155,20 @@ class DocumentTabController extends Controller
         return redirect()->to($url);
     }
 
-    public function close(string $tab, DocumentTabManager $tabs): RedirectResponse
+    public function close(string $tab, DocumentTabManager $tabs, Request $request): RedirectResponse|JsonResponse
     {
         $nextUrl = $tabs->close($tab);
+
+        if ($request->expectsJson() || $request->ajax()) {
+            $home = route('home');
+            $url = ($nextUrl && $nextUrl !== '__back__') ? $nextUrl : $home;
+
+            return response()->json([
+                'ok' => true,
+                'url' => $url,
+                'tabs' => $tabs->list(),
+            ]);
+        }
 
         if ($nextUrl === '__back__') {
             return redirect()->back();
@@ -173,10 +184,14 @@ class DocumentTabController extends Controller
     /**
      * Close all document tabs and New Sales Order windows, then go Home.
      */
-    public function closeAll(DocumentTabManager $tabs, SalesOrderWindowManager $soWindows): RedirectResponse
+    public function closeAll(DocumentTabManager $tabs, SalesOrderWindowManager $soWindows, Request $request): RedirectResponse|JsonResponse
     {
         $soWindows->closeAll();
         $tabs->closeAll();
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json(['ok' => true, 'url' => route('home')]);
+        }
 
         return redirect()->route('home');
     }

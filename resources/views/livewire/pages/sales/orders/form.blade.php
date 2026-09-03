@@ -359,6 +359,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** Skip price-memorize prompt while auto-repricing (e.g. customer change). */
     public bool $suppressPriceNotice = false;
 
+    /** Confirm add/remove on a saved order or invoice. */
+    public bool $showLineChangeConfirmModal = false;
+
+    public string $lineChangeConfirmMessage = '';
+
+    public string $pendingLineChangeKind = '';
+
+    public ?int $pendingLineChangeItemId = null;
+
+    public ?int $pendingLineChangeLineIndex = null;
+
+    /** @var list<int> */
+    public array $pendingBrowseAddIds = [];
+
+    /** After invoice save: stay until OK so the user can see it succeeded. */
+    public bool $showInvoiceSavedModal = false;
+
+    public string $invoiceSavedMessage = '';
+
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_shipped:string,price:string,discount:string}> */
     public array $lines = [];
 
@@ -1805,6 +1824,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
+        if ($this->needsLineChangeConfirm()) {
+            $this->pendingLineChangeKind = 'browse';
+            $this->pendingLineChangeItemId = null;
+            $this->pendingLineChangeLineIndex = null;
+            $this->pendingBrowseAddIds = $ids;
+            $count = count($ids);
+            $doc = $this->savedDocumentLabel();
+            $this->lineChangeConfirmMessage = $count === 1
+                ? 'Add this item to this '.$doc.'?'
+                : 'Add '.$count.' items to this '.$doc.'?';
+            $this->showLineChangeConfirmModal = true;
+
+            return;
+        }
+
+        $this->insertBrowseCheckedConfirmed($ids);
+    }
+
+    protected function insertBrowseCheckedConfirmed(array $ids): void
+    {
         $companyId = (int) auth()->user()->company_id;
         $added = 0;
         $deferredSubstitute = null;
@@ -1838,7 +1877,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
 
         if ($deferredSubstitute !== null && $added === 0 && count($ids) === 1) {
-            $this->queueItemOrPromptSubstitute($deferredSubstitute);
+            $this->proceedQueuedItem($deferredSubstitute);
 
             return;
         }
@@ -3151,6 +3190,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function removeLine(int $i): void
     {
+        if ($this->needsLineChangeConfirm()) {
+            $this->openRemoveLineConfirm($i);
+
+            return;
+        }
+
+        $this->performRemoveLine($i);
+    }
+
+    protected function performRemoveLine(int $i): void
+    {
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
         if ($this->selectedLineIndex === $i) {
@@ -3176,6 +3226,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
             return;
         }
+        if ($this->needsLineChangeConfirm()) {
+            $this->pendingLineChangeKind = 'lookup';
+            $this->pendingLineChangeItemId = (int) $item->id;
+            $this->pendingLineChangeLineIndex = $index;
+            $this->pendingBrowseAddIds = [];
+            $this->lineChangeConfirmMessage = 'Add item '.$item->item_code.' to this '.$this->savedDocumentLabel().'?';
+            $this->showLineChangeConfirmModal = true;
+
+            return;
+        }
+
+        $this->applyLookupItem($index, $item);
+    }
+
+    protected function fillConfirmedLookupLine(int $index, Item $item): void
+    {
+        $this->applyLookupItem($index, $item);
+    }
+
+    protected function applyLookupItem(int $index, Item $item): void
+    {
         if ($this->shouldPromptForceSubstitute($item)) {
             $this->openSubstitutePrompt($item, $index);
 
@@ -3684,7 +3755,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        if ($this->showUnknownScanModal) {
+        if ($this->showUnknownScanModal || $this->showLineChangeConfirmModal || $this->showInvoiceSavedModal) {
             return;
         }
 
@@ -3891,6 +3962,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function queueItemOrPromptSubstitute(Item $item): void
     {
+        if ($this->needsLineChangeConfirm()) {
+            $this->openAddItemConfirm($item);
+
+            return;
+        }
+
+        $this->proceedQueuedItem($item);
+    }
+
+    protected function proceedQueuedItem(Item $item): void
+    {
         if ($this->shouldPromptForceSubstitute($item)) {
             $this->openSubstitutePrompt($item, null);
 
@@ -3902,6 +3984,103 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->appendItemLine($item);
+    }
+
+    protected function needsLineChangeConfirm(): bool
+    {
+        return (bool) $this->salesOrder?->exists;
+    }
+
+    protected function savedDocumentLabel(): string
+    {
+        return $this->salesOrder?->invoice ? 'invoice' : 'order';
+    }
+
+    protected function openAddItemConfirm(Item $item): void
+    {
+        $doc = $this->savedDocumentLabel();
+        $existing = $this->findLineIndexForItem((int) $item->id);
+        $this->pendingLineChangeKind = 'add';
+        $this->pendingLineChangeItemId = (int) $item->id;
+        $this->pendingLineChangeLineIndex = null;
+        $this->pendingBrowseAddIds = [];
+        $this->lineChangeConfirmMessage = $existing !== null
+            ? 'Increase quantity of '.$item->item_code.' on this '.$doc.'?'
+            : 'Add item '.$item->item_code.' to this '.$doc.'?';
+        $this->showLineChangeConfirmModal = true;
+    }
+
+    protected function openRemoveLineConfirm(int $i): void
+    {
+        $line = $this->lines[$i] ?? null;
+        $code = trim((string) ($line['item_code'] ?? ''));
+        if ($code === '') {
+            $this->performRemoveLine($i);
+
+            return;
+        }
+
+        $this->pendingLineChangeKind = 'remove';
+        $this->pendingLineChangeItemId = null;
+        $this->pendingLineChangeLineIndex = $i;
+        $this->pendingBrowseAddIds = [];
+        $this->lineChangeConfirmMessage = 'Remove item '.$code.' from this '.$this->savedDocumentLabel().'?';
+        $this->showLineChangeConfirmModal = true;
+    }
+
+    public function confirmLineChange(): void
+    {
+        $kind = $this->pendingLineChangeKind;
+        $itemId = $this->pendingLineChangeItemId;
+        $lineIndex = $this->pendingLineChangeLineIndex;
+        $browseIds = $this->pendingBrowseAddIds;
+        $this->rejectLineChange();
+
+        if ($kind === 'remove' && $lineIndex !== null) {
+            $this->performRemoveLine($lineIndex);
+
+            return;
+        }
+
+        if ($kind === 'browse' && $browseIds !== []) {
+            $this->browseCheckedIds = $browseIds;
+            $this->insertBrowseCheckedConfirmed($browseIds);
+
+            return;
+        }
+
+        if ($kind === 'lookup' && $itemId && $lineIndex !== null) {
+            $item = Item::query()
+                ->with(['prices', 'taxSchedule'])
+                ->where('company_id', auth()->user()->company_id)
+                ->find($itemId);
+            if ($item) {
+                $this->fillConfirmedLookupLine($lineIndex, $item);
+            }
+
+            return;
+        }
+
+        if ($kind === 'add' && $itemId) {
+            $item = Item::query()
+                ->with(['prices', 'taxSchedule'])
+                ->where('company_id', auth()->user()->company_id)
+                ->find($itemId);
+            if ($item) {
+                $this->proceedQueuedItem($item);
+            }
+        }
+    }
+
+    public function rejectLineChange(): void
+    {
+        $this->showLineChangeConfirmModal = false;
+        $this->lineChangeConfirmMessage = '';
+        $this->pendingLineChangeKind = '';
+        $this->pendingLineChangeItemId = null;
+        $this->pendingLineChangeLineIndex = null;
+        $this->pendingBrowseAddIds = [];
+        $this->focusItemEntry(true);
     }
 
     protected function openSubstitutePrompt(Item $item, ?int $lineIndex): void
@@ -4549,8 +4728,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->refreshSelectedLineStock();
 
         if ($this->shouldReturnToInvoiceList()) {
-            session()->flash('status', 'Invoice updated.');
-            $this->redirect(route('sales.invoices.index'), navigate: true);
+            $number = $this->salesOrder?->invoice?->invoice_number
+                ?: $this->salesOrder?->order_number;
+            $this->invoiceSavedMessage = $number
+                ? 'Invoice '.$number.' saved.'
+                : 'Invoice saved.';
+            $this->showInvoiceSavedModal = true;
+            $this->playPosSound('success');
 
             return;
         }
@@ -4647,6 +4831,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->finishSaveStayOnOrder();
     }
 
+    protected function openInvoiceSavedThenLeave(): void
+    {
+        if ($this->showInvoiceSavedModal) {
+            return;
+        }
+
+        $number = $this->salesOrder?->invoice?->invoice_number
+            ?: $this->salesOrder?->order_number;
+        $this->invoiceSavedMessage = $number
+            ? 'Invoice '.$number.' saved.'
+            : 'Invoice saved.';
+        $this->showInvoiceSavedModal = true;
+        $this->playPosSound('success');
+    }
+
+    public function confirmInvoiceSaved(): void
+    {
+        $this->showInvoiceSavedModal = false;
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->releaseEditLock(auth()->user());
+        }
+        $this->returnToDeskList('sales.invoices.index');
+    }
+
     /**
      * After save/print from New Sales Order:
      * - Several create tabs: close the finished one; remaining renumber 1,2,3…
@@ -4654,8 +4862,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
      */
     protected function finishSaveStayOnOrder(): void
     {
-        if ($this->shouldReturnToInvoiceList()) {
-            $this->finishCreateWindowAndRedirect();
+        if ($this->shouldReturnToInvoiceList() && ! $this->createWindowId) {
+            $this->openInvoiceSavedThenLeave();
 
             return;
         }
@@ -5900,6 +6108,67 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showLineChangeConfirmModal)
+        <div
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
+            wire:click.self="rejectLineChange"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="line-change-confirm-title"
+        >
+            <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.escape.window="rejectLineChange">
+                <div class="desk-modal-head">
+                    <span id="line-change-confirm-title">Chief</span>
+                    <button type="button" wire:click="rejectLineChange" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
+                    <div
+                        aria-hidden="true"
+                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
+                    >?</div>
+                    <div style="flex:1; min-width:0;">
+                        <p style="margin:0;font-size:.95rem;line-height:1.4;">
+                            {{ $lineChangeConfirmMessage !== '' ? $lineChangeConfirmMessage : 'Are you sure you want to continue?' }}
+                        </p>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
+                    <button type="button" wire:click="confirmLineChange" class="desk-btn desk-btn-primary" autofocus>Yes</button>
+                    <button type="button" wire:click="rejectLineChange" class="desk-btn">No</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showInvoiceSavedModal)
+        <div
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="invoice-saved-title"
+        >
+            <div class="desk-modal desk-modal-sm" style="max-width:26rem;" wire:keydown.enter.window="confirmInvoiceSaved">
+                <div class="desk-modal-head">
+                    <span id="invoice-saved-title">Chief</span>
+                </div>
+                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
+                    <div
+                        aria-hidden="true"
+                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:#15803d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
+                    >✓</div>
+                    <div style="flex:1; min-width:0;">
+                        <p style="margin:0;font-size:.95rem;line-height:1.4;">
+                            {{ $invoiceSavedMessage !== '' ? $invoiceSavedMessage : 'Invoice saved.' }}
+                        </p>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
+                    <button type="button" wire:click="confirmInvoiceSaved" class="desk-btn desk-btn-primary" autofocus>OK</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showShipToModal)
         <div class="desk-modal-backdrop desk-modal-top" wire:click.self="closeShipToModal" role="dialog" aria-modal="true" aria-labelledby="ship-to-modal-title">
             <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.escape.window="closeShipToModal">
@@ -6465,6 +6734,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     });
     $wire.$watch('showCustomerConfirmModal', (open) => {
         if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showLineChangeConfirmModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showInvoiceSavedModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('success');
     });
 
     $wire.on('pos-alert', (e) => {

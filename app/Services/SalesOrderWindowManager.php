@@ -20,7 +20,7 @@ class SalesOrderWindowManager
     public function state(): array
     {
         $raw = session(self::SESSION_KEY);
-        if (! is_array($raw) || ! isset($raw['windows']) || ! is_array($raw['windows']) || $raw['windows'] === []) {
+        if ($raw === null) {
             $cached = $this->readCache();
             if ($cached !== null) {
                 session([self::SESSION_KEY => $cached]);

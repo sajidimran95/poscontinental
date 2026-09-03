@@ -887,6 +887,25 @@ function initPosTabKeepAlive() {
             return u.pathname + u.search + u.hash;
         }
 
+        function leaveDeskMessage(href) {
+            let to = href;
+            try {
+                const u = new URL(href, window.location.origin);
+                to = u.pathname + u.search + u.hash;
+            } catch (err) {}
+            const fromKey = posDeskKey(window.location.href);
+            const toKey = posDeskKey(to);
+            const msg = { type: 'pos-desk-open', href: to };
+            const leavingDoc = /\/(edit|create|show)$/.test(fromKey) || fromKey.indexOf('so:') === 0;
+            const stayingOnCreate = fromKey.indexOf('so:') === 0 && toKey.indexOf('so:') === 0;
+            if (leavingDoc && toKey !== fromKey && ! stayingOnCreate && ! /\/(edit|create)$/.test(toKey)) {
+                msg.close_desk = fromKey;
+            } else if (toKey !== fromKey) {
+                msg.restore = selfHref;
+            }
+            return msg;
+        }
+
         document.addEventListener('click', function (e) {
             const a = e.target.closest('a[href]');
             if (! a || a.target === '_blank' || a.hasAttribute('download')) {
@@ -908,7 +927,7 @@ function initPosTabKeepAlive() {
             if (posIsTabsOpen(href.href) || posDeskKey(href.href) !== posDeskKey(window.location.href)) {
                 e.preventDefault();
                 e.stopPropagation();
-                window.parent.postMessage({ type: 'pos-desk-open', href: href.href }, window.location.origin);
+                window.parent.postMessage(leaveDeskMessage(href.href), window.location.origin);
                 return;
             }
             if (! href.searchParams.has('pos_embed')) {
@@ -939,10 +958,7 @@ function initPosTabKeepAlive() {
                 if (posDeskKey(u.href) !== posDeskKey(window.location.href)) {
                     event.preventDefault();
                     event.stopPropagation();
-                    window.parent.postMessage({
-                        type: 'pos-desk-open',
-                        href: u.pathname + u.search + u.hash,
-                    }, window.location.origin);
+                    window.parent.postMessage(leaveDeskMessage(u.pathname + u.search + u.hash), window.location.origin);
                     return;
                 }
                 if (! u.searchParams.has('pos_embed')) {
@@ -956,17 +972,10 @@ function initPosTabKeepAlive() {
         });
         document.addEventListener('livewire:navigated', function () {
             const nowHref = window.location.pathname + window.location.search + window.location.hash;
-            const nowKey = posDeskKey(nowHref);
-            if (nowKey === selfDeskKey) {
+            if (posDeskKey(nowHref) === selfDeskKey) {
                 return;
             }
-            const msg = { type: 'pos-desk-open', href: nowHref };
-            if (/\/edit$/.test(selfDeskKey) && ! /\/edit$/.test(nowKey)) {
-                msg.close_desk = selfDeskKey;
-            } else {
-                msg.restore = selfHref;
-            }
-            window.parent.postMessage(msg, window.location.origin);
+            window.parent.postMessage(leaveDeskMessage(nowHref), window.location.origin);
         });
         document.addEventListener('livewire:init', function () {
             if (! window.Livewire || ! Livewire.on) {
@@ -1165,12 +1174,23 @@ function initPosTabKeepAlive() {
         if (! key || key === '/home') {
             return;
         }
-        if (frames.has(key)) {
-            frames.get(key).remove();
-            frames.delete(key);
-        }
-        document.querySelectorAll('.chief-tab[data-desk-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]').forEach(function (tab) {
-            if (! tab.hasAttribute('data-desk-home')) {
+        deskEpoch += 1;
+        const removeKeys = [];
+        frames.forEach(function (iframe, k) {
+            const iframeKey = (iframe && iframe.getAttribute) ? (iframe.getAttribute('data-desk-key') || k) : k;
+            if (k === key || iframeKey === key) {
+                iframe.remove();
+                removeKeys.push(k);
+            }
+        });
+        removeKeys.forEach(function (k) {
+            frames.delete(k);
+        });
+        document.querySelectorAll('.chief-tab[data-desk-key]:not([data-desk-home])').forEach(function (tab) {
+            const tabKey = tab.getAttribute('data-desk-key') || '';
+            const link = tab.querySelector('a.chief-tab-link');
+            const hrefKey = (link && link.href) ? posDeskKey(link.href) : '';
+            if (tabKey === key || hrefKey === key) {
                 tab.remove();
             }
         });
@@ -1524,6 +1544,15 @@ function initPosTabKeepAlive() {
             return;
         }
         if (href.protocol !== 'http:' && href.protocol !== 'https:') {
+            return;
+        }
+        const goingHome = a.closest('[data-desk-home]')
+            || a.hasAttribute('data-pos-window-home')
+            || posDeskKey(href.href) === '/home';
+        if (goingHome) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = window.location.origin + '/home';
             return;
         }
         e.preventDefault();

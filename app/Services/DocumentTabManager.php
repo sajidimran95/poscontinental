@@ -124,7 +124,9 @@ class DocumentTabManager
     public function state(): array
     {
         $raw = session(self::SESSION_KEY);
-        if (! is_array($raw) || ! isset($raw['tabs']) || ! is_array($raw['tabs']) || $raw['tabs'] === []) {
+        // Only hydrate from cache when this session has never stored tabs.
+        // Empty tabs [] means the user closed them — do not resurrect from cache.
+        if ($raw === null) {
             $cached = $this->readCache();
             if ($cached !== null) {
                 session([self::SESSION_KEY => $cached]);

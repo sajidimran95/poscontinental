@@ -127,8 +127,6 @@ trait InteractsWithDeskQuery
         $this->queryStatus = '';
         if (method_exists($this, 'resetDeskList')) {
             $this->resetDeskList();
-        } else {
-            $this->resetPage();
         }
     }
 
@@ -144,8 +142,6 @@ trait InteractsWithDeskQuery
         $this->selectedId = null;
         if (method_exists($this, 'resetDeskList')) {
             $this->resetDeskList();
-        } else {
-            $this->resetPage();
         }
     }
 

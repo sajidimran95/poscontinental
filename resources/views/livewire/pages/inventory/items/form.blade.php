@@ -223,10 +223,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             $this->fill($data);
 
-            $this->list_price = $this->formatMoneyTwo($this->list_price);
-            $this->msrp = $this->formatMoneyTwo($this->msrp);
-            $this->reorder_point = $this->formatMoneyTwo($this->reorder_point);
-            $this->restock_level = $this->formatMoneyTwo($this->restock_level);
+            $this->formatPricingDisplay();
 
             $this->msa_reporting = (bool) $item->msa_reporting;
             $this->state_reporting = (bool) $item->state_reporting;
@@ -258,8 +255,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'supplier_item_code' => $s->supplier_item_code ?? '',
                 'lead_time' => (string) $s->lead_time,
                 'is_default' => (bool) $s->is_default,
-                'last_cost' => (string) $s->last_cost,
-                'avg_cost' => (string) $s->avg_cost,
+                'last_cost' => $this->formatMoneyTwo($s->last_cost),
+                'avg_cost' => $this->formatMoneyTwo($s->avg_cost),
                 'last_received_at' => optional($s->last_received_at)?->format('Y-m-d'),
             ])->all();
 
@@ -325,12 +322,17 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         if ($this->batches === []) {
             $this->addBatch();
         }
+
+        if ($item?->exists) {
+            $this->formatPricingDisplay();
+        }
     }
 
     public function updatedActiveTab($value): void
     {
         if ($value === 'pricing') {
             $this->syncPricingUomFromInventory();
+            $this->formatPricingDisplay();
         }
     }
 
@@ -356,13 +358,46 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $this->syncPricingUomFromInventory();
     }
 
+    /**
+     * Create starts with blank money fields. Edit must not dump DB scale (.0000).
+     */
+    protected function formatPricingDisplay(): void
+    {
+        $this->list_price = $this->formatMoneyTwo($this->list_price);
+        $this->msrp = $this->formatMoneyTwo($this->msrp);
+        $this->standard_cost = $this->formatMoneyTwo($this->standard_cost);
+        $this->current_cost = $this->formatMoneyTwo($this->current_cost);
+        $this->last_cost = $this->formatMoneyTwo($this->last_cost);
+        $this->average_cost = $this->formatMoneyTwo($this->average_cost);
+        $this->reorder_point = $this->formatMoneyTwo($this->reorder_point);
+        $this->restock_level = $this->formatMoneyTwo($this->restock_level);
+
+        $prices = $this->prices;
+        foreach ($prices as $i => $row) {
+            $prices[$i]['price'] = $this->formatMoneyTwo($row['price'] ?? '');
+        }
+        $this->prices = $prices;
+
+        $suppliers = $this->suppliers;
+        foreach ($suppliers as $i => $row) {
+            $suppliers[$i]['last_cost'] = $this->formatMoneyTwo($row['last_cost'] ?? '');
+            $suppliers[$i]['avg_cost'] = $this->formatMoneyTwo($row['avg_cost'] ?? '');
+        }
+        $this->suppliers = $suppliers;
+    }
+
     protected function formatMoneyTwo(mixed $value): string
     {
         if ($value === null || $value === '') {
             return '';
         }
 
-        return number_format((float) $value, 2, '.', '');
+        $raw = trim((string) $value);
+        if ($raw === '' || ! is_numeric($raw)) {
+            return $raw;
+        }
+
+        return number_format((float) $raw, 2, '.', '');
     }
 
     /**

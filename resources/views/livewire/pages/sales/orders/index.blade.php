@@ -376,7 +376,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $query = SalesOrder::query()
             ->select([
                 'id', 'company_id', 'order_number', 'order_type', 'order_source', 'status',
-                'order_date', 'ship_date', 'customer_id', 'total',
+                'order_date', 'ship_date', 'customer_id', 'total', 'created_by', 'sales_rep_id',
             ])
             ->with([
                 'customer:id,customer_id,company_name,contact,telephone,address',
@@ -564,7 +564,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     {
         $user = auth()->user();
         if (! $order->canBeEditedBy($user)) {
-            session()->flash('status', 'Only the sales rep who created this order can edit it.');
+            session()->flash('status', 'Only the user who created this order can edit it.');
 
             return $this->redirect(route('sales.orders.show', $order), navigate: true);
         }
@@ -883,7 +883,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">
-                                    <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    <a href="{{ route($order->canBeEditedBy(auth()->user()) ? 'sales.orders.edit' : 'sales.orders.show', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
                                     <span @class([
                                         'desk-pill',
                                         'desk-pill-new' => $order->status === 'New',

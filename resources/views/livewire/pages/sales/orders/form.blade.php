@@ -80,6 +80,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $itemEntry = '';
 
+    /** Manual type: matching items under the entry bar. Scan still auto-adds. */
+    /** @var array<int, array{id:int,item_code:string,description:?string,price:string}> */
+    public array $entryHits = [];
+
     /** True after "Scan" click — next Enter/barcode auto-adds the line. */
     public bool $scanModeActive = false;
 
@@ -1299,7 +1303,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         if (! $order->canBeEditedBy(auth()->user())) {
-            $this->notifyAlert('Only the sales rep who created this order can edit it.', 'warning');
+            $this->notifyAlert('Only the user who created this order can edit it.', 'warning');
 
             return null;
         }
@@ -1333,7 +1337,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $order->canBeEditedBy($user)) {
             $this->ownerReadOnly = true;
             $this->viewMode = true;
-            $this->orderLockMessage = 'Only the sales rep who created this order can edit it.';
+            $this->orderLockMessage = 'Only the user who created this order can edit it.';
 
             return;
         }
@@ -3434,13 +3438,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function refreshOpenOrderList(): void
     {
-        $companyId = (int) auth()->user()->company_id;
+        $user = auth()->user();
+        $companyId = (int) $user->company_id;
+        $uid = (int) $user->id;
         $term = trim($this->openOrderSearch);
 
         $query = SalesOrder::query()
             ->with('customer:id,customer_id,company_name')
             ->where('company_id', $companyId)
             ->where('status', 'New')
+            ->where(function ($q) use ($uid) {
+                $q->where('created_by', $uid)
+                    ->orWhere(function ($o) use ($uid) {
+                        $o->whereNull('created_by')->where('sales_rep_id', $uid);
+                    });
+            })
             ->orderByDesc('id')
             ->limit(40);
 
@@ -3466,8 +3478,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function openExistingOrder(int $id): mixed
     {
-        abort_if($this->viewMode, 403);
-
         $order = SalesOrder::query()
             ->where('company_id', auth()->user()->company_id)
             ->whereKey($id)
@@ -3480,6 +3490,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->showOpenOrderModal = false;
+
+        if (! $order->canBeEditedBy(auth()->user())) {
+            $this->notifyAlert('Only the user who created this order can edit it.', 'warning');
+
+            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+        }
 
         return $this->redirect(route('sales.orders.edit', $order), navigate: true);
     }
@@ -3776,9 +3792,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $item = $this->findItem($code);
         if ($item) {
             $this->itemEntry = '';
+            $this->entryHits = [];
             $this->lineWarning = '';
             $this->queueItemOrPromptSubstitute($item);
-            // Stay ready for continuous gun scans.
             $this->scanModeActive = true;
             $this->clearAndFocusEntry();
 
@@ -3786,6 +3802,60 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->alertUnknownScan($code);
+    }
+
+    public function searchEntryHits(?string $code = null): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $q = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? '')) ?? '');
+        $this->itemEntry = $q;
+
+        if (mb_strlen($q) < 2) {
+            $this->entryHits = [];
+
+            return;
+        }
+
+        $rows = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->where('can_sell', true);
+        ItemSearch::constrain($rows, $q);
+
+        $this->entryHits = $rows
+            ->orderBy('item_code')
+            ->limit(12)
+            ->get(['id', 'item_code', 'description', 'list_price'])
+            ->map(fn (Item $item) => [
+                'id' => (int) $item->id,
+                'item_code' => (string) $item->item_code,
+                'description' => $item->description,
+                'price' => number_format((float) $item->list_price, 2, '.', ''),
+            ])
+            ->all();
+    }
+
+    public function pickEntryHit(int $itemId): void
+    {
+        abort_if($this->viewMode, 403);
+
+        $item = Item::query()
+            ->with(['prices', 'taxSchedule'])
+            ->where('company_id', auth()->user()->company_id)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->find($itemId);
+
+        if (! $item) {
+            return;
+        }
+
+        $this->entryHits = [];
+        $this->itemEntry = '';
+        $this->lineWarning = '';
+        $this->queueItemOrPromptSubstitute($item);
+        $this->clearAndFocusEntry();
     }
 
     /**
@@ -3930,6 +4000,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function clearItemEntry(): void
     {
         $this->itemEntry = '';
+        $this->entryHits = [];
         $this->scanModeActive = false;
         if (str_contains(strtolower($this->lineWarning), 'was not found')
             || str_contains(strtolower($this->lineWarning), 'not found')) {
@@ -4412,7 +4483,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->flushPendingLineMessageEdits();
 
         if ($this->salesOrder?->exists && ! $this->salesOrder->canBeEditedBy(auth()->user())) {
-            $this->notifyAlert('Only the sales rep who created this order can edit it.', 'error');
+            $this->notifyAlert('Only the user who created this order can edit it.', 'error');
 
             return;
         }
@@ -4588,10 +4659,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'miscellaneous' => $miscellaneous,
             'tax' => $tax,
             'total' => $total,
-            'created_by' => $this->salesOrder?->created_by ?? auth()->id(),
         ];
 
         if ($isNewOrder) {
+            $data['created_by'] = auth()->id();
             $data['order_source'] = \App\Models\SalesOrder::SOURCE_POS;
         }
 
@@ -5558,7 +5629,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 id="so-item-entry"
                                 data-pos-item-entry
                                 name="so_item_entry"
-                                placeholder="Scan or type full code — adds when it matches"
+                                placeholder="Scan to add instantly · type name or code to search"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)
@@ -5577,26 +5648,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         this.lastClaimAt = now;
                                         return true;
                                     },
-                                    // OPTIMIZED: Smart detection - scanner vs manual typing
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        // Barcode scanner: types very fast (< 50ms between chars) → 25ms delay
-                                        // Manual typing: slower human speed → 1500ms delay (1.5 seconds to finish typing)
-                                        const delay = this.rapid ? 25 : 1500;
+                                        const delay = this.rapid ? 0 : 400;
                                         this.timer = setTimeout(() => {
                                             const el = document.getElementById('so-item-entry');
                                             const v = (el?.value || '').trim();
                                             if (v.length < 2) {
                                                 this.rapid = false;
+                                                $wire.searchEntryHits('');
                                                 return;
                                             }
-                                            if (!this.claim(v)) {
+                                            if (this.rapid) {
+                                                if (this.claim(v)) {
+                                                    el.value = '';
+                                                    $wire.addItemFromEntry(v);
+                                                }
                                                 this.rapid = false;
                                                 return;
                                             }
-                                            // OPTIMIZED: Direct add - no prefix check needed
-                                            el.value = '';
-                                            $wire.addItemFromEntry(v);
+                                            $wire.searchEntryHits(v);
                                             this.rapid = false;
                                         }, delay);
                                     },
@@ -5606,9 +5677,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             e.stopPropagation();
                                             clearTimeout(this.timer);
                                             const v = ($el.value || '').trim();
-                                            $el.value = '';
-                                            if (v && this.claim(v)) {
-                                                $wire.addItemFromEntry(v);
+                                            if (this.rapid || this.scanLike(v)) {
+                                                $el.value = '';
+                                                if (v && this.claim(v)) {
+                                                    $wire.addItemFromEntry(v);
+                                                }
+                                                this.rapid = false;
+                                                return;
+                                            }
+                                            if (v) {
+                                                $wire.searchEntryHits(v);
                                             }
                                             this.rapid = false;
                                             return;
@@ -5627,14 +5705,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             return;
                                         }
                                         const now = Date.now();
-                                        // OPTIMIZED: Detect scanner by faster keystroke timing (< 50ms)
                                         if (this.lastKeyAt && (now - this.lastKeyAt) < 50) {
                                             this.rapid = true;
                                         }
                                         this.lastKeyAt = now;
                                     },
+                                    scanLike(v) {
+                                        const s = (v || '').trim();
+                                        return s.length >= 8 && !/\s/.test(s);
+                                    },
                                     onInput() {
-                                        // Each character restarts the wait — '2','25','259','2593','2593a'
                                         this.scheduleAuto();
                                     }
                                 }"
@@ -5646,9 +5726,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                     rapid = false;
                                     const v = ($el.value || '').trim();
-                                    if (v.length >= 2 && claim(v)) {
-                                        $el.value = '';
-                                        $wire.addItemFromEntry(v);
+                                    if (v.length >= 2) {
+                                        $wire.searchEntryHits(v);
                                     }
                                 "
                             />
@@ -5696,6 +5775,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F3)" data-pos-browse>Browse (F3)</button>
                             </div>
                         @endunless
+                        <style>
+                            .so-entry-hits { order: 3; flex: 1 1 100%; max-height: 12rem; overflow-y: auto; background: #fff; border: 1px solid #94a3b8; border-radius: 6px; }
+                            .so-entry-hit { display: flex; align-items: baseline; gap: .6rem; width: 100%; padding: .42rem .7rem; text-align: left; border: 0; border-bottom: 1px solid #eef2f6; background: #fff; cursor: pointer; font-size: 13px; }
+                            .so-entry-hit:hover { background: #dbeafe; }
+                            .so-entry-hit-code { flex: 0 0 6.5rem; font-family: ui-monospace, monospace; font-weight: 700; }
+                            .so-entry-hit-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #334155; }
+                            .so-entry-hit-price { font-weight: 600; }
+                        </style>
+                        @if (! $viewMode && $entryHits !== [])
+                            <div class="so-entry-hits" role="listbox" aria-label="Matching items">
+                                @foreach ($entryHits as $hit)
+                                    <button type="button" class="so-entry-hit" wire:click="pickEntryHit({{ (int) $hit['id'] }})" wire:key="entry-hit-{{ $hit['id'] }}">
+                                        <span class="so-entry-hit-code">{{ $hit['item_code'] }}</span>
+                                        <span class="so-entry-hit-desc">{{ $hit['description'] }}</span>
+                                        <span class="so-entry-hit-price">${{ $hit['price'] }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 </div>
 
@@ -5906,7 +6004,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         >
             <div class="desk-modal" style="max-width:36rem;" wire:keydown.escape.window="closeOpenOrderModal">
                 <div class="desk-modal-head">
-                    <span id="open-order-title">Open / edit order</span>
+                    <span id="open-order-title">Open / edit my orders</span>
                     <button type="button" wire:click="closeOpenOrderModal" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <div class="desk-modal-body" style="padding:.75rem 1rem 0;">
@@ -5930,7 +6028,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <div style="font-size:.8rem; color:#64748b;">${{ number_format($row['total'], 2) }}@if($row['order_date']) · {{ $row['order_date'] }}@endif</div>
                         </button>
                     @empty
-                        <p style="padding:1rem; color:#64748b; margin:0;">No New orders found.</p>
+                        <p style="padding:1rem; color:#64748b; margin:0;">No New orders you created.</p>
                     @endforelse
                 </div>
             </div>

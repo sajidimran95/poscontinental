@@ -9,7 +9,7 @@
 @endphp
 @if ($colKey === 'order_number')
     <td class="desk-num" data-excel-value="{{ $order->order_number }}">
-        <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
+        <a href="{{ route($order->canBeEditedBy(auth()->user()) ? 'sales.orders.edit' : 'sales.orders.show', $orderId) }}" wire:navigate wire:click.stop>{{ $order->order_number }}</a>
     </td>
 @elseif ($colKey === 'invoice_number')
     <td class="desk-num">

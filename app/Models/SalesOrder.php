@@ -200,15 +200,19 @@ class SalesOrder extends Model
             return false;
         }
 
-        if ($user->isAdmin()) {
-            return true;
+        if (! $user->canAccessFeature('sales.orders', 'edit')) {
+            return false;
         }
 
-        if ($user->isSalesRep()) {
-            return $this->ownerUserId() === (int) $user->id;
+        $ownerId = (int) ($this->created_by ?: 0);
+        if ($ownerId < 1) {
+            $ownerId = $this->ownerUserId();
+        }
+        if ($ownerId < 1) {
+            return false;
         }
 
-        return $user->canAccessFeature('sales.orders', 'edit');
+        return $ownerId === (int) $user->id;
     }
 
     public static function editLockCacheKey(int $orderId): string

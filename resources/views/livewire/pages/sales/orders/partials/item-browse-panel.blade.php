@@ -572,6 +572,8 @@
                 checked: @js(array_values(array_map('intval', $browseCheckedIds))),
                 selected: {{ (int) ($browseSelectedId ?? 0) }},
                 expanded: (window.__browseDescExpanded && typeof window.__browseDescExpanded === 'object') ? window.__browseDescExpanded : {},
+                lastClickAt: 0,
+                lastClickId: 0,
                 isChecked(id) { return this.checked.indexOf(Number(id)) !== -1; },
                 isDescOpen(id) { return !!this.expanded[Number(id)]; },
                 toggleDesc(id) {
@@ -581,6 +583,14 @@
                 },
                 toggleRow(id) {
                     id = Number(id);
+                    if (!id) return;
+                    const now = Date.now();
+                    if (this.lastClickId === id && (now - this.lastClickAt) < 320) {
+                        this.lastClickAt = now;
+                        return;
+                    }
+                    this.lastClickAt = now;
+                    this.lastClickId = id;
                     if (this.isChecked(id)) {
                         this.checked = this.checked.filter((x) => x !== id);
                     } else {
@@ -810,27 +820,22 @@
                                         data-browse-id="{{ $itemId }}"
                                         class="{{ ($avail > 0 || $oversellingOn) ? 'is-pickable' : 'is-disabled' }}"
                                         :class="{ 'is-focused': selected === {{ $itemId }} && checked.length === 1, 'is-checked': isChecked({{ $itemId }}) }"
-                                        @click="
-                                            if ($event.target.closest('input, button, a, label')) return;
-                                            toggleRow({{ $itemId }});
-                                        "
+                                        @click="toggleRow({{ $itemId }})"
                                         @dblclick.prevent="pickRow({{ $itemId }})"
-                                        title="Click line to select · double-click to insert"
+                                        title="Click to select · double-click or + to insert"
                                     >
                                         <td class="is-check">
                                             <input
                                                 type="checkbox"
                                                 value="{{ $itemId }}"
                                                 :checked="isChecked({{ $itemId }})"
-                                                @click.stop.prevent="toggleRow({{ $itemId }})"
+                                                @click.stop="toggleRow({{ $itemId }})"
                                                 aria-label="Check item {{ $bi['item_code'] }}"
                                             />
                                         </td>
                                         <td class="font-mono" data-excel-value="{{ $bi['item_code'] }}">{{ $bi['item_code'] }}</td>
                                         <td class="col-desc-cell">
-                                            <button type="button" class="item-desc-toggle text-left w-full" data-browse-desc="{{ $itemId }}">
-                                                <span class="item-desc-text">{{ $bi['description'] }}</span>
-                                            </button>
+                                            <span class="item-desc-text">{{ $bi['description'] }}</span>
                                         </td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
                                         <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>

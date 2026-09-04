@@ -48,6 +48,10 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public ?int $selectedId = null;
 
+    public string $permissionNotice = '';
+
+    public int $permissionNoticeTick = 0;
+
     public bool $compactView = false;
 
     public bool $showParkedSalesModal = false;
@@ -224,9 +228,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     public function viewSelected(): mixed
     {
         if (! $this->selectedId) {
-            session()->flash('status', 'Select an order first.');
+            return $this->denyOrderOpen('Select an order first.');
+        }
 
-            return null;
+        if (! (auth()->user()?->canAccessFeature('sales.orders', 'view') ?? false)) {
+            return $this->denyOrderOpen('Your role cannot view sales orders.');
         }
 
         $order = SalesOrder::query()
@@ -234,20 +240,16 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->find($this->selectedId);
 
         if (! $order) {
-            session()->flash('status', 'Order not found.');
-
-            return null;
+            return $this->denyOrderOpen('Order not found.');
         }
 
-        return $this->redirectToOrder($order);
+        return $this->redirect(route('sales.orders.show', $order), navigate: true);
     }
 
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
-            session()->flash('status', 'Select an order first.');
-
-            return null;
+            return $this->denyOrderOpen('Select an order first.');
         }
 
         $order = SalesOrder::query()
@@ -256,9 +258,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             ->find($this->selectedId);
 
         if (! $order) {
-            session()->flash('status', 'Order not found.');
-
-            return null;
+            return $this->denyOrderOpen('Order not found.');
         }
 
         return $this->redirectToOrder($order);
@@ -560,16 +560,25 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         return 'orders_list_columns_'.(int) auth()->id().'_'.(int) auth()->user()->company_id;
     }
 
+    protected function denyOrderOpen(string $message): null
+    {
+        $this->permissionNotice = $message;
+        $this->permissionNoticeTick++;
+        $this->js('window.playPosAlert && window.playPosAlert("warning")');
+
+        return null;
+    }
+
     protected function redirectToOrder(SalesOrder $order): mixed
     {
         $user = auth()->user();
         if (! $order->canBeEditedBy($user)) {
-            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+            return $this->denyOrderOpen('Only the user who created this order can edit it.');
         }
 
         $held = $order->editLockHolder();
         if ($held && (int) $held['user_id'] !== (int) $user->id) {
-            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+            return $this->denyOrderOpen(($held['name'] ?? 'Another user').' has this order open.');
         }
 
         return $this->redirect(route('sales.orders.edit', $order), navigate: true);
@@ -731,7 +740,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         <x-action-bar title="Action">
             <x-slot:menu>
                 <x-action-item label="Add New Order" kbd="Ctrl+N" wire:click="createNewOrder" />
-                <x-action-item label="View/Edit Selected Order" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="View Selected Order" kbd="Ctrl+O" sep wire:click="viewSelected" />
+                <x-action-item label="Edit Selected Order" kbd="Ctrl+E" sep wire:click="editSelected" />
                 <x-action-item label="Create/Edit Invoice & Payment" kbd="Ctrl+I" sep wire:click="invoiceSelected" />
                 <x-action-item label="Delete Selected Order" sep wire:click="deleteSelected" />
                 <x-action-item label="Export Orders" sep wire:click="exportOrders" />
@@ -742,7 +752,15 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
         <div class="desk-main-split">
             <div class="desk-main-body">
-                @if (session('status'))
+                @if (filled($permissionNotice))
+                    <div
+                        class="desk-flash"
+                        role="status"
+                        data-flash-repeat="1"
+                        wire:key="perm-notice-{{ $permissionNoticeTick }}"
+                    >{{ $permissionNotice }}</div>
+                @endif
+                @if (session('status') && trim((string) session('status')) !== trim((string) $permissionNotice))
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
@@ -879,7 +897,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">
-                                    <a href="{{ route($order->canBeEditedBy(auth()->user()) ? 'sales.orders.edit' : 'sales.orders.show', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    @if ($order->canBeEditedBy(auth()->user()))
+                                        <a href="{{ route('sales.orders.edit', $orderId) }}" wire:navigate wire:click.stop class="desk-list-card__id">{{ $order->order_number }}</a>
+                                    @else
+                                        <button type="button" class="desk-list-card__id desk-link-btn" wire:click.stop="openOrder({{ $orderId }})">{{ $order->order_number }}</button>
+                                    @endif
                                     <span @class([
                                         'desk-pill',
                                         'desk-pill-new' => $order->status === 'New',
@@ -942,13 +964,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View order (read only)" aria-label="View order" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit order" aria-label="Edit order" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>

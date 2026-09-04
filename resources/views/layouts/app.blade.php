@@ -957,7 +957,9 @@
 
                 function hideFlash(el) {
                     const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
-                    if (text) flashDismissed.add(text);
+                    if (text && el.getAttribute('data-flash-repeat') !== '1') {
+                        flashDismissed.add(text);
+                    }
                     el.style.display = 'none';
                 }
 
@@ -970,7 +972,8 @@
                     if (isStickyFlash(el)) return;
                     const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
                     if (text.length < 2) return;
-                    if (flashDismissed.has(text)) {
+                    const repeat = el.getAttribute('data-flash-repeat') === '1';
+                    if (! repeat && flashDismissed.has(text)) {
                         el.style.display = 'none';
                         return;
                     }

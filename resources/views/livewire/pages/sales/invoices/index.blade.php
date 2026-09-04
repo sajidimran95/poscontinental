@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceCredit;
 use App\Models\InvoicePayment;
+use App\Models\SalesOrder;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public string $createdByUserId = '';
 
     public ?int $selectedId = null;
+
+    public string $permissionNotice = '';
+
+    public int $permissionNoticeTick = 0;
 
     public ?int $modalInvoiceId = null;
 
@@ -250,6 +255,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
             'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
+            'canViewInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'view') ?? false,
             'canEditInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false,
             'canVoidInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'delete') ?? false,
             'editInvoice' => $this->editInvoiceId
@@ -377,15 +383,49 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->resetPage();
     }
 
-    public function viewSelected(): void
+    public function viewSelected(): mixed
     {
         if (! $this->selectedId) {
-            session()->flash('status', 'Select an invoice first.');
-
-            return;
+            return $this->denyInvoiceOpen('Select an invoice first.');
         }
 
-        $this->openInvoicePdf($this->selectedId);
+        return $this->openInvoiceView($this->selectedId);
+    }
+
+    protected function denyInvoiceOpen(string $message): null
+    {
+        $this->permissionNotice = $message;
+        $this->permissionNoticeTick++;
+        $this->js('window.playPosAlert && window.playPosAlert("warning")');
+
+        return null;
+    }
+
+    public function openInvoiceView(int $id): mixed
+    {
+        if (! (auth()->user()?->canAccessFeature('sales.invoices', 'view') ?? false)) {
+            return $this->denyInvoiceOpen('Your role cannot view invoices.');
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+        if (! $invoice) {
+            return $this->denyInvoiceOpen('Invoice not found.');
+        }
+
+        $this->selectedId = $id;
+
+        if ($invoice->sales_order_id) {
+            return $this->redirect(
+                route('sales.orders.show', $invoice->sales_order_id).'?from=invoices',
+                navigate: true
+            );
+        }
+
+        $this->openInvoicePdf($id);
+
+        return null;
     }
 
     public function printSelected(): void
@@ -529,9 +569,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function editSelected(): mixed
     {
         if (! $this->selectedId) {
-            session()->flash('status', 'Select an invoice first.');
-
-            return null;
+            return $this->denyInvoiceOpen('Select an invoice first.');
         }
 
         return $this->openInvoiceEdit($this->selectedId);
@@ -539,29 +577,42 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function openInvoiceEdit(int $id): mixed
     {
-        if (! (auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false)) {
-            session()->flash('status', 'Your role cannot edit invoices.');
-
-            return null;
-        }
-
+        $user = auth()->user();
         $invoice = Invoice::query()
-            ->where('company_id', auth()->user()->company_id)
+            ->with('salesOrder')
+            ->where('company_id', $user->company_id)
             ->find($id);
         if (! $invoice) {
-            session()->flash('status', 'Invoice not found.');
-
-            return null;
+            return $this->denyInvoiceOpen('Invoice not found.');
         }
 
-        if ($invoice->sales_order_id) {
+        $this->selectedId = $id;
+        $order = $invoice->salesOrder;
+
+        if ($order instanceof SalesOrder) {
+            if (! $order->canBeEditedBy($user)) {
+                return $this->denyInvoiceOpen('Only the user who created this order can edit it.');
+            }
+
+            $held = $order->editLockHolder();
+            if ($held && (int) $held['user_id'] !== (int) $user->id) {
+                return $this->denyInvoiceOpen(($held['name'] ?? 'Another user').' has this order open.');
+            }
+
+            if (! ($user->canAccessFeature('sales.invoices', 'edit') ?? false)) {
+                return $this->denyInvoiceOpen('Your role cannot edit invoices.');
+            }
+
             return $this->redirect(
-                route('sales.orders.edit', $invoice->sales_order_id).'?from=invoices',
+                route('sales.orders.edit', $order).'?from=invoices',
                 navigate: true
             );
         }
 
-        $this->selectedId = $id;
+        if (! ($user->canAccessFeature('sales.invoices', 'edit') ?? false)) {
+            return $this->denyInvoiceOpen('Your role cannot edit invoices.');
+        }
+
         $this->editInvoiceId = $id;
         $this->edit_invoice_date = optional($invoice->invoice_date)?->toDateString() ?: now()->toDateString();
         $this->edit_driver = (string) ($invoice->driver ?? '');
@@ -1223,12 +1274,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ->find($this->selectedId);
 
         if (! $invoice?->sales_order_id) {
-            session()->flash('status', 'This invoice has no sales order.');
-
-            return null;
+            return $this->denyInvoiceOpen('This invoice has no sales order.');
         }
 
-        return $this->redirect(route('sales.orders.edit', $invoice->sales_order_id), navigate: true);
+        return $this->openInvoiceView((int) $invoice->id);
     }
 
     public function openPaymentsSelected(): void
@@ -1322,7 +1371,15 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         <div class="desk-main-split">
             <div class="desk-main-body">
-                @if (session('status'))
+                @if (filled($permissionNotice))
+                    <div
+                        class="desk-flash"
+                        role="status"
+                        data-flash-repeat="1"
+                        wire:key="inv-perm-notice-{{ $permissionNoticeTick }}"
+                    >{{ $permissionNotice }}</div>
+                @endif
+                @if (session('status') && trim((string) session('status')) !== trim((string) $permissionNotice))
                     <div class="desk-flash" role="status">{{ session('status') }}</div>
                 @endif
 
@@ -1455,7 +1512,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             {{-- Right icons: view, print, pick list, edit, payment, void, refresh --}}
             <aside class="desk-rail" aria-label="Invoice actions">
                 <x-desk-fields-rail-btn />
-                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View invoice" aria-label="View invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="{{ $canViewInvoice ? 'View invoice' : 'No invoice view permission' }}" aria-label="View invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
@@ -1473,7 +1530,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditInvoice ? 'Edit invoice' : 'No invoice edit permission' }}" aria-label="Edit invoice" @disabled(! $selectedId || ! $canEditInvoice)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditInvoice ? 'Edit invoice' : 'No invoice edit permission' }}" aria-label="Edit invoice" @disabled(! $selectedId)>
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>

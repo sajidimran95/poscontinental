@@ -4742,6 +4742,24 @@
         text-decoration: underline;
     }
 
+    .desk-link-btn {
+        display: inline;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: none;
+        color: #1d4ed8;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: inherit;
+        text-decoration: none;
+    }
+
+    .desk-link-btn:hover {
+        text-decoration: underline;
+    }
+
     .desk-table .is-empty td {
         padding: 2.5rem 0.75rem;
         text-align: center;
@@ -11168,6 +11186,16 @@
         font-size: 1rem;
         color: #0f172a;
         text-decoration: none;
+    }
+    button.desk-list-card__id {
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 800;
+        font-size: 1rem;
+        text-align: left;
     }
     .desk-list-card__meta {
         display: flex;

@@ -233,6 +233,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $lineWarningKind = 'error';
 
+    public int $lineWarningTick = 0;
+
     public string $orderLockMessage = '';
 
     public bool $showUnknownScanModal = false;
@@ -1305,7 +1307,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $order->canBeEditedBy(auth()->user())) {
             $this->ownerReadOnly = true;
             $this->viewMode = true;
-            $this->orderLockMessage = 'Only the user who created this order can edit it.';
+            $this->notifyAlert('Only the user who created this order can edit it.', 'warning');
 
             return null;
         }
@@ -2035,6 +2037,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->lineWarning = $message;
         $this->lineWarningKind = $kind;
+        $this->lineWarningTick++;
         $this->playPosSound($kind);
         $this->js('window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss("line")');
     }
@@ -3494,7 +3497,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showOpenOrderModal = false;
 
         if (! $order->canBeEditedBy(auth()->user())) {
-            return $this->redirect(route('sales.orders.show', $order), navigate: true);
+            $this->notifyAlert('Only the user who created this order can edit it.', 'warning');
+
+            return null;
         }
 
         return $this->redirect(route('sales.orders.edit', $order), navigate: true);
@@ -5114,7 +5119,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         @if (session('status') && trim((string) session('status')) !== trim((string) $orderLockMessage))
             <div class="so-msg so-msg-info" role="status" x-data x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('status', $el)">{{ session('status') }}</div>
         @endif
-        @if (filled($orderLockMessage))
+        @if (filled($orderLockMessage) && trim((string) $orderLockMessage) !== trim((string) $lineWarning))
             <div class="so-msg so-msg-info" role="status">
                 {{ $orderLockMessage }}
             </div>
@@ -5150,11 +5155,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 <strong>Tax Exempt:</strong> {{ $taxExemptWarning }}
             </div>
         @endif
-        @if (filled($lineWarning) && trim((string) $lineWarning) !== trim((string) $orderLockMessage))
+        @if (filled($lineWarning))
             <div
                 class="so-msg {{ in_array($lineWarningKind, ['error', 'danger'], true) ? 'so-msg-danger' : (in_array($lineWarningKind, ['success', 'info'], true) ? 'so-msg-info' : 'so-msg-alert') }}"
                 role="alert"
-                wire:key="so-line-warning-{{ md5($lineWarning.'|'.$lineWarningKind) }}"
+                data-flash-repeat="1"
+                wire:key="so-line-warning-{{ $lineWarningTick }}-{{ md5($lineWarning.'|'.$lineWarningKind) }}"
                 x-data
                 x-init="window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss('line')"
             >

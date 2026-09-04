@@ -4,6 +4,7 @@ use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\PersistsDeskTabSearch;
+use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\StockCount;
 use App\Services\InventoryService;
@@ -19,6 +20,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     use InteractsWithDeskQuery;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use SelectsDeskRows;
     use CustomizesDeskListColumns;
     use PersistsDeskTabSearch;
 
@@ -191,11 +193,6 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
     {
         $this->resetDeskList();
         $this->selectedId = null;
-    }
-
-    public function selectRow(int $id): void
-    {
-        $this->selectedId = $id;
     }
 
     public function clearSearch(): void

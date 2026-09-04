@@ -3,6 +3,7 @@
 use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\PersistsDeskTabSearch;
+use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -21,6 +22,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
     use WithoutUrlPagination;
     use SortsDeskList;
     use PaginatesDeskLists;
+    use SelectsDeskRows;
     use PersistsDeskTabSearch;
     use CustomizesDeskListColumns;
 
@@ -191,11 +193,6 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
     {
         $this->resetPage();
         $this->selectedId = null;
-    }
-
-    public function selectRow(int $id): void
-    {
-        $this->selectedId = $id;
     }
 
     public function clearSearch(): void

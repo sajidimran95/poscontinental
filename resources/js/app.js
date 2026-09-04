@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
     bindPosScanEntry();
     posFocusScanEntry();
     initPosTabKeepAlive();
+    initDeskFastSelect();
 });
 
 document.addEventListener('livewire:navigated', function () {
@@ -12,6 +13,80 @@ document.addEventListener('livewire:navigated', function () {
     bindPosScanEntry();
     posFocusScanEntry();
 });
+
+function initDeskFastSelect() {
+    if (document.documentElement.dataset.deskFastSelect === '1') {
+        return;
+    }
+    document.documentElement.dataset.deskFastSelect = '1';
+
+    const methodCall = (attr) => {
+        const text = String(attr || '').trim();
+        const m = text.match(/^([A-Za-z_]\w*)\((\d+)\)$/);
+        if (! m) {
+            return null;
+        }
+
+        return { method: m[1], id: parseInt(m[2], 10) };
+    };
+
+    const paintSelected = (row) => {
+        const scope = row.closest('tbody, .desk-list-cards, table') || row.parentElement;
+        if (scope) {
+            scope.querySelectorAll('.is-selected').forEach(function (el) {
+                if (el !== row) {
+                    el.classList.remove('is-selected');
+                }
+            });
+        }
+        row.classList.add('is-selected');
+        const radio = row.querySelector('input[type="radio"]');
+        if (radio) {
+            radio.checked = true;
+        }
+    };
+
+    document.addEventListener('click', function (e) {
+        const hit = e.target.closest('[wire\\:click*="selectRow("]');
+        if (! hit) {
+            return;
+        }
+        const row = hit.closest('tr, .desk-list-card') || hit;
+        if (row.querySelector && row.querySelector('input[type="checkbox"]')) {
+            return;
+        }
+        const call = methodCall(hit.getAttribute('wire:click'));
+        if (! call || call.method !== 'selectRow') {
+            return;
+        }
+        paintSelected(row);
+        const wire = posWireFromEl(hit);
+        if (wire && typeof wire.set === 'function') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            wire.set('selectedId', call.id, false);
+        }
+    }, true);
+
+    document.addEventListener('dblclick', function (e) {
+        const hit = e.target.closest('[wire\\:dblclick]');
+        if (! hit) {
+            return;
+        }
+        const call = methodCall(hit.getAttribute('wire:dblclick'));
+        if (! call) {
+            return;
+        }
+        const wire = posWireFromEl(hit);
+        if (! wire || typeof wire.call !== 'function') {
+            return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        wire.set('selectedId', call.id, false);
+        wire.call(call.method, call.id);
+    }, true);
+}
 
 function posScanEntryEl() {
     return document.querySelector('#ss-code, #iv-code, #sc-item-entry');

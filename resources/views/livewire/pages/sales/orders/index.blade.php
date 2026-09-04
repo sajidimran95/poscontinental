@@ -4,6 +4,7 @@ use App\Livewire\Concerns\CustomizesDeskListColumns;
 use App\Livewire\Concerns\InteractsWithDeskQuery;
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\PersistsDeskTabSearch;
+use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -28,6 +29,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     use PaginatesDeskLists;
     use PersistsDeskTabSearch;
     use CustomizesDeskListColumns;
+    use SelectsDeskRows;
 
     public string $search = '';
 
@@ -138,11 +140,6 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     {
         $this->resetDeskList();
         $this->selectedId = null;
-    }
-
-    public function selectRow(int $id): void
-    {
-        $this->selectedId = $id;
     }
 
     public function openParkedSalesModal(): void

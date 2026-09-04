@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\PersistsDeskTabSearch;
+use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
 use App\Models\Department;
@@ -26,6 +27,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 {
     use SortsDeskList;
     use PaginatesDeskLists;
+    use SelectsDeskRows;
     use PersistsDeskTabSearch;
 
     public string $search = '';
@@ -417,11 +419,6 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 $this->queryOperator = 'lt';
             }
         }
-    }
-
-    public function selectRow(int $id): void
-    {
-        $this->selectedId = $id;
     }
 
     public function openItemQuery(): void

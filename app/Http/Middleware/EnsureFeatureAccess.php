@@ -17,7 +17,10 @@ class EnsureFeatureAccess
         }
 
         $routeName = $request->route()?->getName();
-        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show', 'admin.terminal', 'pos.tabs.open', 'pos.tabs.remember', 'pos.tabs.ensure', 'pos.tabs.close', 'pos.tabs.close-all', 'sales.orders.windows.open', 'sales.orders.windows.close', 'exports.xlsx'], true)) {
+        if ($request->is('pos/tabs/*') || $request->is('team-chat/unread')) {
+            return $next($request);
+        }
+        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show', 'admin.terminal', 'pos.tabs.open', 'pos.tabs.remember', 'pos.tabs.ensure', 'pos.tabs.close', 'pos.tabs.close-all', 'sales.orders.windows.open', 'sales.orders.windows.close', 'exports.xlsx', 'team-chat.unread'], true)) {
             return $next($request);
         }
 
@@ -33,6 +36,13 @@ class EnsureFeatureAccess
         }
 
         $message = 'Your role does not have '.$action.' access to this feature.';
+
+        if ($request->expectsJson()
+            || $request->ajax()
+            || $request->header('X-Livewire')
+            || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            return response()->json(['ok' => false, 'message' => $message], 403);
+        }
 
         return redirect()
             ->route('home')

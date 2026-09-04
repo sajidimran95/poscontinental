@@ -10,7 +10,9 @@ class TeamChatNavController extends Controller
 {
     public function unread(Request $request, TeamChatService $chat): JsonResponse
     {
-        abort_unless($request->user()?->canAccessFeature('team.chat', 'view'), 403);
+        if (! $request->user()?->canAccessFeature('team.chat', 'view')) {
+            return response()->json(['unread' => 0]);
+        }
 
         return response()->json($chat->unreadSummary($request->user()));
     }

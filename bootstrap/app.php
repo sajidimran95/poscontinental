@@ -40,6 +40,12 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            function (Request $request): bool {
+                return $request->is('api/*')
+                    || $request->expectsJson()
+                    || $request->ajax()
+                    || (bool) $request->header('X-Livewire')
+                    || $request->header('X-Requested-With') === 'XMLHttpRequest';
+            },
         );
     })->create();

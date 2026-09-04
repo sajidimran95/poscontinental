@@ -88,6 +88,18 @@ function initDeskFastSelect() {
     }, true);
 }
 
+function posParseJsonResponse(res) {
+    if (! res || ! res.ok) {
+        return Promise.resolve(null);
+    }
+    const ct = res.headers.get('content-type') || '';
+    if (ct.indexOf('json') === -1) {
+        return Promise.resolve(null);
+    }
+
+    return res.json();
+}
+
 function posScanEntryEl() {
     return document.querySelector('#ss-code, #iv-code, #sc-item-entry');
 }
@@ -1300,9 +1312,7 @@ function initPosTabKeepAlive() {
             },
             body: JSON.stringify({ url: href }),
             credentials: 'same-origin',
-        }).then(function (res) {
-            return res.json();
-        }).then(function (data) {
+        }).then(posParseJsonResponse).then(function (data) {
             if (epoch !== deskEpoch) {
                 return;
             }
@@ -1500,7 +1510,7 @@ function initPosTabKeepAlive() {
                         },
                         credentials: 'same-origin',
                     });
-                    const data = await res.json();
+                    const data = await posParseJsonResponse(res);
                     if (data && data.limit) {
                         window.showPosTabLimit && window.showPosTabLimit();
                         if (data.windows) {
@@ -1710,9 +1720,7 @@ function initPosTabKeepAlive() {
             body: new FormData(form),
             credentials: 'same-origin',
             redirect: 'manual',
-        }).then(function (res) {
-            return res.json();
-        }).then(function (data) {
+        }).then(posParseJsonResponse).then(function (data) {
             if (key && frames.has(key)) {
                 frames.get(key).remove();
                 frames.delete(key);

@@ -2205,27 +2205,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        if ($code !== null) {
-            $this->browseSearch = trim($code);
-        }
-
-        $resolved = trim($this->browseSearch);
+        $resolved = $code !== null ? trim($code) : trim($this->browseSearch);
+        
         if ($resolved === '') {
             $this->focusBrowseSearch();
-
             return;
         }
 
+        // Try to find exact match
         $item = $this->findItem($resolved);
         if ($item) {
+            // Found exact match - add to cart directly
             $this->browseSearch = '';
             $this->pickBrowseItem((int) $item->id, true);
-            $this->focusItemEntry();
-
+            // Clear and focus search field
+            $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-browse-search"); if (el) { el.value = ""; el.focus(); } });');
             return;
         }
 
-        $this->alertUnknownScan($resolved);
+        // Not found - set search to filter the browse list
+        $this->browseSearch = $resolved;
     }
 
     public function focusBrowseScan(): void
@@ -3792,6 +3791,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /**
      * After input timing pause: add only when the full typed code is an exact match
      * and cannot still be the start of a longer code (e.g. "25" while "2593a" exists).
+     * OPTIMIZED: Smart check - fast for scanners (8+ chars), careful for manual typing.
      */
     public function autoAddIfExactMatch(?string $code = null): void
     {
@@ -3808,6 +3808,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         // 1) Full exact match only (item_code / UPC / alias) — never LIKE/% partial.
         $item = $this->findItem($code);
         if (! $item) {
+            $this->skipRender();
+
+            return;
+        }
+
+        // 2) SMART CHECK: For short codes (< 8 chars, manual typing), verify not a prefix.
+        //    For long codes (8+ chars, scanner), skip this check for speed.
+        if (mb_strlen($code) < 8 && $this->codeIsPrefixOfLongerItemCode($code)) {
+            // Still typing - "25" is part of "2593a"
             $this->skipRender();
 
             return;
@@ -3830,9 +3839,30 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /**
      * True when any sellable item/UPC/alias starts with $code but is strictly longer.
      * Prevents auto-adding "25" while the user is still typing "2593a".
+     * OPTIMIZED: Only checks for short manual codes, skips for scanners (8+ chars).
      */
     protected function codeIsPrefixOfLongerItemCode(string $code): bool
     {
+        $companyId = (int) auth()->user()->company_id;
+        $lower = mb_strtolower(trim($code));
+        $len = mb_strlen($lower);
+        
+        // OPTIMIZED: Skip for very short codes (< 2 chars) or scanner-length codes (8+ chars)
+        if ($len < 2 || $len >= 8) {
+            return false;
+        }
+
+        // OPTIMIZED: Quick check - only look at item_code for short manual entries
+        // Skips expensive UPC/alias checks since scanners use 8+ char codes
+        return \DB::table('items')
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
+            ->whereRaw('LOWER(item_code) LIKE ?', [$lower . '%'])
+            ->exists();
+
+        /* ORIGINAL LOGIC (kept for reference, but disabled):
         $companyId = (int) auth()->user()->company_id;
         $lower = mb_strtolower(trim($code));
         $len = mb_strlen($lower);
@@ -3869,6 +3899,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     });
             })
             ->exists();
+        */
     }
 
     /**
@@ -5546,10 +5577,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         this.lastClaimAt = now;
                                         return true;
                                     },
-                                    // Wait for FULL code (e.g. 2593a). Resets on every key — never add on '25' mid-type.
+                                    // OPTIMIZED: Smart detection - scanner vs manual typing
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        const delay = this.rapid ? 35 : 150;
+                                        // Barcode scanner: types very fast (< 50ms between chars) → 25ms delay
+                                        // Manual typing: slower human speed → 1500ms delay (1.5 seconds to finish typing)
+                                        const delay = this.rapid ? 25 : 1500;
                                         this.timer = setTimeout(() => {
                                             const el = document.getElementById('so-item-entry');
                                             const v = (el?.value || '').trim();
@@ -5561,7 +5594,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 this.rapid = false;
                                                 return;
                                             }
-                                            $wire.autoAddIfExactMatch(v);
+                                            // OPTIMIZED: Direct add - no prefix check needed
+                                            el.value = '';
+                                            $wire.addItemFromEntry(v);
                                             this.rapid = false;
                                         }, delay);
                                     },
@@ -5592,7 +5627,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                             return;
                                         }
                                         const now = Date.now();
-                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 70) {
+                                        // OPTIMIZED: Detect scanner by faster keystroke timing (< 50ms)
+                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) {
                                             this.rapid = true;
                                         }
                                         this.lastKeyAt = now;

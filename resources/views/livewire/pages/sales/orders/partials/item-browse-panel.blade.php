@@ -969,10 +969,21 @@
                             <input
                                 type="text"
                                 inputmode="text"
-                                wire:ignore
-                                x-data
-                                x-on:input.debounce.300ms="$wire.set('browseSearch', $el.value)"
-                                x-on:keydown.enter.prevent="$wire.scanBrowseAndPick($el.value)"
+                                wire:ignore.self
+                                x-data="{
+                                    timer: null,
+                                    scheduleSearch() {
+                                        clearTimeout(this.timer);
+                                        // Browse popup: ONLY filter list, never auto-add
+                                        // User must click + button or Enter to add items
+                                        const delay = 300;
+                                        this.timer = setTimeout(() => {
+                                            $wire.set('browseSearch', $el.value);
+                                        }, delay);
+                                    }
+                                }"
+                                x-on:input="scheduleSearch()"
+                                x-on:keydown.enter.prevent="clearTimeout(timer); $wire.scanBrowseAndPick($el.value);"
                                 class="so-input so-item-browse-search-bottom"
                                 placeholder="{{ $browseSearchPlaceholder ?? 'Code, UPC, or words in the description' }}"
                                 aria-label="Scan or search items"

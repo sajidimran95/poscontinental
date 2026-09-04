@@ -1831,7 +1831,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     },
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
-                                        const delay = this.rapid ? 35 : 150;
+                                        // OPTIMIZED: Scanner 25ms, Manual typing 1500ms (1.5 seconds)
+                                        const delay = this.rapid ? 25 : 1500;
                                         this.timer = setTimeout(() => {
                                             const v = ($el.value || '').trim();
                                             if (v.length < 2) { this.rapid = false; return; }
@@ -1866,7 +1867,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             return;
                                         }
                                         const now = Date.now();
-                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 70) this.rapid = true;
+                                        // OPTIMIZED: Detect scanner by < 50ms between keys
+                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
                                         this.lastKeyAt = now;
                                     },
                                     onInput() {

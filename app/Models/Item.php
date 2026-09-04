@@ -252,34 +252,72 @@ class Item extends Model
             return $query;
         };
 
-        $query = $scoped()->where(function ($q) use ($code, $lower, $shortSell, $mode) {
+        // OPTIMIZED: Try direct match on item_code or primary_upc first (fast indexed queries)
+        $directMatch = $scoped()->where(function ($q) use ($code, $lower) {
             $q->where('item_code', $code)
-                ->orWhereRaw('LOWER(item_code) = ?', [$lower]);
+                ->orWhereRaw('LOWER(item_code) = ?', [$lower])
+                ->orWhere('primary_upc', $code)
+                ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower]);
+        })->first();
 
-            if (! $shortSell) {
-                $q->orWhere('primary_upc', $code)
-                    ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower])
-                    ->orWhereHas('upcs', function ($u) use ($code, $lower) {
-                        $u->where('upc', $code)->orWhereRaw('LOWER(upc) = ?', [$lower]);
-                    })
-                    ->orWhereHas('prices', function ($p) use ($code, $lower) {
-                        $p->whereNotNull('alias_code')
-                            ->where('alias_code', '!=', '')
-                            ->where(function ($a) use ($code, $lower) {
-                                $a->where('alias_code', $code)
-                                    ->orWhereRaw('LOWER(alias_code) = ?', [$lower]);
-                            });
-                    });
+        if ($directMatch) {
+            $directMatch->load(['prices', 'taxSchedule']);
+            return $directMatch;
+        }
 
-                if ($mode !== 'sell') {
-                    $q->orWhereHas('itemSuppliers', function ($s) use ($code) {
-                        $s->where('supplier_item_code', $code);
-                    });
+        // For short sell codes, only match item_code (already checked above)
+        if ($shortSell) {
+            return null;
+        }
+
+        // OPTIMIZED: Check UPC table with indexed lookup
+        $upcMatch = \DB::table('item_upcs')
+            ->where(function ($q) use ($code, $lower) {
+                $q->where('upc', $code)->orWhereRaw('LOWER(upc) = ?', [$lower]);
+            })
+            ->value('item_id');
+
+        if ($upcMatch) {
+            $item = $scoped()->where('items.id', $upcMatch)->first();
+            if ($item) {
+                $item->load(['prices', 'taxSchedule']);
+                return $item;
+            }
+        }
+
+        // OPTIMIZED: Check alias codes with indexed lookup
+        $aliasMatch = \DB::table('item_prices')
+            ->whereNotNull('alias_code')
+            ->where('alias_code', '!=', '')
+            ->where(function ($q) use ($code, $lower) {
+                $q->where('alias_code', $code)->orWhereRaw('LOWER(alias_code) = ?', [$lower]);
+            })
+            ->value('item_id');
+
+        if ($aliasMatch) {
+            $item = $scoped()->where('items.id', $aliasMatch)->first();
+            if ($item) {
+                $item->load(['prices', 'taxSchedule']);
+                return $item;
+            }
+        }
+
+        // Check supplier codes (not for sell mode)
+        if ($mode !== 'sell') {
+            $supplierMatch = \DB::table('item_suppliers')
+                ->where('supplier_item_code', $code)
+                ->value('item_id');
+
+            if ($supplierMatch) {
+                $item = $scoped()->where('items.id', $supplierMatch)->first();
+                if ($item) {
+                    $item->load(['prices', 'taxSchedule']);
+                    return $item;
                 }
             }
-        });
+        }
 
-        return $query->with(['prices', 'taxSchedule'])->first();
+        return null;
     }
 
     public static function itemMatchesScanCode(self $item, string $code, string $mode = 'any'): bool

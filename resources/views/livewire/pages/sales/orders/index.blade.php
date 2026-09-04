@@ -564,15 +564,11 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     {
         $user = auth()->user();
         if (! $order->canBeEditedBy($user)) {
-            session()->flash('status', 'Only the user who created this order can edit it.');
-
             return $this->redirect(route('sales.orders.show', $order), navigate: true);
         }
 
         $held = $order->editLockHolder();
         if ($held && (int) $held['user_id'] !== (int) $user->id) {
-            session()->flash('status', ($held['name'] ?? 'Another user').' has this order open.');
-
             return $this->redirect(route('sales.orders.show', $order), navigate: true);
         }
 

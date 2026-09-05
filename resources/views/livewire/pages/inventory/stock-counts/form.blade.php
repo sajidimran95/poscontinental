@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
 use App\Livewire\Concerns\ReturnsToDeskList;
+use App\Livewire\Concerns\SearchesItemEntryHits;
 use App\Models\Item;
 use App\Models\Site;
 use App\Models\StockCount;
@@ -17,6 +18,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
     }
+    use SearchesItemEntryHits;
     use ReturnsToDeskList;
     public ?StockCount $stockCount = null;
 
@@ -333,12 +335,21 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->focusBrowseSearch();
     }
 
+    public function pickEntryHit(int $itemId): void
+    {
+        $this->entryHits = [];
+        $this->pickBrowseItem($itemId, false);
+        $this->closeBrowse();
+        $this->clearAndFocusEntry();
+    }
+
     public function addItemFromEntry(?string $code = null): void
     {
         if ($this->status === 'Processed') {
             return;
         }
 
+        $this->entryHits = [];
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
         $this->itemLookup = $code;
         $this->activeTab = 'expand';
@@ -425,6 +436,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     {
         $this->itemLookup = '';
         $this->scanModeActive = false;
+        $this->entryHits = [];
         if (str_contains(strtolower($this->lookupMessage), 'was not found')) {
             $this->lookupMessage = '';
         }
@@ -826,88 +838,14 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
                     @unless ($isProcessed)
                         <div class="so-entry po-order-entry" style="padding:0.65rem 0.75rem 0.5rem;border-bottom:1px solid #e2e8f0">
-                            <span class="so-entry-label">Add item — scan or type code</span>
-                            <div class="so-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive]) style="max-width:28rem;min-width:16rem;height:2.15rem">
-                                <button
-                                    type="button"
-                                    wire:click="focusScanAndAdd"
-                                    class="so-scan-btn"
-                                    title="Scan (F2): click to focus, or add the code already in the box"
-                                >
-                                    <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                        <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                    </svg>
-                                    <span>Scan</span>
-                                </button>
-                                <input
-                                    id="sc-item-entry"
-                                    data-pos-item-entry
-                                    type="text"
-                                    class="so-input so-entry-input font-mono"
-                                    placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
-                                    autocomplete="off"
-                                    wire:keydown.enter.prevent="addItemFromEntry($event.target.value)"
-                                    wire:keydown.f3.prevent="openItemBrowse"
-                                    x-data="{
-                                        timer: null,
-                                        lastKeyAt: 0,
-                                        rapid: false,
-                                        scheduleAuto() {
-                                            clearTimeout(this.timer);
-                                            const scanOn = !!$wire.scanModeActive;
-                                            if (!scanOn && !this.rapid) return;
-                                            const delay = this.rapid ? 35 : 150;
-                                            this.timer = setTimeout(() => {
-                                                const v = ($el.value || '').trim();
-                                                if (v.length < 2) { this.rapid = false; return; }
-                                                $wire.autoAddEntryIfExactMatch(v);
-                                                this.rapid = false;
-                                            }, delay);
-                                        },
-                                        onKey(e) {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                clearTimeout(this.timer);
-                                                $wire.addItemFromEntry(($el.value || '').trim());
-                                                this.rapid = false;
-                                                return;
-                                            }
-                                            if (e.key === 'F3') {
-                                                e.preventDefault();
-                                                clearTimeout(this.timer);
-                                                $wire.openItemBrowse();
-                                                return;
-                                            }
-                                            const now = Date.now();
-                                            if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
-                                            this.lastKeyAt = now;
-                                        }
-                                    }"
-                                    x-on:keydown="onKey($event)"
-                                    x-on:input="scheduleAuto()"
-                                    x-on:paste.prevent="
-                                        clearTimeout(timer);
-                                        const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
-                                        $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                        rapid = false;
-                                        if (($el.value || '').trim().length >= 2) {
-                                            $wire.addItemFromEntry($el.value);
-                                        }
-                                    "
-                                />
-                                <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear" aria-label="Clear">
-                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('sc-item-entry')?.value || '')"
-                                    class="so-icon-btn so-entry-add-btn"
-                                    title="Add item (✓)"
-                                    aria-label="Add item"
-                                >
-                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                                </button>
-                            </div>
+                            <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
+                            @include('livewire.partials.item-entry-search-bar', [
+                                'entryInputId' => 'sc-item-entry',
+                                'entryCommit' => 'addItemFromEntry',
+                                'entryClear' => 'clearItemLookup',
+                                'entryFocus' => 'focusScanAndAdd',
+                                'entryPlaceholder' => 'Scan to add instantly · type name or code to search',
+                            ])
                             <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)" style="margin-left:0.5rem">Browse (F3)</button>
                         </div>
                     @endunless

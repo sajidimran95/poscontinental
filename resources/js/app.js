@@ -61,12 +61,21 @@ function initDeskFastSelect() {
         if (! hit) {
             return;
         }
+        if (e.target.closest('a, button, input, select, textarea, label')) {
+            return;
+        }
         const row = hit.closest('tr, .desk-list-card') || hit;
         if (row.querySelector && row.querySelector('input[type="checkbox"]')) {
             return;
         }
         const call = methodCall(hit.getAttribute('wire:click'));
         if (! call || call.method !== 'selectRow') {
+            return;
+        }
+        // Second click of a double-click: block selectRow (skip-render) but do not
+        // preventDefault — that would cancel the dblclick event in the browser.
+        if (e.detail > 1) {
+            e.stopImmediatePropagation();
             return;
         }
         paintSelected(row);
@@ -90,10 +99,15 @@ function initDeskFastSelect() {
         const row = hit.closest('tr, .desk-list-card') || hit;
         paintSelected(row);
         const wire = posWireFromEl(hit);
-        if (wire && typeof wire.set === 'function') {
+        if (! wire || typeof wire.call !== 'function') {
+            return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (typeof wire.set === 'function') {
             wire.set('selectedId', call.id, false);
         }
-        // Do not stop Livewire — edit/open must run on the component.
+        wire.call(call.method, call.id);
     }, true);
 }
 
@@ -1222,10 +1236,59 @@ function initPosTabKeepAlive() {
         }
     }
 
+    function frameLooksLikeHome(el) {
+        if (! el) {
+            return false;
+        }
+        if (el.tagName === 'IFRAME') {
+            try {
+                const doc = el.contentDocument;
+                if (doc && doc.querySelector('.home-chief')) {
+                    return true;
+                }
+            } catch (err) {}
+            const loc = iframeLocationHref(el) || el.getAttribute('src') || '';
+            return loc !== '' && posDeskKey(loc) === '/home';
+        }
+        return !! el.querySelector('.home-chief');
+    }
+
+    function restoreHomeFrame(opts) {
+        opts = opts || {};
+        let home = frames.get('/home');
+        if (home && ! frameLooksLikeHome(home)) {
+            home.remove();
+            frames.delete('/home');
+            home = null;
+        }
+        if (! home) {
+            home = document.createElement('iframe');
+            home.className = 'pos-keep-frame';
+            home.setAttribute('data-desk-key', '/home');
+            home.title = 'Home';
+            home.src = posEmbedSrc('/home');
+            host.appendChild(home);
+            frames.set('/home', home);
+        }
+        frames.forEach(function (f, k) {
+            f.classList.toggle('is-active', k === '/home');
+        });
+        currentDeskKey = '/home';
+        setActiveTab('/home');
+        if (opts.history !== false && (window.location.pathname + window.location.search) !== '/home') {
+            window.history.pushState({ posDesk: '/home' }, '', '/home');
+        }
+        rememberParentUrl();
+    }
+
     function showFrame(href, opts) {
         opts = opts || {};
         const clean = posCleanHref(href);
         const key = posDeskKey(clean);
+        if (key === '/home' || key === '/') {
+            restoreHomeFrame(opts);
+            return;
+        }
         let iframe = frames.get(key);
         if (! iframe) {
             iframe = document.createElement('iframe');
@@ -1275,7 +1338,14 @@ function initPosTabKeepAlive() {
         const removeKeys = [];
         frames.forEach(function (iframe, k) {
             const iframeKey = (iframe && iframe.getAttribute) ? (iframe.getAttribute('data-desk-key') || k) : k;
-            if (k === key || iframeKey === key) {
+            let srcKey = '';
+            if (iframe && iframe.tagName === 'IFRAME') {
+                const loc = iframeLocationHref(iframe) || iframe.getAttribute('src') || '';
+                if (loc) {
+                    srcKey = posDeskKey(loc);
+                }
+            }
+            if (k === key || iframeKey === key || (srcKey && srcKey === key)) {
                 iframe.remove();
                 removeKeys.push(k);
             }
@@ -1292,6 +1362,23 @@ function initPosTabKeepAlive() {
             }
         });
         ensureCloseAllButton();
+    }
+
+    function showNextDeskAfterClose() {
+        frames.forEach(function (f) {
+            if (f && f.classList) {
+                f.classList.remove('is-active');
+            }
+        });
+        const nextSo = document.querySelector('.chief-tab[data-desk-key^="so:"] a.chief-tab-link');
+        const next = nextSo
+            || document.querySelector('.chief-tab[data-desk-key]:not([data-desk-home]) a.chief-tab-link')
+            || document.querySelector('.chief-tab[data-desk-home] a.chief-tab-link');
+        if (next && next.href) {
+            showFrame(next.href);
+            return;
+        }
+        showFrame(window.location.origin + '/home');
     }
 
     function persistDocTab(href) {
@@ -1655,7 +1742,7 @@ function initPosTabKeepAlive() {
         if (goingHome) {
             e.preventDefault();
             e.stopPropagation();
-            window.location.href = window.location.origin + '/home';
+            restoreHomeFrame();
             return;
         }
         e.preventDefault();
@@ -1671,6 +1758,30 @@ function initPosTabKeepAlive() {
         }
         openHref(href.href);
     }, true);
+
+    document.addEventListener('livewire:navigate', function (event) {
+        const detail = event.detail || {};
+        let next = '';
+        if (detail.url) {
+            next = typeof detail.url === 'string' ? detail.url : (detail.url.href || '');
+        } else if (detail.href) {
+            next = detail.href;
+        }
+        if (! next) {
+            return;
+        }
+        try {
+            const u = new URL(next, window.location.origin);
+            const fromKey = posDeskKey(window.location.href);
+            const toKey = posDeskKey(u.href);
+            if (toKey === fromKey) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            openHref(u.pathname + u.search + u.hash);
+        } catch (err) {}
+    });
 
     document.addEventListener('submit', function (e) {
         const form = e.target;
@@ -1716,58 +1827,40 @@ function initPosTabKeepAlive() {
         }
         e.preventDefault();
         const tabEl = form.closest('.chief-tab');
-        const key = tabEl ? tabEl.getAttribute('data-desk-key') : '';
-        const isSoTab = key && key.startsWith('so:');
-        
-        fetch(form.action, {
+        const key = tabEl ? (tabEl.getAttribute('data-desk-key') || '') : '';
+        const link = tabEl ? tabEl.querySelector('a.chief-tab-link') : null;
+        const hrefKey = (link && link.href) ? posDeskKey(link.href) : '';
+        const isSoTab = (key && key.startsWith('so:')) || (hrefKey && hrefKey.startsWith('so:'));
+        const body = new FormData(form);
+        const action = form.action;
+
+        closeDeskFrame(key);
+        if (hrefKey && hrefKey !== key) {
+            closeDeskFrame(hrefKey);
+        }
+        if (tabEl && tabEl.isConnected) {
+            tabEl.remove();
+        }
+        ensureCloseAllButton();
+        showNextDeskAfterClose();
+
+        fetch(action, {
             method: 'POST',
             headers: {
                 'X-CSRF-TOKEN': csrf(),
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest',
             },
-            body: new FormData(form),
+            body: body,
             credentials: 'same-origin',
             redirect: 'manual',
         }).then(posParseJsonResponse).then(function (data) {
-            if (key && frames.has(key)) {
-                frames.get(key).remove();
-                frames.delete(key);
-            }
-
             if (isSoTab && data && data.windows && Array.isArray(data.windows)) {
                 syncSoTabs(data.windows);
-            } else if (tabEl) {
-                tabEl.remove();
+                ensureCloseAllButton();
             }
-
-            ensureCloseAllButton();
-
-            const nextSo = document.querySelector('.chief-tab[data-desk-key^="so:"] a.chief-tab-link');
-            const next = nextSo
-                || document.querySelector('.chief-tab[data-desk-key]:not([data-desk-home]) a.chief-tab-link')
-                || document.querySelector('.chief-tab[data-desk-home] a.chief-tab-link');
-            if (next) {
-                showFrame(next.href);
-            } else {
-                showFrame(window.location.origin + '/home');
-            }
-        }).catch(function () {
-            if (key && frames.has(key)) {
-                frames.get(key).remove();
-                frames.delete(key);
-            }
-            if (tabEl) {
-                tabEl.remove();
-            }
-            ensureCloseAllButton();
-            const next = document.querySelector('.chief-tab[data-desk-key] a.chief-tab-link');
-            if (next) {
-                showFrame(next.href);
-            } else {
-                showFrame(window.location.origin + '/home');
-            }
-        });
+        }).catch(function () {});
+        return;
     }, true);
 
     window.addEventListener('popstate', function () {

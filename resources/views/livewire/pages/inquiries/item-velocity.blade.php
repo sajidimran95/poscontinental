@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\BrowsesItemsForInquiry;
+use App\Livewire\Concerns\SearchesItemEntryHits;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrderLine;
@@ -12,6 +13,7 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 {
     use BrowsesItemsForInquiry;
+    use SearchesItemEntryHits;
 
     #[Url]
     public string $itemCode = '';
@@ -70,6 +72,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
     public function lookupItem(?string $code = null, bool $playSound = true): void
     {
         $this->lookupError = '';
+        $this->entryHits = [];
         if ($code !== null) {
             $this->itemCode = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
         }
@@ -92,6 +95,8 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             if ($playSound) {
                 $this->playPosSound('success');
             }
+            $code = json_encode($item->item_code);
+            $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) el.value = '.$code.'; });');
         } else {
             if ($playSound) {
                 $this->playPosSound('error');
@@ -134,10 +139,11 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     public function clearLookup(): void
     {
-        $this->reset(['itemCode', 'itemId', 'customerId', 'lookupError']);
+        $this->reset(['itemCode', 'itemId', 'customerId', 'lookupError', 'entryHits']);
         $this->closeBrowse();
         $this->datePreset = '30';
         $this->applyPreset();
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) { el.value = ""; el.focus(); } });');
     }
 
     public function pickBrowseItem(int $itemId): void
@@ -155,8 +161,11 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         $this->itemId = $item->id;
         $this->itemCode = $item->item_code;
         $this->lookupError = '';
+        $this->entryHits = [];
         $this->closeBrowse();
         $this->playPosSound('success');
+        $code = json_encode($item->item_code);
+        $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) el.value = '.$code.'; });');
     }
 
     public function with(): array
@@ -259,45 +268,17 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         </x-action-bar>
 
         <div class="desk-toolbar rpt-toolbar">
-            <div class="rpt-field rpt-field-search">
-                <label class="desk-toolbar-label" for="iv-code">Item Code / UPC</label>
-                <div class="so-scan-bar" style="max-width:28rem;min-width:16rem;height:2.15rem">
-                    <button type="button" wire:click="focusItemScan" class="so-scan-btn" title="Scan barcode (F2)">
-                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                        </svg>
-                        <span>Scan</span>
-                    </button>
-                    <input
-                        id="iv-code"
-                        data-pos-item-entry
-                        type="search"
-                        wire:model="itemCode"
-                        wire:keydown.enter.prevent="lookupItem($event.target.value)"
-                        wire:keydown.f3.prevent="openItemBrowse"
-                        class="so-input font-mono"
-                        placeholder="Scan or type item code / UPC…"
-                        autofocus
-                        autocomplete="off"
-                    />
-                    <button
-                        type="button"
-                        wire:click="openItemBrowse"
-                        class="so-icon-btn"
-                        title="Browse items (F3)"
-                        aria-label="Browse items"
-                    >
-                        <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                            <circle cx="3" cy="6" r="1.15"/>
-                            <circle cx="6" cy="6" r="1.15"/>
-                            <circle cx="9" cy="6" r="1.15"/>
-                        </svg>
-                    </button>
-                </div>
+            <div class="rpt-field rpt-field-search" style="flex:1 1 22rem;min-width:18rem">
+                <label class="desk-toolbar-label" for="iv-code">Item code / barcode (F2) · Browse (F3)</label>
+                @include('livewire.partials.item-entry-search-bar', [
+                    'entryInputId' => 'iv-code',
+                    'entryCommit' => 'lookupItem',
+                    'entryPlaceholder' => 'Scan to look up instantly · type name or code to search',
+                ])
             </div>
             <div class="rpt-actions" style="margin-left:0">
                 <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)">Browse (F3)</button>
-                <button type="button" wire:click="lookupItem" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
+                <button type="button" x-on:click.prevent="$wire.lookupItem(document.getElementById('iv-code')?.value || '')" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">
                     <span wire:loading.remove wire:target="lookupItem">Lookup</span>
                     <span wire:loading wire:target="lookupItem">Looking up…</span>
                 </button>

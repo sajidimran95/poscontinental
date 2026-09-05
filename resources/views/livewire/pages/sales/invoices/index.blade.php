@@ -393,7 +393,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     {
         $this->permissionNotice = $message;
         $this->permissionNoticeTick++;
-        $this->js('window.playPosAlert && window.playPosAlert("warning")');
+        $this->js(
+            'window.showPermissionToast && window.showPermissionToast('.json_encode($message).');'
+            .'window.playPosAlert && window.playPosAlert("warning")'
+        );
 
         return null;
     }

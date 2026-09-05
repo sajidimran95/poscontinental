@@ -909,6 +909,7 @@
                         el.hidden = true;
                     }, 4500);
                 }
+                window.showPermissionToast = showPermissionToast;
 
                 window.showPosSaveToast = function (message) {
                     const text = String(message || '').trim();
@@ -950,7 +951,10 @@
                     if (el.closest && el.closest('.desk-chief-prompt, [role="alertdialog"], dialog')) return true;
                     if (el.classList && el.classList.contains('so-msg-credit')) return true;
                     const t = String(el.textContent || '').toLowerCase();
+                    if (el.getAttribute && el.getAttribute('data-flash-repeat') === '1') return true;
                     if (t.indexOf('locked:') !== -1) return true;
+                    if (t.indexOf('only the user who created') !== -1) return true;
+                    if (t.indexOf('has this order open') !== -1) return true;
 
                     return false;
                 }

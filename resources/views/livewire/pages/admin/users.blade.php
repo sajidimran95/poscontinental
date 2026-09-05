@@ -220,7 +220,7 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
             return [];
         }
 
-        if ($role->name === 'admin') {
+        if ($role->isAdministrator()) {
             return AppFeatures::permissionTokens();
         }
 
@@ -606,9 +606,17 @@ new #[Layout('layouts.app'), Title('Users & Roles')] class extends Component
 
         if ($this->editingUserId) {
             $user = User::query()->where('company_id', $companyId)->whereKey($this->editingUserId)->firstOrFail();
+            $assignedRole = Role::query()->find($this->role_id);
+            if ($assignedRole?->isAdministrator()) {
+                $data['permissions'] = null;
+            }
             $user->update($data);
             $status = 'User updated.';
         } else {
+            $assignedRole = Role::query()->find($this->role_id);
+            if ($assignedRole?->isAdministrator()) {
+                $data['permissions'] = null;
+            }
             User::query()->create($data);
             $status = 'User created.';
         }

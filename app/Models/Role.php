@@ -22,9 +22,17 @@ class Role extends Model
         return $this->hasMany(User::class);
     }
 
+    public function isAdministrator(): bool
+    {
+        $name = strtolower(trim((string) $this->name));
+        $label = strtolower(trim((string) $this->label));
+
+        return $name === 'admin' || $label === 'administrator';
+    }
+
     public function allows(string $feature, string $action = 'view'): bool
     {
-        if ($this->name === 'admin') {
+        if ($this->isAdministrator()) {
             return true;
         }
 
@@ -40,7 +48,7 @@ class Role extends Model
     /** Whether the role can see the feature menu at all (any action). */
     public function allowsAny(string $feature): bool
     {
-        if ($this->name === 'admin') {
+        if ($this->isAdministrator()) {
             return true;
         }
 

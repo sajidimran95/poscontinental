@@ -44,6 +44,16 @@ function initDeskFastSelect() {
         if (radio) {
             radio.checked = true;
         }
+        const page = row.closest('.desk-page, .desk-main-rail-layout') || document;
+        page.querySelectorAll('.desk-rail button.desk-rail-btn, .desk-rail a.desk-rail-btn').forEach(function (btn) {
+            const click = btn.getAttribute('wire:click') || btn.getAttribute('href') || '';
+            if (! click) {
+                return;
+            }
+            btn.disabled = false;
+            btn.removeAttribute('disabled');
+            btn.removeAttribute('aria-disabled');
+        });
     };
 
     document.addEventListener('click', function (e) {
@@ -77,14 +87,13 @@ function initDeskFastSelect() {
         if (! call) {
             return;
         }
+        const row = hit.closest('tr, .desk-list-card') || hit;
+        paintSelected(row);
         const wire = posWireFromEl(hit);
-        if (! wire || typeof wire.call !== 'function') {
-            return;
+        if (wire && typeof wire.set === 'function') {
+            wire.set('selectedId', call.id, false);
         }
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        wire.set('selectedId', call.id, false);
-        wire.call(call.method, call.id);
+        // Do not stop Livewire — edit/open must run on the component.
     }, true);
 }
 

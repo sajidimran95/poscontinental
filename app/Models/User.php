@@ -161,7 +161,13 @@ class User extends Authenticatable
 
     public function isAdmin(): bool
     {
-        return $this->adminCache ??= ($this->role?->name === 'admin');
+        if ($this->adminCache !== null) {
+            return $this->adminCache;
+        }
+
+        $this->loadMissing('role');
+
+        return $this->adminCache = (bool) $this->role?->isAdministrator();
     }
 
     public function canAccessFeature(string $feature, string $action = 'view'): bool
@@ -180,8 +186,9 @@ class User extends Authenticatable
             return true;
         }
 
-        // Per-user permissions override the role when saved on the user.
-        if (is_array($this->permissions)) {
+        $this->loadMissing('role');
+
+        if (is_array($this->permissions) && $this->permissions !== []) {
             return AppFeatures::grants($this->permissions, $feature, $action);
         }
 

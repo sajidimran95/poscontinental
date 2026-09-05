@@ -1283,8 +1283,8 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             <th class="col-desc">Description</th>
                                             <th class="col-uom text-center">U of M</th>
                                             <th class="col-qty text-center">Qty</th>
-                                            <th class="col-cost text-center">Cost</th>
-                                            <th class="col-ext text-center">Extended</th>
+                                            <th class="col-cost text-right">Cost</th>
+                                            <th class="col-ext text-right">Extended</th>
                                         </tr>
                                     </thead>
                                     <tbody wire:key="rtv-lines-body-{{ $linesSig }}">
@@ -1357,7 +1357,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                                             {{ $qty != 0.0 ? $this->formatQtyDisplay($qty) : '' }}
                                                         @endif
                                                     </td>
-                                                    <td class="col-cost text-center">
+                                                    <td class="col-cost text-right">
                                                         <input
                                                             wire:model.blur="lines.{{ $i }}.unit_cost"
                                                             wire:click.stop

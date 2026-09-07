@@ -577,7 +577,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         }
 
         $held = $order->editLockHolder();
-        if ($held && (int) $held['user_id'] !== (int) $user->id) {
+        if ($held && (int) $held['user_id'] !== (int) $user->id && ! $user->isAdmin()) {
             return $this->denyOrderOpen(($held['name'] ?? 'Another user').' has this order open.');
         }
 

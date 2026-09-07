@@ -200,6 +200,10 @@ class SalesOrder extends Model
             return false;
         }
 
+        if ($user->isAdmin()) {
+            return true;
+        }
+
         if (! $user->canAccessFeature('sales.orders', 'edit')) {
             return false;
         }
@@ -236,7 +240,7 @@ class SalesOrder extends Model
         $key = static::editLockCacheKey((int) $this->id);
         $held = Cache::get($key);
         $heldId = is_array($held) ? (int) ($held['user_id'] ?? 0) : 0;
-        if ($heldId > 0 && $heldId !== (int) $user->id) {
+        if ($heldId > 0 && $heldId !== (int) $user->id && ! $user->isAdmin()) {
             return false;
         }
 

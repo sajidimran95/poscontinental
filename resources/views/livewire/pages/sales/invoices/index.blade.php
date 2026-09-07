@@ -595,7 +595,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             }
 
             $held = $order->editLockHolder();
-            if ($held && (int) $held['user_id'] !== (int) $user->id) {
+            if ($held && (int) $held['user_id'] !== (int) $user->id && ! $user->isAdmin()) {
                 return $this->denyInvoiceOpen(($held['name'] ?? 'Another user').' has this order open.');
             }
 

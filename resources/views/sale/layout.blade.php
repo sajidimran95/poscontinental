@@ -1492,11 +1492,30 @@
             box-sizing: border-box;
             font-size: 16px;
         }
+        .sale-scan-overlay__bar-actions {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .sale-scan-overlay__bar-actions .sale-catalog__close {
+            font-size: 14px; font-weight: 700; min-width: 2.5rem;
+        }
         .sale-scan-overlay__hint {
             margin: 0 16px 8px; font-size: 13px; color: #cbd5e1;
         }
+        .sale-scan-overlay__stage {
+            position: relative; flex: 1 1 auto; min-height: 240px; width: 100%;
+            display: flex; flex-direction: column; background: #000;
+        }
         .sale-scan-overlay__video, .sale-scan-overlay__native {
-            flex: 1 1 auto; min-height: 240px; width: 100%; background: #000; object-fit: cover;
+            flex: 1 1 auto; min-height: 280px; height: 100%; width: 100%;
+            background: #000; object-fit: cover; position: relative;
+        }
+        .sale-scan-overlay__video video {
+            width: 100% !important; height: 100% !important; object-fit: cover;
+        }
+        .sale-scan-overlay__band {
+            pointer-events: none; position: absolute; left: 6%; right: 6%;
+            top: 50%; height: 28%; transform: translateY(-50%);
+            border: 2px solid rgba(153,246,228,.85); border-radius: 10px;
         }
         .sale-scan-overlay__status {
             padding: 12px 16px; font-size: 13px; font-weight: 700; color: #99f6e4;

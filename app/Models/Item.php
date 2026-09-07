@@ -236,8 +236,8 @@ class Item extends Model
             return null;
         }
 
-        $lower = mb_strtolower($code);
-        $shortSell = $mode === 'sell' && mb_strlen($lower) < 8;
+        $keys = static::scanCodeLookupKeys($code);
+        $shortSell = $mode === 'sell' && mb_strlen($keys[0]) < 8;
 
         $scoped = function () use ($companyId, $mode) {
             $query = static::query()
@@ -252,12 +252,8 @@ class Item extends Model
             return $query;
         };
 
-        // OPTIMIZED: Try direct match on item_code or primary_upc first (fast indexed queries)
-        $directMatch = $scoped()->where(function ($q) use ($code, $lower) {
-            $q->where('item_code', $code)
-                ->orWhereRaw('LOWER(item_code) = ?', [$lower])
-                ->orWhere('primary_upc', $code)
-                ->orWhereRaw('LOWER(COALESCE(primary_upc, ?)) = ?', ['', $lower]);
+        $directMatch = $scoped()->where(function ($q) use ($keys) {
+            $q->whereIn('item_code', $keys)->orWhereIn('primary_upc', $keys);
         })->first();
 
         if ($directMatch) {
@@ -272,9 +268,7 @@ class Item extends Model
 
         // OPTIMIZED: Check UPC table with indexed lookup
         $upcMatch = \DB::table('item_upcs')
-            ->where(function ($q) use ($code, $lower) {
-                $q->where('upc', $code)->orWhereRaw('LOWER(upc) = ?', [$lower]);
-            })
+            ->whereIn('upc', $keys)
             ->value('item_id');
 
         if ($upcMatch) {
@@ -289,8 +283,8 @@ class Item extends Model
         $aliasMatch = \DB::table('item_prices')
             ->whereNotNull('alias_code')
             ->where('alias_code', '!=', '')
-            ->where(function ($q) use ($code, $lower) {
-                $q->where('alias_code', $code)->orWhereRaw('LOWER(alias_code) = ?', [$lower]);
+            ->where(function ($q) use ($keys) {
+                $q->whereIn('alias_code', $keys);
             })
             ->value('item_id');
 
@@ -305,7 +299,7 @@ class Item extends Model
         // Check supplier codes (not for sell mode)
         if ($mode !== 'sell') {
             $supplierMatch = \DB::table('item_suppliers')
-                ->where('supplier_item_code', $code)
+                ->whereIn('supplier_item_code', $keys)
                 ->value('item_id');
 
             if ($supplierMatch) {
@@ -318,6 +312,82 @@ class Item extends Model
         }
 
         return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function scanCodeLookupKeys(string $code): array
+    {
+        $code = trim($code);
+        $keys = [$code];
+        $digits = preg_replace('/\D+/', '', $code) ?? '';
+        if ($digits !== '' && $digits !== $code) {
+            $keys[] = $digits;
+        }
+        if (preg_match('/^\d{13}$/', $digits) === 1 && str_starts_with($digits, '0')) {
+            $keys[] = substr($digits, 1);
+            if (str_starts_with($digits, '00')) {
+                $keys[] = substr($digits, 2);
+            }
+        }
+        if (preg_match('/^\d{12}$/', $digits) === 1) {
+            $keys[] = '0'.$digits;
+            if (str_starts_with($digits, '0')) {
+                $keys[] = substr($digits, 1);
+            }
+        }
+        if (preg_match('/^\d{11}$/', $digits) === 1) {
+            $keys[] = '0'.$digits;
+            $keys[] = '00'.$digits;
+        }
+        if (preg_match('/^\d{14}$/', $digits) === 1) {
+            $keys[] = substr($digits, 1);
+            $keys[] = substr($digits, 2);
+            $trimmed = ltrim($digits, '0');
+            if ($trimmed !== '') {
+                $keys[] = $trimmed;
+            }
+        }
+        if (preg_match('/^\d{8}$/', $digits) === 1) {
+            $upcA = static::expandUpcE($digits);
+            if ($upcA) {
+                $keys[] = $upcA;
+                $keys[] = '0'.$upcA;
+            }
+        }
+        $out = [];
+        foreach ($keys as $key) {
+            if ($key === '') {
+                continue;
+            }
+            $out[$key] = true;
+            $out[mb_strtolower($key)] = true;
+        }
+
+        return array_keys($out);
+    }
+
+    public static function expandUpcE(string $upce): ?string
+    {
+        if (strlen($upce) !== 8 || ! ctype_digit($upce)) {
+            return null;
+        }
+        $ns = $upce[0];
+        $m = substr($upce, 1, 6);
+        $check = $upce[7];
+        $last = $m[5];
+        if ($last === '0' || $last === '1' || $last === '2') {
+            $body = substr($m, 0, 2).$last.'0000'.substr($m, 2, 3);
+        } elseif ($last === '3') {
+            $body = substr($m, 0, 3).'00000'.substr($m, 3, 2);
+        } elseif ($last === '4') {
+            $body = substr($m, 0, 4).'00000'.$m[4];
+        } else {
+            $body = substr($m, 0, 5).'0000'.$last;
+        }
+
+        return $ns.$body.$check;
     }
 
     public static function itemMatchesScanCode(self $item, string $code, string $mode = 'any'): bool

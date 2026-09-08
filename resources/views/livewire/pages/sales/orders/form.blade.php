@@ -3193,13 +3193,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function removeLine(int $i): void
     {
-        if ($this->needsLineChangeConfirm()) {
-            $this->openRemoveLineConfirm($i);
-
-            return;
-        }
-
-        $this->performRemoveLine($i);
+        $this->openRemoveLineConfirm($i);
     }
 
     protected function performRemoveLine(int $i): void
@@ -3786,22 +3780,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        if (! $this->claimScanAdd($code)) {
-            $this->itemEntry = '';
-            $this->skipRender();
-            $this->clearAndFocusEntry();
-
-            return;
-        }
-
         $item = $this->findItem($code);
         if ($item) {
-            $this->itemEntry = '';
             $this->entryHits = [];
             $this->lineWarning = '';
-            $this->queueItemOrPromptSubstitute($item);
             $this->scanModeActive = true;
-            $this->clearAndFocusEntry();
+            $this->proceedQueuedItem($item);
+            $this->keepLookupAndFocus($code);
 
             return;
         }
@@ -3880,18 +3865,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        // 1) Full exact match only (item_code / UPC / alias) — never LIKE/% partial.
         $item = $this->findItem($code);
         if (! $item) {
-            $this->skipRender();
-
-            return;
-        }
-
-        // 2) SMART CHECK: For short codes (< 8 chars, manual typing), verify not a prefix.
-        //    For long codes (8+ chars, scanner), skip this check for speed.
-        if (mb_strlen($code) < 8 && $this->codeIsPrefixOfLongerItemCode($code)) {
-            // Still typing - "25" is part of "2593a"
             $this->skipRender();
 
             return;
@@ -3903,8 +3878,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        // Full exact match — add after typing pause (no Enter needed).
         $this->itemEntry = '';
+        $this->entryHits = [];
         $this->lineWarning = '';
         $this->queueItemOrPromptSubstitute($item);
         $this->scanModeActive = true;
@@ -4014,6 +3989,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->clearAndFocusEntry();
     }
 
+    protected function keepLookupAndFocus(string $code): void
+    {
+        $this->itemEntry = $code;
+        $jsCode = json_encode($code, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                const el = document.getElementById('so-item-entry');
+                if (!el) return;
+                el.value = {$jsCode};
+                el.focus();
+                el.select();
+            });
+        JS);
+    }
+
     protected function clearAndFocusEntry(): void
     {
         $this->itemEntry = '';
@@ -4090,7 +4080,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function needsLineChangeConfirm(): bool
     {
-        return (bool) $this->salesOrder?->exists;
+        return false;
     }
 
     protected function savedDocumentLabel(): string
@@ -4334,7 +4324,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->selectedLineIndex = $index;
         $this->syncLineContextHeader($index);
-        $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-line-row-'.$index.'"); if (el) el.scrollIntoView({ block: "nearest" }); });');
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const el = document.getElementById('so-line-row-{$index}');
+                    if (!el) return;
+                    const grid = el.closest('.so-items-grid');
+                    if (grid) {
+                        const extra = 12;
+                        const gridRect = grid.getBoundingClientRect();
+                        const elRect = el.getBoundingClientRect();
+                        grid.scrollTop += (elRect.bottom - gridRect.bottom) + extra;
+                    } else {
+                        el.scrollIntoView({ block: 'end', inline: 'nearest' });
+                    }
+                });
+            });
+        JS);
     }
 
     protected function findLineIndexForItem(int $itemId): ?int
@@ -5501,7 +5507,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         id="so-line-row-{{ $i }}"
                                         @class(['is-selected' => $selectedLineIndex === $i, 'is-filled' => $filled])
                                         wire:click="selectLine({{ $i }})"
-                                        wire:dblclick="openItemRecord({{ $i }})"
                                         @contextmenu="openCtx($event, {{ $i }})"
                                     >
                                         <td class="col-code desk-num" data-excel-value="{{ $filled ? $line['item_code'] : '' }}">{{ $filled ? $line['item_code'] : '—' }}</td>
@@ -5637,106 +5642,37 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 id="so-item-entry"
                                 data-pos-item-entry
                                 name="so_item_entry"
-                                placeholder="Scan to add instantly · type name or code to search"
+                                placeholder="Type item code, then Enter to add — Enter again to add qty"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)
                                 x-data="{
-                                    timer: null,
-                                    lastKeyAt: 0,
-                                    rapid: false,
-                                    lastClaim: '',
-                                    lastClaimAt: 0,
-                                    claim(v) {
-                                        const n = (v || '').trim().toLowerCase();
-                                        if (!n) return false;
-                                        const now = Date.now();
-                                        if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
-                                        this.lastClaim = n;
-                                        this.lastClaimAt = now;
-                                        return true;
-                                    },
-                                    scheduleAuto() {
-                                        clearTimeout(this.timer);
-                                        const delay = this.rapid ? 0 : 400;
-                                        this.timer = setTimeout(() => {
-                                            const el = document.getElementById('so-item-entry');
-                                            const v = (el?.value || '').trim();
-                                            if (v.length < 2) {
-                                                this.rapid = false;
-                                                $wire.searchEntryHits('');
-                                                return;
-                                            }
-                                            if (this.rapid) {
-                                                if (this.claim(v)) {
-                                                    el.value = '';
-                                                    $wire.addItemFromEntry(v);
-                                                }
-                                                this.rapid = false;
-                                                return;
-                                            }
-                                            $wire.searchEntryHits(v);
-                                            this.rapid = false;
-                                        }, delay);
-                                    },
                                     onKey(e) {
                                         if (e.key === 'Enter') {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            clearTimeout(this.timer);
                                             const v = ($el.value || '').trim();
-                                            if (this.rapid || this.scanLike(v)) {
-                                                $el.value = '';
-                                                if (v && this.claim(v)) {
-                                                    $wire.addItemFromEntry(v);
-                                                }
-                                                this.rapid = false;
-                                                return;
-                                            }
                                             if (v) {
-                                                $wire.searchEntryHits(v);
+                                                $wire.addItemFromEntry(v);
                                             }
-                                            this.rapid = false;
                                             return;
                                         }
                                         if (e.key === 'F2') {
                                             e.preventDefault();
-                                            clearTimeout(this.timer);
                                             $el.focus();
                                             $el.select?.();
                                             return;
                                         }
                                         if (e.key === 'F3') {
                                             e.preventDefault();
-                                            clearTimeout(this.timer);
                                             $wire.openBrowseForSearch(($el.value || '').trim());
-                                            return;
                                         }
-                                        const now = Date.now();
-                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) {
-                                            this.rapid = true;
-                                        }
-                                        this.lastKeyAt = now;
-                                    },
-                                    scanLike(v) {
-                                        const s = (v || '').trim();
-                                        return s.length >= 8 && !/\s/.test(s);
-                                    },
-                                    onInput() {
-                                        this.scheduleAuto();
                                     }
                                 }"
                                 x-on:keydown="onKey($event)"
-                                x-on:input="onInput()"
                                 x-on:paste.prevent="
-                                    clearTimeout(timer);
                                     const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                    rapid = false;
-                                    const v = ($el.value || '').trim();
-                                    if (v.length >= 2) {
-                                        $wire.searchEntryHits(v);
-                                    }
                                 "
                             />
                             @unless ($viewMode)
@@ -5783,25 +5719,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="openBrowseForSearch" class="so-browse-btn" title="Item list (F3)" data-pos-browse>Browse (F3)</button>
                             </div>
                         @endunless
-                        <style>
-                            .so-entry-hits { order: 3; flex: 1 1 100%; max-height: 12rem; overflow-y: auto; background: #fff; border: 1px solid #94a3b8; border-radius: 6px; }
-                            .so-entry-hit { display: flex; align-items: baseline; gap: .6rem; width: 100%; padding: .42rem .7rem; text-align: left; border: 0; border-bottom: 1px solid #eef2f6; background: #fff; cursor: pointer; font-size: 13px; }
-                            .so-entry-hit:hover { background: #dbeafe; }
-                            .so-entry-hit-code { flex: 0 0 6.5rem; font-family: ui-monospace, monospace; font-weight: 700; }
-                            .so-entry-hit-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #334155; }
-                            .so-entry-hit-price { font-weight: 600; }
-                        </style>
-                        @if (! $viewMode && $entryHits !== [])
-                            <div class="so-entry-hits" role="listbox" aria-label="Matching items">
-                                @foreach ($entryHits as $hit)
-                                    <button type="button" class="so-entry-hit" wire:click="pickEntryHit({{ (int) $hit['id'] }})" wire:key="entry-hit-{{ $hit['id'] }}">
-                                        <span class="so-entry-hit-code">{{ $hit['item_code'] }}</span>
-                                        <span class="so-entry-hit-desc">{{ $hit['description'] }}</span>
-                                        <span class="so-entry-hit-price">${{ $hit['price'] }}</span>
-                                    </button>
-                                @endforeach
-                            </div>
-                        @endif
                     </div>
                 </div>
 

@@ -377,7 +377,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
+    }
+
+    public function resetPage($pageName = 'page'): void
+    {
+        $this->resetDeskList();
     }
 
     public function viewSelected(): mixed

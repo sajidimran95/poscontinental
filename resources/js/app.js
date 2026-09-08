@@ -97,6 +97,15 @@ function initDeskFastSelect() {
             return;
         }
         const row = hit.closest('tr, .desk-list-card') || hit;
+        const clickAttr = String(hit.getAttribute('wire:click') || '')
+            + ' '
+            + String((row.getAttribute && row.getAttribute('wire:click')) || '');
+        const isDeskList = (row.classList && row.classList.contains('desk-list-card'))
+            || clickAttr.indexOf('selectRow(') !== -1
+            || (row.closest && row.closest('.desk-list-cards, .desk-scroll-grid'));
+        if (! isDeskList) {
+            return;
+        }
         paintSelected(row);
         const wire = posWireFromEl(hit);
         if (! wire || typeof wire.call !== 'function') {
@@ -1281,15 +1290,63 @@ function initPosTabKeepAlive() {
         rememberParentUrl();
     }
 
+    function refreshLivewireList(el) {
+        if (! el || ! window.Livewire) {
+            return false;
+        }
+        const root = el.querySelector('[wire\\:id]') || (el.hasAttribute && el.hasAttribute('wire:id') ? el : null);
+        if (! root) {
+            return false;
+        }
+        try {
+            const comp = Livewire.find(root.getAttribute('wire:id'));
+            if (comp && typeof comp.call === 'function') {
+                comp.call('refreshList');
+                return true;
+            }
+        } catch (err) {}
+        return false;
+    }
+
     function showFrame(href, opts) {
         opts = opts || {};
         const clean = posCleanHref(href);
         const key = posDeskKey(clean);
+        if (key === '/sales/orders' || key === '/sales/invoices') {
+            opts.reload = true;
+        }
         if (key === '/home' || key === '/') {
             restoreHomeFrame(opts);
             return;
         }
         let iframe = frames.get(key);
+        if (iframe && iframe.tagName !== 'IFRAME') {
+            frames.forEach(function (f, k) {
+                f.classList.toggle('is-active', k === key);
+            });
+            currentDeskKey = key;
+            setActiveTab(key);
+            if (opts.reload) {
+                if (! refreshLivewireList(iframe)) {
+                    if (window.Livewire && typeof Livewire.navigate === 'function') {
+                        Livewire.navigate(clean);
+                    } else {
+                        window.location.assign(clean);
+                    }
+                }
+            }
+            if (opts.history !== false && (window.location.pathname + window.location.search) !== clean.split('#')[0]) {
+                window.history.pushState({ posDesk: key }, '', clean.split('#')[0]);
+            }
+            rememberParentUrl();
+            persistDocTab(clean);
+            return;
+        }
+        if (opts.reload && iframe && iframe.tagName === 'IFRAME') {
+            iframe.remove();
+            frames.delete(key);
+            iframe = null;
+        }
         if (! iframe) {
             iframe = document.createElement('iframe');
             iframe.className = 'pos-keep-frame';
@@ -1303,7 +1360,6 @@ function initPosTabKeepAlive() {
             const curKey = cur ? posDeskKey(cur) : '';
             const want = clean.split('#')[0];
             const have = cur.split('#')[0];
-            // List iframe must not stay on edit; edit tab reloads when opening another record.
             if (curKey !== key || have !== want) {
                 iframe.src = posEmbedSrc(clean);
             }
@@ -1678,7 +1734,7 @@ function initPosTabKeepAlive() {
                 closeDeskFrame(e.data.close_desk);
             }
             if (e.data.list_url) {
-                showFrame(e.data.list_url);
+                showFrame(e.data.list_url, { reload: true });
             }
             if (e.data.message) {
                 window.showPosSaveToast && window.showPosSaveToast(e.data.message);

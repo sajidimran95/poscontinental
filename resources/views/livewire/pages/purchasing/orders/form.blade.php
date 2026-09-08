@@ -1689,7 +1689,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             id="po-line-row-{{ $i }}"
                                             @class(['is-selected' => $selectedLineIndex === $i])
                                             wire:click="$set('selectedLineIndex', {{ $i }})"
-                                            wire:dblclick="openLineItemRecord({{ $i }})"
                                         >
                                             <td class="col-code font-mono desk-num" data-excel-value="{{ $line['item_code'] ?? '' }}" title="{{ $line['item_code'] ?? '' }}">
                                                 {{ filled($line['item_code'] ?? null) ? $line['item_code'] : '—' }}

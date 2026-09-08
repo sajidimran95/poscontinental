@@ -120,8 +120,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 'driver',
             ])
             ->with([
-                'customer:id,customer_id,company_name',
-                'salesOrder:id,order_number,bill_to_name,delivery_status',
+                'customer:id,customer_id,company_name,portal_email',
+                'salesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source',
+                'salesOrder.createdBy:id,name',
             ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
@@ -285,6 +286,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'order_number' => ['label' => 'Order No'],
             'customer_code' => ['label' => 'Customer ID'],
             'bill_to' => ['label' => 'Bill to'],
+            'order_source' => ['label' => 'Source', 'type' => 'text'],
+            'created_by' => ['label' => 'Created By'],
             'subtotal' => ['label' => 'Subtotal', 'type' => 'money'],
             'total_discount' => ['label' => 'Total Discount', 'type' => 'money'],
             'trade_discount' => ['label' => 'Trade Discount', 'type' => 'money'],
@@ -1491,13 +1494,42 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     ])>{{ $inv->status }}</span>
                                 </div>
                                 <div class="desk-list-card__meta">
+                                    @php 
+                                        $src = (string) ($inv->salesOrder?->order_source ?? 'pos');
+                                        $sourceLabel = match($src) {
+                                            'sales' => 'Sales',
+                                            'customer' => 'Customer App',
+                                            default => 'POS',
+                                        };
+                                    @endphp
+                                    <span @class([
+                                        'desk-pill',
+                                        'desk-pill-muted' => $src === 'pos',
+                                        'desk-pill-new' => $src === 'sales',
+                                        'desk-pill-invoiced' => $src === 'customer',
+                                    ])>{{ $sourceLabel }}</span>
                                     <span>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</span>
                                     @if ($inv->salesOrder?->order_number)
                                         <span>SO {{ $inv->salesOrder->order_number }}</span>
                                     @endif
                                 </div>
                                 <div class="desk-list-card__name">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name ?: '—' }}</div>
-                                <div class="desk-list-card__sub">{{ $inv->customer?->customer_id }}</div>
+                                <div class="desk-list-card__sub">
+                                    {{ $inv->customer?->customer_id }}
+                                    @if ($inv->salesOrder?->order_source === 'customer')
+                                        @php
+                                            $creatorName = $inv->customer?->company_name ?: $inv->customer?->contact;
+                                        @endphp
+                                        @if ($creatorName)
+                                            · By: {{ $creatorName }}
+                                            @if ($inv->customer?->portal_email)
+                                                ({{ $inv->customer->portal_email }})
+                                            @endif
+                                        @endif
+                                    @elseif ($inv->salesOrder?->createdBy?->name)
+                                        · By: {{ $inv->salesOrder->createdBy->name }}
+                                    @endif
+                                </div>
                                 <div class="desk-list-card__foot">
                                     <span>Total <strong class="tabular-nums">${{ number_format($inv->invoice_total, 2) }}</strong></span>
                                     <span>Bal <strong class="tabular-nums">${{ number_format($inv->invoice_balance, 2) }}</strong></span>

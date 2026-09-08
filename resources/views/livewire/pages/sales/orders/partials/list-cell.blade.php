@@ -48,6 +48,24 @@
     <td title="{{ $oc?->address }}">{{ $oc?->address }}</td>
 @elseif ($colKey === 'customer_phone')
     <td title="{{ $oc?->telephone }}">{{ $oc?->telephone }}</td>
+@elseif ($colKey === 'created_by')
+    <td>
+        @php
+            $orderSource = $order->order_source ?? 'pos';
+            
+            // For customer app orders, show customer name instead of created_by user
+            if ($orderSource === 'customer') {
+                $displayText = $oc?->company_name ?: $oc?->contact ?: '—';
+                if ($oc?->portal_email) {
+                    $displayText .= ' (' . $oc->portal_email . ')';
+                }
+            } else {
+                // For other orders, show the user who created it
+                $displayText = $order->createdBy?->name ?: '—';
+            }
+        @endphp
+        <span title="{{ $displayText }}">{{ $displayText }}</span>
+    </td>
 @elseif ($colKey === 'total')
     <td class="desk-money">${{ number_format($order->total, 2) }}</td>
 @elseif ($colKey === 'invoice_action')

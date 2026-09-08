@@ -376,8 +376,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'order_date', 'ship_date', 'customer_id', 'total', 'created_by', 'sales_rep_id',
             ])
             ->with([
-                'customer:id,customer_id,company_name,contact,telephone,address',
+                'customer:id,customer_id,company_name,contact,telephone,address,portal_email',
                 'invoice:id,sales_order_id,invoice_number,status',
+                'createdBy:id,name',
             ])
             ->where('company_id', $companyId)
             ->whereNotIn('status', ['Invoiced', 'Cancelled', 'Void', 'Closed'])
@@ -534,6 +535,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             'invoice_number' => ['label' => 'Invoice #', 'type' => 'text'],
             'order_type' => ['label' => 'Type', 'type' => 'text'],
             'order_source' => ['label' => 'Source', 'type' => 'text'],
+            'created_by' => ['label' => 'Created By', 'type' => 'text'],
             'order_date' => ['label' => 'Order Date', 'type' => 'date'],
             'ship_date' => ['label' => 'Ship Date', 'type' => 'date'],
             'status' => ['label' => 'Status', 'type' => 'text'],
@@ -549,7 +551,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     protected function defaultVisibleColumns(): array
     {
-        return ['order_number', 'invoice_number', 'order_type', 'order_source', 'order_date', 'ship_date', 'status', 'customer_code', 'customer_contact', 'customer_company', 'customer_address', 'customer_phone', 'total', 'invoice_action'];
+        return ['order_number', 'invoice_number', 'order_type', 'order_source', 'created_by', 'order_date', 'ship_date', 'status', 'customer_code', 'customer_contact', 'customer_company', 'customer_address', 'customer_phone', 'total', 'invoice_action'];
     }
 
     protected function visibleColumnsSessionKey(): string
@@ -920,7 +922,22 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                     <span>{{ optional($order->order_date)?->format('n/j/Y') }}</span>
                                 </div>
                                 <div class="desk-list-card__name">{{ $oc?->company_name ?: $oc?->contact ?: '—' }}</div>
-                                <div class="desk-list-card__sub">{{ $oc?->customer_id }}{{ $oc?->telephone ? ' · '.$oc->telephone : '' }}</div>
+                                <div class="desk-list-card__sub">
+                                    {{ $oc?->customer_id }}{{ $oc?->telephone ? ' · '.$oc->telephone : '' }}
+                                    @if ($src === 'customer')
+                                        @php
+                                            $creatorName = $oc?->company_name ?: $oc?->contact;
+                                        @endphp
+                                        @if ($creatorName)
+                                            · By: {{ $creatorName }}
+                                            @if ($oc?->portal_email)
+                                                ({{ $oc->portal_email }})
+                                            @endif
+                                        @endif
+                                    @elseif ($order->createdBy?->name)
+                                        · By: {{ $order->createdBy->name }}
+                                    @endif
+                                </div>
                                 <div class="desk-list-card__foot">
                                     <strong class="tabular-nums">${{ number_format($order->total, 2) }}</strong>
                                     @if ($cardInvoice)

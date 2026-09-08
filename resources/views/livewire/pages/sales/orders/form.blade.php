@@ -1455,6 +1455,47 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ->find($this->customer_id, ['id', 'customer_id', 'company_name', 'is_favorite']);
         }
 
+        // Load creator and source info for existing orders
+        $creatorName = null;
+        $orderSource = null;
+        $customerPortalEmail = null;
+        if ($this->salesOrder?->exists) {
+            $this->salesOrder->loadMissing(['createdBy.role', 'customer']);
+            
+            // Determine source based on order_source field
+            $source = (string) ($this->salesOrder->order_source ?? 'pos');
+            
+            if ($source === SalesOrder::SOURCE_CUSTOMER) {
+                // Customer App order
+                $orderSource = 'Customer App';
+                $customerPortalEmail = $this->salesOrder->customer?->portal_email;
+                $creatorName = $this->salesOrder->customer?->company_name ?: $this->salesOrder->customer?->contact;
+            } elseif ($source === SalesOrder::SOURCE_SALES) {
+                // Sales App order
+                $orderSource = 'Sales App';
+                $creatorName = $this->salesOrder->createdBy?->name;
+            } else {
+                // POS order - check if creator has warehouse role
+                $creatorName = $this->salesOrder->createdBy?->name;
+                $creator = $this->salesOrder->createdBy;
+                
+                if ($creator && $creator->role) {
+                    $roleName = strtolower(trim((string) $creator->role->name));
+                    $roleLabel = strtolower(trim((string) $creator->role->label));
+                    
+                    if (str_contains($roleName, 'warehouse') || str_contains($roleLabel, 'warehouse')) {
+                        $orderSource = 'Warehouse';
+                    } elseif ($creator->role->isAdministrator()) {
+                        $orderSource = 'POS';
+                    } else {
+                        $orderSource = 'POS';
+                    }
+                } else {
+                    $orderSource = 'POS';
+                }
+            }
+        }
+
         return [
             'customers' => $customers,
             'selectedCustomer' => $selectedCustomer,
@@ -1467,6 +1508,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         : 'Edit Sales Order — '.$this->order_number)
                     : 'New Sales Order'),
             'returnToInvoiceList' => $this->shouldReturnToInvoiceList(),
+            'creatorName' => $creatorName,
+            'orderSource' => $orderSource,
+            'customerPortalEmail' => $customerPortalEmail,
             'salesReps' => $onGeneral
                 ? collect(Cache::remember(
                     'lookups.sales_reps.v2.'.$companyId.'.'.(int) $this->sales_rep_id,
@@ -5199,6 +5243,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 </div>
                             </div>
                             @error('order_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+
+                            @if ($salesOrder?->exists && ($creatorName || $orderSource))
+                                <div class="so-form-row so-form-row-pair">
+                                    @if ($creatorName)
+                                        <label class="so-form-lbl">Created By</label>
+                                        <input class="so-input so-input-ro" value="{{ $creatorName }}" readonly aria-label="Created By" />
+                                    @else
+                                        <label class="so-form-lbl"></label>
+                                        <div></div>
+                                    @endif
+                                    @if ($orderSource)
+                                        <label class="so-form-lbl">Source</label>
+                                        <input class="so-input so-input-ro" value="{{ $orderSource }}@if($customerPortalEmail) ({{ $customerPortalEmail }})@endif" readonly aria-label="Order Source" />
+                                    @else
+                                        <label class="so-form-lbl"></label>
+                                        <div></div>
+                                    @endif
+                                </div>
+                            @endif
 
                             <div class="so-form-row">
                                 <label class="so-form-lbl so-field-req" for="customer_id">Customer</label>

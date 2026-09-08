@@ -10,6 +10,36 @@
     <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
 @elseif ($colKey === 'bill_to')
     <td title="{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
+@elseif ($colKey === 'order_source')
+    <td>
+        @php 
+            $src = (string) ($inv->salesOrder?->order_source ?? 'pos');
+            $sourceLabel = match($src) {
+                'sales' => 'Sales',
+                'customer' => 'Customer App',
+                default => 'POS Sale',
+            };
+        @endphp
+        <span @class(['desk-pill', 'desk-pill-muted' => $src === 'pos', 'desk-pill-new' => $src === 'sales', 'desk-pill-invoiced' => $src === 'customer'])>{{ $sourceLabel }}</span>
+    </td>
+@elseif ($colKey === 'created_by')
+    <td>
+        @php
+            $orderSource = $inv->salesOrder?->order_source ?? 'pos';
+            
+            // For customer app orders, show customer name instead of created_by user
+            if ($orderSource === 'customer') {
+                $displayText = $inv->customer?->company_name ?: $inv->customer?->contact ?: '—';
+                if ($inv->customer?->portal_email) {
+                    $displayText .= ' (' . $inv->customer->portal_email . ')';
+                }
+            } else {
+                // For other orders, show the user who created it
+                $displayText = $inv->salesOrder?->createdBy?->name ?: '—';
+            }
+        @endphp
+        <span title="{{ $displayText }}">{{ $displayText }}</span>
+    </td>
 @elseif ($colKey === 'subtotal')
     <td class="desk-money">${{ number_format($inv->subtotal, 2) }}</td>
 @elseif ($colKey === 'total_discount')

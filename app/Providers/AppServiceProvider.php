@@ -35,7 +35,10 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Event::listen(
             \Illuminate\Auth\Events\Authenticated::class,
             function ($event): void {
-                $event->user->loadMissing('role');
+                // Only load role for User models, not Customer models
+                if ($event->user instanceof \App\Models\User) {
+                    $event->user->loadMissing('role');
+                }
             }
         );
 

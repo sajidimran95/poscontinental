@@ -67,12 +67,33 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
 
     public function updatedDateFrom(): void
     {
+        $this->date_from = $this->normalizeFilterDate($this->date_from);
+        if ($this->date_from !== '' && ($this->date_to === '' || $this->date_to < $this->date_from)) {
+            $this->date_to = $this->date_from;
+        }
+        if ($this->date_from !== '') {
+            $this->date = $this->date_from;
+        }
         $this->resetDeskList();
     }
 
     public function updatedDateTo(): void
     {
+        $this->date_to = $this->normalizeFilterDate($this->date_to);
+        if ($this->date_to !== '' && $this->date_from !== '' && $this->date_to < $this->date_from) {
+            $this->date_from = $this->date_to;
+        }
+        if ($this->date_to !== '') {
+            $this->date = $this->date_to;
+        }
         $this->resetDeskList();
+    }
+
+    protected function normalizeFilterDate(?string $value): string
+    {
+        $value = trim((string) $value);
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : '';
     }
 
     public function clearDates(): void
@@ -236,7 +257,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         ];
     }
 
-    public function assign(DeliveryRouteService $service): void
+    public function assign(DeliveryRouteService $service)
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'edit'), 403);
         $this->errorMessage = '';
@@ -256,9 +277,25 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             $count = $service->assignOrders(auth()->user(), $orderIds, (int) $this->driver_id, $this->date);
             $this->statusMessage = $count.' invoice(s) assigned.';
             $this->selected = [];
+            $this->js('window.dlvClear && window.dlvClear()');
+
+            return $this->generate($service);
         } catch (\Illuminate\Validation\ValidationException $e) {
             $this->errorMessage = collect($e->errors())->flatten()->first() ?: 'Could not assign invoices.';
         }
+    }
+
+    public function assignAndRoute(array $ids, DeliveryRouteService $service)
+    {
+        $this->selected = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $this->selected[$id] = true;
+            }
+        }
+
+        return $this->assign($service);
     }
 
     public function saveAreaFromInvoice(int $invoiceId, \App\Services\Delivery\DeliveryAreaService $areas): void
@@ -350,6 +387,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                 type="date"
                 class="desk-input"
                 wire:model.live="date_from"
+                wire:change="$refresh"
                 aria-label="Invoice date from"
                 title="Invoice date from"
             />
@@ -359,6 +397,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                 type="date"
                 class="desk-input"
                 wire:model.live="date_to"
+                wire:change="$refresh"
                 aria-label="Invoice date to"
                 title="Invoice date to"
             />
@@ -378,8 +417,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                     @endforeach
                 </select>
                 <input type="date" class="desk-input" wire:model="date" aria-label="Delivery date" title="Delivery date for assign / generate route" />
-                <button type="button" class="desk-btn desk-btn-primary" wire:click="assign" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Assign selected</button>
-                <button type="button" class="desk-btn" wire:click="generate" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Generate route</button>
+                <button type="button" class="desk-btn desk-btn-primary" @click="$wire.assignAndRoute(window.dlvSelectedIds())" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Assign selected</button>
             </div>
         </div>
 
@@ -387,9 +425,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
             <h2 class="desk-title">Delivery Management</h2>
             <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} invoices{{ ($date_from !== '' || $date_to !== '') ? ' · '.($date_from !== '' ? \Illuminate\Support\Carbon::parse($date_from)->format('n/j/Y') : '…').' – '.($date_to !== '' ? \Illuminate\Support\Carbon::parse($date_to)->format('n/j/Y') : '…') : '' }} · Inactive or unmatched areas cannot be assigned</span>
             <div class="desk-footer-actions">
-                <button type="button" class="desk-btn desk-btn-sm" wire:click="selectVisible({{ \Illuminate\Support\Js::from($visibleIds) }})">Select visible</button>
-                <button type="button" class="desk-btn desk-btn-sm" wire:click="clearSelected" @disabled($selectedCount === 0)>Clear</button>
-                <span class="dlv-muted">{{ $selectedCount }} selected</span>
+                <button type="button" class="desk-btn desk-btn-sm" onclick="window.dlvSelectVisible()">Select visible</button>
+                <button type="button" class="desk-btn desk-btn-sm" onclick="window.dlvClear()">Clear</button>
+                <span class="dlv-muted" data-dlv-count>0 selected</span>
             </div>
         </div>
 
@@ -408,7 +446,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                         </colgroup>
                         <thead>
                             <tr>
-                                <th class="text-center"></th>
+                                <th class="text-center">
+                                    <input type="checkbox" class="dlv-pick-all" title="Select visible" onclick="window.dlvHeaderAll(this)" />
+                                </th>
                                 <x-desk-sort-th field="invoice_number" label="Invoice #" />
                                 <x-desk-sort-th field="invoice_date" label="Date" />
                                 <x-desk-sort-th field="customer" label="Customer" />
@@ -442,9 +482,15 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                                     }
                                     $areaInfo = $areaByInvoice[$invoice->id] ?? ['ok' => true, 'code' => 'ok', 'message' => null];
                                 @endphp
-                                <tr>
+                                <tr class="dlv-pick-row" data-dlv-id="{{ $invoice->id }}" onclick="window.dlvRowClick(event)">
                                     <td class="text-center">
-                                        <input type="checkbox" wire:model="selected.{{ $invoice->id }}" aria-label="Select invoice {{ $invoice->invoice_number }}" />
+                                        <input
+                                            type="checkbox"
+                                            class="dlv-pick"
+                                            value="{{ $invoice->id }}"
+                                            onchange="window.dlvToggle(this)"
+                                            aria-label="Select invoice {{ $invoice->invoice_number }}"
+                                        />
                                     </td>
                                     <td class="desk-num">{{ $invoice->invoice_number }}</td>
                                     <td>{{ optional($invoice->invoice_date)?->format('n/j/Y') ?: '—' }}</td>
@@ -488,3 +534,97 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         </div>
     </div>
 </div>
+<script>
+(function () {
+    window.__dlvPick = window.__dlvPick instanceof Set ? window.__dlvPick : new Set();
+
+    function boxes() {
+        return document.querySelectorAll('.dlv-assign-grid input.dlv-pick');
+    }
+    function syncRows() {
+        boxes().forEach(function (el) {
+            var row = el.closest('tr');
+            if (row) row.classList.toggle('is-selected', !!el.checked);
+        });
+    }
+    function syncCount() {
+        var n = window.__dlvPick.size;
+        document.querySelectorAll('[data-dlv-count]').forEach(function (el) {
+            el.textContent = n + ' selected';
+        });
+        var all = document.querySelector('.dlv-pick-all');
+        if (! all) return;
+        var list = Array.prototype.slice.call(boxes());
+        var checked = list.filter(function (b) { return window.__dlvPick.has(String(b.value)); });
+        all.checked = list.length > 0 && checked.length === list.length;
+        all.indeterminate = checked.length > 0 && checked.length < list.length;
+        syncRows();
+    }
+    function restore() {
+        boxes().forEach(function (el) {
+            el.checked = window.__dlvPick.has(String(el.value));
+        });
+        syncCount();
+    }
+
+    window.dlvToggle = function (el) {
+        var id = String(el.value);
+        if (el.checked) window.__dlvPick.add(id);
+        else window.__dlvPick.delete(id);
+        syncCount();
+    };
+    window.dlvRowClick = function (ev) {
+        if (ev.target.closest('input, button, a, label, select, textarea')) {
+            return;
+        }
+        var row = ev.currentTarget;
+        var box = row.querySelector('input.dlv-pick');
+        if (! box) {
+            return;
+        }
+        box.checked = ! box.checked;
+        window.dlvToggle(box);
+    };
+    window.dlvSelectVisible = function () {
+        boxes().forEach(function (el) {
+            el.checked = true;
+            window.__dlvPick.add(String(el.value));
+        });
+        syncCount();
+    };
+    window.dlvHeaderAll = function (el) {
+        var on = !!el.checked;
+        boxes().forEach(function (box) {
+            box.checked = on;
+            if (on) window.__dlvPick.add(String(box.value));
+            else window.__dlvPick.delete(String(box.value));
+        });
+        syncCount();
+    };
+    window.dlvClear = function () {
+        window.__dlvPick = new Set();
+        boxes().forEach(function (el) { el.checked = false; });
+        syncCount();
+    };
+    window.dlvSelectedIds = function () {
+        return Array.from(window.__dlvPick).map(Number).filter(function (id) { return id > 0; });
+    };
+
+    queueMicrotask(restore);
+    if (! window.__dlvPickHooks) {
+        window.__dlvPickHooks = true;
+        document.addEventListener('livewire:init', function () {
+            Livewire.hook('morph.updated', function () { queueMicrotask(restore); });
+            Livewire.hook('commit', function ({ succeed }) {
+                succeed(function () { queueMicrotask(restore); });
+            });
+        });
+        if (window.Livewire) {
+            Livewire.hook('morph.updated', function () { queueMicrotask(restore); });
+            Livewire.hook('commit', function ({ succeed }) {
+                succeed(function () { queueMicrotask(restore); });
+            });
+        }
+    }
+})();
+</script>

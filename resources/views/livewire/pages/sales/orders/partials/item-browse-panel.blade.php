@@ -979,8 +979,8 @@
                                     timer: null,
                                     scheduleSearch() {
                                         clearTimeout(this.timer);
-                                        // Browse popup: ONLY filter list, never auto-add
-                                        // User must click + button or Enter to add items
+                                        // Browse popup: ONLY filter list, NEVER auto-add
+                                        // User must click item or use + button to add
                                         const delay = 300;
                                         this.timer = setTimeout(() => {
                                             $wire.set('browseSearch', $el.value);
@@ -988,7 +988,7 @@
                                     }
                                 }"
                                 x-on:input="scheduleSearch()"
-                                x-on:keydown.enter.prevent="clearTimeout(timer); $wire.scanBrowseAndPick($el.value);"
+                                x-on:keydown.enter.prevent="clearTimeout(timer); $wire.set('browseSearch', $el.value);"
                                 class="so-input so-item-browse-search-bottom"
                                 placeholder="{{ $browseSearchPlaceholder ?? 'Code, UPC, or words in the description' }}"
                                 aria-label="Scan or search items"

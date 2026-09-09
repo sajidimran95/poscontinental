@@ -1,18 +1,26 @@
 <?php
 
 use App\Models\DeliveryRoute;
+use App\Models\DeliveryRouteOrder;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
 {
     public DeliveryRoute $deliveryRoute;
 
+    #[Url]
+    public string $listFilter = 'today';
+
     public function mount(DeliveryRoute $deliveryRoute): void
     {
         abort_unless(auth()->user()?->can('view', $deliveryRoute), 403);
         $this->deliveryRoute = $deliveryRoute->load(['stops.order.customer', 'driver', 'location']);
+        if (! in_array($this->listFilter, ['today', 'pending', 'all'], true)) {
+            $this->listFilter = 'today';
+        }
     }
 
     public function with(): array
@@ -20,15 +28,28 @@ new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
         $this->deliveryRoute = DeliveryRoute::query()
             ->with(['stops.order.customer', 'stops.order.invoice', 'driver', 'location'])
             ->findOrFail($this->deliveryRoute->id);
-        $delivered = $this->deliveryRoute->stops->where('status', 'delivered')->count();
+
+        $stops = $this->deliveryRoute->stops->sortBy('stop_no')->values();
+        $visible = $stops->filter(function ($stop) {
+            if ($this->listFilter === 'all') {
+                return true;
+            }
+
+            // Today + Pending: remaining deliveries (not delivered / failed / skipped).
+            // Empty or unexpected status still counts as remaining, same as the header.
+            return ! $stop->isFinished();
+        })->values();
+
+        $delivered = $stops->where('status', 'delivered')->count();
 
         return [
             'route' => $this->deliveryRoute,
+            'stops' => $visible,
             'delivered' => $delivered,
             'remaining' => $this->deliveryRoute->remainingCount(),
             'miles' => round($this->deliveryRoute->total_distance / 1609.34, 1),
             'minutes' => (int) round($this->deliveryRoute->estimated_duration / 60),
-            'mapStops' => $this->deliveryRoute->stops->map(fn ($s) => [
+            'mapStops' => $visible->map(fn ($s) => [
                 'n' => $s->stop_no,
                 'lat' => $s->latitude,
                 'lng' => $s->longitude,
@@ -44,6 +65,12 @@ new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
     <div class="desk-main desk-main-rail-layout" style="height:100%;min-height:0;overflow:hidden">
         <div class="desk-titlebar">
             <h2 class="desk-title">{{ $route->driver?->name }} — Route</h2>
+            <select class="desk-select orders-status-select" wire:model.live="listFilter" aria-label="Stop filter">
+                <option value="today">Today</option>
+                <option value="pending">Pending</option>
+                <option value="all">All stops</option>
+            </select>
+            <span class="desk-title-meta">{{ $stops->count() }} stop{{ $stops->count() === 1 ? '' : 's' }}</span>
             <a href="{{ route('deliveries.routes') }}" class="desk-btn" wire:navigate>Back</a>
         </div>
 
@@ -58,8 +85,8 @@ new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
             <div><strong>Status</strong><span>{{ ucfirst($route->status) }}</span></div>
         </div>
 
-        <div class="desk-main-split dlv-route-split" style="flex:1 1 auto;min-height:0;height:100%">
-            <div class="desk-main-body dlv-route-stops" style="flex:0 0 28rem;max-width:28rem;overflow:auto">
+        <div class="desk-main-split dlv-route-split" style="flex:1 1 auto;min-height:32rem;height:auto">
+            <div class="desk-main-body dlv-route-stops" style="flex:0 0 28rem;max-width:28rem;overflow:auto;min-height:32rem">
                 <ol class="dlv-timeline">
                     <li>
                         <div class="dlv-stop-badge is-start">S</div>
@@ -68,7 +95,7 @@ new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
                             <p>{{ $route->start_address }}</p>
                         </div>
                     </li>
-                    @foreach ($route->stops as $stop)
+                    @forelse ($stops as $stop)
                         <li>
                             <div class="dlv-stop-badge">{{ $stop->stop_no }}</div>
                             <div>
@@ -84,10 +111,24 @@ new #[Layout('layouts.app'), Title('Delivery Route')] class extends Component
                                 <a class="desk-btn desk-btn-sm" href="{{ $stop->navigateUrl() }}" target="_blank" rel="noopener">Navigate</a>
                             </div>
                         </li>
-                    @endforeach
+                    @empty
+                        <li>
+                            <div>
+                                <p class="dlv-muted">
+                                    @if ($listFilter === 'pending')
+                                        No pending stops on this route.
+                                    @elseif ($listFilter === 'today')
+                                        No remaining stops for today.
+                                    @else
+                                        No stops on this route.
+                                    @endif
+                                </p>
+                            </div>
+                        </li>
+                    @endforelse
                 </ol>
             </div>
-            <div class="dlv-route-map-wrap" style="flex:1 1 auto;min-width:0;min-height:28rem;position:relative;background:#d5dee8">
+            <div class="dlv-route-map-wrap" style="flex:1 1 auto;min-width:0;min-height:32rem;position:relative;background:#d5dee8">
                 <div
                     id="dlv-admin-map"
                     class="dlv-map"

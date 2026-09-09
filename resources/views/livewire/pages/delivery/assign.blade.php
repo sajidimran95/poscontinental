@@ -51,7 +51,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'view'), 403);
         $today = now()->toDateString();
-        $this->date = $this->date !== '' ? $this->date : $today;
+        $this->date = $today;
         if ($this->date_from === '') {
             $this->date_from = $today;
         }
@@ -71,9 +71,6 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         if ($this->date_from !== '' && ($this->date_to === '' || $this->date_to < $this->date_from)) {
             $this->date_to = $this->date_from;
         }
-        if ($this->date_from !== '') {
-            $this->date = $this->date_from;
-        }
         $this->resetDeskList();
     }
 
@@ -82,9 +79,6 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         $this->date_to = $this->normalizeFilterDate($this->date_to);
         if ($this->date_to !== '' && $this->date_from !== '' && $this->date_to < $this->date_from) {
             $this->date_from = $this->date_to;
-        }
-        if ($this->date_to !== '') {
-            $this->date = $this->date_to;
         }
         $this->resetDeskList();
     }
@@ -262,6 +256,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'edit'), 403);
         $this->errorMessage = '';
         $this->statusMessage = '';
+        if ($this->normalizeFilterDate($this->date) === '') {
+            $this->date = now()->toDateString();
+        }
         $ids = collect($this->selected)->filter()->keys()->map(fn ($id) => (int) $id)->all();
         $orderIds = Invoice::query()
             ->where('company_id', auth()->user()->company_id)
@@ -325,10 +322,13 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'edit'), 403);
         $this->errorMessage = '';
+        if ($this->normalizeFilterDate($this->date) === '') {
+            $this->date = now()->toDateString();
+        }
         try {
-            $route = $service->generateRoute(auth()->user(), (int) $this->driver_id, $this->date);
+            $service->generateRoute(auth()->user(), (int) $this->driver_id, $this->date);
 
-            return $this->redirect(route('deliveries.routes.show', $route), navigate: true);
+            return $this->redirect(route('deliveries.routes', ['listFilter' => 'today']), navigate: true);
         } catch (\Illuminate\Validation\ValidationException $e) {
             $this->errorMessage = collect($e->errors())->flatten()->first() ?: 'Could not generate route.';
         }
@@ -416,7 +416,7 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                         <option value="{{ $driver->id }}">{{ $driver->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="desk-input" wire:model="date" aria-label="Delivery date" title="Delivery date for assign / generate route" />
+                <input type="date" class="desk-input" wire:model="date" aria-label="Assign date" title="Assign / route date (defaults to today)" />
                 <button type="button" class="desk-btn desk-btn-primary" @click="$wire.assignAndRoute(window.dlvSelectedIds())" @disabled(! auth()->user()->canAccessFeature('delivery.manage', 'edit'))>Assign selected</button>
             </div>
         </div>

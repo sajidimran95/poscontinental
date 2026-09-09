@@ -12,6 +12,15 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
     #[Url]
     public string $date = '';
 
+    #[Url]
+    public string $date_from = '';
+
+    #[Url]
+    public string $date_to = '';
+
+    #[Url]
+    public string $listFilter = 'today';
+
     public string $errorMessage = '';
 
     public ?int $gen_driver_id = null;
@@ -22,13 +31,48 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
     public function mount(): void
     {
         abort_unless(auth()->user()?->canAccessFeature('delivery.manage', 'view'), 403);
-        $this->date = $this->date !== '' ? $this->date : now()->toDateString();
+        if (! in_array($this->listFilter, ['today', 'pending', 'range'], true)) {
+            $this->listFilter = 'today';
+        }
+        $today = now()->toDateString();
+        $this->date = $this->date !== '' ? $this->date : $today;
+        if ($this->date_from === '') {
+            $this->date_from = $this->date !== '' ? $this->date : $today;
+        }
+        if ($this->date_to === '') {
+            $this->date_to = $this->date_from;
+        }
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->date_from = $this->normalizeRouteDate($this->date_from) ?: now()->toDateString();
+        if ($this->date_to === '' || $this->date_to < $this->date_from) {
+            $this->date_to = $this->date_from;
+        }
+        $this->date = $this->date_from;
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->date_to = $this->normalizeRouteDate($this->date_to) ?: $this->date_from;
+        if ($this->date_from !== '' && $this->date_to < $this->date_from) {
+            $this->date_from = $this->date_to;
+        }
+        $this->date = $this->date_to !== '' ? $this->date_to : $this->date_from;
+    }
+
+    protected function normalizeRouteDate(?string $value): string
+    {
+        $value = trim((string) $value);
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : '';
     }
 
     public function with(DeliveryRouteService $service): array
     {
         $companyId = (int) auth()->user()->company_id;
-        $routes = $service->routesForDate($companyId, $this->date);
+        $routes = $service->routesForBoard($companyId, $this->listFilter, $this->date_from, $this->date_to);
 
         $orders = $routes->sum(fn ($r) => (int) $r->total_orders);
         $delivered = $routes->sum(fn ($r) => $r->stops->where('status', 'delivered')->count());
@@ -64,7 +108,28 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
 <div class="desk-page dlv-page dlv-routes-page">
     <div class="desk-main desk-main-rail-layout" style="height:100%;min-height:0">
         <div class="desk-toolbar orders-toolbar">
-            <input type="date" class="desk-input" wire:model.live="date" aria-label="Route date" />
+            <select class="desk-select orders-status-select" wire:model.live="listFilter" aria-label="Route filter">
+                <option value="today">Today</option>
+                <option value="pending">Pending</option>
+                <option value="range">Date range</option>
+            </select>
+            @if ($listFilter === 'range')
+                <label class="desk-toolbar-label" for="dlv-route-from">Route date</label>
+                <input
+                    id="dlv-route-from"
+                    type="date"
+                    class="desk-input"
+                    wire:model.live="date_from"
+                    aria-label="Route date from"
+                />
+                <span class="dlv-muted">to</span>
+                <input
+                    type="date"
+                    class="desk-input"
+                    wire:model.live="date_to"
+                    aria-label="Route date to"
+                />
+            @endif
             <select class="desk-select orders-party-select" wire:model="gen_driver_id" aria-label="Delivery man">
                 <option value="">Driver…</option>
                 @foreach ($drivers as $driver)
@@ -79,7 +144,15 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
 
         <div class="desk-titlebar">
             <h2 class="desk-title">Today's Routes</h2>
-            <span class="desk-title-meta">{{ $routes->count() }} driver{{ $routes->count() === 1 ? '' : 's' }}</span>
+            <span class="desk-title-meta">
+                @if ($listFilter === 'pending')
+                    {{ $routes->count() }} pending route{{ $routes->count() === 1 ? '' : 's' }} (all dates)
+                @elseif ($listFilter === 'today')
+                    {{ $routes->count() }} route{{ $routes->count() === 1 ? '' : 's' }} created today
+                @else
+                    {{ $routes->count() }} driver{{ $routes->count() === 1 ? '' : 's' }}{{ ($date_from !== '' || $date_to !== '') ? ' · '.($date_from !== '' ? \Illuminate\Support\Carbon::parse($date_from)->format('n/j/Y') : '…').' – '.($date_to !== '' ? \Illuminate\Support\Carbon::parse($date_to)->format('n/j/Y') : '…') : '' }}
+                @endif
+            </span>
         </div>
 
         @if ($errorMessage !== '')
@@ -101,6 +174,7 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
                     <table class="desk-table dlv-routes-table">
                         <thead>
                             <tr>
+                                <th>Date</th>
                                 <th>Driver</th>
                                 <th>Status</th>
                                 <th style="min-width:9rem">Progress</th>
@@ -128,6 +202,7 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
                                     };
                                 @endphp
                                 <tr>
+                                    <td>{{ $route->route_date?->format('n/j/Y') ?: '—' }}</td>
                                     <td>
                                         <strong>{{ $route->driver?->name ?: 'Driver' }}</strong>
                                         <div class="dlv-muted">{{ $route->start_name }}</div>
@@ -144,12 +219,20 @@ new #[Layout('layouts.app'), Title("Today's Routes")] class extends Component
                                     <td class="text-right desk-num">{{ $left }}</td>
                                     <td class="text-right desk-num">{{ $miles }}</td>
                                     <td class="text-right" style="white-space:nowrap">
-                                        <a class="desk-btn desk-btn-primary" href="{{ route('deliveries.routes.show', $route) }}" wire:navigate>View Route</a>
+                                        <a class="desk-btn desk-btn-primary" href="{{ route('deliveries.routes.show', ['deliveryRoute' => $route, 'listFilter' => 'today']) }}" wire:navigate>View Route</a>
                                     </td>
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="8">No routes for this date. Assign invoices, select a driver, then Generate route.</td>
+                                    <td colspan="9">
+                                        @if ($listFilter === 'pending')
+                                            No pending routes.
+                                        @elseif ($listFilter === 'today')
+                                            No routes created today. Assign invoices, then Generate route.
+                                        @else
+                                            No routes in this date range. Assign invoices, select a driver, then Generate route.
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforelse
                         </tbody>

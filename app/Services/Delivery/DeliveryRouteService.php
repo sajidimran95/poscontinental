@@ -307,13 +307,65 @@ class DeliveryRouteService
      */
     public function routesForDate(int $companyId, string $date): Collection
     {
+        return $this->routesForDateRange($companyId, $date, $date);
+    }
+
+    public function routesForDateRange(int $companyId, string $from, string $to): Collection
+    {
+        $from = trim($from);
+        $to = trim($to);
+        if ($from === '') {
+            $from = now()->toDateString();
+        }
+        if ($to === '') {
+            $to = $from;
+        }
+        if ($to < $from) {
+            [$from, $to] = [$to, $from];
+        }
+
+        return $this->routesBoardQuery($companyId)
+            ->whereDate('route_date', '>=', $from)
+            ->whereDate('route_date', '<=', $to)
+            ->orderByDesc('route_date')
+            ->orderBy('delivery_user_id')
+            ->get();
+    }
+
+    /**
+     * Today's Routes board: created today by default, or all pending when filtered.
+     */
+    public function routesForBoard(int $companyId, string $filter, string $from, string $to): Collection
+    {
+        $query = $this->routesBoardQuery($companyId);
+
+        if ($filter === 'pending') {
+            return $query
+                ->whereIn('status', [DeliveryRoute::STATUS_PLANNED, DeliveryRoute::STATUS_STARTED])
+                ->orderByDesc('route_date')
+                ->orderBy('delivery_user_id')
+                ->get();
+        }
+
+        if ($filter === 'range') {
+            return $this->routesForDateRange($companyId, $from, $to);
+        }
+
+        $today = now()->toDateString();
+
+        return $query
+            ->whereDate('created_at', $today)
+            ->orderByDesc('created_at')
+            ->orderBy('delivery_user_id')
+            ->get();
+    }
+
+    protected function routesBoardQuery(int $companyId)
+    {
         return DeliveryRoute::query()
             ->with(['stops', 'driver', 'location'])
             ->where('company_id', $companyId)
-            ->whereDate('route_date', $date)
-            ->where('status', '!=', DeliveryRoute::STATUS_CANCELLED)
-            ->orderBy('delivery_user_id')
-            ->get();
+            ->where('status', '!=', DeliveryRoute::STATUS_CANCELLED);
     }
 
     public function driverFinishedStops(User $driver, ?string $date = null)

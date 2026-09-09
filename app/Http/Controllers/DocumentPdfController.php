@@ -68,7 +68,10 @@ class DocumentPdfController extends Controller
         ]);
 
         return response()
-            ->view('print.pick-list', ['order' => $order])
+            ->view('print.pick-list', [
+                'order' => $order,
+                'company' => auth()->user()?->company,
+            ])
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             ->header('Pragma', 'no-cache');
     }

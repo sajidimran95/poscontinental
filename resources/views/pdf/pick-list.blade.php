@@ -13,10 +13,13 @@
         }
         table { border-collapse: collapse; }
         .hdr { width: 100%; margin-bottom: 4px; }
-        .hdr td { vertical-align: middle; }
-        .hdr-left { width: 34%; text-align: left; font-size: 11pt; font-weight: bold; }
-        .hdr-center { width: 32%; text-align: center; font-size: 16pt; font-weight: bold; }
-        .hdr-right { width: 34%; text-align: right; font-size: 9pt; font-weight: bold; height: 16px; }
+        .hdr td { vertical-align: top; }
+        .hdr-left { width: 28%; text-align: left; font-size: 11pt; font-weight: bold; }
+        .hdr-left img { height: 36px; }
+        .hdr-center { width: 44%; text-align: center; }
+        .hdr-co { display: block; font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-bottom: 2px; white-space: nowrap; }
+        .hdr-doc { display: block; font-size: 16pt; font-weight: bold; }
+        .hdr-right { width: 28%; text-align: right; font-size: 9pt; font-weight: bold; height: 16px; padding-top: 8px; }
         .rule { border-top: 1px solid #000; margin: 4px 0 8px; height: 0; }
         .rule2 { border-top: 2px solid #000; margin: 8px 0 10px; height: 0; }
         .meta { width: 100%; margin-bottom: 2px; }
@@ -67,6 +70,8 @@
 </head>
 <body>
 @php
+    $companyName = $company?->name ?? 'Continental Wholesale Inc';
+    $barcodeValue = $barcodeValue ?? (string) $order->order_number;
     $accountNo = $order->customer?->customer_id ?: '';
     $driverLabel = $order->invoice?->driver ?: '';
     $routeLabel = $order->route?->name ?: ($order->route?->code ?: '');
@@ -124,8 +129,14 @@
             <td colspan="4" style="padding:0 0 6px 0; border:none;">
                 <table class="hdr">
                     <tr>
-                        <td class="hdr-left">Order No. {{ $order->order_number }}</td>
-                        <td class="hdr-center">Pick List</td>
+                        <td class="hdr-left">
+                            {!! \App\Support\Code128Barcode::html((string) $barcodeValue, 2, 36, 'left') !!}
+                            Order No. {{ $order->order_number }}
+                        </td>
+                        <td class="hdr-center">
+                            <span class="hdr-co">{{ $companyName }}</span>
+                            <span class="hdr-doc">Pick List</span>
+                        </td>
                         <td class="hdr-right">&nbsp;</td>
                     </tr>
                 </table>

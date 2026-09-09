@@ -62,26 +62,48 @@
         .banner td {
             border: none;
             padding: 0;
-            vertical-align: middle;
+            vertical-align: top;
         }
         .banner .o {
-            width: 33%;
+            width: 28%;
             text-align: left;
             font-size: 11pt;
             font-weight: bold;
         }
+        .banner .o .barcode-wrap {
+            margin: 0 0 2px;
+            line-height: 0;
+        }
+        .banner .o .barcode-wrap img {
+            height: 38px;
+        }
         .banner .t {
-            width: 34%;
+            width: 44%;
             text-align: center;
+            padding-top: 2px;
+        }
+        .banner .t .co {
+            display: block;
+            font-size: 12pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            line-height: 1.2;
+            margin-bottom: 2px;
+            white-space: nowrap;
+        }
+        .banner .t .doc {
+            display: block;
             font-size: 18pt;
             font-weight: bold;
+            line-height: 1.15;
         }
         .banner .p {
-            width: 33%;
+            width: 28%;
             text-align: right;
             font-size: 10.5pt;
             font-weight: bold;
             white-space: nowrap;
+            padding-top: 6px;
         }
 
         .rule {
@@ -143,17 +165,17 @@
         }
         .cat-box {
             display: inline-block;
-            width: max-content;
-            max-width: max-content;
+            min-width: 2.6in;
             border: 1px solid #000;
-            padding: 2px 9px 1px;
-            font-size: 11pt;
+            padding: 5px 16px 4px;
+            font-size: 12pt;
             font-weight: bold;
             background: #fff;
-            line-height: 1.15;
+            line-height: 1.2;
             text-transform: uppercase;
             white-space: nowrap;
             vertical-align: middle;
+            text-align: left;
         }
 
         /* Clear space between category sections (match Chief photo) */
@@ -233,6 +255,9 @@
 </head>
 <body>
 @php
+    $company = $company ?? auth()->user()?->company;
+    $companyName = $company?->name ?: 'Continental Wholesale Inc';
+    $orderBarcode = trim((string) $order->order_number);
     $accountNo = $order->customer?->customer_id ?: '';
     $driverLabel = $order->invoice?->driver ?: '';
     $routeLabel = $order->route?->name ?: ($order->route?->code ?: '');
@@ -277,8 +302,16 @@
     <div class="hdr-tpl">
         <table class="banner">
             <tr>
-                <td class="o">Order No. {{ $order->order_number }}</td>
-                <td class="t">Pick List</td>
+                <td class="o">
+                    <div class="barcode-wrap">
+                        {!! \App\Support\Code128Barcode::html($orderBarcode, 2, 38, 'left') !!}
+                    </div>
+                    Order No. {{ $order->order_number }}
+                </td>
+                <td class="t">
+                    <span class="co">{{ $companyName }}</span>
+                    <span class="doc">Pick List</span>
+                </td>
                 <td class="p">Page <span class="pg-cur">1</span> of <span class="pg-tot">1</span></td>
             </tr>
         </table>

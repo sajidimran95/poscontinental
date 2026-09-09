@@ -258,6 +258,7 @@
     const contactId = document.getElementById('contact_id');
     const productSearch = document.getElementById('productSearch');
     const productResults = document.getElementById('productResults');
+    const cartScroll = document.getElementById('cartScroll');
     const cartLines = document.getElementById('cartLines');
     const cartEmpty = document.getElementById('cartEmpty');
     const cartTotal = document.getElementById('cartTotal');
@@ -608,6 +609,7 @@
         cartLines.innerHTML = '';
         const total = cartSum();
         cartEmpty.classList.toggle('hidden', cart.length > 0);
+        const hadItems = cart.length > 0;
         cart.forEach((line, idx) => {
             const lineTot = line.quantity * line.unit_price;
             const el = document.createElement('div');
@@ -644,6 +646,13 @@
             });
             inp.addEventListener('blur', () => setQtyFromInput(+inp.dataset.qty, inp.value));
         });
+
+        // Auto-scroll to top (where newest item is) when items exist
+        if (hadItems && cartScroll) {
+            requestAnimationFrame(() => {
+                cartScroll.scrollTop = 0;
+            });
+        }
     }
 
     async function fetchJson(url) {
@@ -1150,6 +1159,14 @@
         if (!rows.length) {
             const status = document.getElementById('saleScanStatus');
             if (status) status.textContent = 'No item for ' + q;
+            // Play error sound and show alert like POS
+            try {
+                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQo=');
+                audio.volume = 0.5;
+                audio.play().catch(() => {});
+            } catch (e) {}
+            // Show alert
+            alert('Item not found: ' + q + '\n\nThe scanned code does not match any item in the system.');
             return false;
         }
         addToCart(rows[0]);

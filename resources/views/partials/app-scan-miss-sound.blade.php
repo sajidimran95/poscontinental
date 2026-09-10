@@ -73,6 +73,8 @@
         const q = String(code || '').trim();
         try { navigator.vibrate && navigator.vibrate([80, 60, 80, 60, 120]); } catch (e) {}
         window.startPosScanMissAlarm && window.startPosScanMissAlarm();
+        const ev = new CustomEvent('app-item-not-found', { bubbles: true, cancelable: true, detail: { code: q } });
+        if (! window.dispatchEvent(ev)) return;
         window.setTimeout(function () {
             alert('Item not found: ' + q + '\n\nThe scanned code does not match any item in the system.');
             window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();

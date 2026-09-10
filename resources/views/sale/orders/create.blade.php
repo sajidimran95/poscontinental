@@ -246,6 +246,13 @@
     <div class="sale-scan-overlay__stage">
         <div id="saleScanRegion" class="sale-scan-overlay__video"></div>
         <video id="saleScanVideo" class="sale-scan-overlay__native" playsinline muted autoplay hidden></video>
+        <div id="saleScanMiss" class="sale-scan-miss" hidden>
+            <div class="sale-scan-miss__card">
+                <p class="sale-scan-miss__title">Item not found</p>
+                <p class="sale-scan-miss__text" id="saleScanMissText">This barcode is not in the system.</p>
+                <button type="button" class="sale-scan-miss__ok" id="saleScanMissOk">OK — scan next</button>
+            </div>
+        </div>
     </div>
     <div id="saleScanStatus" class="sale-scan-overlay__status"></div>
 </div>
@@ -1220,6 +1227,11 @@
     let scanStop = null;
     let lastAddedCode = '';
     let lastAddedAt = 0;
+    let scanPaused = false;
+    let lastMissCode = '';
+    const saleScanMiss = document.getElementById('saleScanMiss');
+    const saleScanMissText = document.getElementById('saleScanMissText');
+    const saleScanMissOk = document.getElementById('saleScanMissOk');
     const html5ScanSrc = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
 
     function isIosSaleScan() {
@@ -1253,6 +1265,7 @@
     else setTimeout(preloadScan, 600);
 
     function onDecodedBarcode(text) {
+        if (scanPaused) return;
         let code = String(text || '').trim().replace(/[\x00-\x1F\x7F]+/g, '');
         if (/^\][A-Za-z0-9]{2}/.test(code)) code = code.slice(3);
         const digits = code.replace(/\D+/g, '');
@@ -1260,6 +1273,7 @@
         if (!code) return;
         const now = Date.now();
         if (scanInflight[code]) return;
+        if (code === lastMissCode && (now - lastAddedAt) < 2200) return;
         if (code === lastAddedCode && (now - lastAddedAt) < 900) return;
         try { navigator.vibrate && navigator.vibrate(25); } catch (e) {}
         addFromScanCode(code);
@@ -1340,9 +1354,47 @@
     }
 
 
+    async function resumeScanAfterMiss() {
+        window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
+        if (saleScanMiss) saleScanMiss.hidden = true;
+        lastAddedCode = lastMissCode;
+        lastAddedAt = Date.now();
+        setScanStatus('Ready — scan next barcode');
+        if (isIosSaleScan() && scanOverlay && !scanOverlay.hidden) {
+            if (scanStop) {
+                try { await scanStop(); } catch (e) {}
+                scanStop = null;
+            }
+            try {
+                await startSharedCamera();
+            } catch (e) {
+                setScanStatus('Camera paused. Close and open scan again.');
+            }
+        }
+        scanPaused = false;
+    }
+
+    window.addEventListener('app-item-not-found', function (e) {
+        if (!scanOverlay || scanOverlay.hidden) return;
+        e.preventDefault();
+        scanPaused = true;
+        lastMissCode = String(e.detail && e.detail.code ? e.detail.code : '').trim();
+        if (saleScanMissText) {
+            saleScanMissText.textContent = lastMissCode
+                ? ('No item for ' + lastMissCode + '. Tap OK to scan the next barcode.')
+                : 'This barcode is not in the system. Tap OK to scan the next barcode.';
+        }
+        if (saleScanMiss) saleScanMiss.hidden = false;
+    });
+
+    if (saleScanMissOk) saleScanMissOk.addEventListener('click', resumeScanAfterMiss);
+
     async function openCameraScan() {
         if (!scanOverlay) return;
         if (skuMode !== 'scan') setSkuMode('scan');
+        scanPaused = false;
+        lastMissCode = '';
+        if (saleScanMiss) saleScanMiss.hidden = true;
         scanOverlay.hidden = false;
         setScanStatus('Starting camera…');
         try {
@@ -1354,6 +1406,10 @@
     }
 
     async function closeCameraScan() {
+        scanPaused = false;
+        lastMissCode = '';
+        if (saleScanMiss) saleScanMiss.hidden = true;
+        window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
         if (scanStop) {
             try { await scanStop(); } catch (e) {}
             scanStop = null;

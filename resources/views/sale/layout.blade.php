@@ -1520,6 +1520,22 @@
         .sale-scan-overlay__status {
             padding: 12px 16px; font-size: 13px; font-weight: 700; color: #99f6e4;
         }
+        .sale-scan-miss {
+            position: absolute; inset: 0; z-index: 5;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px; background: rgba(11, 18, 32, .72);
+        }
+        .sale-scan-miss[hidden] { display: none !important; }
+        .sale-scan-miss__card {
+            width: 100%; max-width: 320px; background: #fff; color: #0b1220;
+            border-radius: 16px; padding: 18px 16px 14px; text-align: center;
+        }
+        .sale-scan-miss__title { font-size: 17px; font-weight: 800; margin: 0 0 8px; }
+        .sale-scan-miss__text { font-size: 14px; color: #475569; margin: 0 0 16px; line-height: 1.4; }
+        .sale-scan-miss__ok {
+            width: 100%; border: 0; border-radius: 12px; padding: 12px;
+            background: #0f766e; color: #fff; font-weight: 800; font-size: 15px;
+        }
         .sale-parked-row {
             display: flex; align-items: stretch; border-bottom: 1px solid #e2e8f0;
         }

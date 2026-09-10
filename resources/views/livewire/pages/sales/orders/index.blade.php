@@ -853,17 +853,17 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 @php $orderId = (int) $order->getKey(); @endphp
                                 <tr
                                     wire:key="so-row-{{ $orderId }}"
-                                    wire:click="selectRow({{ $orderId }})"
+                                    x-on:click="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})"
                                     wire:dblclick="openOrder({{ $orderId }})"
-                                    @class(['is-selected' => $selectedId === $orderId, 'cursor-pointer'])
+                                    class="cursor-pointer"
+                                    :class="{ 'is-selected': Number($wire.selectedId) === {{ $orderId }} }"
                                 >
-                                    <td class="text-center" data-excel-skip wire:click.stop>
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})">
                                         <input
                                             type="radio"
                                             name="order_select"
                                             value="{{ $orderId }}"
-                                            @checked($selectedId === $orderId)
-                                            wire:click="selectRow({{ $orderId }})"
+                                            :checked="Number($wire.selectedId) === {{ $orderId }}"
                                             aria-label="Select order {{ $order->order_number }}"
                                         />
                                     </td>
@@ -894,8 +894,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                             @endphp
                             <article
                                 wire:key="so-card-{{ $orderId }}"
-                                class="desk-list-card {{ $selectedId === $orderId ? 'is-selected' : '' }}"
-                                wire:click="selectRow({{ $orderId }})"
+                                class="desk-list-card"
+                                :class="{ 'is-selected': Number($wire.selectedId) === {{ $orderId }} }"
+                                x-on:click="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})"
                                 wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">
@@ -981,13 +982,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                         <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View order (read only)" aria-label="View order" @disabled(! $selectedId)>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View order (read only)" aria-label="View order" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit order" aria-label="Edit order" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit order" aria-label="Edit order" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
@@ -999,20 +1000,20 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="Delete selected"
                     aria-label="Delete selected"
-                    @disabled(! $selectedId)
+                    :disabled="! $wire.selectedId"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
                         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice / order" aria-label="Print selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice / order" aria-label="Print selected" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" @disabled(! $selectedId)>
+                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="3" y="2" width="10" height="12" rx="1"/>
                         <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>

@@ -275,17 +275,20 @@
 
     $groups = $order->lines
         ->map(function ($line) {
-            $sub = trim((string) ($line->item?->subcategory?->name ?? ''));
-            $cat = trim((string) ($line->item?->category?->name ?? ''));
-            $label = $sub !== '' ? $sub : ($cat !== '' ? $cat : 'Other');
-            $line->_grp_cat = strtoupper($cat !== '' ? $cat : $label);
-            $line->_grp_label = $label;
+            $code = trim((string) ($line->item?->category?->code ?? ''));
+            $name = trim((string) ($line->item?->category?->name ?? ''));
+            $n = (int) preg_replace('/\D+/', '', $code);
+            $line->_grp_sort = $code === '' && $name === ''
+                ? '9999999999'
+                : sprintf('%010d-%s', $n, strtoupper($code.'-'.$name));
+            $line->_grp_label = $code !== ''
+                ? $code.' - '.strtoupper($name !== '' ? $name : 'Other')
+                : strtoupper($name !== '' ? $name : 'Other');
 
             return $line;
         })
         ->sortBy(fn ($line) => [
-            $line->_grp_cat,
-            strtoupper((string) $line->_grp_label),
+            $line->_grp_sort,
             strtoupper((string) $line->item_code),
             (int) $line->line_no,
         ])

@@ -1371,7 +1371,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     sep
                     wire:click="voidSelectedInvoice"
                     wire:confirm="Void the selected invoice? The sales order will reopen and stock will be reversed."
-                    :disabled="! $selectedId || ! $canVoidInvoice"
+                    :disabled="! $canVoidInvoice"
+                    x-bind:disabled="! $wire.selectedId || {{ $canVoidInvoice ? 'false' : 'true' }}"
                 />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
@@ -1450,18 +1451,18 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <tbody>
                             @forelse ($invoices as $inv)
                                 <tr
-                                    wire:click="selectRow({{ $inv->id }})"
+                                    wire:key="inv-row-{{ $inv->id }}"
+                                    x-on:click="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})"
                                     wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                                     class="cursor-pointer"
-                                    @class(['is-selected' => $selectedId === $inv->id || $modalInvoiceId === $inv->id])
+                                    :class="{ 'is-selected': Number($wire.selectedId) === {{ $inv->id }} || {{ $modalInvoiceId === $inv->id ? 'true' : 'false' }} }"
                                 >
-                                    <td class="text-center" data-excel-skip wire:click.stop>
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})">
                                         <input
                                             type="radio"
                                             name="invoice_select"
                                             value="{{ $inv->id }}"
-                                            @checked($selectedId === $inv->id)
-                                            wire:click="selectRow({{ $inv->id }})"
+                                            :checked="Number($wire.selectedId) === {{ $inv->id }}"
                                             aria-label="Select invoice {{ $inv->invoice_number }}"
                                         />
                                     </td>
@@ -1480,8 +1481,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     <div class="desk-list-cards" aria-label="Invoices">
                         @forelse ($invoices as $inv)
                             <article
-                                class="desk-list-card {{ $selectedId === $inv->id || $modalInvoiceId === $inv->id ? 'is-selected' : '' }}"
-                                wire:click="selectRow({{ $inv->id }})"
+                                class="desk-list-card"
+                                :class="{ 'is-selected': Number($wire.selectedId) === {{ $inv->id }} || {{ $modalInvoiceId === $inv->id ? 'true' : 'false' }} }"
+                                x-on:click="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})"
                                 wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                             >
                                 <div class="desk-list-card__top">
@@ -1549,30 +1551,30 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             {{-- Right icons: view, print, pick list, edit, payment, void, refresh --}}
             <aside class="desk-rail" aria-label="Invoice actions">
                 <x-desk-fields-rail-btn />
-                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="{{ $canViewInvoice ? 'View invoice' : 'No invoice view permission' }}" aria-label="View invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="{{ $canViewInvoice ? 'View invoice' : 'No invoice view permission' }}" aria-label="View invoice" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice (F10)" aria-label="Print invoice" data-pos-print @disabled(! $selectedId)>
+                <button type="button" wire:click="printSelected" class="desk-rail-btn" title="Print invoice (F10)" aria-label="Print invoice" data-pos-print :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" @disabled(! $selectedId)>
+                <button type="button" wire:click="printPickListSelected" class="desk-rail-btn" title="Print pick list" aria-label="Print pick list" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="3" y="2" width="10" height="12" rx="1"/>
                         <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditInvoice ? 'Edit invoice' : 'No invoice edit permission' }}" aria-label="Edit invoice" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="{{ $canEditInvoice ? 'Edit invoice' : 'No invoice edit permission' }}" aria-label="Edit invoice" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Enter payment' : 'No payment permission' }}" aria-label="Enter payment" @disabled(! $selectedId || ! $canEnterPayments)>
+                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Enter payment' : 'No payment permission' }}" aria-label="Enter payment" :disabled="! $wire.selectedId || {{ $canEnterPayments ? 'false' : 'true' }}">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
                         <path d="M5 8.2l2.1 2.1L11.2 6" stroke-width="1.7"/>
@@ -1585,7 +1587,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="{{ $canVoidInvoice ? 'Void invoice' : 'No void permission' }}"
                     aria-label="Void invoice"
-                    @disabled(! $selectedId || ! $canVoidInvoice)
+                    :disabled="! $wire.selectedId || {{ $canVoidInvoice ? 'false' : 'true' }}"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>

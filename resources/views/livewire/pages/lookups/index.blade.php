@@ -32,6 +32,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
 
     public string $name = '';
 
+    public string $listSearch = '';
+
     public string $rate = '';
 
     public string $base_uom = '';
@@ -112,6 +114,8 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             'account_types' => 'Account Types',
         ];
 
+        $term = trim($this->listSearch);
+
         if ($this->isCustomerLookup($this->activeLookup)) {
             $type = $this->customerLookupTypes()[$this->activeLookup];
             $rows = CustomerLookupOption::query()
@@ -122,13 +126,24 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
                 ->get();
         } else {
             $model = $this->tables()[$this->activeLookup];
+            $isCatList = in_array($this->activeLookup, ['categories', 'subcategories'], true);
             $rows = $model::query()
                 ->where('company_id', $companyId)
                 ->when($this->activeLookup === 'categories', fn ($q) => $q->with('department'))
                 ->when($this->activeLookup === 'subcategories', fn ($q) => $q->with('category.department'));
-            $rows = $this->applyDeskSort($rows, 'code', 'asc')
-                ->limit(300)
-                ->get();
+            $rows = $this->applyDeskSort($rows, $isCatList ? 'name' : 'code', 'asc');
+            $rows = $isCatList ? $rows->get() : $rows->limit(300)->get();
+            if ($isCatList && $term !== '') {
+                $needle = mb_strtolower($term);
+                $rows = $rows->filter(function ($row) use ($needle) {
+                    $hay = mb_strtolower(trim(implode(' ', array_filter([
+                        (string) ($row->code ?? ''),
+                        (string) ($row->name ?? ''),
+                    ]))));
+
+                    return str_contains($hay, $needle);
+                })->values();
+            }
         }
 
         return [
@@ -174,7 +189,7 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
         $this->activeLookup = $key;
         $this->sortField = '';
         $this->sortDir = 'asc';
-        $this->reset('code', 'name', 'base_uom', 'parent_id', 'rate');
+        $this->reset('code', 'name', 'base_uom', 'parent_id', 'rate', 'listSearch');
         $this->resetErrorBag();
     }
 
@@ -309,6 +324,25 @@ new #[Layout('layouts.app'), Title('Lookups')] class extends Component
             <h2 class="desk-title">{{ $listTitle }}</h2>
             <span class="desk-title-meta">{{ number_format($rows->count()) }} records</span>
         </div>
+
+        @if (in_array($activeLookup, ['categories', 'subcategories'], true))
+        <form wire:submit.prevent class="desk-toolbar" style="padding-top:0.55rem" role="search">
+            <input
+                type="search"
+                class="desk-search"
+                style="flex:1;min-width:12rem;max-width:28rem"
+                wire:model.live.debounce.150ms="listSearch"
+                wire:keydown.enter.prevent.stop
+                placeholder="Search by code or name…"
+                aria-label="Search {{ $listTitle }}"
+                autocomplete="off"
+                name="lookup_list_search"
+            />
+            @if (trim($listSearch) !== '')
+                <button type="button" class="desk-btn desk-btn-sm" wire:click="$set('listSearch', '')">Clear</button>
+            @endif
+        </form>
+        @endif
 
         <div class="cm-help" style="margin:0.65rem 0.85rem 0">{{ $helpText }}</div>
 

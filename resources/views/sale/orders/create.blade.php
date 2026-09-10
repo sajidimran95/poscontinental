@@ -730,6 +730,9 @@
         if (!rows.length) {
             productResults.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">No products</div>';
             productResults.classList.remove('hidden');
+            if (skuMode === 'scan' && window.notifyAppItemNotFound) {
+                window.notifyAppItemNotFound(q);
+            }
             return;
         }
         const exact = rows.find(r => String(r.sku || '').toLowerCase() === q.toLowerCase()) || (rows.length === 1 ? rows[0] : null);
@@ -1196,14 +1199,11 @@
         const item = await pending;
         if (!item) {
             setScanStatus('Hold still — no item for ' + q);
-            // Play error sound and show alert like POS
-            try {
-                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQoVX7Xo7KlXFQxInuDytmwdBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjaY3/LFdCUEKH/L8N+RQQo=');
-                audio.volume = 0.5;
-                audio.play().catch(() => {});
-            } catch (e) {}
-            // Show alert
-            alert('Item not found: ' + q + '\n\nThe scanned code does not match any item in the system.');
+            if (window.notifyAppItemNotFound) {
+                window.notifyAppItemNotFound(q);
+            } else {
+                alert('Item not found: ' + q + '\n\nThe scanned code does not match any item in the system.');
+            }
             return false;
         }
         addToCart(item);

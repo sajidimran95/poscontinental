@@ -105,6 +105,7 @@
         })
         ->sortBy(fn ($line) => [
             $line->_grp_sort,
+            strtoupper((string) ($line->description ?? '')),
             strtoupper((string) $line->item_code),
             (int) $line->line_no,
         ])

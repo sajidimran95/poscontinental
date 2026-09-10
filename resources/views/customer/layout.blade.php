@@ -633,6 +633,7 @@ window.CustomerCameraScan = (function () {
     return { start, stop };
 })();
 </script>
+@include('partials.app-scan-miss-sound')
 @stack('scripts')
 @include('customer.partials.pwa')
 </body>

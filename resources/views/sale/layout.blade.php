@@ -2363,6 +2363,7 @@ window.__SALE_PWA__ = { swUrl: @json(url('/sale/pwa/sw.js')), startUrl: @json(ur
 @auth('sale')
     @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('sale.chat.unread')])
 @endauth
+@include('partials.app-scan-miss-sound')
 @stack('scripts')
 </body>
 </html>

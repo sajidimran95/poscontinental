@@ -574,6 +574,18 @@
 
     async function loadCustomers(q, targetEl, pickFn) {
         const rows = await fetchJson(@json(route('sale.api.customers')) + '?q=' + encodeURIComponent(q || ''));
+        const needle = String(q || '').trim().toLowerCase();
+        const nameOf = (r) => String(r.display_name || r.name || r.text || '').trim().toLowerCase();
+        rows.sort((a, b) => {
+            const an = nameOf(a);
+            const bn = nameOf(b);
+            if (needle) {
+                const ap = an.startsWith(needle) ? 0 : 1;
+                const bp = bn.startsWith(needle) ? 0 : 1;
+                if (ap !== bp) return ap - bp;
+            }
+            return an.localeCompare(bn, undefined, { sensitivity: 'base' });
+        });
         renderCustomerRows(rows, targetEl, pickFn);
     }
 

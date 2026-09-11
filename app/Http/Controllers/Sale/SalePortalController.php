@@ -616,11 +616,11 @@ class SalePortalController extends Controller
         $user = $this->user();
         $term = trim((string) $request->get('q', ''));
 
-        $rows = SalesRepScope::companyCustomersQuery($user)
+        $query = SalesRepScope::companyCustomersQuery($user)
             ->where('is_inactive', false)
-            ->when($term !== '', function ($query) use ($term) {
-                $query->where(function ($q) use ($term) {
-                    $q->where('company_name', 'like', "%{$term}%")
+            ->when($term !== '', function ($q) use ($term) {
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('company_name', 'like', "%{$term}%")
                         ->orWhere('contact', 'like', "%{$term}%")
                         ->orWhere('mobile', 'like', "%{$term}%")
                         ->orWhere('telephone', 'like', "%{$term}%")
@@ -630,12 +630,16 @@ class SalePortalController extends Controller
                         ->orWhere('city', 'like', "%{$term}%");
                 });
             })
-            ->with('shippingAddresses')
-            ->orderBy('company_name')
-            ->limit(40)
-            ->get();
+            ->with('shippingAddresses');
+        Customer::orderForNameSearch($query, $term);
+        $rows = Customer::sortedForNameSearch($query->limit(80)->get(), $term);
 
-        return response()->json($rows->map(fn (Customer $c) => $this->mapCustomerForSale($c))->values());
+        $mapped = Customer::sortedForNameSearch(
+            $rows->map(fn (Customer $c) => $this->mapCustomerForSale($c))->all(),
+            $term
+        );
+
+        return response()->json($mapped);
     }
 
     public function customerShipping(Customer $customer)

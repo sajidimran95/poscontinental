@@ -237,6 +237,36 @@ class Customer extends Model implements AuthenticatableContract
         return strtoupper((string) $this->customer_id) === self::WALK_IN_CODE;
     }
 
+    public function sortName(): string
+    {
+        return mb_strtolower(trim((string) ($this->company_name ?: $this->contact ?: $this->customer_id)));
+    }
+
+    public static function orderForNameSearch($query, string $term = '')
+    {
+        $expr = "LOWER(COALESCE(NULLIF(TRIM(company_name), ''), NULLIF(TRIM(contact), ''), customer_id))";
+        $needle = mb_strtolower(trim($term));
+        if ($needle !== '') {
+            $query->orderByRaw("CASE WHEN {$expr} LIKE ? THEN 0 ELSE 1 END", [$needle.'%']);
+        }
+
+        return $query->orderByRaw("{$expr} ASC")->orderBy('customer_id');
+    }
+
+    public static function sortedForNameSearch($customers, string $term = '')
+    {
+        $needle = mb_strtolower(trim($term));
+
+        return collect($customers)->sortBy(function ($c) use ($needle) {
+            $name = $c instanceof self
+                ? $c->sortName()
+                : mb_strtolower(trim((string) (($c['display_name'] ?? '') ?: ($c['company_name'] ?? '') ?: ($c['text'] ?? ''))));
+            $rank = ($needle !== '' && str_starts_with($name, $needle)) ? '0' : '1';
+
+            return $rank.'|'.$name;
+        }, SORT_STRING)->values();
+    }
+
     public function getAvailableCreditAttribute(): float
     {
         return (float) $this->credit_limit - (float) $this->balance;

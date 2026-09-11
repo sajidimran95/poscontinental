@@ -298,6 +298,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $customerSearch = '';
 
+    public string $customerTypeQuery = '';
+
+    public string $customerPickedLabel = '';
+
     public bool $showShipBrowse = false;
 
     public bool $showShipToModal = false;
@@ -450,6 +454,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             }
 
             $this->fill($data);
+            if ($salesOrder->customer) {
+                $this->syncCustomerTypeQuery($salesOrder->customer);
+            }
             $this->order_date = optional($salesOrder->order_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($salesOrder->required_date)?->format('Y-m-d') ?? '';
             $this->ship_date = optional($salesOrder->ship_date)?->format('Y-m-d') ?? '';
@@ -685,6 +692,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'activeTab', 'addressTab',
             'order_number', 'order_type', 'status', 'priority',
             'customer_id', 'ship_to_address_id', 'confirmedCustomerId',
+            'customerTypeQuery', 'customerPickedLabel',
             'bill_to_name', 'bill_to_phone', 'bill_to_address', 'bill_to_city', 'bill_to_state', 'bill_to_zip',
             'ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip',
             'order_date', 'required_date', 'customer_po_no', 'reference_no',
@@ -793,6 +801,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->suppressCustomerConfirm = false;
         $this->suppressPriceNotice = false;
+        if ($this->customer_id && trim($this->customerTypeQuery) === '') {
+            $c = Customer::query()->find($this->customer_id, ['id', 'customer_id', 'company_name', 'contact']);
+            if ($c) {
+                $this->syncCustomerTypeQuery($c);
+            }
+        }
         $this->refreshCreditWarning();
     }
 
@@ -1405,45 +1419,32 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $needShipCustomer = $onGeneral || $this->showShipBrowse || $this->showShipToModal;
 
         $browseCustomers = collect();
-        if ($this->showCustomerBrowse) {
-            $browseCustomers = Customer::query()
+        $typeTerm = trim($this->customerTypeQuery);
+        $isTypingCustomer = $typeTerm !== '' && $typeTerm !== trim($this->customerPickedLabel);
+        if ($this->showCustomerBrowse || $isTypingCustomer) {
+            $term = $this->showCustomerBrowse ? trim($this->customerSearch) : $typeTerm;
+            $query = Customer::query()
                 ->where('company_id', $companyId)
                 ->where('is_inactive', false)
                 ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
-                ->when(filled($this->customerSearch), function ($q) {
-                    $term = '%'.$this->customerSearch.'%';
-                    $q->where(function ($inner) use ($term) {
-                        $inner->where('customer_id', 'like', $term)
-                            ->orWhere('company_name', 'like', $term)
-                            ->orWhere('contact', 'like', $term)
-                            ->orWhere('telephone', 'like', $term);
+                ->when($term !== '', function ($q) use ($term) {
+                    $like = '%'.$term.'%';
+                    $q->where(function ($inner) use ($like) {
+                        $inner->where('customer_id', 'like', $like)
+                            ->orWhere('company_name', 'like', $like)
+                            ->orWhere('contact', 'like', $like)
+                            ->orWhere('telephone', 'like', $like)
+                            ->orWhere('mobile', 'like', $like);
                     });
-                })
-                ->orderByDesc('is_favorite')
-                ->orderBy('company_name')
-                ->limit(80)
-                ->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'city', 'state', 'is_favorite']);
+                });
+            Customer::orderForNameSearch($query, $term);
+            $browseCustomers = Customer::sortedForNameSearch(
+                $query->limit(80)->get(['id', 'customer_id', 'company_name', 'contact', 'telephone', 'mobile', 'city', 'state', 'is_favorite']),
+                $term
+            );
         }
 
-        // Only hydrate full customer list on General (not on F2 / Items tab).
         $customers = collect();
-        if ($onGeneral) {
-            $customers = Customer::query()
-                ->where('company_id', $companyId)
-                ->where('is_inactive', false)
-                ->when($this->customerFavoritesOnly, fn ($q) => $q->where('is_favorite', true))
-                ->orderByDesc('is_favorite')
-                ->orderBy('company_name')
-                ->limit(80)
-                ->get(['id', 'customer_id', 'company_name', 'is_favorite']);
-
-            if ($this->customer_id && $customers->every(fn ($c) => (int) $c->id !== (int) $this->customer_id)) {
-                $selectedOpt = Customer::query()->find($this->customer_id, ['id', 'customer_id', 'company_name', 'is_favorite']);
-                if ($selectedOpt) {
-                    $customers = $customers->prepend($selectedOpt);
-                }
-            }
-        }
 
         $selectedCustomer = null;
         if ($this->customer_id && $needShipCustomer) {
@@ -1579,6 +1580,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 return $row;
             }),
             'browseCustomers' => $browseCustomers,
+            'isTypingCustomer' => $isTypingCustomer,
             'browseCategories' => $this->showBrowse
                 ? Category::query()
                     ->where('company_id', $companyId)
@@ -2457,6 +2459,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->showCustomerBrowse = false;
         $this->showShipToModal = false;
+        $this->syncCustomerTypeQuery($customer);
         $this->shipToFlash = '';
         $this->refreshCreditWarning();
         $this->suggestTax();
@@ -3123,6 +3126,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->customer_id = $customerId;
         $this->updatedCustomerId($customerId);
+    }
+
+    protected function customerLookupLabel(\App\Models\Customer $customer): string
+    {
+        $name = trim((string) ($customer->company_name ?: $customer->contact));
+
+        return trim((string) ($customer->customer_id ?: '').($name !== '' ? ' — '.$name : ''));
+    }
+
+    protected function syncCustomerTypeQuery(?\App\Models\Customer $customer): void
+    {
+        $this->customerPickedLabel = $customer ? $this->customerLookupLabel($customer) : '';
+        $this->customerTypeQuery = $this->customerPickedLabel;
     }
 
     public function toggleShipBrowse(): void
@@ -5283,14 +5299,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
                             <div class="so-form-row">
                                 <label class="so-form-lbl so-field-req" for="customer_id">Customer</label>
-                                <div class="so-form-ctl">
+                                <div class="so-form-ctl" style="position:relative">
                                     <div class="so-lookup-row">
-                                        <select id="customer_id" wire:model.live="customer_id" class="so-input @error('customer_id') is-invalid @enderror" aria-label="Customer">
-                                            <option value="">—</option>
-                                            @foreach ($customers as $c)
-                                                <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
-                                            @endforeach
-                                        </select>
+                                        <input
+                                            id="customer_id"
+                                            type="text"
+                                            class="so-input @error('customer_id') is-invalid @enderror"
+                                            placeholder="Type customer name or ID…"
+                                            autocomplete="off"
+                                            wire:model.live.debounce.200ms="customerTypeQuery"
+                                            x-on:focus="$el.select()"
+                                            aria-label="Customer"
+                                            aria-autocomplete="list"
+                                            @disabled($viewMode)
+                                        />
                                         <button
                                             type="button"
                                             wire:click="toggleCustomerFavoriteIcon"
@@ -5313,6 +5335,25 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         </button>
                                     </div>
                                     @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                    @if ($isTypingCustomer && ! $showCustomerBrowse)
+                                        <div class="so-lookup-panel" role="listbox" aria-label="Customer suggestions" style="position:absolute;left:0;right:0;z-index:40;max-height:16rem;margin-top:0.2rem;overflow:auto">
+                                            @forelse ($browseCustomers as $bc)
+                                                <button
+                                                    type="button"
+                                                    wire:key="so-cust-suggest-{{ $bc->id }}"
+                                                    wire:click="pickCustomer({{ $bc->id }})"
+                                                    class="so-lookup-row-pick"
+                                                    role="option"
+                                                    style="display:block;width:100%;text-align:left;border:0;background:transparent;padding:0.45rem 0.6rem;cursor:pointer"
+                                                >
+                                                    <div style="font-weight:700;font-size:13px">{{ $bc->customer_id }} — {{ $bc->company_name ?: $bc->contact }}</div>
+                                                    <div style="font-size:11px;color:#64748b">{{ collect([$bc->contact, $bc->mobile ?: $bc->telephone, $bc->city])->filter()->implode(' · ') }}</div>
+                                                </button>
+                                            @empty
+                                                <div class="text-slate-500" style="padding:0.5rem 0.6rem;font-size:12px">No customers found.</div>
+                                            @endforelse
+                                        </div>
+                                    @endif
                                     @if ($showCustomerBrowse)
                                         <div class="so-lookup-panel" role="dialog" aria-label="Customer browse">
                                             <div class="so-lookup-panel-head">

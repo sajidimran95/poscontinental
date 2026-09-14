@@ -315,6 +315,27 @@ class Item extends Model
     }
 
     /**
+     * Another sellable item already using this UPC / barcode (same company).
+     */
+    public static function itemUsingUpc(int $companyId, string $upc, ?int $exceptItemId = null): ?self
+    {
+        $keys = static::scanCodeLookupKeys($upc);
+        if ($keys === []) {
+            return null;
+        }
+
+        $query = static::query()
+            ->where('company_id', $companyId)
+            ->when($exceptItemId, fn ($q) => $q->where('id', '!=', $exceptItemId))
+            ->where(function ($q) use ($keys) {
+                $q->whereIn('primary_upc', $keys)
+                    ->orWhereHas('upcs', fn ($u) => $u->whereIn('upc', $keys));
+            });
+
+        return $query->first(['id', 'item_code', 'description', 'primary_upc']);
+    }
+
+    /**
      * @return list<string>
      */
     public static function scanCodeLookupKeys(string $code): array

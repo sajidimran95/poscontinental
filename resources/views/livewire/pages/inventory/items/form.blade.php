@@ -1138,6 +1138,54 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             $this->primary_upc = $firstFilled['upc'] ?? $this->primary_upc;
         }
 
+        $upcValues = collect($this->upcs)
+            ->map(fn ($r) => trim((string) ($r['upc'] ?? '')))
+            ->filter()
+            ->values();
+        $seenKeys = [];
+        foreach ($upcValues as $i => $upc) {
+            $keys = Item::scanCodeLookupKeys($upc);
+            foreach ($keys as $key) {
+                if (isset($seenKeys[$key])) {
+                    $this->activeTab = 'inventory';
+                    $this->addError('upcs.'.$i.'.upc', 'This UPC / barcode is already on this item. Each barcode must be unique.');
+
+                    return;
+                }
+                $seenKeys[$key] = true;
+            }
+            $owner = Item::itemUsingUpc(
+                (int) auth()->user()->company_id,
+                $upc,
+                $this->item?->id
+            );
+            if ($owner) {
+                $this->activeTab = 'inventory';
+                $this->addError(
+                    'upcs.'.$i.'.upc',
+                    'UPC '.$upc.' is already used on item '.$owner->item_code.' — '.$owner->description.'. Barcodes must be unique.'
+                );
+
+                return;
+            }
+        }
+        if (filled($this->primary_upc) && $upcValues->doesntContain(trim($this->primary_upc))) {
+            $owner = Item::itemUsingUpc(
+                (int) auth()->user()->company_id,
+                $this->primary_upc,
+                $this->item?->id
+            );
+            if ($owner) {
+                $this->activeTab = 'inventory';
+                $this->addError(
+                    'primary_upc',
+                    'UPC '.$this->primary_upc.' is already used on item '.$owner->item_code.'. Barcodes must be unique.'
+                );
+
+                return;
+            }
+        }
+
         // Ensure thumbnail exists when image is set.
         if (filled($this->image_path) && ! filled($this->thumbnail_path) && Storage::disk('public')->exists($this->image_path)) {
             $this->copyImageToThumbnail();

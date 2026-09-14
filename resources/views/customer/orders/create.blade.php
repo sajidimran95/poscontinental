@@ -680,8 +680,22 @@
 
     productSearch.addEventListener('input', () => {
         clearTimeout(prodTimer);
+        const q = productSearch.value.trim();
+        if (skuMode === 'scan') {
+            productResults.classList.add('hidden');
+            productResults.innerHTML = '';
+            if (!/^\d{8,14}$/.test(q)) return;
+            prodTimer = setTimeout(async () => {
+                const added = await addFromScanCode(q);
+                if (added) {
+                    productSearch.value = '';
+                    productResults.classList.add('hidden');
+                    productResults.innerHTML = '';
+                }
+            }, 120);
+            return;
+        }
         prodTimer = setTimeout(async () => {
-            const q = productSearch.value.trim();
             if (q.length < 1) { productResults.classList.add('hidden'); productResults.innerHTML = ''; return; }
             const rows = await fetchJson(productApiUrl({ q: q }));
             productResults.innerHTML = '';
@@ -689,18 +703,6 @@
                 productResults.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">No products</div>';
                 productResults.classList.remove('hidden');
                 return;
-            }
-            // Scan mode: exact SKU match adds immediately when only one hit
-            if (skuMode === 'scan' && rows.length === 1) {
-                const exact = rows[0];
-                const sku = String(exact.sku || '').toLowerCase();
-                if (sku && sku === q.toLowerCase()) {
-                    addToCart(exact);
-                    productSearch.value = '';
-                    productResults.classList.add('hidden');
-                    productResults.innerHTML = '';
-                    return;
-                }
             }
             rows.forEach(r => {
                 const a = document.createElement('button');
@@ -724,21 +726,19 @@
         e.preventDefault();
         const q = productSearch.value.trim();
         if (!q) return;
+        if (skuMode === 'scan') {
+            productResults.classList.add('hidden');
+            productResults.innerHTML = '';
+            const added = await addFromScanCode(q);
+            if (added) {
+                productSearch.value = '';
+            }
+            return;
+        }
         const rows = await fetchJson(productApiUrl({ q: q }));
         if (!rows.length) {
             productResults.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">No products</div>';
             productResults.classList.remove('hidden');
-            if (skuMode === 'scan' && window.notifyAppItemNotFound) {
-                window.notifyAppItemNotFound(q);
-            }
-            return;
-        }
-        const exact = rows.find(r => String(r.sku || '').toLowerCase() === q.toLowerCase()) || (rows.length === 1 ? rows[0] : null);
-        if (exact && skuMode === 'scan') {
-            addToCart(exact);
-            productSearch.value = '';
-            productResults.classList.add('hidden');
-            productResults.innerHTML = '';
             return;
         }
         productResults.innerHTML = '';
@@ -813,8 +813,12 @@
             skuModeText.setAttribute('aria-pressed', mode === 'text' ? 'true' : 'false');
         }
         if (productSearch) {
-            productSearch.placeholder = mode === 'scan' ? 'Enter SKU' : 'Search product name / SKU';
+            productSearch.placeholder = mode === 'scan' ? 'Scan UPC / SKU — adds to order' : 'Search product name / SKU';
             productSearch.focus();
+        }
+        if (mode === 'scan' && productResults) {
+            productResults.classList.add('hidden');
+            productResults.innerHTML = '';
         }
     }
     if (skuModeScan) skuModeScan.addEventListener('click', () => setSkuMode('scan'));

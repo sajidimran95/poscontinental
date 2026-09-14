@@ -681,18 +681,10 @@
     productSearch.addEventListener('input', () => {
         clearTimeout(prodTimer);
         const q = productSearch.value.trim();
+        // Scan / gun mode: wait for Enter (guns send digits then Enter). Do not auto-add on input.
         if (skuMode === 'scan') {
             productResults.classList.add('hidden');
             productResults.innerHTML = '';
-            if (!/^\d{8,14}$/.test(q)) return;
-            prodTimer = setTimeout(async () => {
-                const added = await addFromScanCode(q);
-                if (added) {
-                    productSearch.value = '';
-                    productResults.classList.add('hidden');
-                    productResults.innerHTML = '';
-                }
-            }, 120);
             return;
         }
         prodTimer = setTimeout(async () => {
@@ -724,15 +716,14 @@
     productSearch.addEventListener('keydown', async (e) => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
+        clearTimeout(prodTimer);
         const q = productSearch.value.trim();
         if (!q) return;
         if (skuMode === 'scan') {
             productResults.classList.add('hidden');
             productResults.innerHTML = '';
-            const added = await addFromScanCode(q);
-            if (added) {
-                productSearch.value = '';
-            }
+            productSearch.value = '';
+            await addFromScanCode(q);
             return;
         }
         const rows = await fetchJson(productApiUrl({ q: q }));
@@ -1159,11 +1150,27 @@
     if (parkedModal) parkedModal.addEventListener('click', (e) => { if (e.target === parkedModal) closeParkedModal(); });
     loadParkedList();
 
+    let lastScanCode = '';
+    let lastScanAt = 0;
+    const scanInflight = Object.create(null);
+
     async function addFromScanCode(code) {
         const q = String(code || '').trim();
         if (!q) return false;
-        const rows = await fetchJson(productApiUrl({ q: q, scan: 1 }));
-        if (!rows.length) {
+        const now = Date.now();
+        if (q === lastScanCode && (now - lastScanAt) < 1200) {
+            return true;
+        }
+        if (scanInflight[q]) {
+            return !!(await scanInflight[q]);
+        }
+        const pending = (async () => {
+            const rows = await fetchJson(productApiUrl({ q: q, scan: 1 }));
+            return rows && rows[0] ? rows[0] : null;
+        })().catch(() => null).finally(() => { delete scanInflight[q]; });
+        scanInflight[q] = pending;
+        const item = await pending;
+        if (!item) {
             const status = document.getElementById('saleScanStatus');
             if (status) status.textContent = 'No item for ' + q;
             if (window.notifyAppItemNotFound) {
@@ -1173,9 +1180,14 @@
             }
             return false;
         }
-        addToCart(rows[0]);
+        if (q === lastScanCode && (Date.now() - lastScanAt) < 1200) {
+            return true;
+        }
+        addToCart(item);
+        lastScanCode = q;
+        lastScanAt = Date.now();
         const status = document.getElementById('saleScanStatus');
-        if (status) status.textContent = 'Added ' + (rows[0].name || q);
+        if (status) status.textContent = 'Added ' + (item.name || q);
         return true;
     }
 
@@ -1184,8 +1196,6 @@
     const scanRegion = document.getElementById('saleScanRegion');
     const skuCameraBtn = document.getElementById('skuCameraBtn');
     let scanStop = null;
-    let lastScanCode = '';
-    let lastScanAt = 0;
     let html5Qr = null;
 
     function loadScriptOnce(src, flag) {
@@ -1209,11 +1219,7 @@
 
     async function onDecodedBarcode(text) {
         const code = String(text || '').trim();
-        const now = Date.now();
         if (!code) return;
-        if (code === lastScanCode && (now - lastScanAt) < 1600) return;
-        lastScanCode = code;
-        lastScanAt = now;
         try { navigator.vibrate && navigator.vibrate(40); } catch (e) {}
         await addFromScanCode(code);
     }

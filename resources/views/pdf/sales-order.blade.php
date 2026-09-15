@@ -521,6 +521,10 @@
                     <td class="lbl">ALL ITEMS TOTAL</td>
                     <td class="val">${{ number_format($buckets['all_total'], 2) }}</td>
                 </tr>
+                <tr>
+                    <td class="lbl">TOTAL QTY</td>
+                    <td class="val" colspan="3">{{ fmod((float) $buckets['all_qty'], 1.0) == 0.0 ? number_format((float) $buckets['all_qty'], 0) : number_format((float) $buckets['all_qty'], 2) }}</td>
+                </tr>
                 </tbody>
             </table>
             <table class="prev-inv">

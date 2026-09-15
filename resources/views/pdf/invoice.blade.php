@@ -10,6 +10,8 @@
     $order = $invoice->salesOrder;
     $isPaid = $invoice->status === 'PAID';
     $companyName = $company?->name ?? 'Continental Wholesale Inc';
+    $invoiceLines = $order?->lines ?? collect();
+    $totalQty = (float) $invoiceLines->sum(fn ($line) => (float) ($line->qty_ordered ?? 0));
 @endphp
 
 <div class="brand-bar">
@@ -97,7 +99,7 @@
         </tr>
     </thead>
     <tbody>
-        @forelse (($order?->lines ?? collect()) as $line)
+        @forelse ($invoiceLines as $line)
             <tr>
                 <td class="muted">{{ $line->line_no }}</td>
                 <td class="mono">{{ $line->item_code }}</td>
@@ -115,6 +117,15 @@
             </tr>
         @endforelse
     </tbody>
+    @if ($invoiceLines->isNotEmpty())
+        <tfoot>
+            <tr>
+                <td colspan="3" class="right" style="font-weight:700;padding-top:6px">Total Qty</td>
+                <td class="right" style="font-weight:700;padding-top:6px">{{ number_format($totalQty, 2) }}</td>
+                <td colspan="3"></td>
+            </tr>
+        </tfoot>
+    @endif
 </table>
 
 <table class="footer-grid">
@@ -179,6 +190,10 @@
                 <tr>
                     <td class="label">Subtotal</td>
                     <td class="right">${{ number_format((float) $invoice->subtotal, 2) }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Total Qty</td>
+                    <td class="right">{{ number_format($totalQty, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label">Trade Discount</td>

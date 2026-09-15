@@ -19,6 +19,7 @@ final class DocumentMerchandiseTotals
      *     other_count: int,
      *     other_total: float,
      *     all_count: int,
+     *     all_qty: float,
      *     all_total: float
      * }
      */
@@ -30,9 +31,11 @@ final class DocumentMerchandiseTotals
         $cigaretteTotal = 0.0;
         $tobaccoTotal = 0.0;
         $otherTotal = 0.0;
+        $allQty = 0.0;
 
         foreach ($lines as $line) {
             $amount = (float) ($line->line_total ?? 0);
+            $allQty += (float) ($line->qty_ordered ?? $line->qty ?? 0);
             $item = $line->item ?? null;
             $item = $item instanceof Item ? $item : null;
 
@@ -56,6 +59,7 @@ final class DocumentMerchandiseTotals
             'other_count' => $otherCount,
             'other_total' => round($otherTotal, 2),
             'all_count' => $cigaretteCount + $tobaccoCount + $otherCount,
+            'all_qty' => round($allQty, 2),
             'all_total' => round($cigaretteTotal + $tobaccoTotal + $otherTotal, 2),
         ];
     }

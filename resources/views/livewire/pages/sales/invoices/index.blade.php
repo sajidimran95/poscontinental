@@ -1654,6 +1654,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
                         <div class="pc-top-right">
                             <div class="pc-sum-row"><span>Subtotal</span><strong>${{ number_format((float) $modalInvoice->subtotal, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Qty</span><strong>{{ number_format((float) ($modalInvoice->salesOrder?->lines?->sum('qty_ordered') ?? 0), 2) }}</strong></div>
                             <div class="pc-sum-row"><span>Trade Discount</span><strong>${{ number_format((float) $modalInvoice->trade_discount, 2) }}</strong></div>
                             <div class="pc-sum-row"><span>Freight</span><strong>${{ number_format((float) $modalInvoice->freight, 2) }}</strong></div>
                             <div class="pc-sum-row"><span>Miscellaneous</span><strong>${{ number_format((float) $modalInvoice->miscellaneous, 2) }}</strong></div>

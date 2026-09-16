@@ -157,6 +157,11 @@ class Item extends Model
         return $this->hasMany(ItemPrice::class)->orderBy('sort_order');
     }
 
+    public function priceHistories(): HasMany
+    {
+        return $this->hasMany(ItemPriceHistory::class)->orderByDesc('id');
+    }
+
     public function itemSuppliers(): HasMany
     {
         return $this->hasMany(ItemSupplier::class)->orderBy('sort_order');
@@ -252,12 +257,41 @@ class Item extends Model
             return $query;
         };
 
-        $directMatch = $scoped()->where(function ($q) use ($keys) {
-            $q->whereIn('item_code', $keys)->orWhereIn('primary_upc', $keys);
+        // Prefer exact item_code / primary_upc for the typed/scanned value (e.g. 8117PL over 8117).
+        $exact = $scoped()->where(function ($q) use ($code) {
+            $q->whereRaw('LOWER(item_code) = LOWER(?)', [$code])
+                ->orWhereRaw('LOWER(COALESCE(primary_upc, \'\')) = LOWER(?)', [$code]);
         })->first();
 
-        if ($directMatch) {
+        if ($exact) {
+            $exact->load(['prices', 'taxSchedule']);
+
+            return $exact;
+        }
+
+        $directMatches = $scoped()->where(function ($q) use ($keys) {
+            $q->whereIn('item_code', $keys)->orWhereIn('primary_upc', $keys);
+        })->limit(20)->get();
+
+        if ($directMatches->isNotEmpty()) {
+            $prefer = $directMatches->first(function (self $item) use ($code, $keys) {
+                $itemCode = mb_strtolower((string) $item->item_code);
+                $upc = mb_strtolower((string) ($item->primary_upc ?? ''));
+                $needle = mb_strtolower($code);
+
+                return $itemCode === $needle || $upc === $needle;
+            });
+            $directMatch = $prefer ?: $directMatches->first(function (self $item) use ($keys) {
+                $itemCode = (string) $item->item_code;
+                $upc = (string) ($item->primary_upc ?? '');
+
+                return in_array($itemCode, $keys, true) || in_array($upc, $keys, true)
+                    || in_array(mb_strtolower($itemCode), $keys, true)
+                    || in_array(mb_strtolower($upc), $keys, true);
+            });
+            $directMatch = $directMatch ?: $directMatches->first();
             $directMatch->load(['prices', 'taxSchedule']);
+
             return $directMatch;
         }
 
@@ -266,46 +300,64 @@ class Item extends Model
             return null;
         }
 
-        // OPTIMIZED: Check UPC table with indexed lookup
-        $upcMatch = \DB::table('item_upcs')
-            ->whereIn('upc', $keys)
+        // OPTIMIZED: Check UPC table with indexed lookup — prefer exact scanned code
+        $upcItemId = \DB::table('item_upcs')
+            ->whereRaw('LOWER(upc) = LOWER(?)', [$code])
             ->value('item_id');
+        if (! $upcItemId) {
+            $upcItemId = \DB::table('item_upcs')
+                ->whereIn('upc', $keys)
+                ->value('item_id');
+        }
 
-        if ($upcMatch) {
-            $item = $scoped()->where('items.id', $upcMatch)->first();
+        if ($upcItemId) {
+            $item = $scoped()->where('items.id', $upcItemId)->first();
             if ($item) {
                 $item->load(['prices', 'taxSchedule']);
+
                 return $item;
             }
         }
 
         // OPTIMIZED: Check alias codes with indexed lookup
-        $aliasMatch = \DB::table('item_prices')
+        $aliasItemId = \DB::table('item_prices')
             ->whereNotNull('alias_code')
             ->where('alias_code', '!=', '')
-            ->where(function ($q) use ($keys) {
-                $q->whereIn('alias_code', $keys);
-            })
+            ->whereRaw('LOWER(alias_code) = LOWER(?)', [$code])
             ->value('item_id');
+        if (! $aliasItemId) {
+            $aliasItemId = \DB::table('item_prices')
+                ->whereNotNull('alias_code')
+                ->where('alias_code', '!=', '')
+                ->whereIn('alias_code', $keys)
+                ->value('item_id');
+        }
 
-        if ($aliasMatch) {
-            $item = $scoped()->where('items.id', $aliasMatch)->first();
+        if ($aliasItemId) {
+            $item = $scoped()->where('items.id', $aliasItemId)->first();
             if ($item) {
                 $item->load(['prices', 'taxSchedule']);
+
                 return $item;
             }
         }
 
         // Check supplier codes (not for sell mode)
         if ($mode !== 'sell') {
-            $supplierMatch = \DB::table('item_suppliers')
-                ->whereIn('supplier_item_code', $keys)
+            $supplierItemId = \DB::table('item_suppliers')
+                ->whereRaw('LOWER(COALESCE(supplier_item_code, \'\')) = LOWER(?)', [$code])
                 ->value('item_id');
+            if (! $supplierItemId) {
+                $supplierItemId = \DB::table('item_suppliers')
+                    ->whereIn('supplier_item_code', $keys)
+                    ->value('item_id');
+            }
 
-            if ($supplierMatch) {
-                $item = $scoped()->where('items.id', $supplierMatch)->first();
+            if ($supplierItemId) {
+                $item = $scoped()->where('items.id', $supplierItemId)->first();
                 if ($item) {
                     $item->load(['prices', 'taxSchedule']);
+
                     return $item;
                 }
             }
@@ -343,7 +395,9 @@ class Item extends Model
         $code = trim($code);
         $keys = [$code];
         $digits = preg_replace('/\D+/', '', $code) ?? '';
-        if ($digits !== '' && $digits !== $code) {
+        // Only expand digit-only variants for barcode-like values (digits/separators),
+        // never for alphanumeric SKUs like 8117PL → must not also match 8117.
+        if ($digits !== '' && $digits !== $code && preg_match('/^[\d\s\-_]+$/', $code) === 1) {
             $keys[] = $digits;
         }
         if (preg_match('/^\d{13}$/', $digits) === 1 && str_starts_with($digits, '0')) {

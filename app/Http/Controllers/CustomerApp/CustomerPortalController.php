@@ -498,7 +498,7 @@ class CustomerPortalController extends Controller
     {
         $price = ItemPricing::resolve($item, $customer->price_level_id ? (int) $customer->price_level_id : null, $item->unit_of_measure, $customer->id);
 
-        return [
+        $payload = [
             'product_id' => (int) $item->id,
             'variation_id' => (int) $item->id,
             'name' => trim($item->description.' ('.$item->item_code.')'),
@@ -510,5 +510,7 @@ class CustomerPortalController extends Controller
             'product_type' => 'single',
             'allow_decimal' => 1,
         ];
+
+        return app(\App\Services\ItemPriceHistoryService::class)->mergeIntoProductPayload($payload, $item);
     }
 }

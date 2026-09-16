@@ -247,6 +247,13 @@
     <video id="saleScanVideo" class="sale-scan-overlay__native" playsinline muted hidden></video>
     <div id="saleScanStatus" class="sale-scan-overlay__status"></div>
 </div>
+<div id="salePriceUpdateAlert" class="sale-scan-miss" hidden style="position:fixed;inset:0;z-index:160;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;">
+    <div class="sale-scan-miss__card" style="max-width:26rem;width:100%;background:#fff;border-radius:14px;padding:18px 16px;box-shadow:0 18px 40px rgba(15,23,42,.25);">
+        <p class="sale-scan-miss__title" id="salePriceUpdateAlertTitle">Sales price updated</p>
+        <p class="sale-scan-miss__text" id="salePriceUpdateAlertText"></p>
+        <button type="button" class="sale-scan-miss__ok" id="salePriceUpdateAlertOk">OK</button>
+    </div>
+</div>
 <script>
 (function () {
     const cart = [];
@@ -303,6 +310,46 @@
         return cart.reduce((s, l) => s + (l.quantity * l.unit_price), 0);
     }
 
+    function showPriceUpdateAlert(r) {
+        if (!r || !r.price_updated) return;
+        const isCost = r.alert_type === 'cost';
+        const msg = r.price_update_message
+            || (isCost
+                ? `PO/cost updated: $${Number(r.previous_price || 0).toFixed(2)} → $${Number(r.current_price || 0).toFixed(2)}. Update sales price if needed.`
+                : `Sales price updated: $${Number(r.previous_price || 0).toFixed(2)} → $${Number(r.current_price || 0).toFixed(2)}`);
+        const overlay = document.getElementById('salePriceUpdateAlert');
+        const titleEl = document.getElementById('salePriceUpdateAlertTitle');
+        const textEl = document.getElementById('salePriceUpdateAlertText');
+        const okBtn = document.getElementById('salePriceUpdateAlertOk');
+        if (overlay && titleEl && textEl) {
+            titleEl.textContent = isCost ? 'PO / Cost updated' : 'Sales price updated';
+            textEl.textContent = msg;
+            overlay.hidden = false;
+            overlay.style.display = 'flex';
+            const close = () => {
+                overlay.hidden = true;
+                overlay.style.display = 'none';
+            };
+            if (okBtn) {
+                okBtn.onclick = close;
+            }
+            overlay.onclick = (e) => { if (e.target === overlay) close(); };
+            return;
+        }
+        let el = document.getElementById('salePriceUpdateMsg');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'salePriceUpdateMsg';
+            el.className = 'sale-price-update-msg';
+            el.setAttribute('role', 'status');
+            document.body.appendChild(el);
+        }
+        el.innerHTML = `<strong>${isCost ? 'PO cost updated' : 'Sales price updated'}</strong><span>${escapeHtml(msg)}</span>`;
+        el.hidden = false;
+        clearTimeout(showPriceUpdateAlert._t);
+        showPriceUpdateAlert._t = setTimeout(() => { el.hidden = true; }, 5500);
+    }
+
     function addToCart(r, silent, skipRender) {
         if (!r || !r.variation_id) return;
         const vid = Number(r.variation_id);
@@ -330,7 +377,10 @@
             });
         }
         if (!skipRender) renderCart();
-        if (!silent) showAddedMsg();
+        if (!silent) {
+            showAddedMsg();
+            showPriceUpdateAlert(r);
+        }
     }
 
     function showAddedMsg() {
@@ -700,7 +750,10 @@
                 const a = document.createElement('button');
                 a.type = 'button';
                 a.className = 'product-pick w-full text-left px-3 py-2.5 text-sm border-b border-slate-100';
-                a.innerHTML = `<div class="font-semibold">${r.name}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div>`;
+                const priceNote = r.price_updated
+                    ? `<div class="text-xs font-bold text-amber-700 mt-0.5">${r.alert_type === 'cost' ? 'Cost' : 'Sales'} $${Number(r.previous_price || 0).toFixed(2)} → $${Number(r.current_price || r.price || 0).toFixed(2)}</div>`
+                    : '';
+                a.innerHTML = `<div class="font-semibold">${escapeHtml(r.name)}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div>${priceNote}`;
                 a.onclick = () => {
                     addToCart(r);
                     productSearch.value = '';
@@ -737,7 +790,10 @@
             const a = document.createElement('button');
             a.type = 'button';
             a.className = 'product-pick w-full text-left px-3 py-2.5 text-sm border-b border-slate-100';
-            a.innerHTML = `<div class="font-semibold">${r.name}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div>`;
+            const priceNote = r.price_updated
+                ? `<div class="text-xs font-bold text-amber-700 mt-0.5">${r.alert_type === 'cost' ? 'Cost' : 'Sales'} $${Number(r.previous_price || 0).toFixed(2)} → $${Number(r.current_price || r.price || 0).toFixed(2)}</div>`
+                : '';
+            a.innerHTML = `<div class="font-semibold">${escapeHtml(r.name)}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div>${priceNote}`;
             a.onclick = () => {
                 addToCart(r);
                 productSearch.value = '';
@@ -903,7 +959,10 @@
             b.type = 'button';
             b.className = 'sale-catalog__row sale-catalog__prod';
             const qty = cartQty(r.variation_id);
-            b.innerHTML = `<div class="min-w-0"><div class="font-bold text-sm truncate">${r.name}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div></div><span class="sale-catalog__add">${qty || '+'}</span>`;
+            const priceNote = r.price_updated
+                ? `<div class="text-xs font-bold text-amber-700">${r.alert_type === 'cost' ? 'Cost' : 'Sales'} $${Number(r.previous_price || 0).toFixed(2)} → $${Number(r.current_price || r.price || 0).toFixed(2)}</div>`
+                : '';
+            b.innerHTML = `<div class="min-w-0"><div class="font-bold text-sm truncate">${escapeHtml(r.name)}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div>${priceNote}</div><span class="sale-catalog__add">${qty || '+'}</span>`;
             b.onclick = (e) => {
                 e.preventDefault();
                 e.stopPropagation();

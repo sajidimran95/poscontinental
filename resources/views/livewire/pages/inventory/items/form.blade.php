@@ -7,6 +7,7 @@ use App\Models\InventoryJournalEntry;
 use App\Models\Item;
 use App\Models\ItemBatch;
 use App\Models\ItemPrice;
+use App\Models\ItemPriceHistory;
 use App\Models\ItemSubstitute;
 use App\Models\ItemSupplier;
 use App\Models\ItemType;
@@ -19,6 +20,7 @@ use App\Models\Supplier;
 use App\Models\TaxSchedule;
 use App\Models\UomSchedule;
 use App\Livewire\Concerns\ReturnsToDeskList;
+use App\Services\ItemPriceHistoryService;
 use App\Support\ItemMedia;
 use App\Support\TobaccoItem;
 use Illuminate\Support\Facades\DB;
@@ -326,6 +328,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         if ($item?->exists) {
             $this->formatPricingDisplay();
         }
+
+        $tab = trim((string) request()->query('tab', ''));
+        if ($tab !== '' && array_key_exists($tab, [
+            'general' => true,
+            'inventory' => true,
+            'pricing' => true,
+            'price_history' => true,
+            'extended' => true,
+            'suppliers' => true,
+            'substitutes' => true,
+            'batches' => true,
+            'options' => true,
+        ])) {
+            $this->activeTab = $tab;
+        }
     }
 
     public function updatedActiveTab($value): void
@@ -509,6 +526,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'general' => 'General',
                 'inventory' => 'Inventory',
                 'pricing' => 'Pricing',
+                'price_history' => 'Price History',
                 'extended' => 'Extended Description',
                 'suppliers' => 'Suppliers',
                 'substitutes' => 'Substitutes',
@@ -516,6 +534,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'options' => 'Options & Comments',
             ],
             'availableQty' => (float) $this->quantity_in_stock - (float) $this->allocated_qty,
+            'priceHistories' => ($this->item)
+                ? ItemPriceHistory::query()
+                    ->where('item_id', $this->item->id)
+                    ->with('user:id,name')
+                    ->orderByDesc('id')
+                    ->limit(100)
+                    ->get()
+                : collect(),
             'journalEntries' => ($this->showJournal && $this->item)
                 ? InventoryJournalEntry::query()
                     ->where('company_id', $companyId)
@@ -1199,6 +1225,17 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $this->suggestTobaccoTypeFromClassification();
 
+        // Keep last/average cost in sync when current cost is set but they are still 0
+        $currentCostVal = (float) $amount($this->current_cost);
+        if ($currentCostVal > 0) {
+            if ((float) $amount($this->last_cost) <= 0) {
+                $this->last_cost = $this->formatMoneyTwo($currentCostVal);
+            }
+            if ((float) $amount($this->average_cost) <= 0) {
+                $this->average_cost = $this->formatMoneyTwo($currentCostVal);
+            }
+        }
+
         $data = [
             'company_id' => auth()->user()->company_id,
             'item_code' => $this->item_code,
@@ -1262,6 +1299,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         ];
 
         $wasCreate = ! $this->item?->exists;
+        $oldListPrice = $this->item?->exists ? (float) $this->item->list_price : null;
+        $oldCurrentCost = $this->item?->exists ? (float) $this->item->current_cost : null;
 
         $item = DB::transaction(function () use ($data, $amount) {
             if ($this->item) {
@@ -1359,6 +1398,31 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             return $item;
         });
+
+        if (! $wasCreate && $item) {
+            $history = app(ItemPriceHistoryService::class);
+            $newList = (float) $item->list_price;
+            $newCost = (float) $item->current_cost;
+            $listChanged = $oldListPrice !== null && abs($oldListPrice - $newList) > 0.00005;
+            $costChanged = $oldCurrentCost !== null && abs($oldCurrentCost - $newCost) > 0.00005;
+            if ($listChanged || $costChanged) {
+                $type = ($listChanged && $costChanged)
+                    ? ItemPriceHistory::TYPE_BOTH
+                    : ($listChanged ? ItemPriceHistory::TYPE_SALES : ItemPriceHistory::TYPE_COST);
+                $history->record(
+                    $item,
+                    $type,
+                    ItemPriceHistory::SOURCE_ITEM_EDIT,
+                    $costChanged ? $oldCurrentCost : null,
+                    $costChanged ? $newCost : null,
+                    $listChanged ? $oldListPrice : null,
+                    $listChanged ? $newList : null,
+                    (int) $item->id,
+                    $item->item_code,
+                    'Manual item edit',
+                );
+            }
+        }
 
         session()->flash(
             'status',
@@ -1862,6 +1926,56 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <p class="item-hint">Default U of M comes from Inventory. Add rows per Price Level (e.g. Wholesale) so Sales Orders and Price Lists use the customer’s level.</p>
                 </div>
 
+            </div>
+            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'price_history'])>
+                <div class="inv-card">
+                    <div class="inv-card-title">Cost &amp; sales price history</div>
+                    <p class="item-hint" style="margin-top:0">PO / receive auto-updates Standard, Current, and Last cost (history kept). Sales price stays manual — when cost changes, POS / Sale / Customer apps alert: previous → new cost, and remind you to update List Price.</p>
+                    <div class="desk-grid" style="margin-top:12px">
+                        <table class="desk-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Source</th>
+                                    <th class="desk-money">Cost before</th>
+                                    <th class="desk-money">Cost after</th>
+                                    <th class="desk-money">Sales before</th>
+                                    <th class="desk-money">Sales after</th>
+                                    <th>By</th>
+                                    <th>Note</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($priceHistories as $h)
+                                    <tr>
+                                        <td>{{ optional($h->created_at)->format('M j, Y g:i A') }}</td>
+                                        <td>
+                                            @if ($h->change_type === 'sales_price') Sales price
+                                            @elseif ($h->change_type === 'cost') PO / Cost
+                                            @else Both
+                                            @endif
+                                        </td>
+                                        <td>
+                                            {{ str_replace('_', ' ', $h->source) }}
+                                            @if ($h->reference)
+                                                <span class="text-slate-500">({{ $h->reference }})</span>
+                                            @endif
+                                        </td>
+                                        <td class="desk-money">{{ $h->cost_before !== null ? '$'.number_format((float) $h->cost_before, 2) : '—' }}</td>
+                                        <td class="desk-money">{{ $h->cost_after !== null ? '$'.number_format((float) $h->cost_after, 2) : '—' }}</td>
+                                        <td class="desk-money">{{ $h->list_price_before !== null ? '$'.number_format((float) $h->list_price_before, 2) : '—' }}</td>
+                                        <td class="desk-money">{{ $h->list_price_after !== null ? '$'.number_format((float) $h->list_price_after, 2) : '—' }}</td>
+                                        <td>{{ $h->user?->name ?: '—' }}</td>
+                                        <td class="text-sm text-slate-600">{{ $h->notes ?: '—' }}</td>
+                                    </tr>
+                                @empty
+                                    <tr class="is-empty"><td colspan="9">No price/cost history yet. Save a PO with a new unit cost, receive stock, or change List Price to start logging.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
             <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'extended'])>
                 <div class="inv-top-grid item-tab-grid">

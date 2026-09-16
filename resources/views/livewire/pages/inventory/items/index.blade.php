@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\Department;
 use App\Models\InventoryJournalEntry;
 use App\Models\Item;
+use App\Models\ItemPriceHistory;
 use App\Models\PurchaseOrderLine;
 use App\Models\SalesOrderLine;
 use App\Models\Site;
@@ -101,6 +102,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public string $adjustMessage = '';
 
     public string $adjustError = '';
+
+    /** Cost & sales price history modal (rail) */
+    public bool $showPriceHistory = false;
+
+    public ?int $priceHistoryItemId = null;
 
     public function with(): array
     {
@@ -242,6 +248,22 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $visibleKeys = $this->normalizedVisibleColumns();
         $scroll = $this->scrollDeskList($query);
 
+        $priceHistoryItem = null;
+        $priceHistoryRows = collect();
+        if ($this->showPriceHistory && $this->priceHistoryItemId) {
+            $priceHistoryItem = Item::query()
+                ->where('company_id', $companyId)
+                ->find($this->priceHistoryItemId);
+            if ($priceHistoryItem) {
+                $priceHistoryRows = ItemPriceHistory::query()
+                    ->where('item_id', $priceHistoryItem->id)
+                    ->with('user:id,name')
+                    ->orderByDesc('id')
+                    ->limit(100)
+                    ->get();
+            }
+        }
+
         return [
             'items' => $scroll['rows'],
             'listHasMore' => $scroll['hasMore'],
@@ -265,6 +287,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'itemColumnCatalog' => $catalog,
             'visibleColumnKeys' => $visibleKeys,
             'columnColspan' => count($visibleKeys) + 1,
+            'priceHistoryItem' => $priceHistoryItem,
+            'priceHistoryRows' => $priceHistoryRows,
         ];
     }
 
@@ -900,6 +924,36 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->adjustError = '';
     }
 
+    public function openPriceHistory(?int $itemId = null): void
+    {
+        $id = $itemId ?: $this->selectedId;
+        if (! $id) {
+            session()->flash('status', 'Select an item first.');
+
+            return;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if (! $item) {
+            session()->flash('status', 'Item not found.');
+
+            return;
+        }
+
+        $this->priceHistoryItemId = (int) $item->id;
+        $this->selectedId = (int) $item->id;
+        $this->showPriceHistory = true;
+    }
+
+    public function closePriceHistory(): void
+    {
+        $this->showPriceHistory = false;
+        $this->priceHistoryItemId = null;
+    }
+
     public function saveStockAdjust(): void
     {
         if (! auth()->user()?->canAccessFeature('inventory.items', 'edit')) {
@@ -973,8 +1027,15 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->adjustMessage = 'Stock updated to '.number_format((float) $item->quantity_in_stock, 2).'. Saved in inventory journal.';
     }
 
-    public function openItem(int $id): mixed
+    public function openItem(?int $id = null): mixed
     {
+        $id = $id ?: $this->selectedId;
+        if (! $id) {
+            session()->flash('status', 'Select an item first.');
+
+            return null;
+        }
+
         $item = Item::query()
             ->where('company_id', auth()->user()->company_id)
             ->find($id);
@@ -1523,6 +1584,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             <x-slot:menu>
                 <x-action-item label="Add New Item" kbd="Ctrl+N" wire:click="createNewItem" />
                 <x-action-item label="View/Edit Selected Item" kbd="Ctrl+E" sep wire:click="editSelected" />
+                <x-action-item label="Cost & Sales Price History" sep wire:click="openPriceHistory" />
                 <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Group Update" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Export to Excel" sep wire:click="exportItemsToExcel" />
@@ -1669,18 +1731,20 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         </thead>
                         <tbody>
                             @forelse ($items as $item)
+                                @php $itemId = (int) $item->id; @endphp
                                 <tr
-                                    wire:click="selectRow({{ $item->id }})"
-                                    wire:dblclick="openItem({{ $item->id }})"
-                                    @class(['is-selected' => $selectedId === $item->id, 'cursor-pointer'])
+                                    wire:key="item-row-{{ $itemId }}"
+                                    x-on:click="$wire.selectedId = {{ $itemId }}; $wire.selectRow({{ $itemId }})"
+                                    wire:dblclick="openItem({{ $itemId }})"
+                                    class="cursor-pointer"
+                                    :class="{ 'is-selected': Number($wire.selectedId) === {{ $itemId }} }"
                                 >
-                                    <td class="text-center" data-excel-skip wire:click.stop>
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $itemId }}; $wire.selectRow({{ $itemId }})">
                                         <input
                                             type="radio"
                                             name="item_select"
-                                            value="{{ $item->id }}"
-                                            @checked($selectedId === $item->id)
-                                            wire:click="selectRow({{ $item->id }})"
+                                            value="{{ $itemId }}"
+                                            :checked="Number($wire.selectedId) === {{ $itemId }}"
                                             aria-label="Select item {{ $item->item_code }}"
                                         />
                                     </td>
@@ -1803,15 +1867,33 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         <path d="M5.2 7h3.6M7 5.2v3.6" stroke-width="1.3"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="openItem({{ $selectedId ?: 0 }})" class="desk-rail-btn" title="View selected" aria-label="View selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="openItem" class="desk-rail-btn" title="View selected" aria-label="View selected" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" @disabled(! $selectedId)>
+                <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit selected" aria-label="Edit selected" :disabled="! $wire.selectedId">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    wire:click="openPriceHistory"
+                    class="desk-rail-btn"
+                    title="Cost &amp; sales price history"
+                    aria-label="Item price history"
+                    :disabled="! $wire.selectedId"
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                        <path d="M2.5 12.5h11"/>
+                        <path d="M4 10.5l2.2-3.2 2 2.4 2.3-4.2 1.5 2.5"/>
+                        <circle cx="4" cy="10.5" r="0.9" fill="currentColor" stroke="none"/>
+                        <circle cx="6.2" cy="7.3" r="0.9" fill="currentColor" stroke="none"/>
+                        <circle cx="8.2" cy="9.7" r="0.9" fill="currentColor" stroke="none"/>
+                        <circle cx="10.5" cy="5.5" r="0.9" fill="currentColor" stroke="none"/>
+                        <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/>
                     </svg>
                 </button>
                 <button
@@ -1820,7 +1902,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     class="desk-rail-btn"
                     title="Stock adjust selected item"
                     aria-label="Stock adjust"
-                    @disabled(! $selectedId)
+                    :disabled="! $wire.selectedId"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M2.5 12.5h11"/>
@@ -1848,7 +1930,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="Delete selected"
                     aria-label="Delete selected"
-                    @disabled(! $selectedId)
+                    :disabled="! $wire.selectedId"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
@@ -2595,6 +2677,129 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             </div>
                         @endif
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
+
+@if ($showPriceHistory && $priceHistoryItem)
+    <style>
+        .iph-modal {
+            max-width: 36rem;
+            width: min(36rem, 94vw);
+        }
+        .iph-modal .desk-modal-body {
+            padding: 0.75rem 0.85rem 0.9rem;
+        }
+        .iph-scroll {
+            overflow: auto;
+            max-height: min(52vh, 28rem);
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+        }
+        .iph-scroll .desk-table {
+            font-size: 12px;
+            min-width: 34rem;
+        }
+        .iph-scroll .desk-table th,
+        .iph-scroll .desk-table td {
+            padding: 0.35rem 0.45rem;
+            white-space: nowrap;
+        }
+        .iph-scroll .desk-table td:last-child {
+            white-space: normal;
+            min-width: 7rem;
+            max-width: 11rem;
+        }
+        .iph-meta {
+            margin-bottom: 0.65rem;
+            font-size: 13px;
+            line-height: 1.35;
+        }
+        .iph-meta .iph-costs {
+            margin-top: 0.3rem;
+            font-size: 12px;
+            color: #64748b;
+        }
+    </style>
+    <div class="desk-modal-backdrop" wire:click.self="closePriceHistory" role="dialog" aria-modal="true" aria-labelledby="iph-title">
+        <div class="desk-modal iph-modal" wire:keydown.escape.window="closePriceHistory">
+            <div class="desk-modal-head">
+                <span id="iph-title">Cost &amp; sales price history — {{ $priceHistoryItem->item_code }}</span>
+                <button type="button" wire:click="closePriceHistory" class="desk-modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="desk-modal-body">
+                <div class="iph-meta">
+                    <div><strong>{{ $priceHistoryItem->item_code }}</strong></div>
+                    <div>{{ $priceHistoryItem->description }}</div>
+                    <div class="iph-costs">
+                        Current ${{ number_format((float) $priceHistoryItem->current_cost, 2) }}
+                        · List ${{ number_format((float) $priceHistoryItem->list_price, 2) }}
+                        · Standard ${{ number_format((float) $priceHistoryItem->standard_cost, 2) }}
+                    </div>
+                </div>
+                <div class="iph-scroll">
+                    <table class="desk-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Source</th>
+                                <th class="desk-money">Cost</th>
+                                <th class="desk-money">Sales</th>
+                                <th>By</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($priceHistoryRows as $h)
+                                <tr>
+                                    <td>{{ optional($h->created_at)->format('n/j/y g:ia') }}</td>
+                                    <td>
+                                        @if ($h->change_type === 'sales_price') Sales
+                                        @elseif ($h->change_type === 'cost') Cost
+                                        @else Both
+                                        @endif
+                                    </td>
+                                    <td title="{{ $h->notes }}">
+                                        {{ str_replace('_', ' ', $h->source) }}
+                                        @if ($h->reference)
+                                            <span style="color:#64748b">({{ $h->reference }})</span>
+                                        @endif
+                                    </td>
+                                    <td class="desk-money">
+                                        @if ($h->cost_before !== null || $h->cost_after !== null)
+                                            {{ $h->cost_before !== null ? '$'.number_format((float) $h->cost_before, 2) : '—' }}
+                                            →
+                                            {{ $h->cost_after !== null ? '$'.number_format((float) $h->cost_after, 2) : '—' }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td class="desk-money">
+                                        @if ($h->list_price_before !== null || $h->list_price_after !== null)
+                                            {{ $h->list_price_before !== null ? '$'.number_format((float) $h->list_price_before, 2) : '—' }}
+                                            →
+                                            {{ $h->list_price_after !== null ? '$'.number_format((float) $h->list_price_after, 2) : '—' }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td>{{ $h->user?->name ?: '—' }}</td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty"><td colspan="6">No price/cost history yet.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="isa-actions" style="margin-top:0.85rem">
+                    <a
+                        href="{{ route('inventory.items.edit', ['item' => $priceHistoryItem, 'tab' => 'price_history']) }}"
+                        wire:navigate
+                        class="desk-btn desk-btn-primary"
+                    >Open on item</a>
+                    <button type="button" class="desk-btn" wire:click="closePriceHistory">Close</button>
                 </div>
             </div>
         </div>

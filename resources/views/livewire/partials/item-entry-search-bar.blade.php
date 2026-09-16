@@ -157,7 +157,12 @@
             <button type="button" class="so-entry-hit" wire:click="pickEntryHit({{ (int) $hit['id'] }})" wire:key="entry-hit-{{ $hit['id'] }}" style="display:flex;align-items:baseline;gap:.6rem;width:100%;padding:.42rem .7rem;text-align:left;border:0;border-bottom:1px solid #eef2f6;background:#fff;cursor:pointer;font-size:13px">
                 <span class="so-entry-hit-code" style="flex:0 0 6.5rem;font-family:ui-monospace,monospace;font-weight:700">{{ $hit['item_code'] }}</span>
                 <span class="so-entry-hit-desc" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155">{{ $hit['description'] }}</span>
-                <span class="so-entry-hit-price" style="font-weight:600">${{ $hit['price'] }}</span>
+                <span class="so-entry-hit-price" style="font-weight:600;text-align:right">
+                    ${{ $hit['price'] }}
+                    @if (! empty($hit['price_updated']))
+                        <span style="display:block;font-size:11px;font-weight:800;color:#b45309">{{ ($hit['alert_type'] ?? '') === 'cost' ? 'Cost' : 'Sales' }} ${{ number_format((float) ($hit['previous_price'] ?? 0), 2) }} → ${{ number_format((float) ($hit['current_price'] ?? $hit['price']), 2) }}</span>
+                    @endif
+                </span>
             </button>
         @endforeach
     </div>

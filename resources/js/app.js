@@ -56,34 +56,56 @@ function initDeskFastSelect() {
         });
     };
 
+    const selectRowIdFromEl = (el) => {
+        if (! el || ! el.getAttribute) {
+            return null;
+        }
+        const wireCall = methodCall(el.getAttribute('wire:click'));
+        if (wireCall && wireCall.method === 'selectRow') {
+            return wireCall.id;
+        }
+        const alpine = String(el.getAttribute('x-on:click') || el.getAttribute('@click') || '');
+        const m = alpine.match(/selectRow\s*\(\s*(\d+)\s*\)/);
+        if (m) {
+            return parseInt(m[1], 10);
+        }
+
+        return null;
+    };
+
     document.addEventListener('click', function (e) {
-        const hit = e.target.closest('[wire\\:click*="selectRow("]');
-        if (! hit) {
+        const row = e.target.closest('tr, .desk-list-card');
+        if (! row) {
             return;
         }
-        if (e.target.closest('a, button, input, select, textarea, label')) {
+        const id = selectRowIdFromEl(row);
+        if (! id) {
             return;
         }
-        const row = hit.closest('tr, .desk-list-card') || hit;
         if (row.querySelector && row.querySelector('input[type="checkbox"]')) {
             return;
         }
-        const call = methodCall(hit.getAttribute('wire:click'));
-        if (! call || call.method !== 'selectRow') {
+        // Allow radio + description expand; block other controls (links, toggle pills, etc.)
+        if (e.target.closest('a, select, textarea, label')) {
             return;
         }
-        // Second click of a double-click: block selectRow (skip-render) but do not
-        // preventDefault — that would cancel the dblclick event in the browser.
+        const btn = e.target.closest('button');
+        if (btn && ! btn.hasAttribute('data-desc-expand') && ! btn.hasAttribute('data-browse-desc')) {
+            return;
+        }
+        const input = e.target.closest('input');
+        if (input && input.type !== 'radio') {
+            return;
+        }
         if (e.detail > 1) {
             e.stopImmediatePropagation();
             return;
         }
         paintSelected(row);
-        const wire = posWireFromEl(hit);
+        const wire = posWireFromEl(row);
         if (wire && typeof wire.set === 'function') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            wire.set('selectedId', call.id, false);
+            // Keep Alpine/Livewire handlers; only sync id without full re-render.
+            wire.set('selectedId', id, false);
         }
     }, true);
 
@@ -97,12 +119,10 @@ function initDeskFastSelect() {
             return;
         }
         const row = hit.closest('tr, .desk-list-card') || hit;
-        const clickAttr = String(hit.getAttribute('wire:click') || '')
-            + ' '
-            + String((row.getAttribute && row.getAttribute('wire:click')) || '');
+        const id = selectRowIdFromEl(row) || call.id;
         const isDeskList = (row.classList && row.classList.contains('desk-list-card'))
-            || clickAttr.indexOf('selectRow(') !== -1
-            || (row.closest && row.closest('.desk-list-cards, .desk-scroll-grid'));
+            || selectRowIdFromEl(row) !== null
+            || (row.closest && row.closest('.desk-list-cards, .desk-scroll-grid, .desk-grid'));
         if (! isDeskList) {
             return;
         }
@@ -114,7 +134,7 @@ function initDeskFastSelect() {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (typeof wire.set === 'function') {
-            wire.set('selectedId', call.id, false);
+            wire.set('selectedId', id, false);
         }
         wire.call(call.method, call.id);
     }, true);
@@ -834,7 +854,6 @@ function initExcelGrid() {
         const browseBtn = e.target.closest('[data-browse-desc]');
         if (browseBtn) {
             e.preventDefault();
-            e.stopPropagation();
             const id = Number(browseBtn.getAttribute('data-browse-desc'));
             const map = window.__browseDescExpanded || {};
             map[id] = ! map[id];
@@ -847,7 +866,7 @@ function initExcelGrid() {
             return;
         }
         e.preventDefault();
-        e.stopPropagation();
+        // Do not stopPropagation — item list row click must still select (same as SO/invoice).
         const key = btn.getAttribute('data-desc-expand');
         const listMap = window.__itemListDescExpanded || {};
         listMap[key] = ! listMap[key];

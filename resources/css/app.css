@@ -6901,44 +6901,125 @@
     .po-lines-table {
         table-layout: fixed;
         width: 100%;
+        border-collapse: collapse;
     }
 
-    .po-lines-table col.col-code,
+    .po-lines-table col.col-code { width: 8%; }
+    .po-lines-table col.col-desc { width: 26%; }
+    .po-lines-table col.col-uom { width: 6%; }
+    .po-lines-table col.col-price { width: 8%; }
+    .po-lines-table col.col-qty-ord { width: 12%; }
+    .po-lines-table col.col-qty-rcv { width: 10%; }
+    .po-lines-table col.col-cost { width: 10%; }
+    .po-lines-table col.col-ext { width: 12%; }
+    .po-lines-table col.col-action { width: 4%; }
+
     .po-lines-table th.col-code,
-    .po-lines-table td.col-code { width: 7.25rem; min-width: 0; }
-
-    .po-lines-table col.col-desc,
+    .po-lines-table td.col-code,
     .po-lines-table th.col-desc,
-    .po-lines-table td.col-desc { width: auto; min-width: 0; max-width: none; }
-
-    .po-lines-table col.col-uom,
+    .po-lines-table td.col-desc,
     .po-lines-table th.col-uom,
-    .po-lines-table td.col-uom { width: 4.25rem; min-width: 0; }
-
-    .po-lines-table col.col-price,
+    .po-lines-table td.col-uom,
     .po-lines-table th.col-price,
-    .po-lines-table td.col-price { width: 5.75rem; min-width: 0; }
-
-    .po-lines-table col.col-qty-ord,
+    .po-lines-table td.col-price,
     .po-lines-table th.col-qty-ord,
-    .po-lines-table td.col-qty-ord { width: 7.75rem; min-width: 0; }
-
-    .po-lines-table col.col-qty-rcv,
+    .po-lines-table td.col-qty-ord,
     .po-lines-table th.col-qty-rcv,
-    .po-lines-table td.col-qty-rcv { width: 6.5rem; min-width: 0; }
-
-    .po-lines-table col.col-cost,
+    .po-lines-table td.col-qty-rcv,
     .po-lines-table th.col-cost,
-    .po-lines-table td.col-cost { width: 6.5rem; min-width: 0; }
-
-    .po-lines-table col.col-ext,
+    .po-lines-table td.col-cost,
     .po-lines-table th.col-ext,
-    .po-lines-table td.col-ext { width: 7.25rem; min-width: 0; }
+    .po-lines-table td.col-ext {
+        width: auto;
+        min-width: 0;
+        max-width: none;
+    }
 
-    .po-lines-table th,
-    .po-lines-table td {
-        overflow: hidden;
+    .po-lines-table thead th {
+        vertical-align: middle;
+        padding: 0.45rem 0.4rem;
         box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 1.2;
+    }
+
+    .po-lines-table tbody td {
+        vertical-align: middle;
+        padding: 0.28rem 0.4rem;
+        box-sizing: border-box;
+        overflow: hidden;
+        line-height: 1.2;
+    }
+
+    .po-lines-table th.col-code,
+    .po-lines-table td.col-code,
+    .po-lines-table th.col-desc,
+    .po-lines-table td.col-desc {
+        text-align: left !important;
+    }
+
+    .po-lines-table th.col-uom,
+    .po-lines-table td.col-uom {
+        text-align: center !important;
+    }
+
+    .po-lines-table th.col-price,
+    .po-lines-table td.col-price,
+    .po-lines-table th.col-qty-ord,
+    .po-lines-table td.col-qty-ord,
+    .po-lines-table th.col-qty-rcv,
+    .po-lines-table td.col-qty-rcv,
+    .po-lines-table th.col-cost,
+    .po-lines-table td.col-cost,
+    .po-lines-table th.col-ext,
+    .po-lines-table td.col-ext {
+        text-align: right !important;
+    }
+
+    .po-lines-table th.col-action,
+    .po-lines-table td.col-action {
+        text-align: center !important;
+        width: auto;
+        min-width: 0;
+        padding-left: 0.2rem;
+        padding-right: 0.35rem;
+        overflow: visible;
+    }
+
+    .po-lines-table .so-line-remove-btn {
+        margin: 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.7rem;
+        height: 1.7rem;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+    .po-lines-table .so-line-remove-btn:hover {
+        background: rgba(185, 28, 28, 0.12);
+    }
+
+    .po-lines-table tbody tr.is-selected .so-line-remove-btn {
+        background: rgba(255, 255, 255, 0.18);
+    }
+
+    .po-lines-table .so-line-remove-btn svg {
+        width: 12px;
+        height: 12px;
+    }
+
+    .po-lines-table td.col-code,
+    .po-lines-table td.col-price,
+    .po-lines-table td.col-ext {
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
     }
 
     .po-lines-table td.col-qty-ord {
@@ -6947,34 +7028,74 @@
     }
 
     .po-lines-table .po-line-desc-input,
-    .po-lines-table td:nth-child(2) .item-cell-ctl {
-        width: 100% !important;
-        max-width: none !important;
-        min-width: 0 !important;
-    }
-
-    .po-lines-table .item-cell-qty,
-    .po-lines-table td .so-input {
+    .po-lines-table td.col-desc .item-cell-ctl,
+    .po-lines-table td.col-desc .so-input {
         width: 100% !important;
         max-width: 100% !important;
         min-width: 0 !important;
-        margin: 0;
         display: block;
+        margin: 0;
         box-sizing: border-box;
     }
 
+    .po-lines-table td.col-uom .so-input,
+    .po-lines-table td.col-uom select.item-cell-ctl {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 auto !important;
+        display: block;
+        box-sizing: border-box;
+        text-align: center;
+    }
+
+    .po-lines-table .item-cell-qty,
+    .po-lines-table td.col-qty-rcv .so-input,
+    .po-lines-table td.col-cost .so-input {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 0 0 auto !important;
+        display: block;
+        box-sizing: border-box;
+        text-align: right;
+    }
+
     .po-lines-table .so-qty-stepper {
+        display: inline-flex;
+        align-items: center;
         justify-content: flex-end;
-        min-width: 0;
         width: 100%;
+        max-width: 100%;
+        min-width: 0;
         gap: 0.12rem;
+        box-sizing: border-box;
     }
 
     .po-lines-table .so-qty-stepper .so-cell-input {
-        width: 3.25rem;
-        min-width: 0;
+        width: 2.75rem !important;
+        min-width: 0 !important;
+        max-width: 3.25rem !important;
         flex: 1 1 auto;
-        max-width: 4.25rem;
+        box-sizing: border-box;
+        text-align: right;
+    }
+
+    .po-lines-table .so-qty-btn {
+        width: 1.35rem;
+        height: 1.5rem;
+        flex: 0 0 auto;
+    }
+
+    .po-lines-table tbody tr.is-selected td {
+        background: #2563eb;
+        color: #fff;
+    }
+
+    .po-lines-table tbody tr.is-selected .so-input,
+    .po-lines-table tbody tr.is-selected .so-cell-input,
+    .po-lines-table tbody tr.is-selected select {
+        color: #0f172a;
     }
 
     .po-line-code-cell {

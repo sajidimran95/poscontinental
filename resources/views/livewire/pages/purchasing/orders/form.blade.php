@@ -13,6 +13,7 @@ use App\Models\Subcategory;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\ItemPriceHistoryService;
 use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\DB;
@@ -129,7 +130,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             abort_unless($purchaseOrder->company_id === $companyId, 403);
 
             $this->viewMode = request()->routeIs('purchasing.orders.show');
-            $this->purchaseOrder = $purchaseOrder->load('lines');
+            $this->purchaseOrder = $purchaseOrder->load(['lines.item:id,list_price']);
             $this->po_number = (string) ($purchaseOrder->po_number ?? '');
             $this->order_type = (string) ($purchaseOrder->order_type ?: 'Standard');
             $this->reference_no = (string) ($purchaseOrder->reference_no ?? '');
@@ -147,16 +148,24 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->tax = $this->blankZeroAmount($purchaseOrder->tax);
             $this->requisition_date = optional($purchaseOrder->requisition_date)?->format('Y-m-d') ?? '';
             $this->required_date = optional($purchaseOrder->required_date)?->format('Y-m-d') ?? '';
-            $this->lines = $purchaseOrder->lines->map(fn ($l) => [
-                'item_id' => $l->item_id,
-                'item_code' => $l->item_code ?? '',
-                'description' => $l->description ?? '',
-                'uom' => $l->uom ?? '',
-                'qty_ordered' => $this->formatQty($l->qty_ordered),
-                'qty_received' => $this->formatQty($l->qty_received),
-                'unit_cost' => $this->formatTwoDecimals($l->unit_cost),
-                'list_price' => $this->formatTwoDecimals($l->unit_cost),
-            ])->all();
+            $this->lines = $purchaseOrder->lines->map(function ($l) {
+                $listPrice = $l->item?->list_price;
+                if ($listPrice === null || (float) $listPrice == 0.0) {
+                    // Fallback only when item has no list price yet
+                    $listPrice = $l->unit_cost;
+                }
+
+                return [
+                    'item_id' => $l->item_id,
+                    'item_code' => $l->item_code ?? '',
+                    'description' => $l->description ?? '',
+                    'uom' => $l->uom ?? '',
+                    'qty_ordered' => $this->formatQty($l->qty_ordered),
+                    'qty_received' => $this->formatQty($l->qty_received),
+                    'unit_cost' => $this->formatTwoDecimals($l->unit_cost),
+                    'list_price' => $this->formatTwoDecimals($listPrice),
+                ];
+            })->all();
         } else {
             $this->viewMode = false;
             $this->po_number = PurchaseOrder::nextNumber($companyId);
@@ -727,14 +736,14 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $mapped = $rows->map(function ($row) use ($newSince) {
             $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
-            $cost = $row->current_cost ?: $row->standard_cost ?: $row->list_price;
 
             return [
                 'id' => (int) $row->id,
                 'item_code' => (string) $row->item_code,
                 'description' => $row->description,
                 'unit_of_measure' => $row->unit_of_measure,
-                'list_price' => $cost,
+                'list_price' => $row->list_price,
+                'current_cost' => $row->current_cost ?: $row->standard_cost,
                 'on_hand' => (float) $row->quantity_in_stock,
                 'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
                 'is_new' => $created !== null && $created->gte($newSince),
@@ -801,6 +810,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public function removeLine(int $index): void
     {
+        abort_if($this->viewMode, 403);
+
         unset($this->lines[$index]);
         $this->lines = array_values($this->lines);
         if ($this->selectedLineIndex === $index) {
@@ -895,6 +906,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $item = $this->findPurchaseItem($code);
         if (! $item) {
+            return;
+        }
+
+        // Still typing a longer code (8117… while 8117PL exists) — wait for full entry.
+        if ($this->codeIsPrefixOfLongerOrderableCode($code)) {
             return;
         }
 
@@ -1127,7 +1143,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ->orderByDesc('is_default')
             ->first();
 
-        $cost = $supplierCost?->last_cost ?: $item->current_cost ?: $item->standard_cost;
+        $cost = $item->current_cost ?: $item->last_cost ?: $supplierCost?->last_cost ?: $item->standard_cost;
 
         $lines = array_values($this->lines);
         if (! isset($lines[$index])) {
@@ -1141,7 +1157,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             ? (string) $item->unit_of_measure
             : 'EA';
         $lines[$index]['unit_cost'] = $this->formatTwoDecimals($cost !== null && $cost !== '' ? $cost : 0);
-        $lines[$index]['list_price'] = $this->formatTwoDecimals($item->list_price ?? $cost ?? 0);
+        $lines[$index]['list_price'] = $this->formatTwoDecimals($item->list_price ?? 0);
         if (! filled($lines[$index]['qty_ordered'] ?? null) || (float) $lines[$index]['qty_ordered'] <= 0) {
             $lines[$index]['qty_ordered'] = $this->formatQty(1);
         }
@@ -1361,7 +1377,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $po = null;
-        DB::transaction(function () use ($data, &$po) {
+        $costUpdatedCount = 0;
+        DB::transaction(function () use ($data, &$po, &$costUpdatedCount) {
             if ($this->purchaseOrder) {
                 $this->purchaseOrder->update($data);
                 $po = $this->purchaseOrder->fresh();
@@ -1369,6 +1386,9 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             } else {
                 $po = PurchaseOrder::query()->create($data);
             }
+
+            $history = app(ItemPriceHistoryService::class);
+            $supplierId = (int) ($data['supplier_id'] ?? 0);
 
             foreach (array_values($this->lines) as $i => $line) {
                 if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
@@ -1392,6 +1412,20 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                     Item::query()->where('id', $line['item_id'])->update([
                         'last_ordered_at' => $data['requisition_date'] ?? now()->toDateString(),
                     ]);
+
+                    // PO cost ↑/↓ updates item current/last cost; sales price stays manual.
+                    if ($qty > 0) {
+                        $item = Item::query()->lockForUpdate()->find((int) $line['item_id']);
+                        if ($item && $history->applyPoUnitCost(
+                            $item,
+                            $cost,
+                            (int) $po->id,
+                            (string) $po->po_number,
+                            $supplierId > 0 ? $supplierId : null
+                        )) {
+                            $costUpdatedCount++;
+                        }
+                    }
                 }
             }
         });
@@ -1400,7 +1434,14 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $itemIds = array_values(array_unique(array_merge($itemIds, $previousPoItemIds)));
         app(InventoryService::class)->syncOnOrderQty($itemIds);
 
-        session()->flash('status', 'Purchase order saved.');
+        if ($costUpdatedCount > 0) {
+            session()->flash(
+                'status',
+                "Purchase order saved. Updated PO cost on {$costUpdatedCount} item(s). Update sales price manually on those items if needed."
+            );
+        } else {
+            session()->flash('status', 'Purchase order saved.');
+        }
 
         return $this->returnToDeskList('purchasing.orders.index');
     }
@@ -1683,17 +1724,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 <col class="col-qty-rcv" />
                                 <col class="col-cost" />
                                 <col class="col-ext" />
+                                <col class="col-action" />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th class="col-code">Item Code</th>
                                     <th class="col-desc">Description</th>
-                                    <th class="col-uom text-center">U of M</th>
-                                    <th class="col-price text-center">Price</th>
-                                    <th class="col-qty-ord text-center">Qty Ordered</th>
-                                    <th class="col-qty-rcv text-center">Qty Received</th>
-                                    <th class="col-cost text-center">Cost</th>
-                                    <th class="col-ext text-center">Extended Cost</th>
+                                    <th class="col-uom">U of M</th>
+                                    <th class="col-price">Price</th>
+                                    <th class="col-qty-ord">Qty Ordered</th>
+                                    <th class="col-qty-rcv">Qty Received</th>
+                                    <th class="col-cost">Cost</th>
+                                    <th class="col-ext">Extended Cost</th>
+                                    <th class="col-action" aria-label="Remove"></th>
                                 </tr>
                             </thead>
                             <tbody wire:key="po-lines-body-{{ $linesSig }}">
@@ -1719,22 +1762,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     @disabled($viewMode)
                                                 />
                                             </td>
-                                            <td class="col-uom text-center">
+                                            <td class="col-uom">
                                                 @if ($viewMode)
                                                     <span class="font-mono">{{ $line['uom'] ?: '—' }}</span>
                                                 @else
                                                     @php $uomOpts = $this->uomOptionsForLine($i); @endphp
                                                     @if (count($uomOpts) <= 1)
                                                         {{-- Item standard UOM only — show, no manual typing --}}
-                                                        <span class="font-mono" style="display:inline-block;min-width:2.5rem">
-                                                            {{ $line['uom'] ?: ($uomOpts[0] ?? 'EA') }}
-                                                        </span>
+                                                        <span class="font-mono">{{ $line['uom'] ?: ($uomOpts[0] ?? 'EA') }}</span>
                                                     @else
                                                         {{-- Item has multiple UOMs — select among item standards only --}}
                                                         <select
                                                             wire:model="lines.{{ $i }}.uom"
                                                             class="so-input text-center item-cell-ctl"
-                                                            style="max-width:5.5rem;margin:0 auto"
                                                             aria-label="Unit of measure line {{ $i + 1 }}"
                                                         >
                                                             @foreach ($uomOpts as $uomOpt)
@@ -1747,7 +1787,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             <td class="col-price desk-money">
                                                 {{ (float) ($line['list_price'] ?? $line['unit_cost'] ?? 0) != 0.0 ? number_format((float) ($line['list_price'] ?? $line['unit_cost'] ?? 0), 2) : '' }}
                                             </td>
-                                            <td class="col-qty-ord text-center">
+                                            <td class="col-qty-ord">
                                                 @php $qty = (float) ($line['qty_ordered'] ?? 0); @endphp
                                                 @if ($selectedLineIndex === $i && ! $viewMode)
                                                     <div class="so-qty-stepper" wire:click.stop>
@@ -1768,10 +1808,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                         <button type="button" class="so-qty-btn" wire:click="adjustLineQty({{ $i }}, 1)" aria-label="Increase qty">+</button>
                                                     </div>
                                                 @else
-                                                    {{ $qty != 0.0 ? $this->formatQty($qty) : '' }}
+                                                    <span class="desk-num">{{ $qty != 0.0 ? $this->formatQty($qty) : '' }}</span>
                                                 @endif
                                             </td>
-                                            <td class="col-qty-rcv text-center">
+                                            <td class="col-qty-rcv">
                                                 <input
                                                     wire:model="lines.{{ $i }}.qty_received"
                                                     class="so-input text-right item-cell-qty so-input-ro"
@@ -1779,7 +1819,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                                     placeholder="0"
                                                 />
                                             </td>
-                                            <td class="col-cost text-center">
+                                            <td class="col-cost">
                                                 <input
                                                     wire:model.blur="lines.{{ $i }}.unit_cost"
                                                     wire:click.stop
@@ -1790,6 +1830,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             </td>
                                             <td class="col-ext desk-money">
                                                 ${{ number_format((float) ($line['qty_ordered'] ?? 0) * (float) ($line['unit_cost'] ?? 0), 2) }}
+                                            </td>
+                                            <td class="col-action">
+                                                @unless ($viewMode)
+                                                    <button
+                                                        type="button"
+                                                        wire:click.stop="removeLine({{ $i }})"
+                                                        class="so-icon-btn so-icon-btn-sm so-line-remove-btn"
+                                                        title="Remove item"
+                                                        aria-label="Remove item {{ $line['item_code'] }}"
+                                                    >
+                                                        <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                                    </button>
+                                                @endunless
                                             </td>
                                         </tr>
                                     @endif

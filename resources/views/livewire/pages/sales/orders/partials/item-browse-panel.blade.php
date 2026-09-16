@@ -838,7 +838,15 @@
                                             <span class="item-desc-text">{{ $bi['description'] }}</span>
                                         </td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>
-                                        <td class="is-num">${{ number_format((float) $bi['list_price'], 2) }}</td>
+                                        <td class="is-num">
+                                            ${{ number_format((float) $bi['list_price'], 2) }}
+                                            @if (! empty($bi['price_updated']))
+                                                <div class="text-xs font-bold" style="color:#b45309;line-height:1.2;margin-top:2px">
+                                                    {{ ($bi['alert_type'] ?? '') === 'cost' ? 'Cost' : 'Sales' }}
+                                                    ${{ number_format((float) ($bi['previous_price'] ?? 0), 2) }} → ${{ number_format((float) ($bi['current_price'] ?? $bi['list_price']), 2) }}
+                                                </div>
+                                            @endif
+                                        </td>
                                         <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
                                         <td class="is-num">{{ number_format((float) ($bi['on_hand'] ?? $avail), 0) }}</td>
                                     </tr>

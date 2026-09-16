@@ -44,6 +44,7 @@ class InventoryService
                 $cost = (float) $line->unit_cost;
                 $oldQty = (float) $item->quantity_in_stock;
                 $oldAvg = (float) $item->average_cost;
+                $oldCost = (float) ($item->current_cost ?: $item->standard_cost);
                 $newQty = $oldQty + $qty;
                 // Recovering from oversell (-10) + purchase 100 → 90; cost weights only positive landings.
                 if ($oldQty <= 0) {
@@ -58,9 +59,20 @@ class InventoryService
                     'quantity_in_stock' => $newQty,
                     'current_cost' => $cost,
                     'last_cost' => $cost,
+                    'standard_cost' => $cost,
                     'average_cost' => round($newAvg, 4),
                     'last_received_at' => $receiving->receipt_date ?? now()->toDateString(),
                 ]);
+
+                if (abs($oldCost - $cost) > 0.00005) {
+                    app(\App\Services\ItemPriceHistoryService::class)->recordReceivingCostChange(
+                        $item->fresh(),
+                        $oldCost,
+                        $cost,
+                        (int) $receiving->id,
+                        $receiving->receipt_number
+                    );
+                }
 
                 InventoryJournalEntry::query()->create([
                     'company_id' => $receiving->company_id,

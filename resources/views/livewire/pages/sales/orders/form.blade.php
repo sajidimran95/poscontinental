@@ -15,6 +15,7 @@ use App\Models\Subcategory;
 use App\Models\TaxSchedule;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\ItemPriceHistoryService;
 use App\Services\ParkedSaleService;
 use App\Services\SalesOrderWindowManager;
 use App\Support\ExcelCsv;
@@ -351,6 +352,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public bool $showPriceBelowLimitModal = false;
 
     public ?int $priceBelowLimitLineIndex = null;
+
+    /** Alert when added item had a recent sales price or PO cost change. */
+    public bool $showPriceUpdateAlertModal = false;
+
+    public string $priceUpdateAlertTitle = '';
+
+    public string $priceUpdateAlertMessage = '';
+
+    public string $priceUpdateAlertKind = 'sales';
 
     /** Confirm customer selection to avoid order mistakes. */
     public bool $showCustomerConfirmModal = false;
@@ -934,6 +944,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lineWarning = '';
     }
 
+    public function dismissPriceUpdateAlert(): void
+    {
+        $this->showPriceUpdateAlertModal = false;
+        $this->priceUpdateAlertTitle = '';
+        $this->priceUpdateAlertMessage = '';
+        $this->priceUpdateAlertKind = 'sales';
+    }
+
     protected function dismissTransientOverlays(): void
     {
         $this->showLineMessageAlert = false;
@@ -943,6 +961,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showBrowse = false;
         $this->showBatchModal = false;
         $this->showLineSubstitutes = false;
+        $this->showPriceUpdateAlertModal = false;
     }
 
     protected function clearSelectedStock(): void
@@ -2198,8 +2217,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'on_hand' => (float) $row->quantity_in_stock,
                 'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
                 'is_new' => $created !== null && $created->gte($newSince),
+                'price_updated' => false,
+                'previous_price' => null,
+                'current_price' => null,
+                'price_update_message' => null,
             ];
         })->all();
+
+        $alerts = app(ItemPriceHistoryService::class)->salesAlertsForItemIds(
+            array_column($mapped, 'id')
+        );
+        foreach ($mapped as $i => $row) {
+            $id = (int) $row['id'];
+            if (! isset($alerts[$id])) {
+                continue;
+            }
+            $mapped[$i] = array_merge($row, $alerts[$id]);
+        }
 
         $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
         $this->browseHasMore = count($this->browseRows) < $this->browseTotal;
@@ -3900,8 +3934,29 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'item_code' => (string) $item->item_code,
                 'description' => $item->description,
                 'price' => number_format((float) $item->list_price, 2, '.', ''),
+                'price_updated' => false,
+                'previous_price' => null,
+                'current_price' => null,
+                'price_update_message' => null,
             ])
             ->all();
+
+        $alerts = app(ItemPriceHistoryService::class)->salesAlertsForItemIds(
+            array_column($this->entryHits, 'id')
+        );
+        foreach ($this->entryHits as $i => $hit) {
+            $id = (int) $hit['id'];
+            if (! isset($alerts[$id])) {
+                continue;
+            }
+            $alert = $alerts[$id];
+            $displayPrice = ($alert['alert_type'] ?? '') === 'sales'
+                ? (float) ($alert['current_price'] ?? $hit['price'])
+                : (float) ($alert['list_price'] ?? $hit['price']);
+            $this->entryHits[$i] = array_merge($hit, $alert, [
+                'price' => number_format($displayPrice, 2, '.', ''),
+            ]);
+        }
     }
 
     public function pickEntryHit(int $itemId): void
@@ -4492,6 +4547,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->refreshCreditWarning();
         $this->suggestTax();
         $this->highlightScannedLine($index);
+        $priceAlert = app(ItemPriceHistoryService::class)->salesAlertPayload($item);
+        if ($priceAlert) {
+            $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
+            $this->lineWarning = $priceAlert['price_update_message'];
+            $this->lineWarningKind = 'info';
+            $this->lineWarningTick++;
+            $this->priceUpdateAlertKind = $kind === 'cost' ? 'cost' : 'sales';
+            $this->priceUpdateAlertTitle = $this->priceUpdateAlertKind === 'cost'
+                ? 'PO / Cost updated'
+                : 'Sales price updated';
+            $code = trim((string) $item->item_code);
+            $this->priceUpdateAlertMessage = trim(
+                ($code !== '' ? $code.' — ' : '')
+                .($priceAlert['price_update_message'] ?? '')
+            );
+            $this->showPriceUpdateAlertModal = true;
+            $this->js('window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss("line")');
+        }
     }
 
     public function addBox(): void
@@ -6184,6 +6257,45 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showPriceUpdateAlertModal && filled($priceUpdateAlertMessage) && ! $viewMode)
+        <div
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
+            wire:click.self="dismissPriceUpdateAlert"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="price-update-alert-title"
+            aria-describedby="price-update-alert-msg"
+        >
+            <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.enter.window.prevent="dismissPriceUpdateAlert" wire:keydown.escape.window="dismissPriceUpdateAlert">
+                <div class="desk-modal-head">
+                    <span id="price-update-alert-title">{{ $priceUpdateAlertTitle !== '' ? $priceUpdateAlertTitle : 'Price updated' }}</span>
+                    <button type="button" wire:click="dismissPriceUpdateAlert" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
+                    <div
+                        aria-hidden="true"
+                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:{{ $priceUpdateAlertKind === 'cost' ? '#b45309' : '#0369a1' }};color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
+                    >!</div>
+                    <div style="flex:1; min-width:0;">
+                        <p id="price-update-alert-msg" style="margin:0;font-size:.95rem;line-height:1.45;">
+                            {{ $priceUpdateAlertMessage }}
+                        </p>
+                        <p style="margin:.55rem 0 0;font-size:12px;color:#64748b;line-height:1.35;">
+                            @if ($priceUpdateAlertKind === 'cost')
+                                Cost changed from PO/receive. Update List Price manually if needed.
+                            @else
+                                Sales (list) price was changed recently. Confirm the line price is correct.
+                            @endif
+                        </p>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
+                    <button type="button" wire:click="dismissPriceUpdateAlert" class="desk-btn desk-btn-primary" autofocus>OK</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showPriceBelowLimitModal)
         <div
             class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
@@ -6881,6 +6993,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (open) window.playPosAlert && window.playPosAlert('warning');
     });
     $wire.$watch('showPriceBelowLimitModal', (open) => {
+        if (open) window.playPosAlert && window.playPosAlert('warning');
+    });
+    $wire.$watch('showPriceUpdateAlertModal', (open) => {
         if (open) window.playPosAlert && window.playPosAlert('warning');
     });
     $wire.$watch('showCustomerConfirmModal', (open) => {

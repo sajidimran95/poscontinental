@@ -329,7 +329,7 @@ class SalePortalController extends Controller
             $customer?->id
         );
 
-        return [
+        $payload = [
             'product_id' => (int) $item->id,
             'variation_id' => (int) $item->id,
             'name' => trim($item->description.' ('.$item->item_code.')'),
@@ -345,6 +345,8 @@ class SalePortalController extends Controller
             'image' => $img,
             'has_image' => (bool) $img,
         ];
+
+        return app(\App\Services\ItemPriceHistoryService::class)->mergeIntoProductPayload($payload, $item);
     }
 
     protected function categoryTree(User $user): array

@@ -5,8 +5,10 @@ use App\Models\Category;
 use App\Models\Department;
 use App\Models\Item;
 use App\Models\ItemPrice;
+use App\Models\ItemPriceHistory;
 use App\Models\ItemType;
 use App\Models\Subcategory;
+use App\Services\ItemPriceHistoryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -479,6 +481,32 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                                         'price' => $this->computeAfter((float) $priceRow->price, $type, $value),
                                     ]);
                                 });
+                        }
+
+                        $listBefore = $audit['list_price_before'];
+                        $listAfter = $audit['list_price_after'];
+                        $costBefore = $audit['current_cost_before'];
+                        $costAfter = $audit['current_cost_after'];
+                        $listChanged = $listBefore !== null && $listAfter !== null
+                            && abs((float) $listBefore - (float) $listAfter) > 0.00005;
+                        $costChanged = $costBefore !== null && $costAfter !== null
+                            && abs((float) $costBefore - (float) $costAfter) > 0.00005;
+                        if ($listChanged || $costChanged) {
+                            $changeType = ($listChanged && $costChanged)
+                                ? ItemPriceHistory::TYPE_BOTH
+                                : ($listChanged ? ItemPriceHistory::TYPE_SALES : ItemPriceHistory::TYPE_COST);
+                            app(ItemPriceHistoryService::class)->record(
+                                $item->fresh(),
+                                $changeType,
+                                ItemPriceHistory::SOURCE_BULK,
+                                $costChanged ? (float) $costBefore : null,
+                                $costChanged ? (float) $costAfter : null,
+                                $listChanged ? (float) $listBefore : null,
+                                $listChanged ? (float) $listAfter : null,
+                                (int) $log->id,
+                                'Bulk #'.$log->id,
+                                'Bulk price change',
+                            );
                         }
 
                         $log->items()->create($audit);

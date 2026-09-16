@@ -2000,6 +2000,22 @@
             pointer-events: none;
         }
         .sale-added-msg[hidden] { display: none !important; }
+        .sale-price-update-msg {
+            position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0));
+            transform: translateX(-50%);
+            z-index: 150;
+            max-width: min(92vw, 420px);
+            background: #fffbeb;
+            color: #92400e;
+            border: 1px solid #fbbf24;
+            font-size: 13px; font-weight: 600;
+            padding: 12px 14px; border-radius: 12px;
+            box-shadow: 0 10px 28px rgba(15,23,42,.16);
+            display: flex; flex-direction: column; gap: 4px;
+            pointer-events: none;
+        }
+        .sale-price-update-msg strong { font-weight: 800; font-size: 12px; letter-spacing: .02em; text-transform: uppercase; }
+        .sale-price-update-msg[hidden] { display: none !important; }
         @media (min-width: 1024px) {
             .sale-added-msg { bottom: 32px; }
         }

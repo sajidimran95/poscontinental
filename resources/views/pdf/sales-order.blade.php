@@ -192,9 +192,9 @@
             color: #000;
             font-weight: bold;
             text-align: left;
-            width: 25%;
+            width: 62%;
         }
-        .bucket td.val { text-align: right; font-weight: bold; font-size: 10px; }
+        .bucket td.val { text-align: right; font-weight: bold; font-size: 10px; width: 38%; }
         .prev-inv { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
         .prev-inv th, .prev-inv td {
             border: 1px solid #222;
@@ -504,55 +504,20 @@
             <table class="bucket">
                 <tbody>
                 <tr>
-                    <td class="lbl">TOBACCO ITEMS</td>
-                    <td class="val">{{ $buckets['tobacco_count'] }}</td>
                     <td class="lbl">TOTAL TOBACCO</td>
                     <td class="val">${{ number_format($buckets['tobacco_total'], 2) }}</td>
                 </tr>
                 <tr>
                     <td class="lbl">TOTAL CIGARETTES</td>
                     <td class="val">${{ number_format($buckets['cigarette_total'], 2) }}</td>
-                    <td class="lbl">TOTAL OTHERS</td>
+                </tr>
+                <tr>
+                    <td class="lbl">TOTAL OTHER PRODUCTS</td>
                     <td class="val">${{ number_format($buckets['other_total'], 2) }}</td>
                 </tr>
                 <tr>
-                    <td class="lbl">TOTAL ALL ITEMS</td>
-                    <td class="val">{{ $buckets['all_count'] }}</td>
-                    <td class="lbl">ALL ITEMS TOTAL</td>
-                    <td class="val">${{ number_format($buckets['all_total'], 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TOTAL QTY</td>
-                    <td class="val" colspan="3">{{ fmod((float) $buckets['all_qty'], 1.0) == 0.0 ? number_format((float) $buckets['all_qty'], 0) : number_format((float) $buckets['all_qty'], 2) }}</td>
-                </tr>
-                </tbody>
-            </table>
-            <table class="prev-inv">
-                <tbody>
-                <tr>
-                    <td colspan="4" style="font-weight:bold;text-align:left;padding:3px 5px;border:1px solid #222;font-size:8px">PREVIOUS INVOICES DUE</td>
-                </tr>
-                <tr>
-                    <td class="num" style="font-weight:bold;text-align:center">#</td>
-                    <td style="font-weight:bold">INVOICE NO</td>
-                    <td style="font-weight:bold">DATE</td>
-                    <td class="amt" style="font-weight:bold;text-align:right">AMOUNT DUE</td>
-                </tr>
-                @forelse ($previousInvoices['lines'] as $i => $prev)
-                    <tr>
-                        <td class="num">{{ $i + 1 }}</td>
-                        <td>{{ $prev['invoice_number'] }}</td>
-                        <td>{{ $prev['invoice_date'] ?: '-' }}</td>
-                        <td class="amt">${{ number_format($prev['balance'], 2) }}</td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="4" style="text-align:center">None</td>
-                    </tr>
-                @endforelse
-                <tr class="tot">
-                    <td colspan="3">TOTAL PREVIOUS BALANCE</td>
-                    <td class="amt">${{ number_format($previousBalance, 2) }}</td>
+                    <td class="lbl">TOTAL PREVIOUS BALANCE</td>
+                    <td class="val">${{ number_format($previousBalance, 2) }}</td>
                 </tr>
                 </tbody>
             </table>

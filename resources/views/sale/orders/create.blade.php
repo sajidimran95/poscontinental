@@ -222,6 +222,10 @@
             <div class="font-extrabold text-base truncate flex-1" id="catalogTitle">Catalog</div>
             <button type="button" id="catalogCloseBtn" class="sale-catalog__close" aria-label="Close">×</button>
         </div>
+        <div class="sale-catalog__search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="catalogSearch" class="sale-catalog__search-input" placeholder="Search categories…" autocomplete="off" enterkeyhint="search">
+        </div>
         <div id="catalogBody" class="sale-catalog__body"></div>
     </div>
 </div>
@@ -294,8 +298,27 @@
     const catalogBody = document.getElementById('catalogBody');
     const catalogTitle = document.getElementById('catalogTitle');
     const catalogBackBtn = document.getElementById('catalogBackBtn');
+    const catalogSearch = document.getElementById('catalogSearch');
     let catalogTree = null;
     let catalogStack = [];
+    let catalogSearchTimer = null;
+    let catalogRenderToken = 0;
+
+    function catalogQuery() {
+        return (catalogSearch?.value || '').trim();
+    }
+
+    function catalogMatches(name, q) {
+        if (!q) return true;
+        return String(name || '').toLowerCase().includes(q.toLowerCase());
+    }
+
+    function setCatalogSearchPlaceholder(level) {
+        if (!catalogSearch) return;
+        if (level === 'subs') catalogSearch.placeholder = 'Search subcategory or products…';
+        else if (level === 'products') catalogSearch.placeholder = 'Search products…';
+        else catalogSearch.placeholder = 'Search categories or products…';
+    }
 
     function money(n) { return '$' + (Number(n) || 0).toFixed(2); }
 
@@ -838,6 +861,7 @@
     function openCatalog() {
         catalogModal.hidden = false;
         catalogStack = [{ level: 'cats', title: 'Categories' }];
+        if (catalogSearch) catalogSearch.value = '';
         renderCatalog();
     }
     function closeCatalog() { catalogModal.hidden = true; }
@@ -847,60 +871,121 @@
         return catalogTree;
     }
 
+    function appendCatalogSection(label) {
+        const h = document.createElement('div');
+        h.className = 'sale-catalog__section';
+        h.textContent = label;
+        catalogBody.appendChild(h);
+    }
+
+    function appendProductButton(r) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sale-catalog__row sale-catalog__prod';
+        const qty = cartQty(r.variation_id);
+        b.innerHTML = `<div class="min-w-0"><div class="font-bold text-sm truncate">${escapeHtml(r.name)}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div></div><span class="sale-catalog__add">${qty || '+'}</span>`;
+        b.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            addToCart(r);
+            const addEl = b.querySelector('.sale-catalog__add');
+            if (addEl) addEl.textContent = String(cartQty(r.variation_id) || '+');
+        };
+        catalogBody.appendChild(b);
+    }
+
     async function renderCatalog() {
+        const token = ++catalogRenderToken;
         const state = catalogStack[catalogStack.length - 1];
+        const q = catalogQuery();
         catalogTitle.textContent = state.title;
         catalogBackBtn.classList.toggle('hidden', catalogStack.length <= 1);
+        setCatalogSearchPlaceholder(state.level);
         catalogBody.innerHTML = '<div class="px-3 py-4 text-sm text-slate-400">Loading…</div>';
 
         const tree = await ensureCatalogTree();
+        if (token !== catalogRenderToken) return;
+
         if (state.level === 'cats') {
-            if (!tree.length) {
-                catalogBody.innerHTML = '<div class="px-3 py-4 text-sm text-slate-400">No categories</div>';
-                return;
-            }
+            const cats = (tree || []).filter(cat => catalogMatches(cat.name, q));
             catalogBody.innerHTML = '';
-            tree.forEach(cat => {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'sale-catalog__row';
-                b.innerHTML = `<span>${cat.name}</span><span class="sale-catalog__chev">›</span>`;
-                b.onclick = () => {
-                    const viaDept = cat.via_department ? 1 : 0;
-                    if (cat.sub_categories && cat.sub_categories.length) {
-                        catalogStack.push({ level: 'subs', title: cat.name, catId: cat.id, subs: cat.sub_categories, viaDept });
-                    } else {
-                        catalogStack.push({ level: 'products', title: cat.name, catId: cat.id, subId: 0, viaDept });
-                    }
-                    renderCatalog();
-                };
-                catalogBody.appendChild(b);
-            });
+            if (cats.length) {
+                if (q) appendCatalogSection('Categories');
+                cats.forEach(cat => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'sale-catalog__row';
+                    b.innerHTML = `<span>${escapeHtml(cat.name)}</span><span class="sale-catalog__chev">›</span>`;
+                    b.onclick = () => {
+                        const viaDept = cat.via_department ? 1 : 0;
+                        if (catalogSearch) catalogSearch.value = '';
+                        if (cat.sub_categories && cat.sub_categories.length) {
+                            catalogStack.push({ level: 'subs', title: cat.name, catId: cat.id, subs: cat.sub_categories, viaDept });
+                        } else {
+                            catalogStack.push({ level: 'products', title: cat.name, catId: cat.id, subId: 0, viaDept });
+                        }
+                        renderCatalog();
+                    };
+                    catalogBody.appendChild(b);
+                });
+            }
+            if (q.length >= 1) {
+                const rows = await fetchJson(productApiUrl({ q, limit: 60 }));
+                if (token !== catalogRenderToken) return;
+                if (rows.length) {
+                    appendCatalogSection('Products');
+                    rows.forEach(appendProductButton);
+                }
+            }
+            if (!catalogBody.children.length) {
+                catalogBody.innerHTML = `<div class="px-3 py-4 text-sm text-slate-400">${q ? 'No matches' : 'No categories'}</div>`;
+            }
             return;
         }
 
         if (state.level === 'subs') {
+            const subs = (state.subs || []).filter(sub => catalogMatches(sub.name, q));
             catalogBody.innerHTML = '';
-            const allBtn = document.createElement('button');
-            allBtn.type = 'button';
-            allBtn.className = 'sale-catalog__row sale-catalog__row--all';
-            allBtn.innerHTML = `<span>All in ${state.title}</span><span class="sale-catalog__chev">›</span>`;
-            allBtn.onclick = () => {
-                catalogStack.push({ level: 'products', title: state.title, catId: state.catId, subId: 0, viaDept: state.viaDept || 0 });
-                renderCatalog();
-            };
-            catalogBody.appendChild(allBtn);
-            (state.subs || []).forEach(sub => {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'sale-catalog__row';
-                b.innerHTML = `<span>${sub.name}</span><span class="sale-catalog__chev">›</span>`;
-                b.onclick = () => {
-                    catalogStack.push({ level: 'products', title: sub.name, catId: state.catId, subId: sub.id, viaDept: state.viaDept || 0 });
+            if (!q || catalogMatches(state.title, q) || catalogMatches('All in ' + state.title, q)) {
+                const allBtn = document.createElement('button');
+                allBtn.type = 'button';
+                allBtn.className = 'sale-catalog__row sale-catalog__row--all';
+                allBtn.innerHTML = `<span>All in ${escapeHtml(state.title)}</span><span class="sale-catalog__chev">›</span>`;
+                allBtn.onclick = () => {
+                    if (catalogSearch) catalogSearch.value = '';
+                    catalogStack.push({ level: 'products', title: state.title, catId: state.catId, subId: 0, viaDept: state.viaDept || 0 });
                     renderCatalog();
                 };
-                catalogBody.appendChild(b);
-            });
+                catalogBody.appendChild(allBtn);
+            }
+            if (subs.length) {
+                if (q) appendCatalogSection('Subcategories');
+                subs.forEach(sub => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'sale-catalog__row';
+                    b.innerHTML = `<span>${escapeHtml(sub.name)}</span><span class="sale-catalog__chev">›</span>`;
+                    b.onclick = () => {
+                        if (catalogSearch) catalogSearch.value = '';
+                        catalogStack.push({ level: 'products', title: sub.name, catId: state.catId, subId: sub.id, viaDept: state.viaDept || 0 });
+                        renderCatalog();
+                    };
+                    catalogBody.appendChild(b);
+                });
+            }
+            if (q.length >= 1) {
+                const extra = { q, limit: 60, category_id: state.catId };
+                if (state.viaDept) extra.via_department = 1;
+                const rows = await fetchJson(productApiUrl(extra));
+                if (token !== catalogRenderToken) return;
+                if (rows.length) {
+                    appendCatalogSection('Products');
+                    rows.forEach(appendProductButton);
+                }
+            }
+            if (!catalogBody.children.length) {
+                catalogBody.innerHTML = `<div class="px-3 py-4 text-sm text-slate-400">${q ? 'No matches' : 'No subcategories'}</div>`;
+            }
             return;
         }
 
@@ -908,37 +993,42 @@
         if (state.subId) extra.sub_category_id = state.subId;
         if (state.catId) extra.category_id = state.catId;
         if (state.viaDept) extra.via_department = 1;
-        renderProductRows(await fetchJson(productApiUrl(extra)));
+        if (q) extra.q = q;
+        const rows = await fetchJson(productApiUrl(extra));
+        if (token !== catalogRenderToken) return;
+        renderProductRows(rows, q);
     }
 
-    function renderProductRows(rows) {
+    function renderProductRows(rows, q) {
         if (!rows.length) {
-            catalogBody.innerHTML = '<div class="px-3 py-4 text-sm text-slate-400">No products</div>';
+            catalogBody.innerHTML = `<div class="px-3 py-4 text-sm text-slate-400">${q ? 'No matches' : 'No products'}</div>`;
             return;
         }
         catalogBody.innerHTML = '';
-        rows.forEach(r => {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'sale-catalog__row sale-catalog__prod';
-            const qty = cartQty(r.variation_id);
-            b.innerHTML = `<div class="min-w-0"><div class="font-bold text-sm truncate">${r.name}</div><div class="text-xs text-slate-500">${money(r.price)} · Stock ${r.stock}</div></div><span class="sale-catalog__add">${qty || '+'}</span>`;
-            b.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                addToCart(r);
-                const addEl = b.querySelector('.sale-catalog__add');
-                if (addEl) addEl.textContent = String(cartQty(r.variation_id) || '+');
-            };
-            catalogBody.appendChild(b);
-        });
+        rows.forEach(appendProductButton);
     }
 
     document.getElementById('catalogOpenBtn').addEventListener('click', openCatalog);
     document.getElementById('catalogCloseBtn').addEventListener('click', closeCatalog);
     catalogBackBtn.addEventListener('click', () => {
-        if (catalogStack.length > 1) { catalogStack.pop(); renderCatalog(); }
+        if (catalogStack.length > 1) {
+            catalogStack.pop();
+            if (catalogSearch) catalogSearch.value = '';
+            renderCatalog();
+        }
     });
+    if (catalogSearch) {
+        catalogSearch.addEventListener('input', () => {
+            clearTimeout(catalogSearchTimer);
+            catalogSearchTimer = setTimeout(() => renderCatalog(), 220);
+        });
+        catalogSearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                catalogSearch.value = '';
+                renderCatalog();
+            }
+        });
+    }
     catalogModal.addEventListener('click', (e) => { if (e.target === catalogModal) closeCatalog(); });
 
     form.addEventListener('submit', (e) => {

@@ -2074,15 +2074,20 @@
         .sale-catalog__panel {
             width: 100%; max-width: 560px;
             max-height: min(88dvh, 760px);
+            height: auto;
+            min-height: 0;
             background: #fff;
             border-radius: 18px 18px 0 0;
             display: flex; flex-direction: column;
             box-shadow: 0 -8px 32px rgba(15,23,42,.18);
+            overflow: hidden;
+            box-sizing: border-box;
         }
         .sale-catalog__head {
             display: flex; align-items: center; gap: 8px;
             padding: 14px 16px;
             border-bottom: 1px solid #e2e8f0;
+            flex-shrink: 0;
         }
         .sale-catalog__back, .sale-catalog__close {
             width: 36px; height: 36px; border-radius: 10px;
@@ -2090,12 +2095,44 @@
             color: #334155; cursor: pointer; line-height: 1; flex-shrink: 0;
         }
         .sale-catalog__back.hidden { visibility: hidden; }
-        .sale-catalog__body { overflow: auto; padding: 4px 0 calc(24px + env(safe-area-inset-bottom, 0)); -webkit-overflow-scrolling: touch; flex: 1; }
+        .sale-catalog__search {
+            display: flex; align-items: center; gap: 10px;
+            margin: 10px 12px 6px;
+            padding: 0 12px;
+            height: 42px;
+            border-radius: 12px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            flex-shrink: 0;
+        }
+        .sale-catalog__search svg {
+            width: 18px; height: 18px; color: #94a3b8; flex-shrink: 0;
+        }
+        .sale-catalog__search-input {
+            flex: 1; min-width: 0;
+            border: 0 !important; background: transparent !important;
+            outline: none !important; box-shadow: none !important;
+            padding: 0 !important; height: auto !important;
+            font-size: 15px; font-weight: 600; color: #0b1220;
+        }
+        .sale-catalog__section {
+            padding: 10px 16px 4px;
+            font-size: 11px; font-weight: 800; letter-spacing: .04em;
+            text-transform: uppercase; color: #64748b;
+        }
+        .sale-catalog__body {
+            overflow: auto;
+            padding: 4px 0 calc(24px + env(safe-area-inset-bottom, 0));
+            -webkit-overflow-scrolling: touch;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
         .sale-catalog__row {
             width: 100%; display: flex; align-items: center; justify-content: space-between;
             gap: 10px; text-align: left; padding: 14px 16px;
             border: 0; background: transparent; border-bottom: 1px solid #f1f5f9;
             font-weight: 700; font-size: 14px; color: #0f172a; cursor: pointer;
+            box-sizing: border-box;
         }
         .sale-catalog__row:active { background: #f8fafc; }
         .sale-catalog__row--all { color: #0f766e; }
@@ -2105,10 +2142,75 @@
             background: #0f766e; color: #fff; display: flex; align-items: center; justify-content: center;
             font-size: 18px; font-weight: 700; flex-shrink: 0;
         }
+        /* Tablet: centered modal (was broken bottom-sheet at mid widths) */
+        @media (min-width: 640px) {
+            .sale-catalog {
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+            }
+            .sale-catalog__panel {
+                width: min(640px, 94vw);
+                max-width: none;
+                max-height: min(86dvh, 820px);
+                height: min(86dvh, 820px);
+                border-radius: 16px;
+                box-shadow: 0 16px 48px rgba(15,23,42,.22);
+            }
+            .sale-catalog__body {
+                padding-bottom: 16px;
+            }
+        }
+        @media (min-width: 768px) and (max-width: 1023px) {
+            body.sale-page-create .sale-main-app {
+                padding-left: 16px !important;
+                padding-right: 16px !important;
+            }
+            body.sale-building-order.sale-page-create .sale-main-app,
+            body.sale-building-order .sale-main-app {
+                padding: 12px 16px !important;
+                height: calc(100dvh - 72px - env(safe-area-inset-bottom, 0px)) !important;
+                max-height: calc(100dvh - 72px - env(safe-area-inset-bottom, 0px)) !important;
+            }
+            body.sale-building-order .sale-order-build {
+                border: 1px solid #e2e8f0;
+                border-radius: 14px;
+                overflow: hidden;
+            }
+            .sale-order-build__bar {
+                border-radius: 14px 14px 0 0;
+            }
+            .sale-sku-row {
+                flex-wrap: wrap;
+            }
+            .sale-sku-search {
+                flex: 1 1 180px;
+                min-width: 140px;
+            }
+            .sale-catalog__panel {
+                width: min(720px, 92vw);
+                max-height: min(88dvh, 860px);
+                height: min(88dvh, 860px);
+            }
+            .sale-catalog__row {
+                padding: 15px 18px;
+                font-size: 15px;
+            }
+            body.sale-picking-customer .sale-pick-customer {
+                max-width: 720px;
+                margin: 0 auto;
+            }
+        }
         @media (min-width: 1024px) {
             .sale-cart-flow { max-width: none !important; margin: 0 !important; width: 100%; }
             .sale-catalog { align-items: center; padding: 24px; }
-            .sale-catalog__panel { border-radius: 16px; max-height: 80vh; width: min(640px, 92vw); }
+            .sale-catalog__panel {
+                border-radius: 16px;
+                max-height: min(80vh, 780px);
+                height: min(80vh, 780px);
+                width: min(640px, 92vw);
+            }
             body.sale-page-create .sale-cart-flow { max-width: none; }
             body.sale-page-create .sale-create-bar { position: static; box-shadow: none; border: 0; padding: 0; background: transparent; }
             body.sale-page-create #stepShipping .sale-create-bar {
@@ -2151,6 +2253,18 @@
         @media (min-width: 1024px) {
             body.sale-page-create .sale-create-bar {
                 margin-top: 16px;
+            }
+        }
+        @media (max-width: 639px) {
+            .sale-order-list-head {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            .sale-sku-modes {
+                flex-shrink: 0;
+            }
+            .sale-catalog__panel {
+                max-width: 100%;
             }
         }
     </style>

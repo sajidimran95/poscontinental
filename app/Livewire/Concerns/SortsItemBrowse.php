@@ -63,4 +63,53 @@ trait SortsItemBrowse
             default => $query->orderBy('quantity_in_stock', $dir)->orderBy('item_code'),
         };
     }
+
+    /**
+     * Resolve display U/M: items.unit_of_measure, else first non-empty item_prices.uom.
+     *
+     * @param  iterable<int, object>  $rows
+     * @return array<int, string> item_id => uom
+     */
+    protected function browseUomsForRows(iterable $rows): array
+    {
+        $needIds = [];
+        $resolved = [];
+
+        foreach ($rows as $row) {
+            $id = (int) ($row->id ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $fromItem = trim((string) ($row->unit_of_measure ?? ''));
+            if ($fromItem !== '') {
+                $resolved[$id] = $fromItem;
+            } else {
+                $needIds[] = $id;
+            }
+        }
+
+        if ($needIds === []) {
+            return $resolved;
+        }
+
+        $fromPrices = \Illuminate\Support\Facades\DB::table('item_prices')
+            ->whereIn('item_id', array_values(array_unique($needIds)))
+            ->whereNotNull('uom')
+            ->where('uom', '!=', '')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['item_id', 'uom']);
+
+        foreach ($fromPrices as $price) {
+            $id = (int) $price->item_id;
+            if (! isset($resolved[$id])) {
+                $u = trim((string) $price->uom);
+                if ($u !== '') {
+                    $resolved[$id] = $u;
+                }
+            }
+        }
+
+        return $resolved;
+    }
 }

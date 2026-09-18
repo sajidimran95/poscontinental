@@ -3,20 +3,27 @@
 use App\Livewire\Concerns\PersistsPosAiChat;
 use App\Models\Company;
 use App\Services\JapsAi\BusinessInsightsService;
+use App\Services\JapsAi\InvoiceExtractionService;
 use App\Services\JapsAi\JapsAiChatService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 {
     use PersistsPosAiChat;
+    use WithFileUploads;
+
     /** insights | chat | settings */
     public string $panel = 'insights';
 
     public string $message = '';
 
     public string $activeQuick = '';
+
+    /** @var mixed */
+    public $chatInvoiceFile = null;
 
     /** @var list<array{role: string, text: string, tool?: string|null}> */
     public array $messages = [];
@@ -130,6 +137,102 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->sendChat(trim($this->message), null);
     }
 
+    public function updatedChatInvoiceFile(): void
+    {
+        if ($this->chatInvoiceFile) {
+            $this->processChatVendorInvoice();
+        }
+    }
+
+    public function processChatVendorInvoice(): void
+    {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
+
+        $this->panel = 'chat';
+        $this->resetValidation('chatInvoiceFile');
+
+        try {
+            $this->validate([
+                'chatInvoiceFile' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:4800'],
+            ]);
+        } catch (\Throwable $e) {
+            $this->messages[] = $this->posAiMakeMessage(
+                'assistant',
+                'Could not attach that file. Use JPG, PNG, WebP, or PDF (max about 4.5 MB).',
+                'error'
+            );
+            $this->chatInvoiceFile = null;
+            $this->persistChat();
+            $this->dispatchScroll();
+
+            return;
+        }
+
+        $this->messages[] = $this->posAiMakeMessage('user', 'Vendor invoice attached — reading with POS AI…');
+        $this->dispatchScroll();
+
+        try {
+            $company = Company::query()->findOrFail(auth()->user()->company_id);
+            $result = InvoiceExtractionService::forCompany($company)->extract($this->chatInvoiceFile);
+
+            if (empty($result['success'])) {
+                $this->messages[] = $this->posAiMakeMessage(
+                    'assistant',
+                    (string) ($result['msg'] ?? 'Could not read that vendor invoice.'),
+                    'error'
+                );
+                $this->chatInvoiceFile = null;
+                $this->persistChat();
+                $this->dispatchScroll();
+
+                return;
+            }
+
+            $matched = InvoiceExtractionService::forCompany($company)->matchToCatalog($result['data'] ?? []);
+            $lines = $matched['lines'] ?? [];
+            $matchedCount = collect($lines)->where('item_id', '>', 0)->count();
+            $totalLines = count($lines);
+
+            session([
+                'pos_ai_pending_vendor_invoice' => [
+                    'header' => [
+                        'supplier_name' => $matched['supplier_name'] ?? null,
+                        'supplier_id' => $matched['supplier_id'] ?? null,
+                        'ref_no' => $matched['ref_no'] ?? null,
+                        'invoice_date' => $matched['invoice_date'] ?? null,
+                        'total' => $matched['total'] ?? null,
+                    ],
+                    'lines' => $lines,
+                    'status' => $totalLines > 0
+                        ? 'From POS AI chat — review matched lines, then Insert into PO.'
+                        : 'No line items found on this document.',
+                ],
+            ]);
+
+            $poUrl = route('purchasing.orders.create', ['ai_invoice' => 1]);
+            $supplier = trim((string) ($matched['supplier_name'] ?? '')) ?: '—';
+            $reply = "Read vendor invoice for **{$company->name}**.\n\n"
+                ."- **Supplier:** {$supplier}\n"
+                ."- **Lines found:** {$totalLines} ({$matchedCount} matched to catalog)\n\n"
+                ."### Next step\n"
+                ."Open **New Purchase Order** to review and insert lines:\n"
+                ."{$poUrl}\n\n"
+                .'You can also upload from **Purchasing → Orders → New → Scan vendor invoice (POS AI)**.';
+
+            $this->messages[] = $this->posAiMakeMessage('assistant', $reply, 'openai');
+        } catch (\Throwable $e) {
+            $this->messages[] = $this->posAiMakeMessage(
+                'assistant',
+                'Invoice scan failed: '.$e->getMessage(),
+                'error'
+            );
+        }
+
+        $this->chatInvoiceFile = null;
+        $this->persistChat();
+        $this->dispatchScroll();
+    }
+
     private function sendChat(string $text, ?string $forcedIntent): void
     {
         $text = trim($text);
@@ -178,6 +281,11 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $escaped = e($text);
         $escaped = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $escaped) ?? $escaped;
         $escaped = preg_replace('/^### (.+)$/m', '<div class="posai-h3">$1</div>', $escaped) ?? $escaped;
+        $escaped = preg_replace(
+            '#(https?://[^\s<]+)#',
+            '<a class="posai-a" href="$1">$1</a>',
+            $escaped
+        ) ?? $escaped;
 
         return nl2br($escaped);
     }
@@ -228,13 +336,18 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 <form wire:submit.prevent="saveSettings" class="posai-settings-form" autocomplete="off">
                     <label class="posai-check">
                         <input type="checkbox" wire:model="japs_ai_enabled" />
-                        <span><strong>Enable POS AI</strong> free-form OpenAI answers</span>
+                        <span><strong>Enable POS AI</strong> free-form OpenAI answers + vendor invoice scan</span>
                     </label>
 
                     <label class="posai-check">
                         <input type="checkbox" wire:model="japs_ai_widget_enabled" />
                         <span><strong>Show chat widget</strong> on all pages (bottom-right icon)</span>
                     </label>
+
+                    <p class="item-hint" style="margin:0.35rem 0 0.75rem;font-size:12px;color:#64748b;line-height:1.4;">
+                        <strong>Vendor invoice workflow:</strong> Purchasing → Purchase Order → <em>Scan vendor invoice (AI)</em>
+                        (or Items → Scan invoice). AI reads the file and matches SKUs; you insert into the PO, then Receive as usual. Stock never changes from AI alone.
+                    </p>
 
                     <label class="posai-field">
                         <span>OpenAI API Key</span>
@@ -388,9 +501,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             </div>
                         </div>
                     @endforeach
-                    <div wire:loading wire:target="send,runQuick" class="posai-msg posai-msg-assistant">
+                    <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice" class="posai-msg posai-msg-assistant">
                         <span class="posai-avatar ai">AI</span>
-                        <div class="posai-bubble muted">Checking live data…</div>
+                        <div class="posai-bubble muted">Working…</div>
                     </div>
                     <div id="posai-msg-end" style="height:1px;"></div>
                 </div>
@@ -407,15 +520,29 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         @endforeach
                     </div>
                     <form wire:submit.prevent="send" class="posai-composer" autocomplete="off">
+                        <label class="posai-attach" title="Attach vendor invoice (PDF/photo) for PO">
+                            <input
+                                type="file"
+                                class="posai-attach-input"
+                                wire:model="chatInvoiceFile"
+                                accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
+                            />
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5l-9.2 9.2a1.4 1.4 0 01-2-2l8.1-8.1"/>
+                            </svg>
+                            <span class="sr-only">Attach vendor invoice</span>
+                        </label>
                         <input
                             type="text"
                             wire:model="message"
                             class="desk-input posai-composer-input"
-                            placeholder="Ask POS AI about your business…"
+                            placeholder="Ask POS AI… or attach vendor invoice for PO"
                             maxlength="2000"
                         />
-                        <button type="submit" class="desk-btn desk-btn-primary" wire:loading.attr="disabled">Send</button>
+                        <button type="submit" class="desk-btn desk-btn-primary" wire:loading.attr="disabled" wire:target="send,chatInvoiceFile,processChatVendorInvoice">Send</button>
                     </form>
+                    <div wire:loading wire:target="chatInvoiceFile,processChatVendorInvoice" class="posai-attach-status">Uploading &amp; reading invoice…</div>
+                    @error('chatInvoiceFile') <p class="posai-attach-err">{{ $message }}</p> @enderror
                 </div>
             </div>
         @endif
@@ -928,6 +1055,43 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             display: flex;
             gap: .45rem;
             align-items: center;
+        }
+        .posai-attach {
+            flex-shrink: 0;
+            width: 2.45rem;
+            height: 2.45rem;
+            display: grid;
+            place-items: center;
+            border: 1px solid #c5ccd6;
+            border-radius: 8px;
+            background: #fff;
+            color: var(--chief-action, #2b5797);
+            cursor: pointer;
+        }
+        .posai-attach:hover {
+            border-color: var(--chief-action, #2b5797);
+            background: #eef3fa;
+        }
+        .posai-attach-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            overflow: hidden;
+        }
+        .posai-attach-status {
+            font-size: .75rem;
+            color: #0369a1;
+        }
+        .posai-attach-err {
+            font-size: .75rem;
+            color: #b91c1c;
+            margin: 0;
+        }
+        .posai-a {
+            color: #1d4ed8;
+            word-break: break-all;
+            text-decoration: underline;
         }
         .posai-composer-input {
             flex: 1;

@@ -760,16 +760,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return null;
         }
 
-        $rows = (static function () use ($query) {
+        $rows = (function () use ($query) {
+            $buffer = [];
+            $flush = function (array $chunk): \Generator {
+                $uoms = $this->browseUomsForRows($chunk);
+                foreach ($chunk as $row) {
+                    $id = (int) $row->id;
+                    yield [
+                        (string) $row->item_code,
+                        (string) ($row->description ?? ''),
+                        (string) ($uoms[$id] ?? ''),
+                        $row->list_price,
+                        (float) $row->quantity_in_stock - (float) $row->allocated_qty,
+                        (float) $row->quantity_in_stock,
+                    ];
+                }
+            };
             foreach ($query->cursor() as $row) {
-                yield [
-                    (string) $row->item_code,
-                    (string) ($row->description ?? ''),
-                    (string) ($row->unit_of_measure ?? ''),
-                    $row->list_price,
-                    (float) $row->quantity_in_stock - (float) $row->allocated_qty,
-                    (float) $row->quantity_in_stock,
-                ];
+                $buffer[] = $row;
+                if (count($buffer) >= 200) {
+                    yield from $flush($buffer);
+                    $buffer = [];
+                }
+            }
+            if ($buffer !== []) {
+                yield from $flush($buffer);
             }
         })();
 
@@ -2205,14 +2220,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'created_at',
             ]);
 
-        $mapped = $rows->map(function ($row) use ($newSince) {
+        $uoms = $this->browseUomsForRows($rows);
+
+        $mapped = $rows->map(function ($row) use ($newSince, $uoms) {
             $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
+            $id = (int) $row->id;
 
             return [
-                'id' => (int) $row->id,
+                'id' => $id,
                 'item_code' => (string) $row->item_code,
                 'description' => $row->description,
-                'unit_of_measure' => $row->unit_of_measure,
+                'unit_of_measure' => $uoms[$id] ?? '',
                 'list_price' => $row->list_price,
                 'on_hand' => (float) $row->quantity_in_stock,
                 'available' => (float) $row->quantity_in_stock - (float) $row->allocated_qty,
@@ -4524,6 +4542,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lines[$index]['item_code'] = $item->item_code;
         $this->lines[$index]['description'] = $desc;
         $this->lines[$index]['uom'] = $item->unit_of_measure ?? '';
+        if (trim((string) $this->lines[$index]['uom']) === '') {
+            $item->loadMissing('prices');
+            $priceUom = $item->prices->first(fn ($p) => filled(trim((string) ($p->uom ?? ''))))?->uom;
+            $this->lines[$index]['uom'] = $priceUom ? (string) $priceUom : '';
+        }
         $price = $this->formatMoney($this->resolveItemPrice($item));
         $this->lines[$index]['price'] = $price;
         $this->lines[$index]['system_price'] = $price;

@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\PersistsDeskTabSearch;
+use App\Livewire\Concerns\ScansVendorInvoiceWithAi;
 use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\Category;
@@ -30,6 +31,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     use PaginatesDeskLists;
     use SelectsDeskRows;
     use PersistsDeskTabSearch;
+    use ScansVendorInvoiceWithAi;
 
     public string $search = '';
 
@@ -1583,6 +1585,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         <x-action-bar title="Action">
             <x-slot:menu>
                 <x-action-item label="Add New Item" kbd="Ctrl+N" wire:click="createNewItem" />
+                <x-action-item label="Scan vendor invoice (POS AI)" sep wire:click="openAiInvoiceModal" />
                 <x-action-item label="View/Edit Selected Item" kbd="Ctrl+E" sep wire:click="editSelected" />
                 <x-action-item label="Cost & Sales Price History" sep wire:click="openPriceHistory" />
                 <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
@@ -2806,6 +2809,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     </div>
 @endif
 </div>
+
+@include('livewire.partials.ai-vendor-invoice-modal')
 
 @script
 <script>

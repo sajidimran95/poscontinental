@@ -53,6 +53,7 @@ class ProjectKnowledge
         $lines[] = '## Typical workflows';
         $lines[] = '- **Sell:** Customers → Sales Orders (scan/add items) → Invoice → Payments';
         $lines[] = '- **Buy:** Suppliers → Purchase Orders → Inventory Receiving → stock increases; RTV returns to vendor';
+        $lines[] = '- **POS AI vendor invoice (japspos-style):** Attach PDF/photo in the **POS AI chat** paperclip, or **Purchase Order → Scan vendor invoice (AI)** → review matches → Insert into PO → Save → Receive for stock. Unmatched: create item, then re-scan. Needs Admin → POS AI Settings (enable + API key).';
         $lines[] = '- **Stock:** Items list (stock adjust + inventory journal track), Stock Counts, Stock Status, Item Velocity';
         $lines[] = '- **Pricing:** Item form + Bulk Pricing + customer price levels';
         $lines[] = '- **Credits:** Credit memos (optional restock)';

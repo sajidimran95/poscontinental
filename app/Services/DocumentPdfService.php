@@ -39,6 +39,7 @@ class DocumentPdfService
             'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
             'salesOrder.lines.item.category',
             'salesOrder.lines.item.subcategory',
+            'salesOrder.lines.item.prices',
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
@@ -247,6 +248,7 @@ class DocumentPdfService
         $order->loadMissing([
             'lines.item.category',
             'lines.item.subcategory',
+            'lines.item.prices',
             'customer',
             'salesRep',
             'paymentTerm',
@@ -299,6 +301,7 @@ class DocumentPdfService
         $order->loadMissing([
             'lines.item.category',
             'lines.item.subcategory',
+            'lines.item.prices',
             'customer',
             'salesRep',
             'paymentTerm',
@@ -307,6 +310,7 @@ class DocumentPdfService
             'invoice.customer',
             'invoice.salesOrder.lines.item.category',
             'invoice.salesOrder.lines.item.subcategory',
+            'invoice.salesOrder.lines.item.prices',
             'invoice.salesOrder.salesRep',
             'invoice.salesOrder.paymentTerm',
         ]);
@@ -361,6 +365,7 @@ class DocumentPdfService
         $order->loadMissing([
             'lines.item.category',
             'lines.item.subcategory',
+            'lines.item.prices',
             'lines.item.department',
             'customer',
             'salesRep',

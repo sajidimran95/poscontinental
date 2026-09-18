@@ -161,9 +161,9 @@
                     </div>
                 </div>
             @endforeach
-            <div wire:loading wire:target="send,runQuick" class="posai-w-msg posai-w-msg-assistant">
+            <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice" class="posai-w-msg posai-w-msg-assistant">
                 <span class="posai-w-avatar ai">AI</span>
-                <div class="posai-w-bubble muted">Checking live data…</div>
+                <div class="posai-w-bubble muted">Working…</div>
             </div>
         </div>
 
@@ -182,19 +182,33 @@
                     </div>
                 </div>
                 <form wire:submit.prevent="send" class="posai-w-composer" autocomplete="off">
+                    <label class="posai-w-attach" title="Attach vendor invoice (PDF/photo) for PO">
+                        <input
+                            type="file"
+                            class="posai-w-attach-input"
+                            wire:model="chatInvoiceFile"
+                            accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
+                        />
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5l-9.2 9.2a1.4 1.4 0 01-2-2l8.1-8.1"/>
+                        </svg>
+                        <span class="sr-only">Attach vendor invoice</span>
+                    </label>
                     <input
                         type="text"
                         wire:model="message"
                         class="posai-w-input"
-                        placeholder="POS only… or use free Suggested questions"
+                        placeholder="Ask POS… or attach vendor invoice for PO"
                         maxlength="2000"
                     />
-                <button type="submit" class="posai-w-send" wire:loading.attr="disabled" title="Send">
+                <button type="submit" class="posai-w-send" wire:loading.attr="disabled" wire:target="send,processChatVendorInvoice,chatInvoiceFile" title="Send">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                         <path d="M3.4 20.6l17.5-7.6c.8-.3.8-1.5 0-1.8L3.4 3.4c-.7-.3-1.4.3-1.2 1l1.7 6.3c.1.4.4.7.8.8l8.2.9-8.2.9c-.4.1-.7.4-.8.8L2.2 19.6c-.2.7.5 1.3 1.2 1z"/>
                     </svg>
                 </button>
             </form>
+            <div wire:loading wire:target="chatInvoiceFile,processChatVendorInvoice" class="posai-w-attach-status">Uploading &amp; reading invoice…</div>
+            @error('chatInvoiceFile') <p class="posai-w-attach-err">{{ $message }}</p> @enderror
         </div>
     </aside>
 
@@ -483,6 +497,42 @@
             gap: .4rem;
             align-items: center;
         }
+        .posai-w-attach {
+            flex-shrink: 0;
+            width: 2.35rem;
+            height: 2.35rem;
+            display: grid;
+            place-items: center;
+            border: 1px solid #c5ccd6;
+            border-radius: 999px;
+            background: #fff;
+            color: var(--posai-blue);
+            cursor: pointer;
+        }
+        .posai-w-attach:hover { border-color: var(--posai-blue); background: #eef3fa; }
+        .posai-w-attach-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            overflow: hidden;
+        }
+        .posai-w-attach-status {
+            font-size: .72rem;
+            color: #0369a1;
+            margin-top: .25rem;
+        }
+        .posai-w-attach-err {
+            font-size: .72rem;
+            color: #b91c1c;
+            margin: .25rem 0 0;
+        }
+        .posai-w-a {
+            color: #1d4ed8;
+            word-break: break-all;
+            text-decoration: underline;
+        }
+        .posai-w-msg-user .posai-w-a { color: #dbeafe; }
         .posai-w-input {
             flex: 1;
             min-width: 0;

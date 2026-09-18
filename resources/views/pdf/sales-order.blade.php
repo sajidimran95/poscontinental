@@ -162,6 +162,14 @@
         table.items tbody tr:last-child td {
             border-bottom: 1px solid #222;
         }
+        /* Same category group: dotted bottom line under last item in category */
+        table.items tbody tr.is-cat-end td {
+            border-bottom: 1px dotted #333;
+            padding-bottom: 5px;
+        }
+        table.items tbody tr.is-cat-end + tr td {
+            padding-top: 5px;
+        }
         table.items th.col-qty, table.items td.col-qty,
         table.items th.col-price, table.items td.col-price,
         table.items th.col-disc, table.items td.col-disc,
@@ -175,77 +183,80 @@
         table.items th.col-desc, table.items td.col-desc { text-align: left; }
         table.items td.col-desc { font-size: 10.5px; }
         .right { text-align: right; }
-        .foot-wrap { width: 100%; margin-top: 10px; }
-        .foot-wrap > tbody > tr > td { vertical-align: top; }
-        .bucket {
+        .foot-sum {
             width: 100%;
+            margin-top: 8px;
             border-collapse: collapse;
-            margin-bottom: 6px;
+            table-layout: fixed;
         }
-        .bucket th, .bucket td {
+        .foot-sum td {
             border: 1px solid #222;
-            padding: 4px 6px;
-            font-size: 8.5px;
+            vertical-align: middle;
         }
-        .bucket th, .bucket td.lbl {
-            background: none;
-            color: #000;
-            font-weight: bold;
-            text-align: left;
-            width: 62%;
+        .foot-sum td.gap {
+            width: 2%;
+            border: none !important;
+            padding: 0;
+            background: transparent;
         }
-        .bucket td.val { text-align: right; font-weight: bold; font-size: 10px; width: 38%; }
-        .prev-inv { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
-        .prev-inv th, .prev-inv td {
-            border: 1px solid #222;
-            padding: 3px 5px;
-            font-size: 8px;
-        }
-        .prev-inv th {
-            background: none;
-            color: #000;
-            font-weight: bold;
-            text-align: left;
-        }
-        .prev-inv td.num { text-align: center; width: 22px; }
-        .prev-inv td.amt, .prev-inv th.amt { text-align: right; white-space: nowrap; }
-        .prev-inv tr.tot td { font-weight: bold; background: none; }
-        .bal-row { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 6px; }
-        .bal-row th, .bal-row td {
-            border: 1px solid #222;
-            padding: 4px 5px;
-            font-size: 8px;
-        }
-        .bal-row th {
-            background: none;
-            color: #000;
+        .foot-sum .sum-lbl {
+            display: block;
+            font-size: 7.5px;
             font-weight: bold;
             text-align: center;
+            line-height: 1.15;
+            margin-bottom: 2px;
         }
-        .bal-row td { text-align: center; font-weight: bold; font-size: 10px; }
-        .totals {
-            width: 100%;
-            margin-left: auto;
-            border-collapse: collapse;
-        }
-        .totals td {
-            padding: 3px 6px;
-            font-size: 10px;
-            text-align: right;
-            white-space: nowrap;
-            border: 1px solid #222;
-        }
-        .totals td.lbl {
-            text-align: left;
+        .foot-sum .sum-val {
+            display: block;
+            font-size: 11px;
             font-weight: bold;
-            background: none;
+            text-align: center;
+            line-height: 1.15;
+        }
+        .foot-sum td.sum-box {
+            width: 22%;
+            padding: 4px 3px;
+            text-align: center;
+        }
+        .foot-sum td.bal-box {
+            padding: 6px 3px;
+            text-align: center;
+            font-size: 8.5px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        .foot-sum td.tot-wrap {
+            width: 32%;
+            padding: 0;
+        }
+        .foot-sum table.tot-inner {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .foot-sum table.tot-inner td {
+            border: none;
+            border-bottom: 1px solid #222;
+            padding: 4px 6px;
+            font-size: 10px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        .foot-sum table.tot-inner tr:last-child td {
+            border-bottom: none;
+        }
+        .foot-sum table.tot-inner td.lbl {
+            text-align: left;
             width: 58%;
         }
-        .totals tr.grand td {
-            font-weight: bold;
-            font-size: 11px;
-            background: none;
-            color: #000;
+        .foot-sum table.tot-inner td.amt {
+            text-align: right;
+            width: 42%;
+        }
+        .foot-sum table.tot-inner tr.due td {
+            font-size: 12px;
+            padding: 6px;
         }
         .sign { margin-top: 14px; font-size: 9px; }
         .sign-line {
@@ -308,7 +319,13 @@
         : optional($order->order_date)?->format('m/d/Y');
 
     $lines = $order->lines
-        ->sortBy(fn ($line) => (int) $line->line_no)
+        ->sortBy([
+            fn ($line) => mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
+            fn ($line) => mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
+            fn ($line) => mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
+            fn ($line) => (int) ($line->line_no ?? 0),
+            fn ($line) => (int) $line->id,
+        ])
         ->values();
     $buckets = DocumentMerchandiseTotals::fromLines($lines);
 
@@ -326,9 +343,11 @@
         $order->customer_id ? (int) $order->customer_id : null,
         $invoiceDoc?->id
     );
+    // Previous due = sum of all other open invoice balances for this customer
     $previousBalance = $previousInvoices['total'];
     $todayInvoice = $docTotal;
-    $totalDue = round($previousBalance + $thisOpen, 2);
+    // TOTAL DUE = this document total only (do not add previous due)
+    $totalDue = round($docTotal, 2);
 @endphp
 
 <table class="hdr">
@@ -466,14 +485,17 @@
         </tr>
     </tfoot>
     <tbody>
-        @forelse ($lines as $line)
+        @forelse ($lines as $i => $line)
             @php
                 $qty = (float) $line->qty_ordered;
-                $qtyLabel = fmod($qty, 1.0) == 0.0
-                    ? number_format($qty, 2)
-                    : number_format($qty, 2);
+                $qtyLabel = number_format($qty, 2);
+                $uomLabel = SalesOrderLinePresentation::uom($line);
+                $catId = (int) ($line->item?->category_id ?? 0);
+                $next = $lines->get($i + 1);
+                $nextCatId = $next ? (int) ($next->item?->category_id ?? 0) : null;
+                $isCatEnd = $next === null || $nextCatId !== $catId;
             @endphp
-            <tr>
+            <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="col-qty">{{ $qtyLabel }}</td>
                 <td class="col-item">{{ $line->item_code }}</td>
                 <td class="col-desc">
@@ -484,7 +506,7 @@
                         </div>
                     @endif
                 </td>
-                <td class="col-uom">{{ $line->uom ?: '' }}</td>
+                <td class="col-uom">{{ $uomLabel }}</td>
                 <td class="col-price">{{ number_format((float) $line->price, 2) }}</td>
                 <td class="col-disc">{{ number_format((float) $line->discount, 2) }}</td>
                 <td class="col-total">{{ number_format((float) $line->line_total, 2) }}</td>
@@ -497,85 +519,88 @@
     </tbody>
 </table>
 
-<table class="foot-wrap">
+{{-- Same layout; 3 merchandise totals + gap + right totals --}}
+<table class="foot-sum">
+    <colgroup>
+        <col style="width:22%">
+        <col style="width:22%">
+        <col style="width:22%">
+        <col style="width:2%">
+        <col style="width:32%">
+    </colgroup>
     <tbody>
     <tr>
-        <td style="width:62%;padding-right:10px;vertical-align:top">
-            <table class="bucket">
-                <tbody>
-                <tr>
-                    <td class="lbl">TOTAL TOBACCO</td>
-                    <td class="val">${{ number_format($buckets['tobacco_total'], 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TOTAL CIGARETTES</td>
-                    <td class="val">${{ number_format($buckets['cigarette_total'], 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TOTAL OTHER PRODUCTS</td>
-                    <td class="val">${{ number_format($buckets['other_total'], 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TOTAL PREVIOUS BALANCE</td>
-                    <td class="val">${{ number_format($previousBalance, 2) }}</td>
-                </tr>
-                </tbody>
-            </table>
-            <table class="bal-row">
-                <tbody>
-                <tr>
-                    <td style="font-weight:bold;text-align:center">PREVIOUS BALANCE</td>
-                    <td style="font-weight:bold;text-align:center">TODAY'S INVOICE</td>
-                    <td style="font-weight:bold;text-align:center">TOTAL CREDITS</td>
-                    <td style="font-weight:bold;text-align:center">TOTAL PAYMENTS</td>
-                </tr>
-                <tr>
-                    <td>${{ number_format($previousBalance, 2) }}</td>
-                    <td>${{ number_format($todayInvoice, 2) }}</td>
-                    <td>${{ number_format($creditTotal, 2) }}</td>
-                    <td>${{ number_format($payTotal, 2) }}</td>
-                </tr>
-                </tbody>
-            </table>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL TOBACCO</span>
+            <span class="sum-val">${{ number_format((float) $buckets['tobacco_total'], 2) }}</span>
         </td>
-        <td style="width:38%;vertical-align:top">
-            <table class="totals">
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL CIGARETTES</span>
+            <span class="sum-val">${{ number_format((float) $buckets['cigarette_total'], 2) }}</span>
+        </td>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL OTHER PRODUCTS</span>
+            <span class="sum-val">${{ number_format((float) $buckets['other_total'], 2) }}</span>
+        </td>
+        <td class="gap">&nbsp;</td>
+        <td class="tot-wrap">
+            <table class="tot-inner">
                 <tbody>
                 <tr>
-                    <td class="lbl">SUB TOTAL</td>
-                    <td>${{ number_format($docSubtotal, 2) }}</td>
+                    <td class="lbl">SUBTOTAL</td>
+                    <td class="amt">${{ number_format($docSubtotal, 2) }}</td>
                 </tr>
                 @if ($docDiscount != 0.0)
                     <tr>
                         <td class="lbl">TRADE DISCOUNT</td>
-                        <td>${{ number_format($docDiscount, 2) }}</td>
+                        <td class="amt">${{ number_format($docDiscount, 2) }}</td>
                     </tr>
                 @endif
                 @if ($docFreight != 0.0)
                     <tr>
                         <td class="lbl">FREIGHT</td>
-                        <td>${{ number_format($docFreight, 2) }}</td>
+                        <td class="amt">${{ number_format($docFreight, 2) }}</td>
                     </tr>
                 @endif
                 @if ($docMisc != 0.0)
                     <tr>
                         <td class="lbl">MISCELLANEOUS</td>
-                        <td>${{ number_format($docMisc, 2) }}</td>
+                        <td class="amt">${{ number_format($docMisc, 2) }}</td>
                     </tr>
                 @endif
                 @if ($docTax != 0.0)
                     <tr>
                         <td class="lbl">TAX</td>
-                        <td>${{ number_format($docTax, 2) }}</td>
+                        <td class="amt">${{ number_format($docTax, 2) }}</td>
                     </tr>
                 @endif
-                <tr class="grand">
+                <tr>
                     <td class="lbl">{{ $isInvoiceDoc ? 'INVOICE TOTAL' : 'ORDER TOTAL' }}</td>
-                    <td>${{ number_format($docTotal, 2) }}</td>
+                    <td class="amt">${{ number_format($docTotal, 2) }}</td>
                 </tr>
-                <tr class="grand">
+                </tbody>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="3" style="padding:0;border:1px solid #222">
+            <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+                <tbody>
+                <tr>
+                    <td class="bal-box" style="width:33.33%;border:none;border-right:1px solid #222">PREVIOUS BALANCE: ${{ number_format($previousBalance, 2) }}</td>
+                    <td class="bal-box" style="width:33.33%;border:none;border-right:1px solid #222">TOTAL CREDITS: ${{ number_format($creditTotal, 2) }}</td>
+                    <td class="bal-box" style="width:33.34%;border:none">TOTAL PAYMENTS: ${{ number_format($payTotal, 2) }}</td>
+                </tr>
+                </tbody>
+            </table>
+        </td>
+        <td class="gap">&nbsp;</td>
+        <td class="tot-wrap">
+            <table class="tot-inner">
+                <tbody>
+                <tr class="due">
                     <td class="lbl">TOTAL DUE</td>
-                    <td>${{ number_format($totalDue, 2) }}</td>
+                    <td class="amt">${{ number_format($totalDue, 2) }}</td>
                 </tr>
                 </tbody>
             </table>

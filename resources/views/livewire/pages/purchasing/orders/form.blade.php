@@ -1,6 +1,7 @@
 <?php
 
 use App\Livewire\Concerns\ReturnsToDeskList;
+use App\Livewire\Concerns\ScansVendorInvoiceWithAi;
 use App\Livewire\Concerns\SortsItemBrowse;
 use App\Models\Category;
 use App\Models\Item;
@@ -25,6 +26,7 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 {
     use ReturnsToDeskList;
+    use ScansVendorInvoiceWithAi;
     use SortsItemBrowse;
     public ?PurchaseOrder $purchaseOrder = null;
 
@@ -177,6 +179,31 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if ($this->lines === []) {
             $this->lines[] = $this->emptyLine();
         }
+
+        $this->restorePendingAiVendorInvoice();
+    }
+
+    protected function restorePendingAiVendorInvoice(): void
+    {
+        if ($this->viewMode || ! (auth()->user()?->canUsePosAiChat() ?? false)) {
+            return;
+        }
+
+        $payload = session()->pull('pos_ai_pending_vendor_invoice');
+        if (! is_array($payload) || empty($payload['lines'])) {
+            if (request()->boolean('ai_invoice')) {
+                $this->openAiInvoiceModal();
+            }
+
+            return;
+        }
+
+        $this->aiInvoiceHeader = is_array($payload['header'] ?? null) ? $payload['header'] : null;
+        $this->aiInvoiceLines = is_array($payload['lines'] ?? null) ? $payload['lines'] : [];
+        $this->aiInvoiceStatus = (string) ($payload['status'] ?? 'Review matched lines, then Insert into PO.');
+        $this->aiInvoiceError = '';
+        $this->aiInvoiceFile = null;
+        $this->showAiInvoiceModal = true;
     }
 
     protected function emptyLine(): array
@@ -734,14 +761,17 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'created_at',
             ]);
 
-        $mapped = $rows->map(function ($row) use ($newSince) {
+        $uoms = $this->browseUomsForRows($rows);
+
+        $mapped = $rows->map(function ($row) use ($newSince, $uoms) {
             $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
+            $id = (int) $row->id;
 
             return [
-                'id' => (int) $row->id,
+                'id' => $id,
                 'item_code' => (string) $row->item_code,
                 'description' => $row->description,
-                'unit_of_measure' => $row->unit_of_measure,
+                'unit_of_measure' => $uoms[$id] ?? '',
                 'list_price' => $row->list_price,
                 'current_cost' => $row->current_cost ?: $row->standard_cost,
                 'on_hand' => (float) $row->quantity_in_stock,
@@ -1173,6 +1203,44 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
      *
      * @return list<string>
      */
+
+    /** Used by POS AI invoice insert — set qty + vendor unit cost explicitly. */
+    protected function applyAiMatchedItem(Item $item, float $qty, float $unitCost): void
+    {
+        $lines = array_values($this->lines);
+
+        foreach ($lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
+                $existing = (float) ($line['qty_ordered'] ?? 0);
+                $lines[$i]['qty_ordered'] = $this->formatQty($existing + $qty);
+                if ($unitCost > 0) {
+                    $lines[$i]['unit_cost'] = $this->formatTwoDecimals($unitCost);
+                }
+                $this->lines = $lines;
+                $this->highlightPoLine($i);
+
+                return;
+            }
+        }
+
+        $filled = array_values(array_filter(
+            $lines,
+            fn ($l) => filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0
+        ));
+        $filled[] = $this->emptyLine();
+        $target = count($filled) - 1;
+        $this->lines = $filled;
+        $this->fillLineFromItem($target, $item);
+        $lines = array_values($this->lines);
+        $lines[$target]['qty_ordered'] = $this->formatQty($qty);
+        if ($unitCost > 0) {
+            $lines[$target]['unit_cost'] = $this->formatTwoDecimals($unitCost);
+        }
+        $this->lines = $lines;
+        $this->lines[] = $this->emptyLine();
+        $this->highlightPoLine($target);
+    }
+
     public function uomOptionsForLine(int $index): array
     {
         if (! isset($this->lines[$index])) {
@@ -1520,6 +1588,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'">
             <x-slot:menu>
                 <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
+                <x-action-item label="Scan vendor invoice (POS AI)" sep wire:click="openAiInvoiceModal" :disabled="$viewMode" />
                 <x-action-item label="Receive Purchase Order" sep wire:click="receiveThisOrder" :disabled="! $purchaseOrder" />
                 <x-action-item label="Refresh" :disabled="true" sep />
                 <x-action-item label="Import Purchase Order" :disabled="true" sep />
@@ -1542,6 +1611,11 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 <option value="{{ $sup->id }}">{{ $sup->name }}</option>
                             @endforeach
                         </select>
+                        @if (! $viewMode && (auth()->user()?->canUsePosAiChat() ?? false))
+                            <button type="button" class="desk-btn desk-btn-sm" wire:click="openAiInvoiceModal" title="Scan vendor invoice with POS AI">
+                                Scan invoice (AI)
+                            </button>
+                        @endif
                     </div>
                 @else
                     <div class="so-form-row so-form-row-pair entity-header-row">
@@ -2055,6 +2129,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     @include('livewire.pages.sales.orders.partials.item-browse-panel')
 </div>
+
+@include('livewire.partials.ai-vendor-invoice-modal')
 
 @script
 <script>

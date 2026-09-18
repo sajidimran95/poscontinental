@@ -370,7 +370,7 @@
                         <td class="d">
                             {{ $line->description }}
                             @if (filled($line->instructions))
-                                <div class="msg">{{ $line->instructions }}</div>
+                                <div class="msg">{!! nl2br(e($line->instructions)) !!}</div>
                             @endif
                         </td>
                     </tr>

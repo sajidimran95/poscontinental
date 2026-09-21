@@ -30,7 +30,7 @@
             letter-spacing: 0.01em;
         }
         .barcode-wrap { text-align: right; margin: 2px 0 4px; }
-        .barcode-wrap img { max-width: 270px; height: 52px; }
+        .barcode-wrap img { max-width: 200px; height: 40px; }
         .parties-wrap { width: 100%; margin: 10px 0 10px; table-layout: fixed; border-collapse: collapse; }
         .parties-wrap > tbody > tr > td { vertical-align: top; padding: 0; border: none; }
         .parties-wrap td.parties-main { width: 68%; }
@@ -61,31 +61,76 @@
             line-height: 1.55;
         }
         .meta-right .k { font-weight: bold; }
-        table.items { margin-top: 2px; table-layout: fixed; }
+        table.items {
+            width: 100%;
+            margin-top: 2px;
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+        table.items th.col-qty, table.items td.col-qty { width: 8%; }
+        table.items th.col-item, table.items td.col-item { width: 11%; }
+        table.items th.col-desc, table.items td.col-desc { width: 50%; }
+        table.items th.col-uom, table.items td.col-uom { width: 7%; }
+        table.items th.col-price, table.items td.col-price { width: 12%; }
+        table.items th.col-total, table.items td.col-total { width: 12%; }
         table.items th {
-            background: #d9d9d9;
-            border: 1px solid #000;
-            font-size: 10px;
+            background: #333;
+            color: #fff;
+            font-size: 8.5px;
             font-weight: bold;
+            letter-spacing: 0.04em;
+            padding: 5px 4px;
+            vertical-align: middle;
+            white-space: nowrap;
+            border: none;
+            border-top: 1px solid #222;
+            border-bottom: 1px solid #222;
             text-align: left;
-            padding: 4px 4px;
+        }
+        table.items thead { display: table-header-group; }
+        table.items tfoot { display: table-footer-group; }
+        table.items tfoot td {
+            padding: 0;
+            height: 1px;
+            font-size: 1px;
+            line-height: 1px;
+            border: none;
+            border-top: 1px solid #222;
+            background: transparent;
         }
         table.items td {
-            border: 1px solid #000;
             padding: 3px 4px;
             font-size: 9.5px;
             vertical-align: top;
+            border: none;
+            word-wrap: break-word;
         }
-        table.items th.col-qty, table.items td.col-qty { width: 10%; text-align: right; }
-        table.items th.col-item, table.items td.col-item { width: 12%; }
-        table.items th.col-desc, table.items td.col-desc { width: 48%; }
-        table.items th.col-uom, table.items td.col-uom { width: 8%; text-align: center; }
+        table.items tbody tr:last-child td {
+            border-bottom: 1px solid #222;
+        }
+        /* Same category group: dotted bottom line under last item in category */
+        table.items tbody tr.is-cat-end td {
+            border-bottom: 1px dotted #333;
+            padding-bottom: 5px;
+        }
+        table.items tbody tr.is-cat-end + tr td {
+            padding-top: 5px;
+        }
+        table.items th.col-qty, table.items td.col-qty,
         table.items th.col-price, table.items td.col-price,
         table.items th.col-total, table.items td.col-total {
-            width: 11%;
             text-align: right;
             white-space: nowrap;
         }
+        table.items th.col-qty, table.items td.col-qty {
+            text-align: center;
+            padding-left: 2px;
+            padding-right: 3px;
+        }
+        table.items th.col-uom, table.items td.col-uom { padding-left: 2px; padding-right: 2px; text-align: center; }
+        table.items th.col-item, table.items td.col-item { text-align: left; }
+        table.items th.col-desc, table.items td.col-desc { text-align: left; }
+        table.items td.col-desc { font-size: 10.5px; }
         .line-msg { margin-top: 1px; font-size: 8px; }
         .line-msg-lbl { font-weight: bold; margin-right: 3px; }
         .foot { margin-top: 14px; table-layout: fixed; border-collapse: collapse; }
@@ -221,7 +266,7 @@
         <td style="width:46%">
             <div class="doc-title">Sales Order</div>
             <div class="barcode-wrap">
-                {!! Code128Barcode::html($barcodeValue, 3, 52) !!}
+                {!! Code128Barcode::html($barcodeValue, 2, 40) !!}
             </div>
         </td>
     </tr>
@@ -291,22 +336,25 @@
             <th class="col-total">Total</th>
         </tr>
     </thead>
+    <tfoot>
+        <tr>
+            <td></td><td></td><td></td><td></td><td></td><td></td>
+        </tr>
+    </tfoot>
     <tbody>
-        @forelse ($lines as $line)
+        @forelse ($lines as $i => $line)
             @php
                 $uomLabel = SalesOrderLinePresentation::uom($line);
+                $catId = (int) ($line->item?->category_id ?? 0);
+                $next = $lines->get($i + 1);
+                $nextCatId = $next ? (int) ($next->item?->category_id ?? 0) : null;
+                $isCatEnd = $next === null || $nextCatId !== $catId;
             @endphp
-            <tr>
+            <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="col-qty">{{ number_format((float) $line->qty_ordered, 2) }}</td>
                 <td class="col-item">{{ $line->item_code }}</td>
                 <td class="col-desc">
                     <div>{{ $line->description }}</div>
-                    @if ($lineMsg = SalesOrderLinePresentation::lineMessage($line))
-                        <div class="line-msg"><span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}</div>
-                    @endif
-                    @if (filled($line->instructions))
-                        <div class="line-msg">{!! nl2br(e($line->instructions)) !!}</div>
-                    @endif
                 </td>
                 <td class="col-uom">{{ $uomLabel }}</td>
                 <td class="col-price">${{ number_format((float) $line->price, 2) }}</td>

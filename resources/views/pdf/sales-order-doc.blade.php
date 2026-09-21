@@ -103,18 +103,11 @@
             font-size: 9.5px;
             vertical-align: top;
             border: none;
+            border-bottom: 1px solid #ccc;
             word-wrap: break-word;
         }
         table.items tbody tr:last-child td {
             border-bottom: 1px solid #222;
-        }
-        /* Same category group: dotted bottom line under last item in category */
-        table.items tbody tr.is-cat-end td {
-            border-bottom: 1px dotted #333;
-            padding-bottom: 5px;
-        }
-        table.items tbody tr.is-cat-end + tr td {
-            padding-top: 5px;
         }
         table.items th.col-qty, table.items td.col-qty,
         table.items th.col-price, table.items td.col-price,
@@ -231,13 +224,10 @@
     $pageOf = 'Page 1 of '.($pageLabel ?? '1');
 
     $lines = $order->lines
-        ->sortBy([
-            fn ($line) => mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
-            fn ($line) => mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
-            fn ($line) => mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
-            fn ($line) => (int) ($line->line_no ?? 0),
-            fn ($line) => (int) $line->id,
-        ])
+        ->sortBy(
+            fn ($line) => mb_strtoupper(trim((string) ($line->description ?: $line->item?->description ?: ''))),
+            SORT_NATURAL | SORT_FLAG_CASE
+        )
         ->values();
     $buckets = DocumentMerchandiseTotals::fromLines($lines);
 
@@ -342,15 +332,11 @@
         </tr>
     </tfoot>
     <tbody>
-        @forelse ($lines as $i => $line)
+        @forelse ($lines as $line)
             @php
                 $uomLabel = SalesOrderLinePresentation::uom($line);
-                $catId = (int) ($line->item?->category_id ?? 0);
-                $next = $lines->get($i + 1);
-                $nextCatId = $next ? (int) ($next->item?->category_id ?? 0) : null;
-                $isCatEnd = $next === null || $nextCatId !== $catId;
             @endphp
-            <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
+            <tr>
                 <td class="col-qty">{{ number_format((float) $line->qty_ordered, 2) }}</td>
                 <td class="col-item">{{ $line->item_code }}</td>
                 <td class="col-desc">

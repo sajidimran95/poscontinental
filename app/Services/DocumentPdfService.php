@@ -76,7 +76,7 @@ class DocumentPdfService
             }
         }
 
-        return $this->salesOrderPdfWithPageCount([
+        return $this->documentPdfWithPageCount('pdf.sales-order', [
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
@@ -273,7 +273,7 @@ class DocumentPdfService
             }
         }
 
-        return $this->salesOrderPdfWithPageCount([
+        return $this->documentPdfWithPageCount('pdf.sales-order-doc', [
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
@@ -616,21 +616,27 @@ class DocumentPdfService
     }
 
     /**
-     * Put the total page count only in the invoice PAGE cell (not on other pages).
+     * Put the total page count in the PAGE cell / "Page 1 of N" label.
      */
-    protected function salesOrderPdfWithPageCount(array $data)
+    protected function documentPdfWithPageCount(string $view, array $data)
     {
         $data['pageLabel'] = '1';
-        $probe = Pdf::loadView('pdf.sales-order', $data)
+        $probe = Pdf::loadView($view, $data)
             ->setPaper('letter')
             ->setOption('defaultFont', 'Helvetica');
         $probe->render();
         $count = max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
         $data['pageLabel'] = (string) $count;
 
-        return Pdf::loadView('pdf.sales-order', $data)
+        return Pdf::loadView($view, $data)
             ->setPaper('letter')
             ->setOption('defaultFont', 'Helvetica');
+    }
+
+    /** @deprecated Use documentPdfWithPageCount() */
+    protected function salesOrderPdfWithPageCount(array $data)
+    {
+        return $this->documentPdfWithPageCount('pdf.sales-order', $data);
     }
 
     /**

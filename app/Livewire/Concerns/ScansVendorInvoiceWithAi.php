@@ -5,6 +5,7 @@ namespace App\Livewire\Concerns;
 use App\Models\Company;
 use App\Models\Item;
 use App\Services\JapsAi\InvoiceExtractionService;
+use App\Services\JapsAi\VendorInvoicePurchaseOrderService;
 use Livewire\WithFileUploads;
 
 /**
@@ -14,6 +15,7 @@ use Livewire\WithFileUploads;
 trait ScansVendorInvoiceWithAi
 {
     use WithFileUploads;
+    use ReviewsVendorInvoiceForPurchase;
 
     public bool $showAiInvoiceModal = false;
 
@@ -89,9 +91,16 @@ trait ScansVendorInvoiceWithAi
             'total' => $matched['total'] ?? null,
         ];
         $this->aiInvoiceLines = $matched['lines'] ?? [];
-        $this->aiInvoiceStatus = count($this->aiInvoiceLines) > 0
-            ? 'Review matched lines, then Insert into PO.'
-            : 'No line items found on this document.';
+        $ready = VendorInvoicePurchaseOrderService::listsAreReady($matched);
+        VendorInvoicePurchaseOrderService::storeReview($result['data'] ?? [], $matched, $ready);
+        $this->aiInvoiceStatus = app(VendorInvoicePurchaseOrderService::class)->reviewReply($company, $matched);
+    }
+
+    public function updatedAiInvoiceFile(): void
+    {
+        if ($this->aiInvoiceFile) {
+            $this->extractAiInvoice();
+        }
     }
 
     public function toggleAiInvoiceLine(int $index): void

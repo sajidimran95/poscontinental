@@ -181,6 +181,49 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         }
 
         $this->restorePendingAiVendorInvoice();
+        $this->restorePendingAiReorder();
+    }
+
+    protected function restorePendingAiReorder(): void
+    {
+        if ($this->viewMode || ($this->purchaseOrder?->exists ?? false)) {
+            return;
+        }
+
+        $payload = session()->pull('pos_ai_pending_reorder');
+        if (! is_array($payload) || empty($payload['lines'])) {
+            return;
+        }
+
+        if (! empty($payload['supplier_id'])) {
+            $this->supplier_id = (int) $payload['supplier_id'];
+        }
+        if (! empty($payload['required_date'])) {
+            $this->required_date = (string) $payload['required_date'];
+        }
+        $note = trim((string) ($payload['comments'] ?? ''));
+        if ($note !== '') {
+            $this->comments = trim($this->comments."\n".$note);
+        }
+
+        $this->lines = [];
+        foreach ($payload['lines'] as $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+            $this->lines[] = [
+                'item_id' => $line['item_id'] ?? null,
+                'item_code' => (string) ($line['item_code'] ?? ''),
+                'description' => (string) ($line['description'] ?? ''),
+                'uom' => (string) ($line['uom'] ?? ''),
+                'qty_ordered' => $this->formatQty($line['qty_ordered'] ?? 0),
+                'qty_received' => '',
+                'unit_cost' => $this->formatTwoDecimals($line['unit_cost'] ?? 0),
+                'list_price' => $this->formatTwoDecimals($line['list_price'] ?? 0),
+            ];
+        }
+        $this->lines[] = $this->emptyLine();
+        $this->lookupMessage = 'POS AI draft reorder loaded. Review quantities and cost, then Save. Nothing is sent to the vendor until you send this PO yourself.';
     }
 
     protected function restorePendingAiVendorInvoice(): void
@@ -1584,6 +1627,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page po-page">
+    @if (session('status'))
+        <div class="desk-flash" role="status">{{ session('status') }}</div>
+    @endif
+    @if (session('pos_ai_missing_brief'))
+        <div class="desk-flash" role="status" style="white-space:pre-wrap;border-color:#f59e0b;background:#fffbeb;">{{ session('pos_ai_missing_brief') }}</div>
+    @endif
     <form wire:submit="save" class="desk-main entity-form item-form po-form" @class(['item-form-readonly' => $viewMode])>
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'">
             <x-slot:menu>

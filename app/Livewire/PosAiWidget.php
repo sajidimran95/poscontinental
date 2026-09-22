@@ -3,15 +3,18 @@
 namespace App\Livewire;
 
 use App\Livewire\Concerns\PersistsPosAiChat;
+use App\Livewire\Concerns\ReviewsVendorInvoiceForPurchase;
 use App\Models\Company;
 use App\Services\JapsAi\InvoiceExtractionService;
 use App\Services\JapsAi\JapsAiChatService;
+use App\Services\JapsAi\VendorInvoicePurchaseOrderService;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
 class PosAiWidget extends Component
 {
     use PersistsPosAiChat;
+    use ReviewsVendorInvoiceForPurchase;
     use WithFileUploads;
 
     public bool $open = false;
@@ -100,37 +103,15 @@ class PosAiWidget extends Component
             }
 
             $matched = InvoiceExtractionService::forCompany($company)->matchToCatalog($result['data'] ?? []);
-            $lines = $matched['lines'] ?? [];
-            $matchedCount = collect($lines)->where('item_id', '>', 0)->count();
-            $totalLines = count($lines);
+            $creator = app(VendorInvoicePurchaseOrderService::class);
+            $ready = VendorInvoicePurchaseOrderService::listsAreReady($matched);
+            VendorInvoicePurchaseOrderService::storeReview($result['data'] ?? [], $matched, $ready);
 
-            session([
-                'pos_ai_pending_vendor_invoice' => [
-                    'header' => [
-                        'supplier_name' => $matched['supplier_name'] ?? null,
-                        'supplier_id' => $matched['supplier_id'] ?? null,
-                        'ref_no' => $matched['ref_no'] ?? null,
-                        'invoice_date' => $matched['invoice_date'] ?? null,
-                        'total' => $matched['total'] ?? null,
-                    ],
-                    'lines' => $lines,
-                    'status' => $totalLines > 0
-                        ? 'From POS AI chat — review matched lines, then Insert into PO.'
-                        : 'No line items found on this document.',
-                ],
-            ]);
-
-            $poUrl = route('purchasing.orders.create', ['ai_invoice' => 1]);
-            $supplier = trim((string) ($matched['supplier_name'] ?? '')) ?: '—';
-            $reply = "Read vendor invoice for **{$company->name}**.\n\n"
-                ."- **Supplier:** {$supplier}\n"
-                ."- **Lines found:** {$totalLines} ({$matchedCount} matched to catalog)\n\n"
-                ."### Next step\n"
-                ."Open **New Purchase Order** to review and insert lines:\n"
-                ."{$poUrl}\n\n"
-                .'You can also upload from **Purchasing → Orders → New → Scan vendor invoice (POS AI)**.';
-
-            $this->messages[] = $this->posAiMakeMessage('assistant', $reply, 'openai');
+            $this->messages[] = $this->posAiMakeMessage(
+                'assistant',
+                $creator->reviewReply($company, $matched),
+                'openai'
+            );
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage(
                 'assistant',
@@ -173,7 +154,8 @@ class PosAiWidget extends Component
 
         try {
             $company = Company::query()->findOrFail(auth()->user()->company_id);
-            $result = JapsAiChatService::forCompany($company)->handle($text, $forcedIntent);
+            $history = JapsAiChatService::priorTurns($this->messages);
+            $result = JapsAiChatService::forCompany($company)->handle($text, $forcedIntent, $history);
             $this->messages[] = $this->posAiMakeMessage('assistant', $result['reply'], $result['tool'] ?? null);
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage('assistant', 'Could not read live data: '.$e->getMessage(), 'error');
@@ -198,6 +180,7 @@ class PosAiWidget extends Component
     public function formatReply(string $text): string
     {
         $escaped = e($text);
+        $escaped = \App\Services\JapsAi\VendorInvoicePurchaseOrderService::displayMoneyTwoDecimals($escaped);
         $escaped = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $escaped) ?? $escaped;
         $escaped = preg_replace('/^### (.+)$/m', '<div class="posai-w-h3">$1</div>', $escaped) ?? $escaped;
         $escaped = preg_replace(

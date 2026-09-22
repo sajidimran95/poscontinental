@@ -4,6 +4,7 @@ namespace App\Services\JapsAi;
 
 use App\Models\Company;
 use App\Models\Item;
+use App\Models\ItemSupplier;
 use App\Models\Supplier;
 use App\Support\ItemSearch;
 use Illuminate\Http\UploadedFile;
@@ -13,7 +14,7 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
  * JapsAI vendor invoice / bill reader (japspos workflow).
- * Extracts structured lines via OpenAI — never writes PO/stock itself.
+ * Extracts structured lines via OpenAI. Persistence of the PO is handled by VendorInvoicePurchaseOrderService.
  */
 class InvoiceExtractionService
 {
@@ -27,7 +28,7 @@ Extract the data and return ONLY a single valid JSON object (no markdown, no com
   "invoice_date": string|null,
   "currency": string|null,
   "lines": [
-    { "name": string, "sku": string|null, "quantity": number, "unit_price": number }
+    { "name": string, "sku": string|null, "quantity": number, "unit_price": number, "line_total": number|null }
   ],
   "subtotal": number|null,
   "tax_amount": number|null,
@@ -38,7 +39,9 @@ Rules:
 - "invoice_date" must be formatted as YYYY-MM-DD if you can determine it, else null.
 - "lines" must contain one entry per distinct product/item row on the invoice. If the file has multiple pages, include line items from every page.
 - "quantity" and "unit_price" must be plain numbers only (no currency symbols, no thousands separators).
-- If unit_price is not printed but line total and quantity are, compute unit_price = line_total / quantity.
+- "unit_price" is the billed cost for one of the quantity units on that row (what the vendor charged), not a catalog or list price.
+- "line_total" is the extended amount printed for that row when available (quantity × unit_price). If unit_price is missing, compute unit_price = line_total / quantity.
+- "quantity" and "unit_price" must use the same unit as the billed row (do not convert cases to eaches unless the invoice already shows eaches).
 - If a SKU / item code / barcode is printed next to a line, put it in "sku", else null.
 - Do not invent data that is not visibly on the document. Use null when unsure.
 - Return ONLY the JSON object, nothing else.
@@ -70,16 +73,26 @@ PROMPT;
             $model = 'gpt-4o-mini';
         }
 
-        $mime = $file->getMimeType() ?: 'image/jpeg';
+        $mime = strtolower((string) ($file->getMimeType() ?: ''));
+        $originalName = (string) ($file->getClientOriginalName() ?: 'invoice.pdf');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         $path = $file->getRealPath();
         if (! $path || ! is_file($path)) {
             return ['success' => false, 'msg' => 'Could not read the uploaded file.'];
         }
 
         try {
-            if ($mime === 'application/pdf') {
-                return $this->extractFromPdf($apiKey, $model, $path, $file->getClientOriginalName() ?: 'invoice.pdf');
+            $isPdf = $mime === 'application/pdf' || $extension === 'pdf';
+            if ($isPdf) {
+                // OpenAI file ingest is case-sensitive: ".PDF" is rejected, ".pdf" is not.
+                return $this->extractFromPdf($apiKey, $model, $path, 'invoice.pdf');
             }
+
+            if ($mime === '') {
+                $mime = 'image/jpeg';
+            }
+
+            $mime = $this->normalizeImageMime($mime, $extension);
 
             return $this->extractFromImage($apiKey, $model, $path, $mime);
         } catch (\Throwable $e) {
@@ -98,8 +111,6 @@ PROMPT;
     public function matchToCatalog(array $data): array
     {
         $companyId = (int) $this->company->id;
-        $supplierId = $this->matchSupplier($companyId, $data['supplier_name'] ?? null);
-
         $lines = [];
         foreach ((array) ($data['lines'] ?? []) as $line) {
             $name = trim((string) ($line['name'] ?? ''));
@@ -113,6 +124,7 @@ PROMPT;
                 'sku' => $sku !== '' ? $sku : null,
                 'quantity' => max(0.01, (float) ($line['quantity'] ?? 1)),
                 'unit_price' => max(0, (float) ($line['unit_price'] ?? 0)),
+                'line_total' => isset($line['line_total']) ? (float) $line['line_total'] : null,
                 'selected' => true,
                 'item_id' => $item?->id,
                 'item_code' => $item?->item_code,
@@ -120,6 +132,9 @@ PROMPT;
                 'status' => $item ? 'matched' : 'unmatched',
             ];
         }
+
+        $supplierId = $this->matchSupplier($companyId, $data['supplier_name'] ?? null)
+            ?? $this->inferSupplierFromLines($companyId, $lines);
 
         return [
             'supplier_id' => $supplierId,
@@ -141,17 +156,112 @@ PROMPT;
             return null;
         }
 
-        $hit = Supplier::query()
-            ->where('company_id', $companyId)
-            ->where(function ($q) use ($name) {
-                $q->where('name', $name)
-                    ->orWhere('name', 'like', $name.'%')
-                    ->orWhere('supplier_id', $name);
-            })
-            ->orderByRaw('CASE WHEN name = ? THEN 0 WHEN name LIKE ? THEN 1 ELSE 2 END', [$name, $name.'%'])
+        $normalized = $this->normalizeSupplierName($name);
+        $tokens = array_values(array_filter(
+            explode(' ', $normalized),
+            fn (string $t) => strlen($t) >= 3
+        ));
+        if ($tokens === [] && $normalized !== '') {
+            $tokens = explode(' ', $normalized);
+        }
+
+        $query = Supplier::query()->where('company_id', $companyId);
+        $query->where(function ($q) use ($name, $tokens) {
+            $q->where('name', $name)
+                ->orWhereRaw('UPPER(name) = ?', [mb_strtoupper($name)])
+                ->orWhere('supplier_id', $name)
+                ->orWhere('name', 'like', $name.'%')
+                ->orWhere('name', 'like', '%'.$name.'%');
+            foreach (array_slice($tokens, 0, 4) as $token) {
+                $q->orWhere('name', 'like', '%'.$token.'%');
+            }
+        });
+
+        $bestId = null;
+        $bestScore = 0.0;
+        foreach ($query->limit(80)->get(['id', 'name', 'supplier_id']) as $row) {
+            $score = $this->supplierNameScore(
+                $normalized,
+                $this->normalizeSupplierName((string) $row->name)
+            );
+            if (strcasecmp((string) $row->supplier_id, $name) === 0) {
+                $score = max($score, 0.99);
+            }
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestId = (int) $row->id;
+            }
+        }
+
+        return $bestScore >= 0.72 ? $bestId : null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $lines
+     */
+    protected function inferSupplierFromLines(int $companyId, array $lines): ?int
+    {
+        $itemIds = collect($lines)
+            ->pluck('item_id')
+            ->filter(fn ($id) => (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($itemIds->count() < 2) {
+            return null;
+        }
+
+        $top = ItemSupplier::query()
+            ->whereIn('item_id', $itemIds)
+            ->selectRaw('supplier_id, COUNT(*) as c')
+            ->groupBy('supplier_id')
+            ->orderByDesc('c')
             ->first();
 
-        return $hit?->id;
+        if (! $top || (int) $top->c < max(2, (int) ceil($itemIds->count() * 0.45))) {
+            return null;
+        }
+
+        $exists = Supplier::query()
+            ->where('company_id', $companyId)
+            ->where('id', (int) $top->supplier_id)
+            ->exists();
+
+        return $exists ? (int) $top->supplier_id : null;
+    }
+
+    protected function normalizeSupplierName(string $name): string
+    {
+        $s = mb_strtoupper(trim($name));
+        $s = str_replace(['&', '+'], ' AND ', $s);
+        $s = preg_replace('/[^A-Z0-9]+/', ' ', $s) ?? $s;
+        $s = preg_replace(
+            '/\b(INC|INCORPORATED|LLC|LTD|LIMITED|CORP|CORPORATION|CO|COMPANY|THE|PRODUCT|PRODUCTS|SALES|DIVISION|DIV)\b/',
+            ' ',
+            $s
+        ) ?? $s;
+
+        return trim(preg_replace('/\s+/', ' ', $s) ?? $s);
+    }
+
+    protected function supplierNameScore(string $a, string $b): float
+    {
+        if ($a === '' || $b === '') {
+            return 0.0;
+        }
+        if ($a === $b) {
+            return 1.0;
+        }
+        if (str_contains($a, $b) || str_contains($b, $a)) {
+            $short = min(strlen($a), strlen($b));
+            $long = max(strlen($a), strlen($b));
+
+            return $long > 0 ? $short / $long : 0.0;
+        }
+        similar_text($a, $b, $pct);
+
+        return ((float) $pct) / 100;
     }
 
     protected function matchItem(int $companyId, ?string $sku, ?string $name): ?Item
@@ -192,6 +302,35 @@ PROMPT;
         }
 
         return trim((string) env('OPENAI_API_KEY', ''));
+    }
+
+    protected function normalizeImageMime(string $mime, string $extension): string
+    {
+        $mime = strtolower(trim($mime));
+        $extension = strtolower(trim($extension));
+
+        $byExt = [
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'jpe' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+        ];
+
+        if (isset($byExt[$extension])) {
+            return $byExt[$extension];
+        }
+
+        if ($mime === 'image/jpg' || $mime === 'image/pjpeg') {
+            return 'image/jpeg';
+        }
+
+        if (str_starts_with($mime, 'image/')) {
+            return $mime;
+        }
+
+        return 'image/jpeg';
     }
 
     /**
@@ -240,11 +379,12 @@ PROMPT;
     /**
      * @return array{success: bool, msg?: string, data?: array<string, mixed>}
      */
-    protected function extractFromPdf(string $apiKey, string $model, string $path, string $filename): array
+    protected function extractFromPdf(string $apiKey, string $model, string $path, string $filename = 'invoice.pdf'): array
     {
+        $safeName = 'invoice.pdf';
         $upload = Http::withToken($apiKey)
             ->timeout(60)
-            ->attach('file', (string) file_get_contents($path), $filename)
+            ->attach('file', (string) file_get_contents($path), $safeName)
             ->post('https://api.openai.com/v1/files', [
                 'purpose' => 'user_data',
             ]);
@@ -353,11 +493,19 @@ PROMPT;
             if (empty($line['name']) && empty($line['sku'])) {
                 continue;
             }
+            $qty = is_numeric($line['quantity'] ?? null) ? (float) $line['quantity'] : 1.0;
+            $qty = $qty > 0 ? $qty : 1.0;
+            $unit = is_numeric($line['unit_price'] ?? null) ? (float) $line['unit_price'] : 0.0;
+            $ext = is_numeric($line['line_total'] ?? null) ? (float) $line['line_total'] : 0.0;
+            if ($unit <= 0 && $ext > 0) {
+                $unit = $ext / $qty;
+            }
             $lines[] = [
                 'name' => (string) ($line['name'] ?? $line['sku'] ?? 'Item'),
                 'sku' => ! empty($line['sku']) ? (string) $line['sku'] : null,
-                'quantity' => is_numeric($line['quantity'] ?? null) ? (float) $line['quantity'] : 1.0,
-                'unit_price' => is_numeric($line['unit_price'] ?? null) ? (float) $line['unit_price'] : 0.0,
+                'quantity' => $qty,
+                'unit_price' => max(0, $unit),
+                'line_total' => $ext > 0 ? $ext : round($qty * max(0, $unit), 4),
             ];
         }
 

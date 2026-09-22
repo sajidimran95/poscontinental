@@ -53,7 +53,8 @@ class ProjectKnowledge
         $lines[] = '## Typical workflows';
         $lines[] = '- **Sell:** Customers → Sales Orders (scan/add items) → Invoice → Payments';
         $lines[] = '- **Buy:** Suppliers → Purchase Orders → Inventory Receiving → stock increases; RTV returns to vendor';
-        $lines[] = '- **POS AI vendor invoice (japspos-style):** Attach PDF/photo in the **POS AI chat** paperclip, or **Purchase Order → Scan vendor invoice (AI)** → review matches → Insert into PO → Save → Receive for stock. Unmatched: create item, then re-scan. Needs Admin → POS AI Settings (enable + API key).';
+        $lines[] = '- **POS AI vendor invoice:** Attach PDF/photo in **POS AI chat** or **Purchase Order → Scan vendor invoice (AI)**. Matched supplier + catalog SKUs auto-create a **New** PO (not sent to the vendor). Review, then Receive for stock. Unmatched: create item, then re-scan. Needs Admin → POS AI Settings (enable + API key).';
+        $lines[] = '- **POS AI intelligence (same Insights screen):** suggested reorders (draft PO, not sent), collections ranked by risk with a draft note, 3-way PO/receipt/invoice exceptions, slow movers, credit-risk warning on the sales order, cash-in forecast, reorder-due and drop-off accounts, cross-sell on the sales order, vendor scorecard, regulated SKU flags, unusual transactions, and an optional 7:00am email digest. Every figure is from live company data. Suggestions stay drafts until a person saves or sends them.';
         $lines[] = '- **Stock:** Items list (stock adjust + inventory journal track), Stock Counts, Stock Status, Item Velocity';
         $lines[] = '- **Pricing:** Item form + Bulk Pricing + customer price levels';
         $lines[] = '- **Credits:** Credit memos (optional restock)';

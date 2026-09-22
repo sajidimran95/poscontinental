@@ -1,10 +1,14 @@
 <?php
 
 use App\Livewire\Concerns\PersistsPosAiChat;
+use App\Livewire\Concerns\ReviewsVendorInvoiceForPurchase;
 use App\Models\Company;
 use App\Services\JapsAi\BusinessInsightsService;
 use App\Services\JapsAi\InvoiceExtractionService;
 use App\Services\JapsAi\JapsAiChatService;
+use App\Services\JapsAi\PosAiIntelligenceService;
+use App\Services\JapsAi\VendorInvoicePurchaseOrderService;
+use App\Support\ExcelCsv;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -13,9 +17,10 @@ use Livewire\WithFileUploads;
 new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 {
     use PersistsPosAiChat;
+    use ReviewsVendorInvoiceForPurchase;
     use WithFileUploads;
 
-    /** insights | chat | settings */
+    /** insights | intelligence | chat | settings */
     public string $panel = 'insights';
 
     public string $message = '';
@@ -33,6 +38,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public bool $japs_ai_widget_enabled = false;
 
+    public bool $japs_ai_digest_enabled = false;
+
+    public string $japs_ai_match_tolerance = '2';
+
     public string $japs_ai_api_key = '';
 
     public bool $clear_api_key = false;
@@ -46,6 +55,21 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     /** @var array<string, mixed>|null */
     public ?array $overview = null;
 
+    public string $intelKey = '';
+
+    /** @var array<string, mixed>|null */
+    public ?array $intel = null;
+
+    public string $intelNotice = '';
+
+    public string $intelAnswer = '';
+
+    /** @var list<array{supplier_id: ?int, supplier_name: string, lines: int}> */
+    public array $intelPoGroups = [];
+
+    /** @var list<array{at: string, po_number: string, text: string}> */
+    public array $adminAlerts = [];
+
     public function mount(): void
     {
         $this->loadSettingsForm();
@@ -55,7 +79,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public function setPanel(string $panel): void
     {
-        if (! in_array($panel, ['insights', 'chat', 'settings'], true)) {
+        if (! in_array($panel, ['insights', 'intelligence', 'chat', 'settings'], true)) {
             return;
         }
         if ($panel === 'settings' && ! (auth()->user()?->canManagePosAiSettings() ?? false)) {
@@ -65,6 +89,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->statusMessage = '';
         if ($panel === 'insights') {
             $this->refreshOverview();
+        }
+        if ($panel === 'intelligence') {
+            $this->intelKey = '';
+            $this->intel = null;
+            $this->intelAnswer = '';
+            $this->intelNotice = '';
+            $this->intelPoGroups = [];
         }
         if ($panel === 'settings') {
             $this->loadSettingsForm();
@@ -79,6 +110,95 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     {
         $companyId = (int) auth()->user()->company_id;
         $this->overview = BusinessInsightsService::forCompany($companyId)->overview();
+        $this->adminAlerts = VendorInvoicePurchaseOrderService::adminAlerts($companyId);
+    }
+
+    public function openIntel(string $key): void
+    {
+        $this->panel = 'intelligence';
+        $this->intelNotice = '';
+        $this->loadIntel($key);
+    }
+
+    public function openIntelFromIntent(string $intent): void
+    {
+        $key = collect(JapsAiChatService::INTEL_PROMPTS)->firstWhere('intent', $intent)['key'] ?? '';
+        if ($key === '') {
+            return;
+        }
+        $this->openIntel($key);
+    }
+
+    public function closeIntel(): void
+    {
+        $this->intelKey = '';
+        $this->intel = null;
+        $this->intelNotice = '';
+        $this->intelAnswer = '';
+        $this->intelPoGroups = [];
+    }
+
+    public function draftReorderPo(int $supplierId = 0): mixed
+    {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
+        $companyId = (int) auth()->user()->company_id;
+        $payload = PosAiIntelligenceService::forCompany($companyId)->draftReorderPayload($supplierId > 0 ? $supplierId : null);
+        if (! is_array($payload) || empty($payload['lines'])) {
+            $this->intelNotice = 'No draft lines for that supplier. Suggestions with too little history are left off the PO.';
+
+            return null;
+        }
+        if ($supplierId <= 0) {
+            $payload['supplier_id'] = null;
+        }
+        session(['pos_ai_pending_reorder' => $payload]);
+
+        return $this->redirect(route('purchasing.orders.create'), navigate: true);
+    }
+
+    public function exportIntel(): mixed
+    {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
+        $key = $this->intelKey !== '' ? $this->intelKey : 'demand';
+        $sheet = PosAiIntelligenceService::forCompany((int) auth()->user()->company_id)->exportSheet($key);
+        if (($sheet['rows'] ?? []) === []) {
+            $this->intelNotice = 'Nothing to export for this report.';
+
+            return null;
+        }
+
+        return ExcelCsv::download(
+            (string) $sheet['filename'],
+            (array) $sheet['headers'],
+            (array) $sheet['rows'],
+            (string) ($sheet['title'] ?? 'POS AI')
+        );
+    }
+
+    private function loadIntel(string $key): void
+    {
+        $allowed = ['demand', 'slow', 'collections', 'credit', 'cash', 'churn', 'match', 'vendors', 'compliance', 'anomalies', 'reorder_due', 'digest', 'cross_sell', 'cheaper', 'prices'];
+        if (! in_array($key, $allowed, true)) {
+            return;
+        }
+        $companyId = (int) auth()->user()->company_id;
+        $intelSvc = PosAiIntelligenceService::forCompany($companyId);
+        $block = $intelSvc->section($key);
+        $this->intelKey = $key;
+        $this->intel = is_array($block) ? $block : [];
+
+        $this->intelPoGroups = [];
+        if ($key === 'demand') {
+            foreach ((array) data_get($block, 'groups', []) as $group) {
+                $this->intelPoGroups[] = [
+                    'supplier_id' => $group['supplier_id'] ?? null,
+                    'supplier_name' => (string) ($group['supplier_name'] ?? 'Supplier'),
+                    'lines' => count((array) ($group['lines'] ?? [])),
+                ];
+            }
+        }
+
+        $this->intelAnswer = $intelSvc->reply($intelSvc->intentForKey($key));
     }
 
     public function loadSettingsForm(): void
@@ -86,6 +206,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $company = auth()->user()?->company;
         $this->japs_ai_enabled = (bool) ($company?->japs_ai_enabled ?? false);
         $this->japs_ai_widget_enabled = (bool) ($company?->japs_ai_widget_enabled ?? false);
+        $this->japs_ai_digest_enabled = (bool) ($company?->japs_ai_digest_enabled ?? false);
+        $this->japs_ai_match_tolerance = (string) ($company?->japs_ai_match_tolerance ?? '2');
         $this->japs_ai_model = (string) ($company?->japs_ai_model ?: 'gpt-4o-mini');
         $this->japs_ai_api_key = '';
         $this->clear_api_key = false;
@@ -100,6 +222,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->validate([
             'japs_ai_enabled' => ['boolean'],
             'japs_ai_widget_enabled' => ['boolean'],
+            'japs_ai_digest_enabled' => ['boolean'],
+            'japs_ai_match_tolerance' => ['required', 'numeric', 'min:0.1', 'max:25'],
             'japs_ai_model' => ['required', 'string', 'max:64'],
             'japs_ai_api_key' => ['nullable', 'string', 'max:500'],
             'clear_api_key' => ['boolean'],
@@ -109,6 +233,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $data = [
             'japs_ai_enabled' => $this->japs_ai_enabled,
             'japs_ai_widget_enabled' => $this->japs_ai_widget_enabled,
+            'japs_ai_digest_enabled' => $this->japs_ai_digest_enabled,
+            'japs_ai_match_tolerance' => round((float) $this->japs_ai_match_tolerance, 2),
             'japs_ai_model' => trim($this->japs_ai_model) ?: 'gpt-4o-mini',
         ];
 
@@ -189,37 +315,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             }
 
             $matched = InvoiceExtractionService::forCompany($company)->matchToCatalog($result['data'] ?? []);
-            $lines = $matched['lines'] ?? [];
-            $matchedCount = collect($lines)->where('item_id', '>', 0)->count();
-            $totalLines = count($lines);
+            $creator = app(VendorInvoicePurchaseOrderService::class);
+            $ready = VendorInvoicePurchaseOrderService::listsAreReady($matched);
+            VendorInvoicePurchaseOrderService::storeReview($result['data'] ?? [], $matched, $ready);
 
-            session([
-                'pos_ai_pending_vendor_invoice' => [
-                    'header' => [
-                        'supplier_name' => $matched['supplier_name'] ?? null,
-                        'supplier_id' => $matched['supplier_id'] ?? null,
-                        'ref_no' => $matched['ref_no'] ?? null,
-                        'invoice_date' => $matched['invoice_date'] ?? null,
-                        'total' => $matched['total'] ?? null,
-                    ],
-                    'lines' => $lines,
-                    'status' => $totalLines > 0
-                        ? 'From POS AI chat — review matched lines, then Insert into PO.'
-                        : 'No line items found on this document.',
-                ],
-            ]);
-
-            $poUrl = route('purchasing.orders.create', ['ai_invoice' => 1]);
-            $supplier = trim((string) ($matched['supplier_name'] ?? '')) ?: '—';
-            $reply = "Read vendor invoice for **{$company->name}**.\n\n"
-                ."- **Supplier:** {$supplier}\n"
-                ."- **Lines found:** {$totalLines} ({$matchedCount} matched to catalog)\n\n"
-                ."### Next step\n"
-                ."Open **New Purchase Order** to review and insert lines:\n"
-                ."{$poUrl}\n\n"
-                .'You can also upload from **Purchasing → Orders → New → Scan vendor invoice (POS AI)**.';
-
-            $this->messages[] = $this->posAiMakeMessage('assistant', $reply, 'openai');
+            $this->messages[] = $this->posAiMakeMessage(
+                'assistant',
+                $creator->reviewReply($company, $matched),
+                'openai'
+            );
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage(
                 'assistant',
@@ -247,7 +351,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         try {
             $company = Company::query()->findOrFail(auth()->user()->company_id);
             $svc = JapsAiChatService::forCompany($company);
-            $result = $svc->handle($text, $forcedIntent);
+            $history = JapsAiChatService::priorTurns($this->messages);
+            $result = $svc->handle($text, $forcedIntent, $history);
             $this->messages[] = $this->posAiMakeMessage('assistant', $result['reply'], $result['tool'] ?? null);
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage(
@@ -279,6 +384,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     public function formatReply(string $text): string
     {
         $escaped = e($text);
+        $escaped = \App\Services\JapsAi\VendorInvoicePurchaseOrderService::displayMoneyTwoDecimals($escaped);
         $escaped = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $escaped) ?? $escaped;
         $escaped = preg_replace('/^### (.+)$/m', '<div class="posai-h3">$1</div>', $escaped) ?? $escaped;
         $escaped = preg_replace(
@@ -307,12 +413,16 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 <div class="posai-tabs" role="tablist">
                     <button type="button" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
                     <button type="button" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
+                    <button type="button" class="posai-tab {{ $panel === 'intelligence' ? 'is-active' : '' }}" wire:click="setPanel('intelligence')">Intelligence</button>
                     @if (auth()->user()?->canManagePosAiSettings())
                         <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
                     @endif
                 </div>
                 @if ($panel === 'insights')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
+                @endif
+                @if ($panel === 'intelligence')
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="openIntel('{{ $intelKey !== '' ? $intelKey : 'demand' }}')" wire:loading.attr="disabled" wire:target="openIntel,openIntelFromIntent">Refresh</button>
                 @endif
                 @if ($panel === 'chat')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="clearChat" title="Start a new chat">Clear chat</button>
@@ -344,9 +454,20 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         <span><strong>Show chat widget</strong> on all pages (bottom-right icon)</span>
                     </label>
 
+                    <label class="posai-check">
+                        <input type="checkbox" wire:model="japs_ai_digest_enabled" />
+                        <span><strong>Email morning digest</strong> at 7:00am to the company email. Off until you turn this on. The email is a summary only — it does not send POs or collection notes.</span>
+                    </label>
+
+                    <label class="posai-field">
+                        <span>3-way match tolerance (%)</span>
+                        <input type="number" min="0.1" max="25" step="0.1" wire:model="japs_ai_match_tolerance" class="desk-input" />
+                        <small>Quantity and price differences at or under this percent stay off the exception list. Nothing is auto-posted.</small>
+                    </label>
+
                     <p class="item-hint" style="margin:0.35rem 0 0.75rem;font-size:12px;color:#64748b;line-height:1.4;">
-                        <strong>Vendor invoice workflow:</strong> Purchasing → Purchase Order → <em>Scan vendor invoice (AI)</em>
-                        (or Items → Scan invoice). AI reads the file and matches SKUs; you insert into the PO, then Receive as usual. Stock never changes from AI alone.
+                        <strong>Vendor invoice workflow:</strong> Attach a supplier invoice in POS AI Chat or <em>Scan vendor invoice (AI)</em>.
+                        Matched supplier + catalog lines create a <em>New</em> purchase order automatically. Review it, then Receive as usual. Nothing is emailed to the vendor; stock never changes from AI alone.
                     </p>
 
                     <label class="posai-field">
@@ -385,6 +506,16 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         @elseif ($panel === 'insights')
             @php $o = $overview ?? []; @endphp
             <div class="posai-panel" wire:poll.60s="refreshOverview">
+                @if ($adminAlerts !== [])
+                    <div class="posai-live" style="border:1px solid #f59e0b;background:#fffbeb;color:#92400e;margin-bottom:0.75rem;padding:0.65rem 0.8rem;border-radius:8px;">
+                        <strong>Admin alerts (invoice → PO cost)</strong>
+                        <ul style="margin:0.4rem 0 0;padding-left:1.1rem;font-size:13px;line-height:1.45;">
+                            @foreach (array_slice($adminAlerts, 0, 6) as $alert)
+                                <li><strong>{{ $alert['po_number'] ?? '' }}</strong> {{ $alert['text'] ?? '' }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
                 <div class="posai-live">
                     Live POS totals · as of {{ data_get($o, 'as_of', '—') }}
                 </div>
@@ -451,13 +582,23 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         <span class="posai-count">{{ count(data_get($o, 'actions', [])) }}</span>
                     </div>
                     @forelse (data_get($o, 'actions', []) as $a)
-                        <div class="posai-suggest-row">
-                            <span class="posai-badge">{{ $a['priority'] }}</span>
-                            <div>
-                                <div class="posai-suggest-name">{{ $a['title'] }}</div>
-                                <div class="posai-suggest-detail">{{ $a['detail'] }}</div>
+                        @if (! empty($a['key']))
+                            <button type="button" class="posai-suggest-row posai-suggest-btn" wire:click="openIntel('{{ $a['key'] }}')">
+                                <span class="posai-badge">{{ $a['priority'] }}</span>
+                                <div>
+                                    <div class="posai-suggest-name">{{ $a['title'] }}</div>
+                                    <div class="posai-suggest-detail">{{ $a['detail'] }}</div>
+                                </div>
+                            </button>
+                        @else
+                            <div class="posai-suggest-row">
+                                <span class="posai-badge">{{ $a['priority'] }}</span>
+                                <div>
+                                    <div class="posai-suggest-name">{{ $a['title'] }}</div>
+                                    <div class="posai-suggest-detail">{{ $a['detail'] }}</div>
+                                </div>
                             </div>
-                        </div>
+                        @endif
                     @empty
                         <div class="posai-suggest-empty">No urgent actions right now — inventory and AR look clear.</div>
                     @endforelse
@@ -471,6 +612,50 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                                 {{ $q['label'] }}
                             </button>
                         @endforeach
+                    </div>
+                </div>
+            </div>
+        @elseif ($panel === 'intelligence')
+            <div class="posai-panel posai-intel-page">
+                <p class="posai-intel-hint">Pick a topic. Each click looks up only that live data and answers here — nothing loads until you choose one.</p>
+                <div class="posai-pills posai-intel-pills">
+                    @foreach (\App\Services\JapsAi\JapsAiChatService::intelTabs() as $tab)
+                        <button
+                            type="button"
+                            class="posai-pill {{ $intelKey === $tab['key'] ? 'is-active' : '' }}"
+                            wire:click="openIntel('{{ $tab['key'] }}')"
+                            wire:loading.attr="disabled"
+                            wire:target="openIntel,openIntelFromIntent"
+                        >{{ $tab['label'] }}</button>
+                    @endforeach
+                </div>
+                @if ($intelKey !== '')
+                    <div style="margin:.55rem 0 0;">
+                        <button type="button" class="desk-btn desk-btn-sm" wire:click="exportIntel" wire:loading.attr="disabled" wire:target="exportIntel">Export Excel</button>
+                    </div>
+                @endif
+                <div class="posai-intel" wire:loading.class="is-busy" wire:target="openIntel,openIntelFromIntent,draftReorderPo,exportIntel">
+                    @if ($intelNotice !== '')
+                        <div class="posai-suggest-detail">{{ $intelNotice }}</div>
+                    @endif
+                    <div wire:loading wire:target="openIntel,openIntelFromIntent" class="posai-suggest-detail" style="margin-top:.65rem;">Reading live data and writing the answer…</div>
+                    <div wire:loading.remove wire:target="openIntel,openIntelFromIntent">
+                        @if ($intelAnswer !== '')
+                            <div class="posai-intel-answer">{!! $this->formatReply($intelAnswer) !!}</div>
+                        @endif
+                        @if ($intelKey === 'demand' && $intelPoGroups !== [])
+                            <div class="posai-group" style="margin-top:.85rem;">
+                                <h4>Draft purchase orders (review only)</h4>
+                                @foreach ($intelPoGroups as $group)
+                                    <button type="button" class="desk-btn desk-btn-sm desk-btn-primary" style="margin:.25rem .35rem .25rem 0;" wire:click="draftReorderPo({{ (int) ($group['supplier_id'] ?? 0) }})">
+                                        Draft PO — {{ $group['supplier_name'] }} ({{ (int) $group['lines'] }})
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                        @if ($intelAnswer === '' && $intelKey === '')
+                            <p class="posai-suggest-detail" style="margin-top:.8rem;">Nothing is loaded yet. Click a topic above to look up live data and see the answer.</p>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -501,14 +686,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             </div>
                         </div>
                     @endforeach
-                    <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice" class="posai-msg posai-msg-assistant">
+                    <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-msg posai-msg-assistant">
                         <span class="posai-avatar ai">AI</span>
                         <div class="posai-bubble muted">Working…</div>
                     </div>
                     <div id="posai-msg-end" style="height:1px;"></div>
                 </div>
 
-                <div class="posai-chat-footer">
+                    <div class="posai-chat-footer">
+                    @include('livewire.partials.ai-invoice-review-actions')
                     <div class="posai-pills">
                         @foreach (\App\Services\JapsAi\JapsAiChatService::QUICK_PROMPTS as $q)
                             <button
@@ -519,13 +705,28 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             >{{ $q['label'] }}</button>
                         @endforeach
                     </div>
-                    <form wire:submit.prevent="send" class="posai-composer" autocomplete="off">
+                    <form
+                        wire:submit.prevent="send"
+                        class="posai-composer"
+                        autocomplete="off"
+                        x-on:paste="
+                            const items = ($event.clipboardData && $event.clipboardData.items) ? [...$event.clipboardData.items] : [];
+                            const img = items.find(i => i.type && i.type.indexOf('image/') === 0);
+                            if (!img) return;
+                            $event.preventDefault();
+                            const blob = img.getAsFile();
+                            if (!blob) return;
+                            const type = blob.type === 'image/jpg' ? 'image/jpeg' : (blob.type || 'image/png');
+                            const ext = type === 'image/jpeg' ? 'jpg' : (type.split('/')[1] || 'png').toLowerCase();
+                            $wire.upload('chatInvoiceFile', new File([blob], 'invoice.' + ext, { type: type }));
+                        "
+                    >
                         <label class="posai-attach" title="Attach vendor invoice (PDF/photo) for PO">
                             <input
                                 type="file"
                                 class="posai-attach-input"
                                 wire:model="chatInvoiceFile"
-                                accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
+                                accept=".jpg,.jpeg,.png,.webp,.JPG,.JPEG,.PNG,.WEBP,.pdf,.PDF,image/*,application/pdf"
                             />
                             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                 <path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5l-9.2 9.2a1.4 1.4 0 01-2-2l8.1-8.1"/>
@@ -536,7 +737,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             type="text"
                             wire:model="message"
                             class="desk-input posai-composer-input"
-                            placeholder="Ask POS AI… or attach vendor invoice for PO"
+                            placeholder="Ask POS AI… attach or paste invoice photo/PDF"
                             maxlength="2000"
                         />
                         <button type="submit" class="desk-btn desk-btn-primary" wire:loading.attr="disabled" wire:target="send,chatInvoiceFile,processChatVendorInvoice">Send</button>
@@ -569,6 +770,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             border-radius: 10px;
             box-shadow: 0 4px 14px rgba(30, 41, 59, .08);
             overflow: hidden;
+        }
+        .posai-wrap:has(.posai-intel-page) .posai-shell,
+        .posai-shell:has(.posai-intel-page) {
+            max-width: 1100px;
         }
         .posai-wrap.is-chat .posai-shell {
             flex: 1 1 auto;
@@ -867,6 +1072,18 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             padding: .55rem 0;
             border-top: 1px solid #eef1f5;
         }
+        button.posai-suggest-btn {
+            width: 100%;
+            margin: 0;
+            border: 0;
+            background: transparent;
+            text-align: left;
+            cursor: pointer;
+            font: inherit;
+        }
+        button.posai-suggest-btn:hover {
+            background: #f8fafc;
+        }
         .posai-suggest-name {
             font-weight: 600;
             font-size: .88rem;
@@ -1099,5 +1316,50 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             border-radius: 8px !important;
             min-height: 2.4rem;
         }
+        .posai-intel { margin-top: .85rem; }
+        .posai-intel.is-busy { opacity: .65; }
+        .posai-intel-hint {
+            margin: 0 0 .7rem;
+            color: #64748b;
+            font-size: .88rem;
+        }
+        .posai-intel-pills { margin-bottom: .15rem; }
+        .posai-intel-answer {
+            margin-top: .75rem;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: .75rem .9rem;
+            font-size: .88rem;
+            line-height: 1.5;
+            color: #1e293b;
+        }
+        .posai-intel-answer .posai-h3 {
+            font-weight: 700;
+            margin: .35rem 0 .08rem;
+            font-size: .9rem;
+            color: var(--chief-action, #2b5797);
+        }
+        .posai-table-wrap { overflow-x: auto; margin-top: .45rem; }
+        .posai-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+        .posai-table th, .posai-table td {
+            text-align: left;
+            padding: .35rem .4rem;
+            border-bottom: 1px solid #eef1f5;
+            vertical-align: top;
+        }
+        .posai-table th { color: #64748b; font-weight: 700; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; }
+        .posai-bars { display: flex; flex-direction: column; gap: .35rem; margin-top: .45rem; }
+        .posai-bar-row { display: grid; grid-template-columns: 9.5rem 1fr auto; gap: .45rem; align-items: center; font-size: .78rem; }
+        .posai-bar { height: .55rem; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
+        .posai-bar > span { display: block; height: 100%; background: #2563eb; border-radius: 99px; }
+        .posai-draft {
+            margin: .25rem 0 0;
+            color: #334155;
+            font-size: .75rem;
+            white-space: pre-wrap;
+        }
+        .posai-group { margin-top: .7rem; }
+        .posai-group h4 { margin: 0 0 .25rem; font-size: .84rem; }
     </style>
 </div>

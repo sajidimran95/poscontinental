@@ -3,6 +3,7 @@
 namespace App\Services\JapsAi;
 
 use App\Models\Company;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -34,6 +35,44 @@ class JapsAiChatService
         ['id' => 'manufacturers', 'label' => 'All manufacturers', 'intent' => 'manufacturers'],
     ];
 
+    /** @var list<array{id: string, label: string, intent: string, key: string}> */
+    public const INTEL_PROMPTS = [
+        ['id' => 'demand_forecast', 'label' => 'Forecast / draft PO', 'intent' => 'demand_forecast', 'key' => 'demand'],
+        ['id' => 'collections_risk', 'label' => 'Collections risk', 'intent' => 'collections_risk', 'key' => 'collections'],
+        ['id' => 'three_way', 'label' => '3-way match', 'intent' => 'three_way', 'key' => 'match'],
+        ['id' => 'slow_movers', 'label' => 'Slow / dead stock', 'intent' => 'slow_movers', 'key' => 'slow'],
+        ['id' => 'credit_risk', 'label' => 'Credit risk', 'intent' => 'credit_risk', 'key' => 'credit'],
+        ['id' => 'cash_flow', 'label' => 'Cash flow', 'intent' => 'cash_flow', 'key' => 'cash'],
+        ['id' => 'cross_sell', 'label' => 'Cross-sell', 'intent' => 'cross_sell', 'key' => 'cross_sell'],
+        ['id' => 'churn', 'label' => 'Churn', 'intent' => 'churn', 'key' => 'churn'],
+        ['id' => 'vendor_score', 'label' => 'Vendor score', 'intent' => 'vendor_score', 'key' => 'vendors'],
+        ['id' => 'cheaper_suppliers', 'label' => 'Cheaper suppliers', 'intent' => 'cheaper_suppliers', 'key' => 'cheaper'],
+        ['id' => 'compliance', 'label' => 'Compliance', 'intent' => 'compliance', 'key' => 'compliance'],
+        ['id' => 'anomalies', 'label' => 'Anomalies', 'intent' => 'anomalies', 'key' => 'anomalies'],
+        ['id' => 'digest', 'label' => 'Digest', 'intent' => 'digest', 'key' => 'digest'],
+        ['id' => 'supplier_prices', 'label' => 'Supplier price table', 'intent' => 'supplier_prices', 'key' => 'prices'],
+        ['id' => 'reorder_due', 'label' => 'Reorder due', 'intent' => 'reorder_due', 'key' => 'reorder_due'],
+    ];
+
+    /** @return list<array{key: string, label: string}> */
+    public static function intelTabs(): array
+    {
+        $tabs = [];
+        $seen = [];
+        foreach (self::INTEL_PROMPTS as $row) {
+            $key = $row['key'];
+            if (isset($seen[$key]) || $key === '') {
+                continue;
+            }
+            $seen[$key] = true;
+            $tabs[] = ['key' => $key, 'label' => $row['label']];
+        }
+
+        return $tabs;
+    }
+
+    private string $lastMessage = '';
+
     public function __construct(
         public Company $company,
         public BusinessInsightsService $insights,
@@ -45,11 +84,37 @@ class JapsAiChatService
     }
 
     /**
+     * Prior turns only (the latest user line is sent separately).
+     *
+     * @param  list<array{role?: string, text?: string}>  $messages
+     * @return list<array{role: string, content: string}>
+     */
+    public static function priorTurns(array $messages, int $limit = 6): array
+    {
+        $prior = array_slice($messages, 0, -1);
+        $prior = array_slice($prior, -$limit);
+        $out = [];
+        foreach ($prior as $turn) {
+            $text = trim((string) ($turn['text'] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+            $out[] = [
+                'role' => ($turn['role'] ?? '') === 'assistant' ? 'assistant' : 'user',
+                'content' => Str::limit($text, 1200),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array{ok: bool, tool?: string, reply: string, error?: string}
      */
-    public function handle(string $message, ?string $forcedIntent = null): array
+    public function handle(string $message, ?string $forcedIntent = null, array $history = []): array
     {
         $message = trim($message);
+        $this->lastMessage = $message;
         if ($message === '' && ! $forcedIntent) {
             return ['ok' => false, 'reply' => $this->helpReply(), 'error' => 'empty'];
         }
@@ -77,7 +142,7 @@ class JapsAiChatService
         // Free-text about POS → OpenAI only if enabled + key present.
         if ($this->company->japs_ai_enabled && $this->resolveApiKey() !== '') {
             try {
-                $reply = $this->askOpenAi($message);
+                $reply = $this->askOpenAi($message, $history);
 
                 return ['ok' => true, 'tool' => 'openai', 'reply' => $reply];
             } catch (\Throwable $e) {
@@ -101,6 +166,11 @@ class JapsAiChatService
     public function detectIntent(string $message): ?string
     {
         $m = Str::lower($message);
+
+        $intel = $this->detectIntelIntent($m);
+        if ($intel) {
+            return $intel;
+        }
 
         // Longer / more specific phrases first (order matters).
         $map = [
@@ -151,6 +221,48 @@ class JapsAiChatService
         return $bestIntent;
     }
 
+    private function detectIntelIntent(string $m): ?string
+    {
+        if (preg_match('/haven\'?t ordered|havent ordered|no orders? in \d+|not ordered in \d+|inactive for \d+/', $m)) {
+            return 'churn';
+        }
+
+        $map = [
+            'demand_forecast' => ['demand forecast', 'suggested reorder', 'suggested po', 'reorder suggestion', 'what should i reorder', 'what should we reorder', 'auto po', 'generate po', 'draft po'],
+            'slow_movers' => ['slow mover', 'dead stock', 'not turning', 'clearance', 'aging inventory', 'not selling'],
+            'collections_risk' => ['collections risk', 'collection risk', 'who to collect', 'payment risk', 'highest risk', 'collection priority', 'who should i call', 'who should we call'],
+            'credit_risk' => ['credit risk', 'paying slower', 'days sales outstanding', 'on-time payment', 'on time payment'],
+            'cash_flow' => ['cash flow', 'cash forecast', 'expected cash', 'cash in', 'cash-in'],
+            'cross_sell' => ['cross sell', 'cross-sell', 'also buy', 'bought together', 'add-on', 'addon'],
+            'reorder_due' => ['due to reorder', 'reorder cadence', 'usually reorder', 'reorder due'],
+            'churn' => ['churn', 'drop-off', 'drop off', 'declining account', 'inactive customer', 'accounts dropping'],
+            'three_way' => ['3-way', '3 way', 'three-way', 'three way', 'receipt mismatch', 'match exception'],
+            'vendor_score' => ['vendor score', 'vendor performance', 'fill rate', 'on-time delivery', 'price stability', 'scorecard'],
+            'cheaper_suppliers' => ['cheaper supplier', 'cheaper vendor', 'lower cost vendor', 'alt supplier'],
+            'supplier_prices' => ['supplier price', 'price table', 'vendor price'],
+            'compliance' => ['regulated product', 'tobacco license', 'age-restricted', 'age restricted', 'vape', 'compliance'],
+            'anomalies' => ['anomaly', 'unusual discount', 'price override', 'unusual order', 'unusual transaction', 'shrinkage'],
+            'digest' => ['daily digest', 'morning digest', 'morning summary', 'weekly digest'],
+        ];
+
+        if (preg_match('/\bdso\b/', $m)) {
+            return 'credit_risk';
+        }
+
+        $best = null;
+        $bestLen = 0;
+        foreach ($map as $intent => $keys) {
+            foreach ($keys as $k) {
+                if (str_contains($m, $k) && strlen($k) > $bestLen) {
+                    $best = $intent;
+                    $bestLen = strlen($k);
+                }
+            }
+        }
+
+        return $best;
+    }
+
     /**
      * True when the question is not about this wholesale POS / company operations.
      */
@@ -177,6 +289,8 @@ class JapsAiChatService
             'dashboard', 'overview', 'business', 'today', 'receipt', 'memo', 'module', 'menu',
             'workflow', 'screen', 'settings', 'user', 'role', 'email', 'bulk pricing', 'stock count',
             'adjust', 'journal', 'filing', 'return',
+            'forecast', 'reorder', 'churn', 'collection', 'vendor', 'anomaly', 'digest', 'dso',
+            'cash flow', 'dead stock', 'clearance', 'compliance', 'tobacco', 'vape', 'lead time',
         ];
 
         foreach ($posKeywords as $kw) {
@@ -256,6 +370,13 @@ class JapsAiChatService
     {
         $i = $this->insights;
         $asOf = $i->asOf();
+
+        if (in_array($intent, PosAiIntelligenceService::INTENTS, true)) {
+            $intel = PosAiIntelligenceService::forCompany((int) $this->company->id);
+            $intel->setQuestion($this->lastMessage);
+
+            return $intel->reply($intent);
+        }
 
         return match ($intent) {
             'project_map' => $this->replyProjectMap(),
@@ -673,7 +794,8 @@ class JapsAiChatService
             ."I cover **this whole project**: menus, workflows, sales, purchasing, inventory, tobacco/MSA, reports, and admin — "
             ."plus live data for your company.\n\n"
             ."I do **not** answer outside this product.\n\n"
-            ."Start with **POS system map** or any Suggested question.\n\n"
+            ."Start with **POS system map**, a Suggested question, or an intelligence question "
+            ."(suggested reorders, collections risk, 3-way match, slow movers, which customers haven't ordered in 60 days).\n\n"
             .$extra;
     }
 
@@ -687,9 +809,96 @@ class JapsAiChatService
         return trim((string) env('OPENAI_API_KEY', ''));
     }
 
-    private function askOpenAi(string $message): string
+    /**
+     * Read live POS figures for one Intelligence topic, then write a staff answer.
+     * Uses OpenAI when enabled; otherwise the same grounded local write-up.
+     */
+    public function explainIntelligence(string $key): string
+    {
+        $intel = PosAiIntelligenceService::forCompany((int) $this->company->id);
+        $intent = $intel->intentForKey($key);
+        $payload = $intel->compactForAi($key);
+        $local = $intent !== '' ? $intel->reply($intent) : '';
+
+        if (! $this->company->japs_ai_enabled || $this->resolveApiKey() === '') {
+            return $local !== '' ? $local : 'Turn on POS AI in Settings (enable + API key) so this tab can write an answer from live data.';
+        }
+
+        $cacheKey = 'pos-ai-explain:'.$this->company->id.':'.$key.':'.md5((string) json_encode($payload));
+
+        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($key, $payload, $local) {
+            try {
+                return $this->askOpenAiIntel($key, $payload);
+            } catch (\Throwable $e) {
+                $fail = $this->friendlyOpenAiFailure($e);
+
+                return $fail."\n\n".$local;
+            }
+        });
+    }
+
+    /** @param  array<string, mixed>  $payload */
+    private function askOpenAiIntel(string $key, array $payload): string
+    {
+        $model = trim((string) ($this->company->japs_ai_model ?: 'gpt-4o-mini')) ?: 'gpt-4o-mini';
+        $keyApi = $this->resolveApiKey();
+        $companyName = (string) $this->company->name;
+        $label = collect(self::intelTabs())->firstWhere('key', $key)['label'] ?? $key;
+
+        $system = "You are POS AI Intelligence for {$companyName} (Continental / JAPS wholesale POS).\n"
+            ."You already searched live company data. The JSON is the only source of numbers.\n"
+            ."Write a staff answer for topic: {$label}.\n"
+            ."- Do not invent SKUs, customers, invoices, vendors, or amounts.\n"
+            ."- If a list is empty, say there is not enough data — do not guess.\n"
+            ."- Short paragraphs and bullets. What it means, who/what to handle first, next step.\n"
+            ."- All actions are drafts for a person to review. Never say you sent a PO or email.\n"
+            ."- USD. No weather, no other companies, no general advice outside this POS data.";
+
+        $user = "Live findings JSON:\n".json_encode($payload, JSON_PRETTY_PRINT)
+            ."\n\nWrite the Intelligence answer for **{$label}** from this JSON only.";
+
+        $response = Http::withToken($keyApi)
+            ->timeout(45)
+            ->acceptJson()
+            ->post('https://api.openai.com/v1/chat/completions', [
+                'model' => $model,
+                'temperature' => 0.2,
+                'messages' => [
+                    ['role' => 'system', 'content' => $system],
+                    ['role' => 'user', 'content' => $user],
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            $status = $response->status();
+            $body = $response->json() ?? [];
+            $apiCode = (string) data_get($body, 'error.code', '');
+            $apiType = (string) data_get($body, 'error.type', '');
+            $apiMsg = (string) data_get($body, 'error.message', '');
+            $hint = $apiCode !== '' ? $apiCode : ($apiType !== '' ? $apiType : 'error');
+            throw new \RuntimeException('HTTP '.$status.' ['.$hint.'] '.Str::limit($apiMsg, 120, '…'));
+        }
+
+        $text = trim((string) data_get($response->json(), 'choices.0.message.content', ''));
+        if ($text === '') {
+            throw new \RuntimeException('Empty response from OpenAI.');
+        }
+
+        return $text;
+    }
+
+    /**
+     * @param  list<array{role: string, content: string}>  $history
+     */
+    private function askOpenAi(string $message, array $history = []): string
     {
         $snapshot = $this->insights->overview();
+        $digest = '';
+        try {
+            $digest = PosAiIntelligenceService::forCompany((int) $this->company->id)->digestText();
+        } catch (\Throwable) {
+            $digest = '';
+        }
         $model = trim((string) ($this->company->japs_ai_model ?: 'gpt-4o-mini')) ?: 'gpt-4o-mini';
         $key = $this->resolveApiKey();
         $companyName = (string) $this->company->name;
@@ -707,7 +916,21 @@ class JapsAiChatService
 
         $user = "Live company snapshot JSON (authoritative for this company):\n"
             .json_encode($snapshot, JSON_PRETTY_PRINT)
+            ."\n\nIntelligence digest computed from the same live data (do not invent figures beyond this and the JSON):\n{$digest}"
             ."\n\nUser question (must relate to this wholesale POS project / company):\n{$message}";
+
+        $messages = [
+            ['role' => 'system', 'content' => $system],
+        ];
+        foreach (array_slice($history, -6) as $turn) {
+            $role = ($turn['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
+            $content = trim((string) ($turn['content'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $messages[] = ['role' => $role, 'content' => Str::limit($content, 1200)];
+        }
+        $messages[] = ['role' => 'user', 'content' => $user];
 
         $response = Http::withToken($key)
             ->timeout(45)
@@ -715,10 +938,7 @@ class JapsAiChatService
             ->post('https://api.openai.com/v1/chat/completions', [
                 'model' => $model,
                 'temperature' => 0.2,
-                'messages' => [
-                    ['role' => 'system', 'content' => $system],
-                    ['role' => 'user', 'content' => $user],
-                ],
+                'messages' => $messages,
             ]);
 
         if (! $response->successful()) {

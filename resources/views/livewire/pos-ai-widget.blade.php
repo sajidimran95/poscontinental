@@ -161,11 +161,13 @@
                     </div>
                 </div>
             @endforeach
-            <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice" class="posai-w-msg posai-w-msg-assistant">
+            <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-w-msg posai-w-msg-assistant">
                 <span class="posai-w-avatar ai">AI</span>
                 <div class="posai-w-bubble muted">Working…</div>
             </div>
         </div>
+
+        @include('livewire.partials.ai-invoice-review-actions')
 
         <div class="posai-w-footer">
                 <div class="posai-w-suggest">
@@ -179,15 +181,38 @@
                                 wire:loading.attr="disabled"
                             >{{ $q['label'] }}</button>
                         @endforeach
+                        @foreach (\App\Services\JapsAi\JapsAiChatService::INTEL_PROMPTS as $q)
+                            <button
+                                type="button"
+                                class="posai-w-pill {{ $activeQuick === $q['intent'] ? 'is-active' : '' }}"
+                                wire:click="runQuick('{{ $q['intent'] }}')"
+                                wire:loading.attr="disabled"
+                            >{{ $q['label'] }}</button>
+                        @endforeach
                     </div>
                 </div>
-                <form wire:submit.prevent="send" class="posai-w-composer" autocomplete="off">
+                    <form
+                        wire:submit.prevent="send"
+                        class="posai-w-composer"
+                        autocomplete="off"
+                        x-on:paste="
+                            const items = ($event.clipboardData && $event.clipboardData.items) ? [...$event.clipboardData.items] : [];
+                            const img = items.find(i => i.type && i.type.indexOf('image/') === 0);
+                            if (!img) return;
+                            $event.preventDefault();
+                            const blob = img.getAsFile();
+                            if (!blob) return;
+                            const type = blob.type === 'image/jpg' ? 'image/jpeg' : (blob.type || 'image/png');
+                            const ext = type === 'image/jpeg' ? 'jpg' : (type.split('/')[1] || 'png').toLowerCase();
+                            $wire.upload('chatInvoiceFile', new File([blob], 'invoice.' + ext, { type: type }));
+                        "
+                    >
                     <label class="posai-w-attach" title="Attach vendor invoice (PDF/photo) for PO">
                         <input
                             type="file"
                             class="posai-w-attach-input"
                             wire:model="chatInvoiceFile"
-                            accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
+                            accept=".jpg,.jpeg,.png,.webp,.JPG,.JPEG,.PNG,.WEBP,.pdf,.PDF,image/*,application/pdf"
                         />
                         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5l-9.2 9.2a1.4 1.4 0 01-2-2l8.1-8.1"/>
@@ -198,7 +223,7 @@
                         type="text"
                         wire:model="message"
                         class="posai-w-input"
-                        placeholder="Ask POS… or attach vendor invoice for PO"
+                        placeholder="Ask POS… attach or paste invoice photo/PDF"
                         maxlength="2000"
                     />
                 <button type="submit" class="posai-w-send" wire:loading.attr="disabled" wire:target="send,processChatVendorInvoice,chatInvoiceFile" title="Send">

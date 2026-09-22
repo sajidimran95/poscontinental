@@ -7,23 +7,39 @@
         aria-modal="true"
         aria-labelledby="ai-inv-title"
     >
-        <div class="desk-modal" style="max-width:44rem;width:min(44rem,96vw);" wire:keydown.escape.window="closeAiInvoiceModal">
+        <div
+            class="desk-modal"
+            style="max-width:44rem;width:min(44rem,96vw);"
+            wire:keydown.escape.window="closeAiInvoiceModal"
+            x-on:paste.window="
+                const items = ($event.clipboardData && $event.clipboardData.items) ? [...$event.clipboardData.items] : [];
+                const img = items.find(i => i.type && i.type.indexOf('image/') === 0);
+                if (!img) return;
+                $event.preventDefault();
+                const blob = img.getAsFile();
+                if (!blob) return;
+                const type = blob.type === 'image/jpg' ? 'image/jpeg' : (blob.type || 'image/png');
+                const ext = type === 'image/jpeg' ? 'jpg' : (type.split('/')[1] || 'png').toLowerCase();
+                $wire.upload('aiInvoiceFile', new File([blob], 'invoice.' + ext, { type: type }));
+            "
+        >
             <div class="desk-modal-head">
                 <span id="ai-inv-title">POS AI — Scan vendor invoice</span>
                 <button type="button" wire:click="closeAiInvoiceModal" class="desk-modal-close" aria-label="Close">×</button>
             </div>
             <div class="desk-modal-body" style="padding:0.85rem 1rem 1rem;">
                 <p style="margin:0 0 0.75rem;font-size:13px;color:#475569;line-height:1.4;">
-                    Upload a supplier invoice photo or PDF. AI extracts lines and matches your item catalog.
-                    You review and insert into this PO — stock still updates only when you <strong>receive</strong> the PO.
+                    Upload a supplier invoice photo or PDF, or paste a copied screenshot (Ctrl+V). When the supplier
+                    and catalog SKUs match, POS AI creates a <strong>New</strong> purchase order automatically. Review qty and cost — stock still
+                    updates only when you <strong>receive</strong>. Nothing is sent to the vendor.
                 </p>
 
-                <label class="so-form-lbl" for="ai_invoice_file">Invoice file (JPG, PNG, WebP, PDF)</label>
+                <label class="so-form-lbl" for="ai_invoice_file">Invoice file (JPG, PNG, WebP, PDF) or paste a copied image</label>
                 <input
                     id="ai_invoice_file"
                     type="file"
                     wire:model="aiInvoiceFile"
-                    accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
+                    accept=".jpg,.jpeg,.png,.webp,.JPG,.JPEG,.PNG,.WEBP,.pdf,.PDF,image/*,application/pdf"
                     class="so-input"
                     style="margin-bottom:0.5rem"
                 />
@@ -45,10 +61,10 @@
                 </div>
 
                 @if ($aiInvoiceStatus !== '')
-                    <p style="margin:0 0 0.5rem;font-size:12px;color:#0369a1;">{{ $aiInvoiceStatus }}</p>
+                    <p style="margin:0 0 0.5rem;font-size:12px;color:#0369a1;white-space:pre-wrap;line-height:1.45;">{{ $aiInvoiceStatus }}</p>
                 @endif
                 @if ($aiInvoiceError !== '')
-                    <p class="so-field-error" role="alert" style="margin-bottom:0.5rem">{{ $aiInvoiceError }}</p>
+                    <p class="so-field-error" role="alert" style="margin-bottom:0.5rem;white-space:pre-wrap;">{{ $aiInvoiceError }}</p>
                 @endif
 
                 @if ($aiInvoiceHeader)
@@ -68,6 +84,8 @@
                         </div>
                     </div>
                 @endif
+
+                @include('livewire.partials.ai-invoice-review-actions')
 
                 @if ($aiInvoiceLines !== [])
                     <div class="desk-grid" style="max-height:min(40vh,18rem);overflow:auto;border:1px solid #e2e8f0;border-radius:6px;">
@@ -114,11 +132,6 @@
                                 @endforeach
                             </tbody>
                         </table>
-                    </div>
-                    <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.75rem;">
-                        <button type="button" class="desk-btn desk-btn-primary" wire:click="applyAiInvoiceToPurchaseOrder">
-                            {{ property_exists($this, 'lines') ? 'Insert selected into PO' : 'Done' }}
-                        </button>
                     </div>
                 @endif
             </div>

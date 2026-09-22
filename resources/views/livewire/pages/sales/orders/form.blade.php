@@ -16,6 +16,7 @@ use App\Models\TaxSchedule;
 use App\Models\User;
 use App\Services\InventoryService;
 use App\Services\ItemPriceHistoryService;
+use App\Services\JapsAi\PosAiIntelligenceService;
 use App\Services\ParkedSaleService;
 use App\Services\SalesOrderWindowManager;
 use App\Support\ExcelCsv;
@@ -227,6 +228,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public string $customerAlert = '';
 
     public string $creditWarning = '';
+
+    public string $aiCreditTrend = '';
+
+    public string $aiReorderNote = '';
+
+    /** @var list<array{code: string, name: string, together: int}> */
+    public array $aiAddOns = [];
 
     public string $taxExemptWarning = '';
 
@@ -2442,6 +2450,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $newId) {
             $this->customerAlert = '';
             $this->creditWarning = '';
+            $this->aiCreditTrend = '';
+            $this->aiReorderNote = '';
+            $this->aiAddOns = [];
             $this->taxExemptWarning = '';
             $this->customerPriceLevelId = null;
             $this->itemTaxRateCache = [];
@@ -2455,6 +2466,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $customer) {
             $this->customerAlert = '';
             $this->creditWarning = '';
+            $this->aiCreditTrend = '';
+            $this->aiReorderNote = '';
+            $this->aiAddOns = [];
             $this->taxExemptWarning = '';
 
             return;
@@ -2514,8 +2528,45 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->syncCustomerTypeQuery($customer);
         $this->shipToFlash = '';
         $this->refreshCreditWarning();
+        $this->refreshAiCustomerHints($customer);
         $this->suggestTax();
         $this->repriceLinesForCustomer();
+    }
+
+    protected function refreshAiCustomerHints(Customer $customer): void
+    {
+        $this->aiCreditTrend = '';
+        $this->aiReorderNote = '';
+        try {
+            $risk = PosAiIntelligenceService::forCompany((int) $customer->company_id)
+                ->creditRiskForCustomer((int) $customer->id);
+            if (is_array($risk) && ! empty($risk['flagged'])) {
+                $this->aiCreditTrend = 'Days to pay moved from '.(int) $risk['prior_dso'].' to '.(int) $risk['recent_dso']
+                    .', on-time '.(int) round(((float) $risk['prior_ontime']) * 100).'% to '.(int) round(((float) $risk['recent_ontime']) * 100)
+                    .'%. '.$risk['basis'].' This does not block the order.';
+            }
+            $due = PosAiIntelligenceService::forCompany((int) $customer->company_id)
+                ->reorderDueForCustomer((int) $customer->id);
+            if ($due !== []) {
+                $this->aiReorderNote = collect($due)->map(function ($row) {
+                    return $row['code'].' (last buy '.$row['days_since'].' days ago, usual gap '.$row['usual_gap'].')';
+                })->implode('; ').'. Suggestion only — not added to the order.';
+            }
+        } catch (\Throwable) {
+            $this->aiCreditTrend = '';
+            $this->aiReorderNote = '';
+        }
+    }
+
+    protected function refreshAiAddOns(Item $item): void
+    {
+        $this->aiAddOns = [];
+        try {
+            $this->aiAddOns = PosAiIntelligenceService::forCompany((int) $item->company_id)
+                ->crossSellForItem((int) $item->id);
+        } catch (\Throwable) {
+            $this->aiAddOns = [];
+        }
     }
 
     /**
@@ -4570,6 +4621,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->refreshCreditWarning();
         $this->suggestTax();
         $this->highlightScannedLine($index);
+        $this->refreshAiAddOns($item);
         $priceAlert = app(ItemPriceHistoryService::class)->salesAlertPayload($item);
         if ($priceAlert) {
             $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
@@ -5328,6 +5380,23 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         @if (filled($creditWarning))
             <div class="so-msg so-msg-credit" role="alert">
                 <strong>Credit:</strong> {{ $creditWarning }}
+            </div>
+        @endif
+        @if (filled($aiCreditTrend))
+            <div class="so-msg so-msg-alert" role="status">
+                <strong>Payment trend:</strong> {{ $aiCreditTrend }}
+            </div>
+        @endif
+        @if (filled($aiReorderNote))
+            <div class="so-msg so-msg-info" role="status">
+                <strong>Reorder due:</strong> {{ $aiReorderNote }}
+            </div>
+        @endif
+        @if ($aiAddOns !== [])
+            <div class="so-msg so-msg-info" role="status">
+                <strong>Often bought with this:</strong>
+                {{ collect($aiAddOns)->map(fn ($row) => $row['code'].' '.$row['name'])->implode(' · ') }}
+                <span>Suggestion only, not added.</span>
             </div>
         @endif
         @if (filled($taxExemptWarning))

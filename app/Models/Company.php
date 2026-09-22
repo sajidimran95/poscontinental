@@ -21,6 +21,7 @@ class Company extends Model
         'mail_encryption', 'mail_from_address', 'mail_from_name',
         'allow_negative_stock',
         'japs_ai_enabled', 'japs_ai_api_key', 'japs_ai_model', 'japs_ai_widget_enabled',
+        'japs_ai_digest_enabled', 'japs_ai_match_tolerance',
         'shipping_latitude', 'shipping_longitude',
     ];
 
@@ -33,6 +34,8 @@ class Company extends Model
             'japs_ai_enabled' => 'boolean',
             'japs_ai_api_key' => 'encrypted',
             'japs_ai_widget_enabled' => 'boolean',
+            'japs_ai_digest_enabled' => 'boolean',
+            'japs_ai_match_tolerance' => 'decimal:2',
         ];
     }
 

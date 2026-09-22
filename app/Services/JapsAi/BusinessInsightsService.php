@@ -234,6 +234,7 @@ class BusinessInsightsService
         if (($inventory['need_attention'] ?? 0) > 0) {
             $actions[] = [
                 'priority' => 'High',
+                'key' => 'demand',
                 'title' => 'Restock attention items',
                 'detail' => ($inventory['need_attention'] ?? 0).' of '.($inventory['products'] ?? 0)
                     .' products need attention (out of stock or at/below reorder).',
@@ -243,6 +244,7 @@ class BusinessInsightsService
         if (($invoices['overdue'] ?? 0) > 0) {
             $actions[] = [
                 'priority' => 'High',
+                'key' => 'collections',
                 'title' => 'Collections follow-up',
                 'detail' => 'Follow up on '.($invoices['overdue'] ?? 0)
                     .' older open invoices (~$'.number_format((float) ($invoices['overdue_amount'] ?? 0), 2).').',
@@ -258,7 +260,15 @@ class BusinessInsightsService
             ];
         }
 
-        return array_slice($actions, 0, 5);
+        try {
+            foreach (PosAiIntelligenceService::forCompany($this->companyId)->actionTiles() as $tile) {
+                $actions[] = $tile;
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return array_slice($actions, 0, 8);
     }
 
     /** @return list<array{code: string, description: string, qty: float, revenue: float}> */

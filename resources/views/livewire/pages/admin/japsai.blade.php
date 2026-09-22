@@ -322,7 +322,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             $this->messages[] = $this->posAiMakeMessage(
                 'assistant',
                 $creator->reviewReply($company, $matched),
-                'openai'
+                'invoice_review'
             );
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage(
@@ -662,7 +662,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         @else
             <div class="posai-chat">
                 <div class="posai-messages" id="posai-messages" wire:key="posai-messages-{{ count($messages) }}">
-                    @php $lastChatDay = ''; @endphp
+                    @php
+                        $lastChatDay = '';
+                        $lastInvoiceReviewIndex = collect($messages)->keys()->last(fn ($k) => ($messages[$k]['tool'] ?? null) === 'invoice_review');
+                        if ($lastInvoiceReviewIndex === null && ! empty($this->invoiceReviewButtons()['has'])) {
+                            $lastInvoiceReviewIndex = collect($messages)->keys()->last(fn ($k) => ($messages[$k]['role'] ?? '') === 'assistant');
+                        }
+                    @endphp
                     @foreach ($messages as $m)
                         @php $chatDay = $this->formatChatDay($m['at'] ?? null); @endphp
                         @if ($chatDay !== '' && $chatDay !== $lastChatDay)
@@ -676,10 +682,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                                 <span class="posai-avatar user" aria-hidden="true">U</span>
                             @endif
                             <div class="posai-bubble-wrap">
-                                @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error'], true))
+                                @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error', 'invoice_review'], true))
                                     <div class="posai-tool">✓ lookup {{ str_replace('_', ' ', $m['tool']) }}</div>
                                 @endif
                                 <div class="posai-bubble">{!! $this->formatReply($m['text']) !!}</div>
+                                @if ($loop->index === $lastInvoiceReviewIndex)
+                                    @include('livewire.partials.ai-invoice-review-actions')
+                                @endif
                                 @if (! empty($m['at']))
                                     <div class="posai-time">{{ $this->formatChatTime($m['at']) }}</div>
                                 @endif
@@ -694,7 +703,6 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 </div>
 
                     <div class="posai-chat-footer">
-                    @include('livewire.partials.ai-invoice-review-actions')
                     <div class="posai-pills">
                         @foreach (\App\Services\JapsAi\JapsAiChatService::QUICK_PROMPTS as $q)
                             <button
@@ -1129,6 +1137,11 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             text-transform: uppercase;
             color: var(--chief-status, #4b5563);
             margin-bottom: .45rem;
+        }
+        .posai-chat-footer .posai-pills { display: flex; flex-wrap: wrap; gap: .2rem; max-height: 4.2rem; overflow-y: auto; }
+        .posai-chat-footer .posai-pill {
+            font-size: .62rem;
+            padding: .12rem .38rem;
         }
         .posai-pills { display: flex; flex-wrap: wrap; gap: .4rem; }
         .posai-pill {

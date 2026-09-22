@@ -134,7 +134,13 @@
         </header>
 
         <div class="posai-w-messages" id="posai-widget-messages" wire:key="widget-msgs-{{ count($messages) }}">
-            @php $lastChatDay = ''; @endphp
+            @php
+                $lastChatDay = '';
+                $lastInvoiceReviewIndex = collect($messages)->keys()->last(fn ($k) => ($messages[$k]['tool'] ?? null) === 'invoice_review');
+                if ($lastInvoiceReviewIndex === null && ! empty($this->invoiceReviewButtons()['has'])) {
+                    $lastInvoiceReviewIndex = collect($messages)->keys()->last(fn ($k) => ($messages[$k]['role'] ?? '') === 'assistant');
+                }
+            @endphp
             @foreach ($messages as $m)
                 @php $chatDay = $this->formatChatDay($m['at'] ?? null); @endphp
                 @if ($chatDay !== '' && $chatDay !== $lastChatDay)
@@ -148,13 +154,16 @@
                         <span class="posai-w-avatar user">U</span>
                     @endif
                     <div class="posai-w-bubble-wrap">
-                        @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error', 'scope', 'openai'], true))
+                        @if (! empty($m['tool']) && $m['role'] === 'assistant' && ! in_array($m['tool'], ['help', 'error', 'scope', 'openai', 'invoice_review'], true))
                             <div class="posai-w-tool">✓ live data · {{ str_replace('_', ' ', $m['tool']) }}</div>
                         @endif
                         @if (($m['tool'] ?? null) === 'openai' && $m['role'] === 'assistant')
                             <div class="posai-w-tool">OpenAI · this company only</div>
                         @endif
                         <div class="posai-w-bubble">{!! $this->formatReply($m['text']) !!}</div>
+                        @if ($loop->index === $lastInvoiceReviewIndex)
+                            @include('livewire.partials.ai-invoice-review-actions')
+                        @endif
                         @if (! empty($m['at']))
                             <div class="posai-w-time">{{ $this->formatChatTime($m['at']) }}</div>
                         @endif
@@ -166,8 +175,6 @@
                 <div class="posai-w-bubble muted">Working…</div>
             </div>
         </div>
-
-        @include('livewire.partials.ai-invoice-review-actions')
 
         <div class="posai-w-footer">
                 <div class="posai-w-suggest">
@@ -490,20 +497,20 @@
         .posai-w-pills {
             display: flex;
             flex-wrap: wrap;
-            gap: .4rem;
-            max-height: 8.5rem;
+            gap: .2rem;
+            max-height: 4.25rem;
             overflow-y: auto;
         }
         .posai-w-pill {
-            border: 1.5px solid var(--posai-blue);
+            border: 1px solid var(--posai-blue);
             background: #e8f0fa;
             color: #1e3f70;
-            font-size: .78rem;
+            font-size: .62rem;
             font-weight: 600;
-            padding: .4rem .7rem;
+            padding: .12rem .38rem;
             border-radius: 999px;
             cursor: pointer;
-            line-height: 1.25;
+            line-height: 1.2;
             white-space: nowrap;
         }
         .posai-w-pill:hover {

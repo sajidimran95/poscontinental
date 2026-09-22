@@ -110,7 +110,7 @@ class PosAiWidget extends Component
             $this->messages[] = $this->posAiMakeMessage(
                 'assistant',
                 $creator->reviewReply($company, $matched),
-                'openai'
+                'invoice_review'
             );
         } catch (\Throwable $e) {
             $this->messages[] = $this->posAiMakeMessage(

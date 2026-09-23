@@ -671,4 +671,51 @@ class BusinessInsightsService
     {
         return '$'.number_format($n, 2);
     }
+
+    /**
+     * Plain-language script for screen readers / Read aloud on Insights.
+     *
+     * @param  array<string, mixed>  $overview
+     */
+    public function speakScript(array $overview): string
+    {
+        $parts = [];
+        $parts[] = 'POS AI Insights. As of '.trim((string) ($overview['as_of'] ?? 'now')).'.';
+
+        $salesToday = (float) data_get($overview, 'sales.today.total', 0);
+        $salesInv = (int) data_get($overview, 'sales.today.invoices', data_get($overview, 'sales.today.orders', 0));
+        $sales30 = (float) data_get($overview, 'sales.last_30_days.total', 0);
+        $parts[] = 'Sales today '.$this->money($salesToday).' across '.$salesInv.' invoices. Last 30 days '.$this->money($sales30).'.';
+
+        $need = (int) data_get($overview, 'inventory.need_attention', 0);
+        $products = (int) data_get($overview, 'inventory.products', 0);
+        $oos = (int) data_get($overview, 'inventory.out_of_stock', 0);
+        $below = (int) data_get($overview, 'inventory.below_reorder', 0);
+        $parts[] = 'Inventory: '.$need.' of '.$products.' products need attention. '.$oos.' out of stock, '.$below.' below reorder.';
+
+        $ar = (float) data_get($overview, 'invoices.outstanding', 0);
+        $open = (int) data_get($overview, 'invoices.open', 0);
+        $overdue = (int) data_get($overview, 'invoices.overdue', 0);
+        $overdueAmt = (float) data_get($overview, 'invoices.overdue_amount', 0);
+        $parts[] = 'Invoices: '.$this->money($ar).' outstanding on '.$open.' not paid invoices. '.$overdue.' older open totaling '.$this->money($overdueAmt).'.';
+
+        $actions = (array) ($overview['actions'] ?? []);
+        if ($actions === []) {
+            $parts[] = 'Suggested actions: none urgent.';
+        } else {
+            $parts[] = 'Suggested actions: '.count($actions).'.';
+            foreach (array_slice($actions, 0, 8) as $i => $a) {
+                $title = trim((string) ($a['title'] ?? 'Action'));
+                $detail = trim((string) ($a['detail'] ?? ''));
+                $priority = trim((string) ($a['priority'] ?? ''));
+                $line = ($i + 1).'. '.($priority !== '' ? $priority.'. ' : '').$title;
+                if ($detail !== '') {
+                    $line .= '. '.$detail;
+                }
+                $parts[] = $line;
+            }
+        }
+
+        return preg_replace('/\s+/', ' ', implode(' ', $parts)) ?: 'POS AI Insights. No data.';
+    }
 }

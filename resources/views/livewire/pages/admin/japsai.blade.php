@@ -410,19 +410,59 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 </div>
             </div>
             <div class="posai-head-actions">
-                <div class="posai-tabs" role="tablist">
-                    <button type="button" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
-                    <button type="button" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
-                    <button type="button" class="posai-tab {{ $panel === 'intelligence' ? 'is-active' : '' }}" wire:click="setPanel('intelligence')">Intelligence</button>
+                <div class="posai-tabs" role="tablist" aria-label="POS AI panels">
+                    <button type="button" role="tab" aria-selected="{{ $panel === 'insights' ? 'true' : 'false' }}" class="posai-tab {{ $panel === 'insights' ? 'is-active' : '' }}" wire:click="setPanel('insights')">Insights</button>
+                    <button type="button" role="tab" aria-selected="{{ $panel === 'chat' ? 'true' : 'false' }}" class="posai-tab {{ $panel === 'chat' ? 'is-active' : '' }}" wire:click="setPanel('chat')">Chat</button>
+                    <button type="button" role="tab" aria-selected="{{ $panel === 'intelligence' ? 'true' : 'false' }}" class="posai-tab {{ $panel === 'intelligence' ? 'is-active' : '' }}" wire:click="setPanel('intelligence')">Intelligence</button>
                     @if (auth()->user()?->canManagePosAiSettings())
-                        <button type="button" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
+                        <button type="button" role="tab" aria-selected="{{ $panel === 'settings' ? 'true' : 'false' }}" class="posai-tab {{ $panel === 'settings' ? 'is-active' : '' }}" wire:click="setPanel('settings')">Settings</button>
                     @endif
                 </div>
                 @if ($panel === 'insights')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
+                    <div class="posai-listen-wrap">
+                        <button
+                            type="button"
+                            class="posai-listen-btn"
+                            id="posai-insights-speak-btn"
+                            aria-controls="posai-insights-speak-text"
+                            aria-pressed="false"
+                            title="Read insights out loud"
+                            onclick="window.posAiSpeakToggle && window.posAiSpeakToggle('posai-insights-speak-text', this)"
+                        >
+                            <svg class="posai-listen-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                            </svg>
+                            <span class="posai-listen-label">Listen</span>
+                        </button>
+                        <span class="posai-listen-hint">Read insights out loud</span>
+                    </div>
                 @endif
                 @if ($panel === 'intelligence')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="openIntel('{{ $intelKey !== '' ? $intelKey : 'demand' }}')" wire:loading.attr="disabled" wire:target="openIntel,openIntelFromIntent">Refresh</button>
+                    @if ($intelAnswer !== '')
+                        <div class="posai-listen-wrap">
+                            <button
+                                type="button"
+                                class="posai-listen-btn"
+                                id="posai-intel-speak-btn"
+                                aria-controls="posai-intel-speak-text"
+                                aria-pressed="false"
+                                title="Read this answer out loud"
+                                onclick="window.posAiSpeakToggle && window.posAiSpeakToggle('posai-intel-speak-text', this)"
+                            >
+                                <svg class="posai-listen-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                                </svg>
+                                <span class="posai-listen-label">Listen</span>
+                            </button>
+                            <span class="posai-listen-hint">Read answer out loud</span>
+                        </div>
+                    @endif
                 @endif
                 @if ($panel === 'chat')
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="clearChat" title="Start a new chat">Clear chat</button>
@@ -504,10 +544,20 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 </p>
             </div>
         @elseif ($panel === 'insights')
-            @php $o = $overview ?? []; @endphp
-            <div class="posai-panel" wire:poll.60s="refreshOverview">
+            @php
+                $o = $overview ?? [];
+                $insightsSpeak = BusinessInsightsService::forCompany((int) auth()->user()->company_id)->speakScript($o);
+            @endphp
+            <div
+                class="posai-panel"
+                wire:poll.60s="refreshOverview"
+                role="region"
+                aria-labelledby="posai-insights-heading"
+            >
+                <h2 id="posai-insights-heading" class="sr-only">POS AI Insights</h2>
+                <p id="posai-insights-speak-text" class="sr-only" aria-live="polite">{{ $insightsSpeak }}</p>
                 @if ($adminAlerts !== [])
-                    <div class="posai-live" style="border:1px solid #f59e0b;background:#fffbeb;color:#92400e;margin-bottom:0.75rem;padding:0.65rem 0.8rem;border-radius:8px;">
+                    <div class="posai-live" style="border:1px solid #f59e0b;background:#fffbeb;color:#92400e;margin-bottom:0.75rem;padding:0.65rem 0.8rem;border-radius:8px;" role="status" aria-label="Admin alerts">
                         <strong>Admin alerts (invoice → PO cost)</strong>
                         <ul style="margin:0.4rem 0 0;padding-left:1.1rem;font-size:13px;line-height:1.45;">
                             @foreach (array_slice($adminAlerts, 0, 6) as $alert)
@@ -516,16 +566,16 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         </ul>
                     </div>
                 @endif
-                <div class="posai-live">
+                <div class="posai-live" role="status" aria-live="polite">
                     Live POS totals · as of {{ data_get($o, 'as_of', '—') }}
                 </div>
                 <div class="posai-cards">
-                    <article class="posai-card accent-sales">
+                    <article class="posai-card accent-sales" aria-labelledby="posai-card-sales">
                         <div class="posai-card-top">
                             <span class="posai-card-ico" aria-hidden="true">$</span>
-                            <span class="posai-card-label">Sales</span>
+                            <span class="posai-card-label" id="posai-card-sales">Sales</span>
                         </div>
-                        <div class="posai-card-hero">${{ number_format((float) data_get($o, 'sales.today.total', 0), 2) }}</div>
+                        <div class="posai-card-hero" aria-label="Today sales">${{ number_format((float) data_get($o, 'sales.today.total', 0), 2) }}</div>
                         <div class="posai-card-sub">Today · {{ (int) data_get($o, 'sales.today.invoices', data_get($o, 'sales.today.orders', 0)) }} invoices</div>
                         <div class="posai-card-divider"></div>
                         <ul class="posai-card-meta">
@@ -536,12 +586,12 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         </ul>
                     </article>
 
-                    <article class="posai-card accent-stock">
+                    <article class="posai-card accent-stock" aria-labelledby="posai-card-stock">
                         <div class="posai-card-top">
                             <span class="posai-card-ico" aria-hidden="true">#</span>
-                            <span class="posai-card-label">Inventory</span>
+                            <span class="posai-card-label" id="posai-card-stock">Inventory</span>
                         </div>
-                        <div class="posai-card-hero sm">
+                        <div class="posai-card-hero sm" aria-label="Products needing attention">
                             {{ (int) data_get($o, 'inventory.need_attention', 0) }}
                             <span class="posai-card-hero-soft">of {{ (int) data_get($o, 'inventory.products', 0) }}</span>
                         </div>
@@ -560,12 +610,12 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         @endif
                     </article>
 
-                    <article class="posai-card accent-ar">
+                    <article class="posai-card accent-ar" aria-labelledby="posai-card-ar">
                         <div class="posai-card-top">
                             <span class="posai-card-ico" aria-hidden="true">i</span>
-                            <span class="posai-card-label">Invoices</span>
+                            <span class="posai-card-label" id="posai-card-ar">Invoices</span>
                         </div>
-                        <div class="posai-card-hero">${{ number_format((float) data_get($o, 'invoices.outstanding', 0), 2) }}</div>
+                        <div class="posai-card-hero" aria-label="Outstanding balance">${{ number_format((float) data_get($o, 'invoices.outstanding', 0), 2) }}</div>
                         <div class="posai-card-sub">NOT PAID outstanding balance</div>
                         <div class="posai-card-divider"></div>
                         <ul class="posai-card-meta">
@@ -576,10 +626,10 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     </article>
                 </div>
 
-                <section class="posai-suggest">
+                <section class="posai-suggest" aria-labelledby="posai-suggest-title">
                     <div class="posai-suggest-head">
-                        <span class="posai-suggest-title">Suggested actions</span>
-                        <span class="posai-count">{{ count(data_get($o, 'actions', [])) }}</span>
+                        <span class="posai-suggest-title" id="posai-suggest-title">Suggested actions</span>
+                        <span class="posai-count" aria-label="{{ count(data_get($o, 'actions', [])) }} suggested actions">{{ count(data_get($o, 'actions', [])) }}</span>
                     </div>
                     @forelse (data_get($o, 'actions', []) as $a)
                         @if (! empty($a['key']))
@@ -605,8 +655,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 </section>
 
                 <div class="posai-quick-block">
-                    <div class="posai-quick-label">Quick answers</div>
-                    <div class="posai-pills">
+                    <div class="posai-quick-label" id="posai-quick-label">Quick answers</div>
+                    <div class="posai-pills" role="group" aria-labelledby="posai-quick-label">
                         @foreach (\App\Services\JapsAi\JapsAiChatService::QUICK_PROMPTS as $q)
                             <button type="button" class="posai-pill" wire:click="runQuick('{{ $q['intent'] }}')" wire:loading.attr="disabled">
                                 {{ $q['label'] }}
@@ -634,14 +684,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         <button type="button" class="desk-btn desk-btn-sm" wire:click="exportIntel" wire:loading.attr="disabled" wire:target="exportIntel">Export Excel</button>
                     </div>
                 @endif
-                <div class="posai-intel" wire:loading.class="is-busy" wire:target="openIntel,openIntelFromIntent,draftReorderPo,exportIntel">
+                <div class="posai-intel" wire:loading.class="is-busy" wire:target="openIntel,openIntelFromIntent,draftReorderPo,exportIntel" role="region" aria-label="Intelligence answer">
                     @if ($intelNotice !== '')
-                        <div class="posai-suggest-detail">{{ $intelNotice }}</div>
+                        <div class="posai-suggest-detail" role="status">{{ $intelNotice }}</div>
                     @endif
-                    <div wire:loading wire:target="openIntel,openIntelFromIntent" class="posai-suggest-detail" style="margin-top:.65rem;">Reading live data and writing the answer…</div>
+                    <div wire:loading wire:target="openIntel,openIntelFromIntent" class="posai-suggest-detail" style="margin-top:.65rem;" role="status">Reading live data and writing the answer…</div>
                     <div wire:loading.remove wire:target="openIntel,openIntelFromIntent">
                         @if ($intelAnswer !== '')
-                            <div class="posai-intel-answer">{!! $this->formatReply($intelAnswer) !!}</div>
+                            <div class="posai-intel-answer" id="posai-intel-answer">{!! $this->formatReply($intelAnswer) !!}</div>
+                            <p id="posai-intel-speak-text" class="sr-only">{{ strip_tags(str_replace(['**', '__', '#', '`'], '', $intelAnswer)) }}</p>
                         @endif
                         @if ($intelKey === 'demand' && $intelPoGroups !== [])
                             <div class="posai-group" style="margin-top:.85rem;">
@@ -1374,5 +1425,141 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         }
         .posai-group { margin-top: .7rem; }
         .posai-group h4 { margin: 0 0 .25rem; font-size: .84rem; }
+        .posai-listen-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: .55rem;
+            flex-wrap: wrap;
+        }
+        .posai-listen-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: .4rem;
+            padding: .35rem .75rem;
+            border: 1px solid #c5ccd6;
+            border-radius: 999px;
+            background: #fff;
+            color: #334155;
+            font-size: .82rem;
+            font-weight: 700;
+            line-height: 1.2;
+            cursor: pointer;
+        }
+        .posai-listen-btn:hover {
+            border-color: #94a3b8;
+            background: #f8fafc;
+        }
+        .posai-listen-btn.is-speaking {
+            border-color: #2b5797;
+            color: #1e3a5f;
+            background: #eef3fa;
+        }
+        .posai-listen-ico {
+            flex-shrink: 0;
+            color: #475569;
+        }
+        .posai-listen-hint {
+            font-size: .82rem;
+            color: #64748b;
+            font-weight: 500;
+        }
     </style>
+    <script>
+        (function () {
+            if (window.posAiSpeakToggle) return;
+
+            let speakingBtn = null;
+
+            function setBtn(btn, speaking) {
+                if (!btn) return;
+                const label = btn.querySelector('.posai-listen-label');
+                if (label) {
+                    label.textContent = speaking ? 'Stop' : 'Listen';
+                } else {
+                    btn.textContent = speaking ? 'Stop' : 'Listen';
+                }
+                btn.setAttribute('aria-pressed', speaking ? 'true' : 'false');
+                btn.classList.toggle('is-speaking', !!speaking);
+            }
+
+            window.posAiSpeakStop = function () {
+                if (window.speechSynthesis) {
+                    window.speechSynthesis.cancel();
+                }
+                setBtn(speakingBtn, false);
+                speakingBtn = null;
+            };
+
+            window.posAiSpeakToggle = function (textId, btn) {
+                if (! window.speechSynthesis || ! window.SpeechSynthesisUtterance) {
+                    alert('Read aloud is not supported in this browser. Use JAWS (Windows) or VoiceOver (Mac/iOS) to hear Insights.');
+                    return;
+                }
+                const el = document.getElementById(textId);
+                const text = (el && (el.innerText || el.textContent) || '').trim();
+                if (! text) {
+                    alert('Nothing to read yet.');
+                    return;
+                }
+                if (speakingBtn === btn && window.speechSynthesis.speaking) {
+                    window.posAiSpeakStop();
+                    return;
+                }
+                window.posAiSpeakStop();
+
+                const u = new SpeechSynthesisUtterance(text);
+                u.rate = 1;
+                u.pitch = 1;
+                u.lang = 'en-GB';
+
+                // Prefer British / Commonwealth English — avoid US accent when possible.
+                const voices = window.speechSynthesis.getVoices() || [];
+                const prefer = (v) => {
+                    const lang = (v.lang || '').toLowerCase();
+                    const name = (v.name || '').toLowerCase();
+                    if (lang.startsWith('en-us') || name.includes('united states') || name.includes('us english')) {
+                        return false;
+                    }
+                    return lang.startsWith('en-gb')
+                        || lang.startsWith('en-au')
+                        || lang.startsWith('en-in')
+                        || lang.startsWith('en-ie')
+                        || lang.startsWith('en-nz')
+                        || lang.startsWith('en-za')
+                        || name.includes('british')
+                        || name.includes('uk english')
+                        || name.includes('english (uk)')
+                        || name.includes('daniel')
+                        || name.includes('serena')
+                        || name.includes('ravi')
+                        || name.includes('hazel');
+                };
+                const pick = voices.find(prefer)
+                    || voices.find((v) => (v.lang || '').toLowerCase().startsWith('en') && ! (v.lang || '').toLowerCase().startsWith('en-us'))
+                    || voices.find((v) => (v.lang || '').toLowerCase().startsWith('en'));
+                if (pick) {
+                    u.voice = pick;
+                    u.lang = pick.lang || 'en-GB';
+                }
+
+                u.onend = function () { setBtn(btn, false); speakingBtn = null; };
+                u.onerror = function () { setBtn(btn, false); speakingBtn = null; };
+                speakingBtn = btn;
+                setBtn(btn, true);
+                window.speechSynthesis.speak(u);
+            };
+
+            // Chrome loads voices asynchronously — warm the list once.
+            if (window.speechSynthesis) {
+                window.speechSynthesis.getVoices();
+                window.speechSynthesis.onvoiceschanged = function () {
+                    window.speechSynthesis.getVoices();
+                };
+            }
+
+            document.addEventListener('livewire:navigating', function () {
+                window.posAiSpeakStop();
+            });
+        })();
+    </script>
 </div>

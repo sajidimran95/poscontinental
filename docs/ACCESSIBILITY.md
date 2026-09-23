@@ -19,6 +19,8 @@ Semantic markup and keyboard affordances are applied as screens ship. Complete t
 - [ ] Stock Count Comments + Expand variance grid (manual JAWS pass)
 - [ ] Tobacco stamp inventory numeric fields (manual JAWS pass)
 - [ ] Reports filters + export buttons (manual JAWS pass)
+- [x] POS AI Insights — region landmarks, live totals `aria-live`, card labels, **Read aloud** (browser TTS) + JAWS/VoiceOver-friendly summary
+- [x] POS AI Intelligence — Read aloud for the loaded answer
 
 ## Contrast & motion
 

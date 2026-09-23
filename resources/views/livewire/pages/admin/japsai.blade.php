@@ -70,10 +70,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     /** @var list<array{at: string, po_number: string, text: string}> */
     public array $adminAlerts = [];
 
+    /** Fingerprint of newest admin alert — used to auto-speak only on new ones. */
+    public string $adminAlertFingerprint = '';
+
     public function mount(): void
     {
         $this->loadSettingsForm();
-        $this->refreshOverview();
+        $this->refreshOverview(true);
         $this->loadPersistedChat();
     }
 
@@ -88,7 +91,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->panel = $panel;
         $this->statusMessage = '';
         if ($panel === 'insights') {
-            $this->refreshOverview();
+            $this->refreshOverview(true);
         }
         if ($panel === 'intelligence') {
             $this->intelKey = '';
@@ -106,11 +109,56 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         }
     }
 
-    public function refreshOverview(): void
+    public function refreshOverview(bool $silent = false): void
     {
         $companyId = (int) auth()->user()->company_id;
         $this->overview = BusinessInsightsService::forCompany($companyId)->overview();
-        $this->adminAlerts = VendorInvoicePurchaseOrderService::adminAlerts($companyId);
+        $this->syncAdminAlerts($companyId, $silent);
+    }
+
+    /**
+     * Faster poll while Insights is open — picks up new invoice→PO admin alerts.
+     */
+    public function pollAdminAlerts(): void
+    {
+        if ($this->panel !== 'insights') {
+            return;
+        }
+        $this->syncAdminAlerts((int) auth()->user()->company_id, false);
+    }
+
+    private function syncAdminAlerts(int $companyId, bool $silent): void
+    {
+        $prev = $this->adminAlertFingerprint;
+        $alerts = VendorInvoicePurchaseOrderService::adminAlerts($companyId);
+        $this->adminAlerts = $alerts;
+        $fp = $this->adminAlertFingerprintOf($alerts);
+
+        if (! $silent && $fp !== '' && $prev !== '' && $fp !== $prev) {
+            $script = BusinessInsightsService::forCompany($companyId)->speakNewAdminAlerts($alerts, 3);
+            if ($script !== '') {
+                $this->dispatch('pos-ai-speak-alert', text: $script);
+            }
+        }
+
+        $this->adminAlertFingerprint = $fp;
+    }
+
+    /**
+     * @param  list<array{at?: string, po_number?: string, text?: string}>  $alerts
+     */
+    private function adminAlertFingerprintOf(array $alerts): string
+    {
+        if ($alerts === []) {
+            return '';
+        }
+        $top = $alerts[0];
+
+        return sha1(
+            trim((string) ($top['at'] ?? '')).'|'
+            .trim((string) ($top['po_number'] ?? '')).'|'
+            .trim((string) ($top['text'] ?? ''))
+        );
     }
 
     public function openIntel(string $key): void
@@ -546,11 +594,13 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         @elseif ($panel === 'insights')
             @php
                 $o = $overview ?? [];
-                $insightsSpeak = BusinessInsightsService::forCompany((int) auth()->user()->company_id)->speakScript($o);
+                $insightsSpeak = BusinessInsightsService::forCompany((int) auth()->user()->company_id)
+                    ->speakScript($o, $adminAlerts);
             @endphp
             <div
                 class="posai-panel"
                 wire:poll.60s="refreshOverview"
+                wire:poll.15s="pollAdminAlerts"
                 role="region"
                 aria-labelledby="posai-insights-heading"
             >
@@ -1466,8 +1516,6 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     </style>
     <script>
         (function () {
-            if (window.posAiSpeakToggle) return;
-
             let speakingBtn = null;
 
             function setBtn(btn, speaking) {
@@ -1475,44 +1523,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                 const label = btn.querySelector('.posai-listen-label');
                 if (label) {
                     label.textContent = speaking ? 'Stop' : 'Listen';
-                } else {
+                } else if (!btn.querySelector('.posai-listen-ico')) {
                     btn.textContent = speaking ? 'Stop' : 'Listen';
                 }
                 btn.setAttribute('aria-pressed', speaking ? 'true' : 'false');
                 btn.classList.toggle('is-speaking', !!speaking);
             }
 
-            window.posAiSpeakStop = function () {
-                if (window.speechSynthesis) {
-                    window.speechSynthesis.cancel();
-                }
-                setBtn(speakingBtn, false);
-                speakingBtn = null;
-            };
-
-            window.posAiSpeakToggle = function (textId, btn) {
-                if (! window.speechSynthesis || ! window.SpeechSynthesisUtterance) {
-                    alert('Read aloud is not supported in this browser. Use JAWS (Windows) or VoiceOver (Mac/iOS) to hear Insights.');
-                    return;
-                }
-                const el = document.getElementById(textId);
-                const text = (el && (el.innerText || el.textContent) || '').trim();
-                if (! text) {
-                    alert('Nothing to read yet.');
-                    return;
-                }
-                if (speakingBtn === btn && window.speechSynthesis.speaking) {
-                    window.posAiSpeakStop();
-                    return;
-                }
-                window.posAiSpeakStop();
-
-                const u = new SpeechSynthesisUtterance(text);
-                u.rate = 1;
-                u.pitch = 1;
-                u.lang = 'en-GB';
-
-                // Prefer British / Commonwealth English — avoid US accent when possible.
+            function pickVoice(utterance) {
+                utterance.lang = 'en-GB';
                 const voices = window.speechSynthesis.getVoices() || [];
                 const prefer = (v) => {
                     const lang = (v.lang || '').toLowerCase();
@@ -1538,24 +1557,85 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     || voices.find((v) => (v.lang || '').toLowerCase().startsWith('en') && ! (v.lang || '').toLowerCase().startsWith('en-us'))
                     || voices.find((v) => (v.lang || '').toLowerCase().startsWith('en'));
                 if (pick) {
-                    u.voice = pick;
-                    u.lang = pick.lang || 'en-GB';
+                    utterance.voice = pick;
+                    utterance.lang = pick.lang || 'en-GB';
                 }
+            }
 
-                u.onend = function () { setBtn(btn, false); speakingBtn = null; };
-                u.onerror = function () { setBtn(btn, false); speakingBtn = null; };
-                speakingBtn = btn;
-                setBtn(btn, true);
-                window.speechSynthesis.speak(u);
+            window.posAiSpeakStop = function () {
+                if (window.speechSynthesis) {
+                    window.speechSynthesis.cancel();
+                }
+                setBtn(speakingBtn, false);
+                speakingBtn = null;
             };
 
-            // Chrome loads voices asynchronously — warm the list once.
+            window.posAiSpeakText = function (text, btn) {
+                if (! window.speechSynthesis || ! window.SpeechSynthesisUtterance) {
+                    return false;
+                }
+                text = (text || '').trim();
+                if (! text) {
+                    return false;
+                }
+                window.posAiSpeakStop();
+                const u = new SpeechSynthesisUtterance(text);
+                u.rate = 1;
+                u.pitch = 1;
+                pickVoice(u);
+                u.onend = function () { setBtn(btn || speakingBtn, false); speakingBtn = null; };
+                u.onerror = function () { setBtn(btn || speakingBtn, false); speakingBtn = null; };
+                if (btn) {
+                    speakingBtn = btn;
+                    setBtn(btn, true);
+                }
+                window.speechSynthesis.speak(u);
+                return true;
+            };
+
+            window.posAiSpeakToggle = function (textId, btn) {
+                if (! window.speechSynthesis || ! window.SpeechSynthesisUtterance) {
+                    alert('Listen is not supported in this browser. Use JAWS (Windows) or VoiceOver (Mac/iOS) to hear Insights.');
+                    return;
+                }
+                const el = document.getElementById(textId);
+                const text = (el && (el.innerText || el.textContent) || '').trim();
+                if (! text) {
+                    alert('Nothing to read yet.');
+                    return;
+                }
+                if (speakingBtn === btn && window.speechSynthesis.speaking) {
+                    window.posAiSpeakStop();
+                    return;
+                }
+                window.posAiSpeakText(text, btn);
+            };
+
             if (window.speechSynthesis) {
                 window.speechSynthesis.getVoices();
                 window.speechSynthesis.onvoiceschanged = function () {
                     window.speechSynthesis.getVoices();
                 };
             }
+
+            function bindAlertSpeak() {
+                if (! window.Livewire || ! Livewire.on || window.__posAiAlertSpeakBound) {
+                    return;
+                }
+                window.__posAiAlertSpeakBound = true;
+                Livewire.on('pos-ai-speak-alert', function (payload) {
+                    const text = (payload && (payload.text || (payload[0] && payload[0].text))) || '';
+                    if (! text) {
+                        return;
+                    }
+                    // Auto-announce new admin alerts (British voice when available).
+                    window.posAiSpeakText(text, document.getElementById('posai-insights-speak-btn'));
+                });
+            }
+
+            document.addEventListener('livewire:init', bindAlertSpeak);
+            document.addEventListener('livewire:navigated', bindAlertSpeak);
+            bindAlertSpeak();
 
             document.addEventListener('livewire:navigating', function () {
                 window.posAiSpeakStop();

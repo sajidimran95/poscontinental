@@ -673,19 +673,103 @@ class BusinessInsightsService
     }
 
     /**
+     * Speak invoice / PO / SKU codes digit-by-digit (not "one million" / "lakh").
+     * Example: 1068471 → "1 0 6 8 4 7 1"
+     */
+    public function speakCode(string $code): string
+    {
+        $code = trim($code);
+        if ($code === '' || $code === '—') {
+            return '';
+        }
+
+        $out = [];
+        $len = mb_strlen($code);
+        for ($i = 0; $i < $len; $i++) {
+            $ch = mb_substr($code, $i, 1);
+            if (ctype_digit($ch)) {
+                $out[] = $ch;
+            } elseif (ctype_alpha($ch)) {
+                $out[] = mb_strtoupper($ch);
+            } elseif ($ch === '-' || $ch === '_') {
+                $out[] = 'dash';
+            }
+        }
+
+        return implode(' ', $out);
+    }
+
+    /**
+     * Rewrite long numeric IDs in free text so TTS does not say millions/lakhs.
+     * Money like $17,130.91 is left alone.
+     */
+    public function speakableIdsInText(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        return preg_replace_callback(
+            '/(?<![\d.$])(\d{5,})(?![\d.])/',
+            fn (array $m): string => $this->speakCode($m[1]),
+            $text
+        ) ?? $text;
+    }
+
+    /**
+     * Money for speech without lakh/million style: "17 130 dollars and 91 cents".
+     */
+    public function speakMoney(float $n): string
+    {
+        $n = round($n, 2);
+        $negative = $n < 0;
+        $n = abs($n);
+        $dollars = (int) floor($n);
+        $cents = (int) round(($n - $dollars) * 100);
+        // Group as thousands with spaces so TTS says "seventeen one thirty" style groups, not "lakh"
+        $grouped = str_replace(',', ' ', number_format($dollars));
+        $out = ($negative ? 'minus ' : '').$grouped.' dollar'.($dollars === 1 ? '' : 's');
+        if ($cents > 0) {
+            $out .= ' and '.$cents.' cent'.($cents === 1 ? '' : 's');
+        }
+
+        return $out;
+    }
+
+    /**
      * Plain-language script for screen readers / Read aloud on Insights.
      *
      * @param  array<string, mixed>  $overview
+     * @param  list<array{at?: string, po_number?: string, text?: string}>  $adminAlerts
      */
-    public function speakScript(array $overview): string
+    public function speakScript(array $overview, array $adminAlerts = []): string
     {
         $parts = [];
         $parts[] = 'POS AI Insights. As of '.trim((string) ($overview['as_of'] ?? 'now')).'.';
 
+        if ($adminAlerts !== []) {
+            $parts[] = 'Admin alerts: '.count($adminAlerts).'.';
+            foreach (array_slice($adminAlerts, 0, 8) as $i => $alert) {
+                $po = trim((string) ($alert['po_number'] ?? ''));
+                $text = $this->speakableIdsInText(trim((string) ($alert['text'] ?? '')));
+                $line = ($i + 1).'.';
+                if ($po !== '' && $po !== '—') {
+                    $line .= ' Purchase order '.$this->speakCode($po).'.';
+                }
+                if ($text !== '') {
+                    $line .= ' '.$text;
+                }
+                $parts[] = $line;
+            }
+        } else {
+            $parts[] = 'No admin alerts.';
+        }
+
         $salesToday = (float) data_get($overview, 'sales.today.total', 0);
         $salesInv = (int) data_get($overview, 'sales.today.invoices', data_get($overview, 'sales.today.orders', 0));
         $sales30 = (float) data_get($overview, 'sales.last_30_days.total', 0);
-        $parts[] = 'Sales today '.$this->money($salesToday).' across '.$salesInv.' invoices. Last 30 days '.$this->money($sales30).'.';
+        $parts[] = 'Sales today '.$this->speakMoney($salesToday).' across '.$salesInv.' invoices. Last 30 days '.$this->speakMoney($sales30).'.';
 
         $need = (int) data_get($overview, 'inventory.need_attention', 0);
         $products = (int) data_get($overview, 'inventory.products', 0);
@@ -697,7 +781,17 @@ class BusinessInsightsService
         $open = (int) data_get($overview, 'invoices.open', 0);
         $overdue = (int) data_get($overview, 'invoices.overdue', 0);
         $overdueAmt = (float) data_get($overview, 'invoices.overdue_amount', 0);
-        $parts[] = 'Invoices: '.$this->money($ar).' outstanding on '.$open.' not paid invoices. '.$overdue.' older open totaling '.$this->money($overdueAmt).'.';
+        $parts[] = 'Invoices: '.$this->speakMoney($ar).' outstanding on '.$open.' not paid invoices. '.$overdue.' older open totaling '.$this->speakMoney($overdueAmt).'.';
+
+        $pipelineOpen = (int) data_get($overview, 'sales_pipeline.open_orders', 0);
+        $pipelineVal = (float) data_get($overview, 'sales_pipeline.open_value', 0);
+        $poOpen = (int) data_get($overview, 'purchase_orders_open.count', 0);
+        $poVal = (float) data_get($overview, 'purchase_orders_open.value', 0);
+        $payCount = (int) data_get($overview, 'payments_today.count', 0);
+        $payTotal = (float) data_get($overview, 'payments_today.total', 0);
+        $parts[] = 'Open sales orders '.$pipelineOpen.' totaling '.$this->speakMoney($pipelineVal)
+            .'. Open purchase orders '.$poOpen.' totaling '.$this->speakMoney($poVal)
+            .'. Payments today '.$payCount.' totaling '.$this->speakMoney($payTotal).'.';
 
         $actions = (array) ($overview['actions'] ?? []);
         if ($actions === []) {
@@ -706,7 +800,7 @@ class BusinessInsightsService
             $parts[] = 'Suggested actions: '.count($actions).'.';
             foreach (array_slice($actions, 0, 8) as $i => $a) {
                 $title = trim((string) ($a['title'] ?? 'Action'));
-                $detail = trim((string) ($a['detail'] ?? ''));
+                $detail = $this->speakableIdsInText(trim((string) ($a['detail'] ?? '')));
                 $priority = trim((string) ($a['priority'] ?? ''));
                 $line = ($i + 1).'. '.($priority !== '' ? $priority.'. ' : '').$title;
                 if ($detail !== '') {
@@ -717,5 +811,30 @@ class BusinessInsightsService
         }
 
         return preg_replace('/\s+/', ' ', implode(' ', $parts)) ?: 'POS AI Insights. No data.';
+    }
+
+    /**
+     * Short script for a newly arrived admin alert (auto voice).
+     *
+     * @param  list<array{at?: string, po_number?: string, text?: string}>  $alerts
+     */
+    public function speakNewAdminAlerts(array $alerts, int $limit = 3): string
+    {
+        if ($alerts === []) {
+            return '';
+        }
+        $parts = ['New POS AI admin alert.'];
+        foreach (array_slice($alerts, 0, max(1, $limit)) as $alert) {
+            $po = trim((string) ($alert['po_number'] ?? ''));
+            $text = $this->speakableIdsInText(trim((string) ($alert['text'] ?? '')));
+            if ($po !== '' && $po !== '—') {
+                $parts[] = 'Purchase order '.$this->speakCode($po).'.';
+            }
+            if ($text !== '') {
+                $parts[] = $text;
+            }
+        }
+
+        return preg_replace('/\s+/', ' ', implode(' ', $parts)) ?: '';
     }
 }

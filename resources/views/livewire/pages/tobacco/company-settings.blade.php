@@ -102,7 +102,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'secondary_cig_number.regex' => 'Secondary Cig Number must be numeric.',
             'msa_distributor_id.required' => 'MSA ID (distributor DID) is required for HID/TOT on the MSA sales file.',
             'msa_distributor_id.regex' => 'MSA ID must be numeric.',
-            'msa_distributor_id.min' => 'MSA ID must be at least 8 digits (e.g. 17000299).',
+            'msa_distributor_id.min' => 'MSA ID must be at least 8 digits.',
             'transmitter_account_number.regex' => 'Transmitter must be numeric (State Employer Account Number).',
         ]);
 
@@ -117,6 +117,12 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
             return;
         }
+
+        $addressChanged =
+            (string) ($company->address ?? '') !== $this->address
+            || (string) ($company->city ?? '') !== $this->city
+            || (string) ($company->state ?? '') !== strtoupper($this->state)
+            || (string) ($company->zip_code ?? '') !== $this->zip_code;
 
         $company->update([
             'code' => $this->code,
@@ -144,23 +150,34 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         ]);
 
         session(['company_name' => $company->name]);
-        $this->refreshCompanyCoordinates($company);
         $this->statusMessage = 'Company settings saved. Address & contact now print on invoices, sales orders, and other PDFs.';
-    }
 
-    protected function refreshCompanyCoordinates(\App\Models\Company $company): void
-    {
-        if (! \Illuminate\Support\Facades\Schema::hasColumn('companies', 'shipping_latitude')) {
-            return;
+        // Geocode after the response so Save is not blocked by the map API.
+        if ($addressChanged) {
+            $companyId = (int) $company->id;
+            dispatch(function () use ($companyId): void {
+                if (! \Illuminate\Support\Facades\Schema::hasColumn('companies', 'shipping_latitude')) {
+                    return;
+                }
+                $row = Company::query()->find($companyId);
+                if (! $row) {
+                    return;
+                }
+                try {
+                    $geo = app(\App\Services\Delivery\RouteOptimizationService::class)
+                        ->geocode($row->fresh()->formattedAddress());
+                } catch (\Throwable) {
+                    return;
+                }
+                if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
+                    return;
+                }
+                $row->forceFill([
+                    'shipping_latitude' => $geo['lat'],
+                    'shipping_longitude' => $geo['lng'],
+                ])->save();
+            })->afterResponse();
         }
-        $geo = app(\App\Services\Delivery\RouteOptimizationService::class)->geocode($company->fresh()->formattedAddress());
-        if (! is_array($geo) || ! isset($geo['lat'], $geo['lng'])) {
-            return;
-        }
-        $company->forceFill([
-            'shipping_latitude' => $geo['lat'],
-            'shipping_longitude' => $geo['lng'],
-        ])->save();
     }
 }; ?>
 
@@ -193,7 +210,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             <div class="msa-field-grid">
                 <label class="stamp-inv-field">
                     <span>Company Code <em>*</em></span>
-                    <input type="text" wire:model="code" class="desk-input" />
+                    <input type="text" wire:model.blur="code" class="desk-input" placeholder="Company code" />
                 </label>
                 <label class="stamp-inv-field">
                     <span>Active</span>
@@ -206,31 +223,31 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
             <label class="stamp-inv-field">
                 <span>Company Name <em>*</em></span>
-                <input type="text" wire:model="name" class="desk-input" placeholder="Continental Wholesale Inc" />
+                <input type="text" wire:model.blur="name" class="desk-input" placeholder="Company name" />
             </label>
 
             <label class="stamp-inv-field">
                 <span>Contact Name</span>
-                <input type="text" wire:model="contact_name" class="desk-input" placeholder="Office / A/R contact" />
+                <input type="text" wire:model.blur="contact_name" class="desk-input" placeholder="Contact name" />
             </label>
 
             <h3 class="msa-section-title">Address (prints on invoices &amp; sales docs)</h3>
             <label class="stamp-inv-field">
                 <span>Street Address</span>
-                <input type="text" wire:model="address" class="desk-input" placeholder="3802 TRADE CENTER DR" />
+                <input type="text" wire:model.blur="address" class="desk-input" placeholder="Street address" />
             </label>
             <div class="msa-field-grid" style="grid-template-columns: 1.4fr 0.6fr 0.8fr;">
                 <label class="stamp-inv-field">
                     <span>City</span>
-                    <input type="text" wire:model="city" class="desk-input" placeholder="ANN ARBOR" />
+                    <input type="text" wire:model.blur="city" class="desk-input" placeholder="City" />
                 </label>
                 <label class="stamp-inv-field">
                     <span>State</span>
-                    <input type="text" wire:model="state" class="desk-input" maxlength="2" placeholder="MI" />
+                    <input type="text" wire:model.blur="state" class="desk-input" maxlength="2" placeholder="State" />
                 </label>
                 <label class="stamp-inv-field">
                     <span>ZIP</span>
-                    <input type="text" wire:model="zip_code" class="desk-input" placeholder="48108" />
+                    <input type="text" wire:model.blur="zip_code" class="desk-input" placeholder="ZIP" />
                 </label>
             </div>
 
@@ -238,43 +255,43 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             <div class="msa-field-grid">
                 <label class="stamp-inv-field">
                     <span>Phone</span>
-                    <input type="text" wire:model="phone" class="desk-input" placeholder="7346773510" />
+                    <input type="text" wire:model.blur="phone" class="desk-input" placeholder="Phone number" />
                 </label>
                 <label class="stamp-inv-field">
                     <span>Fax</span>
-                    <input type="text" wire:model="fax" class="desk-input" placeholder="7346773567" />
+                    <input type="text" wire:model.blur="fax" class="desk-input" placeholder="Fax number" />
                 </label>
             </div>
             <label class="stamp-inv-field">
                 <span>Email</span>
-                <input type="email" wire:model="email" class="desk-input" placeholder="office@continentalwholesale.test" />
+                <input type="email" wire:model.blur="email" class="desk-input" placeholder="Email" />
             </label>
 
             <h3 class="msa-section-title">MSA / Tobacco filing</h3>
             <label class="stamp-inv-field">
                 <span>Company FEIN <em>*</em></span>
-                <input type="text" wire:model="fein_no" class="desk-input" placeholder="38-1234567" />
+                <input type="text" wire:model.blur="fein_no" class="desk-input" placeholder="FEIN number" />
             </label>
             <div class="msa-field-grid">
                 <label class="stamp-inv-field">
                     <span>Secondary Tob Number <em>*</em></span>
-                    <input type="text" wire:model="secondary_tob_number" class="desk-input" placeholder="OTP / tobacco MSA license #" />
+                    <input type="text" wire:model.blur="secondary_tob_number" class="desk-input" placeholder="Tobacco license number" />
                     <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">Used on tobacco (OTP) MSA reports</small>
                 </label>
                 <label class="stamp-inv-field">
                     <span>Secondary Cig Number <em>*</em></span>
-                    <input type="text" wire:model="secondary_cig_number" class="desk-input" placeholder="Cigarette MSA license #" />
+                    <input type="text" wire:model.blur="secondary_cig_number" class="desk-input" placeholder="Cigarette license number" />
                     <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">Used on cigarette MSA reports</small>
                 </label>
             </div>
             <label class="stamp-inv-field">
                 <span>MSA ID <em>*</em></span>
-                <input type="text" wire:model="msa_distributor_id" class="desk-input" placeholder="17000299" maxlength="20" />
+                <input type="text" wire:model.blur="msa_distributor_id" class="desk-input" placeholder="MSA ID number" maxlength="20" />
                 <small class="item-hint" style="display:block;margin-top:.25rem;color:#64748b;">MSAi distributor DID — written into HID/TOT on the MSA Report TXT (not Secondary Tob/Cig #).</small>
             </label>
             <label class="stamp-inv-field">
                 <span>Transmitter <small>(State Employer Account #)</small></span>
-                <input type="text" wire:model="transmitter_account_number" class="desk-input" placeholder="Optional — defaults to FEIN digits" />
+                <input type="text" wire:model.blur="transmitter_account_number" class="desk-input" placeholder="Account number (optional)" />
             </label>
 
             <div class="stamp-inv-actions">

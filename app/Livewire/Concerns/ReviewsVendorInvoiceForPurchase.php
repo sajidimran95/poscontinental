@@ -51,18 +51,24 @@ trait ReviewsVendorInvoiceForPurchase
         }
 
         $matched = $pending['matched'];
-        if (! VendorInvoicePurchaseOrderService::listsAreReady($matched)) {
-            $this->posAiInvoiceNotice(
-                "Not all OK yet.\n\n"
-                .app(VendorInvoicePurchaseOrderService::class)->missingCatalogBrief($matched)
-                ."\n\nClick **Review & add to lists** first, then Confirm."
-            );
+        if (! VendorInvoicePurchaseOrderService::amountsMatch($matched)) {
+            $this->posAiInvoiceNotice(VendorInvoicePurchaseOrderService::amountMismatchText($matched));
 
             return;
         }
 
         $company = Company::query()->findOrFail(auth()->user()->company_id);
         $creator = app(VendorInvoicePurchaseOrderService::class);
+
+        if (! VendorInvoicePurchaseOrderService::listsAreReady($matched)) {
+            $added = $creator->addMissingToLists($company, $pending['raw'], $matched);
+            $matched = $added['matched'];
+            if (! VendorInvoicePurchaseOrderService::listsAreReady($matched) || ! VendorInvoicePurchaseOrderService::amountsMatch($matched)) {
+                $this->posAiInvoiceNotice($added['reply']);
+
+                return;
+            }
+        }
         $created = $creator->createFromMatch($company, auth()->user(), $matched);
 
         if (! empty($created['success']) && ! empty($created['po'])) {
@@ -83,25 +89,29 @@ trait ReviewsVendorInvoiceForPurchase
     }
 
     /**
-     * @return array{has: bool, lists_ready: bool}
+     * @return array{has: bool, lists_ready: bool, amounts_match: bool, can_confirm: bool}
      */
     public function invoiceReviewButtons(): array
     {
         $pending = VendorInvoicePurchaseOrderService::review();
         if ($pending === null) {
-            return ['has' => false, 'lists_ready' => false];
+            return ['has' => false, 'lists_ready' => false, 'amounts_match' => false, 'can_confirm' => false];
         }
+
+        $amountsMatch = VendorInvoicePurchaseOrderService::amountsMatch($pending['matched']);
 
         return [
             'has' => true,
             'lists_ready' => VendorInvoicePurchaseOrderService::listsAreReady($pending['matched']),
+            'amounts_match' => $amountsMatch,
+            'can_confirm' => $amountsMatch,
         ];
     }
 
-    protected function posAiInvoiceNotice(string $text): void
+    protected function posAiInvoiceNotice(string $text, string $tool = 'invoice_review'): void
     {
         if (property_exists($this, 'messages') && is_array($this->messages) && method_exists($this, 'posAiMakeMessage')) {
-            $this->messages[] = $this->posAiMakeMessage('assistant', $text, 'openai');
+            $this->messages[] = $this->posAiMakeMessage('assistant', $text, $tool);
             if (method_exists($this, 'persistChat')) {
                 $this->persistChat();
             }

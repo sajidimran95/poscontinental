@@ -51,6 +51,20 @@ class VendorInvoicePurchaseOrderService
             ];
         }
 
+        if (! self::amountsMatch($matched) || ($unmatchedCount > 0 && $catalogLines->isNotEmpty())) {
+            return [
+                'success' => false,
+                'matched_count' => $catalogLines->count(),
+                'unmatched_count' => $unmatchedCount,
+                'cost_updated' => 0,
+                'alerts' => [],
+                'missing_brief' => $missingBrief,
+                'msg' => self::amountsMatch($matched)
+                    ? "Cannot create the PO yet: {$unmatchedCount} invoice item(s) are not in your item list. Click **Review & add to lists**, then Confirm."
+                    : self::amountMismatchText($matched),
+            ];
+        }
+
         if ($catalogLines->isEmpty()) {
             $this->notifyCatalogGaps($company, $missingBrief, null);
 
@@ -428,6 +442,74 @@ class VendorInvoicePurchaseOrderService
     }
 
     /**
+     * Invoice goods amount the PO lines must add up to (subtotal, else total minus tax).
+     *
+     * @param  array<string, mixed>  $matched
+     */
+    public static function invoiceTarget(array $matched): float
+    {
+        $subtotal = (float) ($matched['subtotal'] ?? 0);
+        if ($subtotal > 0) {
+            return round($subtotal, 2);
+        }
+        $total = (float) ($matched['total'] ?? 0);
+
+        return $total > 0 ? round(max(0, $total - (float) ($matched['tax_amount'] ?? 0)), 2) : 0.0;
+    }
+
+    /**
+     * What the PO lines will total: quantity × invoice billed unit cost for every read line.
+     *
+     * @param  array<string, mixed>  $matched
+     */
+    public static function linesTotal(array $matched): float
+    {
+        return round((float) collect($matched['lines'] ?? [])->sum(function ($row) {
+            $qty = max(0.01, (float) ($row['quantity'] ?? 1));
+            $unit = (float) ($row['unit_price'] ?? 0);
+            if ($unit <= 0 && (float) ($row['line_total'] ?? 0) > 0) {
+                $unit = (float) $row['line_total'] / $qty;
+            }
+
+            return $qty * max(0, $unit);
+        }), 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $matched
+     */
+    public static function amountsMatch(array $matched): bool
+    {
+        if (($matched['lines'] ?? []) === []) {
+            return false;
+        }
+        $target = self::invoiceTarget($matched);
+        if ($target <= 0) {
+            return true;
+        }
+
+        return abs($target - self::linesTotal($matched)) <= max(1.0, $target * 0.0002);
+    }
+
+    /**
+     * @param  array<string, mixed>  $matched
+     */
+    public static function amountMismatchText(array $matched): string
+    {
+        $target = self::invoiceTarget($matched);
+        $sum = self::linesTotal($matched);
+        $count = count($matched['lines'] ?? []);
+        $gap = $target - $sum;
+
+        return "**Invoice amount not matched — PO not created.**\n"
+            .'Invoice subtotal $'.number_format($target, 2).' · '.$count.' line(s) read = $'.number_format($sum, 2)
+            .' ('.($gap > 0 ? 'missing $'.number_format($gap, 2) : 'over by $'.number_format(-$gap, 2)).").\n"
+            .($gap > 0
+                ? 'Some invoice rows could not be read. Upload the invoice again (a clearer PDF or photo helps).'
+                : 'Some rows were read twice or with the wrong price. Upload the invoice again.');
+    }
+
+    /**
      * Screenshot-style scan summary before any PO is created.
      *
      * @param  array<string, mixed>  $matched
@@ -464,6 +546,9 @@ class VendorInvoicePurchaseOrderService
             ? "Supplier is in your supplier list.\n"
             : "Supplier is **not** in your supplier list.\n";
         $reply .= "{$matchedCount} of {$count} line(s) are in your item list.\n";
+        $target = self::invoiceTarget($matched);
+        $reply .= 'Lines total $'.number_format(self::linesTotal($matched), 2)
+            .($target > 0 ? ' · invoice subtotal $'.number_format($target, 2) : '')."\n";
 
         if ($unmatchedNames->isNotEmpty()) {
             $reply .= 'Unmatched: '.$unmatchedNames->implode(', ');
@@ -475,10 +560,12 @@ class VendorInvoicePurchaseOrderService
 
         $reply .= "\n".$this->missingCatalogBrief($matched);
 
-        if (self::listsAreReady($matched)) {
-            $reply .= "\n\n**All are OK** — supplier and items are in your lists.\nClick **Confirm & create PO** to save a New purchase order. Nothing is sent to the vendor.";
+        if (! self::amountsMatch($matched)) {
+            $reply .= "\n\n".self::amountMismatchText($matched)."\nConfirm stays blocked until the amounts match.";
+        } elseif (self::listsAreReady($matched)) {
+            $reply .= "\n\n**All are OK** — amounts match and the supplier and items are in your lists.\nClick **Confirm & create PO** to save a New purchase order. Nothing is sent to the vendor.";
         } else {
-            $reply .= "\n\nClick **Review & add to lists** to auto-add the missing supplier and items. When the reply says all are OK, click **Confirm & create PO**.";
+            $reply .= "\n\n**Amounts match.** Click **Review & add to lists** to add the missing supplier and items (or click **Confirm & create PO** to add them and create the PO in one step).";
         }
 
         return $reply;
@@ -590,7 +677,7 @@ class VendorInvoicePurchaseOrderService
             $reply .= "Supplier added to the list: **{$addedSupplier}**. OK.\n";
         }
         if ($addedItems !== []) {
-            $reply .= count($addedItems).' item(s) added to the item list. OK.\n';
+            $reply .= count($addedItems)." item(s) added to the item list. OK.\n";
             foreach (array_slice($addedItems, 0, 20) as $label) {
                 $reply .= '- '.$label."\n";
             }
@@ -598,9 +685,13 @@ class VendorInvoicePurchaseOrderService
         if ($addedSupplier === null && $addedItems === []) {
             $reply .= "Nothing new to add — supplier and items were already in your lists.\n";
         }
-        $reply .= $allOk
-            ? "\n**All are OK.** Click **Confirm & create PO** to save the New purchase order."
-            : "\nSome lines still could not be added. Check the names and try Confirm only after they show as matched.";
+        if (! self::amountsMatch($rematch)) {
+            $reply .= "\n".self::amountMismatchText($rematch);
+        } elseif ($allOk) {
+            $reply .= "\n**All are OK — amounts match and all items are in your lists.** Click **Confirm & create PO** to save the New purchase order.";
+        } else {
+            $reply .= "\nSome lines still could not be added. Check the names and try Confirm only after they show as matched.";
+        }
 
         return [
             'matched' => $rematch,

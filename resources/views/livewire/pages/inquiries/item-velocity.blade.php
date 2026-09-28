@@ -96,7 +96,8 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                 $this->playPosSound('success');
             }
             $code = json_encode($item->item_code);
-            $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) el.value = '.$code.'; });');
+            // Box was emptied when the scan was sent; if it has text again the next scan is being typed.
+            $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el && (el.value || "").trim() === "") { el.value = '.$code.'; if (document.activeElement === el) el.select(); } });');
         } else {
             if ($playSound) {
                 $this->playPosSound('error');

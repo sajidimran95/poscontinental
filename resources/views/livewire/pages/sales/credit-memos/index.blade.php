@@ -15,6 +15,7 @@ use App\Models\SalesOrderLine;
 use App\Models\UomSchedule;
 use App\Services\InventoryService;
 use App\Support\ItemSearch;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -270,6 +271,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     /** @return list<string> */
     protected function companyUomOptions(int $companyId): array
+    {
+        return Cache::remember('credit_memos.uom_options.v1.'.$companyId, 180, fn () => $this->loadCompanyUomOptions($companyId));
+    }
+
+    /** @return list<string> */
+    protected function loadCompanyUomOptions(int $companyId): array
     {
         $fromSchedule = UomSchedule::query()
             ->where('company_id', $companyId)
@@ -847,7 +854,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $this->applyItemToCredit($item);
             $this->scanModeActive = true;
             $this->playPosSound('success');
-            $this->clearAndFocusEntry();
+            $this->clearAndFocusEntry($code);
 
             return;
         }
@@ -857,20 +864,23 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->openItemBrowse(null, $code);
     }
 
-    public function autoAddEntryIfExactMatch(?string $code = null): void
+    /**
+     * @return bool true when the line was added (the entry box then skips its own Enter for this code)
+     */
+    public function autoAddEntryIfExactMatch(?string $code = null): bool
     {
         if (! $this->showForm) {
-            return;
+            return false;
         }
 
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
         if ($code === '' || mb_strlen($code) < 2) {
-            return;
+            return false;
         }
 
         $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'any');
         if (! $item || $this->codeIsPrefixOfLongerItemCode($code)) {
-            return;
+            return false;
         }
 
         $this->itemLookup = '';
@@ -879,7 +889,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->applyItemToCredit($item);
         $this->scanModeActive = true;
         $this->playPosSound('success');
-        $this->clearAndFocusEntry();
+        $this->clearAndFocusEntry($code);
+
+        return true;
     }
 
     public function focusScanAndAdd(): void
@@ -913,13 +925,20 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->clearAndFocusEntry();
     }
 
-    protected function clearAndFocusEntry(): void
+    /**
+     * @param  string|null  $sent  scanned code: clear only while the box still holds it (the next scan may be half-typed)
+     */
+    protected function clearAndFocusEntry(?string $sent = null): void
     {
         $this->itemLookup = '';
-        $this->js(<<<'JS'
+        $jsSent = json_encode($sent, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
             requestAnimationFrame(() => {
                 const el = document.getElementById('cm-item-entry');
-                if (el) { el.focus(); el.select(); }
+                if (!el) return;
+                const sent = {$jsSent};
+                if (sent === null || (el.value || '').trim() === sent) el.value = '';
+                el.focus();
             });
         JS);
     }
@@ -1011,17 +1030,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     protected function codeIsPrefixOfLongerItemCode(string $code): bool
     {
-        $code = mb_strtolower(trim($code));
-        if ($code === '') {
-            return false;
-        }
-
-        return Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where('is_inactive', false)
-            ->whereRaw('LOWER(item_code) LIKE ?', [$code.'%'])
-            ->whereRaw('LOWER(item_code) <> ?', [$code])
-            ->exists();
+        return Item::hasLongerCodeStartingWith((int) auth()->user()->company_id, $code, 'any', ['item_code']);
     }
 
     public function emptyCreditLine(): array
@@ -1474,13 +1483,16 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             <input
                                 id="cm-item-entry"
                                 type="text"
-                                wire:model="itemLookup"
                                 class="so-input so-entry-input font-mono"
                                 placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
                                 autocomplete="off"
                                 x-data="{
                                     timer: null,
                                     rapid: false,
+                                    // Each typed/scanned code is one 'seq'. Repeat scans of the same barcode are new seqs, so none are dropped.
+                                    seq: 0,
+                                    autoSeq: -1,
+                                    autoPending: null,
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
                                         const scanOn = !!$wire.scanModeActive;
@@ -1488,8 +1500,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                         const delay = this.rapid ? 35 : 150;
                                         this.timer = setTimeout(() => {
                                             const v = ($el.value || '').trim();
-                                            if (v.length < 2) { this.rapid = false; return; }
-                                            $wire.autoAddEntryIfExactMatch(v);
+                                            if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
+                                            this.autoSeq = this.seq;
+                                            this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
                                             this.rapid = false;
                                         }, delay);
                                     },
@@ -1497,8 +1510,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                         if (e.key === 'Enter') {
                                             e.preventDefault();
                                             clearTimeout(this.timer);
-                                            $wire.addItemFromEntry(($el.value || '').trim());
+                                            const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
+                                            // Empty the box now so the next scan starts clean; the server call runs in the background.
+                                            $el.value = '';
                                             this.rapid = false;
+                                            if (v && this.autoSeq === this.seq && this.autoPending) {
+                                                const pending = this.autoPending;
+                                                this.autoPending = null;
+                                                pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
+                                                return;
+                                            }
+                                            $wire.addItemFromEntry(v);
                                             return;
                                         }
                                         if (e.key === 'F2') {
@@ -1506,6 +1528,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                             $wire.openItemBrowse();
                                             return;
                                         }
+                                        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
                                         const now = Date.now();
                                         if (this._last && (now - this._last) < 45) this.rapid = true;
                                         this._last = now;
@@ -1513,6 +1536,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                     }
                                 }"
                                 x-on:keydown="onKey($event)"
+                                x-on:input="$wire.itemLookup = $el.value"
                             />
                             <button type="button" class="so-icon-btn so-entry-clear-btn" wire:click="clearItemLookup" title="Clear">×</button>
                             <button type="button" class="so-icon-btn so-entry-add-btn" x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('cm-item-entry')?.value || '')" title="Add">

@@ -636,7 +636,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
             $this->browseLineIndex = null;
             $this->applyReceivingLineToOrder($line);
             $this->scanModeActive = true;
-            $this->clearAndFocusEntry();
+            $this->clearAndFocusEntry($code);
 
             return;
         }
@@ -648,31 +648,36 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     /**
      * After typing pause / barcode gun: full exact match only → add line.
      */
-    public function autoAddEntryIfExactMatch(?string $code = null): void
+    /**
+     * @return bool true when the line was added (the entry box then skips its own Enter for this code)
+     */
+    public function autoAddEntryIfExactMatch(?string $code = null): bool
     {
         if ($this->viewMode || $this->status === 'Returned' || ! $this->inventory_receiving_id) {
-            return;
+            return false;
         }
 
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
         if ($code === '' || mb_strlen($code) < 2) {
-            return;
+            return false;
         }
 
         if ($this->codeIsPrefixOfLongerReceivingCode($code)) {
-            return;
+            return false;
         }
 
         $line = $this->findReceivingLineByCode($code);
         if (! $line) {
-            return;
+            return false;
         }
 
         $this->lookupMessage = '';
         $this->browseLineIndex = null;
         $this->applyReceivingLineToOrder($line);
         $this->scanModeActive = true;
-        $this->clearAndFocusEntry();
+        $this->clearAndFocusEntry($code);
+
+        return true;
     }
 
     public function focusScanAndAdd(): void
@@ -713,14 +718,19 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->clearAndFocusEntry();
     }
 
-    protected function clearAndFocusEntry(): void
+    /**
+     * @param  string|null  $sent  scanned code: clear only while the box still holds it (the next scan may be half-typed)
+     */
+    protected function clearAndFocusEntry(?string $sent = null): void
     {
         $this->itemLookup = '';
-        $this->js(<<<'JS'
+        $jsSent = json_encode($sent, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
             requestAnimationFrame(() => {
                 const el = document.getElementById('rtv-item-entry');
                 if (!el) return;
-                el.value = '';
+                const sent = {$jsSent};
+                if (sent === null || (el.value || '').trim() === sent) el.value = '';
                 el.focus();
             });
         JS);
@@ -1412,25 +1422,18 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             timer: null,
                                             lastKeyAt: 0,
                                             rapid: false,
-                                            lastClaim: '',
-                                            lastClaimAt: 0,
-                                            claim(v) {
-                                                const n = (v || '').trim().toLowerCase();
-                                                if (!n) return false;
-                                                const now = Date.now();
-                                                if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
-                                                this.lastClaim = n;
-                                                this.lastClaimAt = now;
-                                                return true;
-                                            },
+                                            // Each typed/scanned code is one 'seq'. Repeat scans of the same barcode are new seqs, so none are dropped.
+                                            seq: 0,
+                                            autoSeq: -1,
+                                            autoPending: null,
                                             scheduleAuto() {
                                                 clearTimeout(this.timer);
                                                 const delay = this.rapid ? 35 : 150;
                                                 this.timer = setTimeout(() => {
                                                     const v = ($el.value || '').trim();
-                                                    if (v.length < 2) { this.rapid = false; return; }
-                                                    if (!this.claim(v)) { this.rapid = false; return; }
-                                                    $wire.autoAddEntryIfExactMatch(v);
+                                                    if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
+                                                    this.autoSeq = this.seq;
+                                                    this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
                                                     this.rapid = false;
                                                 }, delay);
                                             },
@@ -1439,14 +1442,20 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                                     e.preventDefault();
                                                     e.stopPropagation();
                                                     clearTimeout(this.timer);
-                                                    const v = ($el.value || '').trim();
+                                                    const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                                     $el.value = '';
-                                                    if (v && this.claim(v)) {
-                                                        $wire.addItemFromEntry(v);
-                                                    }
                                                     this.rapid = false;
+                                                    if (!v) return;
+                                                    if (this.autoSeq === this.seq && this.autoPending) {
+                                                        const pending = this.autoPending;
+                                                        this.autoPending = null;
+                                                        pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
+                                                        return;
+                                                    }
+                                                    $wire.addItemFromEntry(v);
                                                     return;
                                                 }
+                                                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
                                                 if (e.key === 'F2') {
                                                     e.preventDefault();
                                                     clearTimeout(this.timer);
@@ -1475,8 +1484,9 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                                             const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                             $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                             rapid = false;
+                                            seq++;
                                             const v = ($el.value || '').trim();
-                                            if (v.length >= 2 && claim(v)) {
+                                            if (v.length >= 2) {
                                                 $el.value = '';
                                                 $wire.addItemFromEntry(v);
                                             }

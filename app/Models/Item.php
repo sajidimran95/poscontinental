@@ -258,10 +258,9 @@ class Item extends Model
         };
 
         // Prefer exact item_code / primary_upc for the typed/scanned value (e.g. 8117PL over 8117).
-        $exact = $scoped()->where(function ($q) use ($code) {
-            $q->whereRaw('LOWER(item_code) = LOWER(?)', [$code])
-                ->orWhereRaw('LOWER(COALESCE(primary_upc, \'\')) = LOWER(?)', [$code]);
-        })->first();
+        // Columns are *_ci (case-insensitive); keep plain equality so the company_id+code indexes are used.
+        $exact = $scoped()->where('item_code', $code)->first()
+            ?? $scoped()->where('primary_upc', $code)->first();
 
         if ($exact) {
             $exact->load(['prices', 'taxSchedule']);
@@ -302,7 +301,7 @@ class Item extends Model
 
         // OPTIMIZED: Check UPC table with indexed lookup — prefer exact scanned code
         $upcItemId = \DB::table('item_upcs')
-            ->whereRaw('LOWER(upc) = LOWER(?)', [$code])
+            ->where('upc', $code)
             ->value('item_id');
         if (! $upcItemId) {
             $upcItemId = \DB::table('item_upcs')
@@ -321,9 +320,7 @@ class Item extends Model
 
         // OPTIMIZED: Check alias codes with indexed lookup
         $aliasItemId = \DB::table('item_prices')
-            ->whereNotNull('alias_code')
-            ->where('alias_code', '!=', '')
-            ->whereRaw('LOWER(alias_code) = LOWER(?)', [$code])
+            ->where('alias_code', $code)
             ->value('item_id');
         if (! $aliasItemId) {
             $aliasItemId = \DB::table('item_prices')
@@ -345,7 +342,7 @@ class Item extends Model
         // Check supplier codes (not for sell mode)
         if ($mode !== 'sell') {
             $supplierItemId = \DB::table('item_suppliers')
-                ->whereRaw('LOWER(COALESCE(supplier_item_code, \'\')) = LOWER(?)', [$code])
+                ->where('supplier_item_code', $code)
                 ->value('item_id');
             if (! $supplierItemId) {
                 $supplierItemId = \DB::table('item_suppliers')
@@ -364,6 +361,61 @@ class Item extends Model
         }
 
         return null;
+    }
+
+    /**
+     * True when an active item code / barcode starts with $code but is longer — the user may still be typing.
+     *
+     * @param  'any'|'sell'|'order'  $mode
+     * @param  list<'item_code'|'primary_upc'|'upc'|'alias_code'|'supplier_item_code'>  $sources
+     */
+    public static function hasLongerCodeStartingWith(int $companyId, string $code, string $mode = 'any', array $sources = ['item_code', 'primary_upc', 'upc']): bool
+    {
+        $code = trim($code);
+        $len = mb_strlen($code);
+        if ($len < 1) {
+            return false;
+        }
+        // *_ci columns: LIKE is case-insensitive and a leading-literal pattern can use the code indexes.
+        $like = addcslashes($code, '\\%_').'%';
+
+        $scope = function ($query, string $itemsTable = 'items') use ($companyId, $mode) {
+            $query->where($itemsTable.'.company_id', $companyId)->where($itemsTable.'.is_inactive', false);
+            if ($mode === 'sell') {
+                $query->where($itemsTable.'.can_sell', true);
+            } elseif ($mode === 'order') {
+                $query->where($itemsTable.'.can_order', true);
+            }
+
+            return $query;
+        };
+
+        foreach (['item_code', 'primary_upc'] as $column) {
+            if (in_array($column, $sources, true)
+                && $scope(\DB::table('items'))
+                    ->where('items.'.$column, 'like', $like)
+                    ->whereRaw('CHAR_LENGTH(items.'.$column.') > ?', [$len])
+                    ->exists()) {
+                return true;
+            }
+        }
+
+        $related = [
+            'upc' => ['item_upcs', 'upc'],
+            'alias_code' => ['item_prices', 'alias_code'],
+            'supplier_item_code' => ['item_suppliers', 'supplier_item_code'],
+        ];
+        foreach ($related as $source => [$table, $column]) {
+            if (in_array($source, $sources, true)
+                && $scope(\DB::table($table)->join('items', 'items.id', '=', $table.'.item_id'))
+                    ->where($table.'.'.$column, 'like', $like)
+                    ->whereRaw('CHAR_LENGTH('.$table.'.'.$column.') > ?', [$len])
+                    ->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

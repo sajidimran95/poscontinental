@@ -365,12 +365,12 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             $this->itemLookup = '';
             $this->browseLineIndex = null;
             if (! $this->applyScannedItem($item)) {
-                $this->clearAndFocusEntry();
+                $this->clearAndFocusEntry($code);
 
                 return;
             }
             $this->scanModeActive = true;
-            $this->clearAndFocusEntry();
+            $this->clearAndFocusEntry($code);
 
             return;
         }
@@ -400,12 +400,12 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->lookupMessage = '';
         $this->browseLineIndex = null;
         if (! $this->applyScannedItem($item)) {
-            $this->clearAndFocusEntry();
+            $this->clearAndFocusEntry($code);
 
             return;
         }
         $this->scanModeActive = true;
-        $this->clearAndFocusEntry();
+        $this->clearAndFocusEntry($code);
     }
 
     public function focusScanAndAdd(): void
@@ -472,43 +472,22 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     protected function codeIsPrefixOfLongerItemCode(string $code): bool
     {
-        $companyId = (int) auth()->user()->company_id;
-        $lower = mb_strtolower(trim($code));
-        $len = mb_strlen($lower);
-        if ($len < 1) {
-            return false;
-        }
-
-        $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $lower).'%';
-
-        return Item::query()
-            ->where('company_id', $companyId)
-            ->where('is_inactive', false)
-            ->where(function ($q) use ($len, $like) {
-                $q->where(function ($inner) use ($len, $like) {
-                    $inner->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
-                        ->whereRaw('LOWER(item_code) LIKE ?', [$like]);
-                })
-                    ->orWhere(function ($inner) use ($len, $like) {
-                        $inner->whereRaw('CHAR_LENGTH(COALESCE(primary_upc, ?)) > ?', ['', $len])
-                            ->whereRaw('LOWER(COALESCE(primary_upc, ?)) LIKE ?', ['', $like]);
-                    })
-                    ->orWhereHas('upcs', function ($upc) use ($len, $like) {
-                        $upc->whereRaw('CHAR_LENGTH(upc) > ?', [$len])
-                            ->whereRaw('LOWER(upc) LIKE ?', [$like]);
-                    });
-            })
-            ->exists();
+        return Item::hasLongerCodeStartingWith((int) auth()->user()->company_id, $code, 'any');
     }
 
-    protected function clearAndFocusEntry(): void
+    /**
+     * @param  string|null  $sent  scanned code: clear only while the box still holds it (the next scan may be half-typed)
+     */
+    protected function clearAndFocusEntry(?string $sent = null): void
     {
         $this->itemLookup = '';
-        $this->js(<<<'JS'
+        $jsSent = json_encode($sent, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
             requestAnimationFrame(() => {
                 const el = document.getElementById('sc-item-entry');
                 if (!el) return;
-                el.value = '';
+                const sent = {$jsSent};
+                if (sent === null || (el.value || '').trim() === sent) el.value = '';
                 el.focus();
             });
         JS);

@@ -102,6 +102,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public int $lastScanClaimAt = 0;
 
+    /** @var list<string> Scans that arrived while an alert/prompt was open; applied when it closes. */
+    public array $deferredScanCodes = [];
+
     /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
     public array $parkedSalesList = [];
 
@@ -2166,11 +2169,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('window.stopPosScanMissAlarm && window.stopPosScanMissAlarm()');
         if ($this->showBrowse) {
             $this->focusBrowseSearch();
+            $this->drainDeferredScans();
 
             return;
         }
         $this->scanModeActive = true;
         $this->clearAndFocusEntry();
+        $this->drainDeferredScans();
     }
 
     public function loadMoreBrowseItems(): void
@@ -3945,13 +3950,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        if ($this->showUnknownScanModal || $this->showLineChangeConfirmModal) {
-            return;
-        }
-
         // Do not fall back to Livewire itemEntry — the scan box uses wire:ignore.self,
         // so a previous SKU (e.g. 2234b) can still be in state while the box shows "12".
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? '')) ?? '');
+
+        // Rapid scans are sent in one batch; ones queued behind an alert/prompt run after it closes.
+        if ($this->scanEntryBlocked()) {
+            if ($code !== '') {
+                $this->deferredScanCodes[] = $code;
+            }
+            $this->skipRender();
+
+            return;
+        }
+
         $this->itemEntry = $code;
 
         if ($code === '') {
@@ -3973,6 +3985,18 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->alertUnknownScan($code);
+    }
+
+    protected function scanEntryBlocked(): bool
+    {
+        return $this->showUnknownScanModal || $this->showLineChangeConfirmModal || $this->showSubstitutePrompt;
+    }
+
+    protected function drainDeferredScans(): void
+    {
+        while ($this->deferredScanCodes !== [] && ! $this->scanEntryBlocked()) {
+            $this->addItemFromEntry(array_shift($this->deferredScanCodes));
+        }
     }
 
     public function searchEntryHits(?string $code = null): void
@@ -4106,13 +4130,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         // OPTIMIZED: Quick check - only look at item_code for short manual entries
         // Skips expensive UPC/alias checks since scanners use 8+ char codes
-        return \DB::table('items')
-            ->where('company_id', $companyId)
-            ->where('is_inactive', false)
-            ->where('can_sell', true)
-            ->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
-            ->whereRaw('LOWER(item_code) LIKE ?', [$lower . '%'])
-            ->exists();
+        return Item::hasLongerCodeStartingWith($companyId, $code, 'sell', ['item_code']);
 
         /* ORIGINAL LOGIC (kept for reference, but disabled):
         $companyId = (int) auth()->user()->company_id;
@@ -4191,15 +4209,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->clearAndFocusEntry();
     }
 
+    /**
+     * The browser already left the code selected in the box when Enter was pressed.
+     * Never rewrite the box here: by the time this response lands the next barcode may be half-typed.
+     */
     protected function keepLookupAndFocus(string $code): void
     {
         $this->itemEntry = $code;
-        $jsCode = json_encode($code, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-        $this->js(<<<JS
+        $this->js(<<<'JS'
             requestAnimationFrame(() => {
                 const el = document.getElementById('so-item-entry');
-                if (!el) return;
-                el.value = {$jsCode};
+                if (!el || document.activeElement === el) return;
+                const active = document.activeElement;
+                if (active && active !== document.body && active.closest('.desk-modal, [role="dialog"]')) return;
                 el.focus();
                 el.select();
             });
@@ -4328,8 +4350,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $itemId = $this->pendingLineChangeItemId;
         $lineIndex = $this->pendingLineChangeLineIndex;
         $browseIds = $this->pendingBrowseAddIds;
-        $this->rejectLineChange();
+        $this->rejectLineChange(false);
+        try {
+            $this->applyConfirmedLineChange($kind, $itemId, $lineIndex, $browseIds);
+        } finally {
+            $this->drainDeferredScans();
+        }
+    }
 
+    /**
+     * @param  list<int>  $browseIds
+     */
+    protected function applyConfirmedLineChange(string $kind, ?int $itemId, ?int $lineIndex, array $browseIds): void
+    {
         if ($kind === 'remove' && $lineIndex !== null) {
             $this->performRemoveLine($lineIndex);
 
@@ -4366,7 +4399,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
     }
 
-    public function rejectLineChange(): void
+    public function rejectLineChange(bool $drainScans = true): void
     {
         $this->showLineChangeConfirmModal = false;
         $this->lineChangeConfirmMessage = '';
@@ -4375,6 +4408,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pendingLineChangeLineIndex = null;
         $this->pendingBrowseAddIds = [];
         $this->focusItemEntry(true);
+        if ($drainScans) {
+            $this->drainDeferredScans();
+        }
     }
 
     protected function openSubstitutePrompt(Item $item, ?int $lineIndex): void
@@ -4449,10 +4485,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pendingItemId = null;
         $this->pendingLineIndex = null;
         $this->substituteOptions = [];
-        if (! $item) {
-            return;
-        }
-        if (! $this->canAddItemToOrder($item)) {
+        if (! $item || ! $this->canAddItemToOrder($item)) {
+            $this->drainDeferredScans();
+
             return;
         }
         if ($lineIndex !== null && isset($this->lines[$lineIndex])) {
@@ -4461,6 +4496,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->appendItemLine($item);
         }
         $this->notifyAlert('Used force substitute '.$item->item_code.' (original out of stock).', 'warning');
+        $this->drainDeferredScans();
     }
 
     public function keepOriginalItem(): void
@@ -4479,11 +4515,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             } else {
                 $this->appendItemLine($item);
             }
+            $this->drainDeferredScans();
 
             return;
         }
         $code = $item?->item_code ?? 'Item';
         $this->notifyAlert($code.' has no stock available and cannot be added to this order.', 'error');
+        $this->drainDeferredScans();
     }
 
     public function cancelSubstitutePrompt(): void
@@ -4492,6 +4530,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pendingItemId = null;
         $this->pendingLineIndex = null;
         $this->substituteOptions = [];
+        $this->drainDeferredScans();
     }
 
     protected function appendItemLine(Item $item): void
@@ -4562,9 +4601,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function findItem(string $code): ?Item
     {
         $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'sell');
-        if ($item) {
-            $item->load(['prices', 'taxSchedule']);
-        }
+        $item?->loadMissing(['prices', 'taxSchedule']);
 
         return $item;
     }
@@ -5938,8 +5975,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         if (e.key === 'Enter') {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            const v = ($el.value || '').trim();
+                                            const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                             if (v) {
+                                                // Select now, not after the server replies, so the next scan overwrites it.
+                                                // Livewire queues calls made while a request is in flight and sends them in order.
+                                                $el.value = v;
+                                                $el.select();
                                                 $wire.addItemFromEntry(v);
                                             }
                                             return;
@@ -5977,6 +6018,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                     x-on:click.prevent="
                                         const el = document.getElementById('so-item-entry');
                                         const v = (el?.value || '').trim();
+                                        if (el) { el.focus(); el.select(); }
                                         $wire.addItemFromEntry(v);
                                     "
                                     class="so-icon-btn so-entry-add-btn"

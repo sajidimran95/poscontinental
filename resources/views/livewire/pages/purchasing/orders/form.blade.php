@@ -115,10 +115,6 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     /** Entry bar armed for Scan / barcode gun. */
     public bool $scanModeActive = false;
 
-    public string $lastScanClaimCode = '';
-
-    public int $lastScanClaimAt = 0;
-
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_received:string,unit_cost:string}> */
     public array $lines = [];
 
@@ -945,57 +941,37 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 
     /**
-     * Block Enter + auto-add from counting as two scans of the same code.
-     */
-    protected function claimScanAdd(string $code): bool
-    {
-        $norm = mb_strtolower(trim($code));
-        if ($norm === '') {
-            return false;
-        }
-
-        $now = (int) floor(microtime(true) * 1000);
-        if ($this->lastScanClaimCode === $norm && ($now - $this->lastScanClaimAt) < 180) {
-            return false;
-        }
-
-        $this->lastScanClaimCode = $norm;
-        $this->lastScanClaimAt = $now;
-
-        return true;
-    }
-
-    /**
      * After entry typing pause / gun scan: full exact match only → add line.
      */
-    public function autoAddEntryIfExactMatch(?string $code = null): void
+    /**
+     * @return bool true when the line was added (the entry box then skips its own Enter for this code)
+     */
+    public function autoAddEntryIfExactMatch(?string $code = null): bool
     {
         abort_if($this->viewMode, 403);
 
         $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
         if ($code === '' || mb_strlen($code) < 2) {
-            return;
+            return false;
         }
 
         $item = $this->findPurchaseItem($code);
         if (! $item) {
-            return;
+            return false;
         }
 
         // Still typing a longer code (8117… while 8117PL exists) — wait for full entry.
         if ($this->codeIsPrefixOfLongerOrderableCode($code)) {
-            return;
-        }
-
-        if (! $this->claimScanAdd($code)) {
-            return;
+            return false;
         }
 
         $this->lookupMessage = '';
         $this->browseLineIndex = null;
         $this->applyItemToOrder($item);
         $this->scanModeActive = true;
-        $this->keepLookupAndFocus((string) $item->item_code);
+        $this->keepLookupAndFocus((string) $item->item_code, $code);
+
+        return true;
     }
 
     /**
@@ -1014,20 +990,13 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
-        if (! $this->claimScanAdd($code)) {
-            $this->itemLookup = '';
-            $this->clearAndFocusEntry();
-
-            return;
-        }
-
         $item = $this->findPurchaseItem($code);
         if ($item) {
             $this->lookupMessage = '';
             $this->browseLineIndex = null;
             $this->applyItemToOrder($item);
             $this->scanModeActive = true;
-            $this->keepLookupAndFocus((string) $item->item_code);
+            $this->keepLookupAndFocus((string) $item->item_code, $code);
 
             return;
         }
@@ -1044,42 +1013,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
      */
     protected function codeIsPrefixOfLongerOrderableCode(string $code): bool
     {
-        $companyId = (int) auth()->user()->company_id;
-        $lower = mb_strtolower(trim($code));
-        $len = mb_strlen($lower);
-        if ($len < 1) {
-            return false;
-        }
-
-        $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $lower).'%';
-
-        return Item::query()
-            ->where('company_id', $companyId)
-            ->where('is_inactive', false)
-            ->where('can_order', true)
-            ->where(function ($q) use ($len, $like) {
-                $q->where(function ($inner) use ($len, $like) {
-                    $inner->whereRaw('CHAR_LENGTH(item_code) > ?', [$len])
-                        ->whereRaw('LOWER(item_code) LIKE ?', [$like]);
-                })
-                    ->orWhere(function ($inner) use ($len, $like) {
-                        $inner->whereRaw('CHAR_LENGTH(COALESCE(primary_upc, ?)) > ?', ['', $len])
-                            ->whereRaw('LOWER(COALESCE(primary_upc, ?)) LIKE ?', ['', $like]);
-                    })
-                    ->orWhereHas('upcs', function ($upc) use ($len, $like) {
-                        $upc->whereRaw('CHAR_LENGTH(upc) > ?', [$len])
-                            ->whereRaw('LOWER(upc) LIKE ?', [$like]);
-                    })
-                    ->orWhereHas('prices', function ($p) use ($len, $like) {
-                        $p->whereRaw('CHAR_LENGTH(COALESCE(alias_code, ?)) > ?', ['', $len])
-                            ->whereRaw('LOWER(COALESCE(alias_code, ?)) LIKE ?', ['', $like]);
-                    })
-                    ->orWhereHas('itemSuppliers', function ($s) use ($len, $like) {
-                        $s->whereRaw('CHAR_LENGTH(COALESCE(supplier_item_code, ?)) > ?', ['', $len])
-                            ->whereRaw('LOWER(COALESCE(supplier_item_code, ?)) LIKE ?', ['', $like]);
-                    });
-            })
-            ->exists();
+        return Item::hasLongerCodeStartingWith(
+            (int) auth()->user()->company_id,
+            $code,
+            'order',
+            ['item_code', 'primary_upc', 'upc', 'alias_code', 'supplier_item_code']
+        );
     }
 
     /**
@@ -1117,17 +1056,24 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->clearAndFocusEntry();
     }
 
-    protected function keepLookupAndFocus(string $code): void
+    /**
+     * Only touch the box while it still holds the code that was sent — the next barcode may already be half-typed.
+     */
+    protected function keepLookupAndFocus(string $shown, string $sent): void
     {
-        $this->itemLookup = $code;
-        $jsCode = json_encode($code, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->itemLookup = $shown;
+        $flags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
+        $jsShown = json_encode($shown, $flags);
+        $jsSent = json_encode($sent, $flags);
         $this->js(<<<JS
             requestAnimationFrame(() => {
                 const el = document.getElementById('po-item-entry');
                 if (!el) return;
-                el.value = {$jsCode};
-                el.focus();
-                el.select();
+                if (document.activeElement !== el) el.focus();
+                if ((el.value || '').trim() === {$jsSent}) {
+                    el.value = {$jsShown};
+                    el.select();
+                }
             });
         JS);
     }
@@ -2011,26 +1957,22 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     timer: null,
                                     lastKeyAt: 0,
                                     rapid: false,
-                                    lastClaim: '',
-                                    lastClaimAt: 0,
-                                    claim(v) {
-                                        const n = (v || '').trim().toLowerCase();
-                                        if (!n) return false;
-                                        const now = Date.now();
-                                        if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
-                                        this.lastClaim = n;
-                                        this.lastClaimAt = now;
-                                        return true;
-                                    },
+                                    // Each typed/scanned code is one 'seq'. Repeat scans of the same barcode are new seqs, so none are dropped.
+                                    seq: 0,
+                                    autoSeq: -1,
+                                    autoPending: null,
+                                    enterSeq: -1,
+                                    enterAt: 0,
                                     scheduleAuto() {
                                         clearTimeout(this.timer);
                                         // OPTIMIZED: Scanner 25ms, Manual typing 1500ms (1.5 seconds)
                                         const delay = this.rapid ? 25 : 1500;
                                         this.timer = setTimeout(() => {
                                             const v = ($el.value || '').trim();
-                                            if (v.length < 2) { this.rapid = false; return; }
-                                            if (!this.claim(v)) { this.rapid = false; return; }
-                                            $wire.autoAddEntryIfExactMatch(v);
+                                            if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
+                                            if (this.rapid) $el.select();
+                                            this.autoSeq = this.seq;
+                                            this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
                                             this.rapid = false;
                                         }, delay);
                                     },
@@ -2039,13 +1981,27 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                             e.preventDefault();
                                             e.stopPropagation();
                                             clearTimeout(this.timer);
-                                            const v = ($el.value || '').trim();
-                                            if (v && this.claim(v)) {
-                                                $wire.addItemFromEntry(v);
-                                            }
+                                            const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                             this.rapid = false;
+                                            if (!v) return;
+                                            const now = Date.now();
+                                            // CR+LF from some scanners arrives as two Enters for one scan.
+                                            if (this.enterSeq === this.seq && (now - this.enterAt) < 150) return;
+                                            this.enterSeq = this.seq;
+                                            this.enterAt = now;
+                                            // Select now so the next scan overwrites it; Livewire queues calls made while a request is in flight.
+                                            $el.value = v;
+                                            $el.select();
+                                            if (this.autoSeq === this.seq && this.autoPending) {
+                                                const pending = this.autoPending;
+                                                this.autoPending = null;
+                                                pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
+                                                return;
+                                            }
+                                            $wire.addItemFromEntry(v);
                                             return;
                                         }
+                                        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
                                         if (e.key === 'F2') {
                                             e.preventDefault();
                                             clearTimeout(this.timer);
@@ -2075,8 +2031,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                     const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
                                     rapid = false;
+                                    seq++;
                                     const v = ($el.value || '').trim();
-                                    if (v.length >= 2 && claim(v)) {
+                                    if (v.length >= 2) {
+                                        $el.select();
                                         $wire.addItemFromEntry(v);
                                     }
                                 "

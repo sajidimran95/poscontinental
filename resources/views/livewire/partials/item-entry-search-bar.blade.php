@@ -33,23 +33,18 @@
             timer: null,
             lastKeyAt: 0,
             rapid: false,
-            lastClaim: '',
-            lastClaimAt: 0,
             inputId: {{ json_encode($entryInputId) }},
             commit: {{ json_encode($entryCommit) }},
-            claim(v) {
-                const n = (v || '').trim().toLowerCase();
-                if (!n) return false;
-                const now = Date.now();
-                if (n === this.lastClaim && (now - this.lastClaimAt) < 400) return false;
-                this.lastClaim = n;
-                this.lastClaimAt = now;
-                return true;
+            // Both commit paths empty the box first, so one scan cannot commit twice and repeat scans are never dropped.
+            send(box, v) {
+                if (box) box.value = '';
+                if (v) $wire[this.commit](v);
             },
             el() { return document.getElementById(this.inputId); },
             scheduleAuto() {
                 clearTimeout(this.timer);
-                const delay = this.rapid ? 0 : 400;
+                // 30ms of silence = end of a scanner burst (without it a half-read barcode can be sent).
+                const delay = this.rapid ? 30 : 400;
                 this.timer = setTimeout(() => {
                     const box = this.el();
                     const v = (box?.value || '').trim();
@@ -59,10 +54,7 @@
                         return;
                     }
                     if (this.rapid) {
-                        if (this.claim(v)) {
-                            box.value = '';
-                            $wire[this.commit](v);
-                        }
+                        this.send(box, v);
                         this.rapid = false;
                         return;
                     }
@@ -76,12 +68,9 @@
                     e.stopPropagation();
                     clearTimeout(this.timer);
                     const box = this.el();
-                    const v = (box?.value || '').trim();
+                    const v = (box?.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
                     if (this.rapid || this.scanLike(v)) {
-                        if (box) box.value = '';
-                        if (v && this.claim(v)) {
-                            $wire[this.commit](v);
-                        }
+                        this.send(box, v);
                         this.rapid = false;
                         return;
                     }

@@ -96,11 +96,12 @@
         } catch (e) {}
     }
     tick();
-    setInterval(tick, 10000);
+    setInterval(function () {
+        if (document.visibilityState === 'visible') tick();
+    }, 25000);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') tick();
     });
-    window.addEventListener('focus', tick);
 })();
 </script>
 @endif

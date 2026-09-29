@@ -24,6 +24,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -552,14 +553,12 @@ class SalePortalController extends Controller
         $user = $this->user()->loadMissing(['company']);
         $company = StockPolicy::company($user->company);
 
-        $todayRows = $this->repOrders($user)
-            ->with('invoice:id,sales_order_id,invoice_total')
-            ->where('created_at', '>=', now()->startOfDay())
-            ->get(['id', 'total']);
         $monthRows = $this->repOrders($user)
             ->with('invoice:id,sales_order_id,invoice_total')
             ->where('created_at', '>=', now()->startOfMonth())
-            ->get(['id', 'total']);
+            ->get(['id', 'total', 'created_at']);
+        $todayStart = now()->startOfDay();
+        $todayRows = $monthRows->filter(fn ($o) => $o->created_at && $o->created_at->gte($todayStart));
         $sum = fn ($rows) => (float) $rows->sum(fn ($o) => static::orderDisplayTotal($o));
 
         $stats = [
@@ -581,16 +580,20 @@ class SalePortalController extends Controller
             ->map(fn (Item $item) => $this->dashboardProduct($item, $company))
             ->all();
 
-        $topIds = DB::table('sales_order_lines as l')
-            ->join('sales_orders as o', 'o.id', '=', 'l.sales_order_id')
-            ->where('o.company_id', $user->company_id)
-            ->where('o.created_at', '>=', now()->subDays(90))
-            ->whereNotNull('l.item_id')
-            ->groupBy('l.item_id')
-            ->orderByRaw('SUM(l.qty_ordered) DESC')
-            ->limit(8)
-            ->pluck('l.item_id')
-            ->all();
+        // Aggregates hundreds of thousands of lines company-wide; never run it per page view.
+        $topIds = Cache::remember('sale.home.top_sellers.'.$user->company_id, now()->addHours(6), function () use ($user) {
+            return DB::table('sales_order_lines as l')
+                ->join('sales_orders as o', 'o.id', '=', 'l.sales_order_id')
+                ->where('o.company_id', $user->company_id)
+                ->where('o.created_at', '>=', now()->subDays(30))
+                ->whereNotNull('l.item_id')
+                ->groupBy('l.item_id')
+                ->orderByRaw('SUM(l.qty_ordered) DESC')
+                ->limit(8)
+                ->pluck('l.item_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        });
 
         $topItems = Item::query()
             ->with('prices')

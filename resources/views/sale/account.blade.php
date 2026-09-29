@@ -1,6 +1,6 @@
 @extends('sale.layout')
-@section('title', 'Account')
-@section('header', 'Account')
+@section('title', 'Settings')
+@section('header', 'Settings')
 @section('content')
 @php
     $displayName = trim((string) ($user->name ?? ''));
@@ -20,7 +20,7 @@
 
 <div class="sale-card mb-3">
     <div class="flex items-center gap-4 py-1">
-        <div class="h-16 w-16 rounded-2xl bg-sale text-white flex items-center justify-center font-bold text-2xl shrink-0 shadow-md shadow-teal-900/10">
+        <div class="h-16 w-16 rounded-2xl bg-sale text-white flex items-center justify-center font-bold text-2xl shrink-0 shadow-md shadow-red-900/10">
             {{ strtoupper(mb_substr($displayName, 0, 1)) }}
         </div>
         <div class="min-w-0">
@@ -112,16 +112,6 @@
         <span class="sale-menu-row__text">
             <strong>Create order</strong>
             <small>New sale for customer</small>
-        </span>
-        <span class="sale-menu-row__chev">›</span>
-    </a>
-    <a href="{{ route('sale.chat') }}" class="sale-menu-row">
-        <span class="sale-menu-row__ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
-        </span>
-        <span class="sale-menu-row__text">
-            <strong>Team chat</strong>
-            <small>Channels and direct messages</small>
         </span>
         <span class="sale-menu-row__chev">›</span>
     </a>

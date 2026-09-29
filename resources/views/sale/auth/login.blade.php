@@ -5,7 +5,7 @@
     {{-- Desktop brand panel --}}
     <div class="hidden lg:flex lg:w-[44%] bg-[#0b1220] text-white flex-col justify-between p-12">
         <div class="flex items-center gap-3">
-            <img src="{{ asset('pwa/sale-icon-192.png') }}" alt="" class="h-11 w-11 rounded-xl bg-sale">
+            <div class="h-11 w-11 rounded-xl bg-sale flex items-center justify-center text-white font-black text-xl">S</div>
             <div>
                 <div class="font-extrabold text-lg">Sales App</div>
                 <div class="text-sm text-white/50">Representative portal</div>
@@ -22,14 +22,14 @@
     <div class="flex-1 flex flex-col justify-center px-4 py-10 lg:px-16">
         <div class="w-full max-w-md mx-auto">
             <div class="text-center lg:text-left mb-8">
-                <div class="mx-auto lg:mx-0 h-16 w-16 rounded-2xl bg-sale flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-teal-900/20 mb-4">S</div>
+                <div class="mx-auto lg:mx-0 h-16 w-16 rounded-2xl bg-sale flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-900/20 mb-4">S</div>
                 <h1 class="text-2xl lg:text-3xl font-extrabold tracking-tight">Sales Representative</h1>
                 <p class="text-sm text-slate-500 mt-1">Sales users only — not for admin or other staff</p>
             </div>
 
             @if(session('status'))
                 @php $st = session('status'); @endphp
-                <div class="mb-4 rounded-xl px-3 py-2.5 text-sm font-semibold {{ !empty($st['success']) ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-rose-50 text-rose-900 border border-rose-200' }}">
+                <div class="mb-4 rounded-xl px-3 py-2.5 text-sm font-semibold {{ !empty($st['success']) ? 'bg-sale-soft text-sale-dark border border-rose-200' : 'bg-rose-50 text-rose-900 border border-rose-200' }}">
                     {{ is_array($st) ? ($st['msg'] ?? '') : $st }}
                 </div>
             @endif
@@ -48,11 +48,11 @@
                 </div>
                 <div>
                     <label class="text-xs font-bold text-slate-500 mb-1.5 block">Password</label>
-                    <div class="sale-pw-wrap">
-                        <input id="sale-login-password" type="password" name="password" required autocomplete="current-password" class="sale-input sale-pw-input" placeholder="Password">
-                        <button type="button" class="sale-pw-toggle" data-password-toggle aria-controls="sale-login-password" aria-label="Show password" aria-pressed="false">
-                            <svg class="sale-pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="sale-pw-eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.8 21.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.8 21.8 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+                    <div class="relative">
+                        <input type="password" name="password" id="sale_password" required autocomplete="current-password" class="sale-input pr-12" placeholder="Password">
+                        <button type="button" id="sale_toggle_password" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1" aria-label="Show password" tabindex="-1">
+                            <svg id="sale_eye_show" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg id="sale_eye_hide" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587a2 2 0 002.828 2.828M9.88 9.88A3 3 0 0114.12 14.12M6.228 6.228C4.64 7.41 3.366 9.05 2.458 12c1.274 4.057 5.064 7 9.542 7 1.605 0 3.13-.37 4.48-1.03M17.77 17.77A10.45 10.45 0 0021.542 12c-1.274-4.057-5.064-7-9.542-7-.86 0-1.69.12-2.48.35"/></svg>
                         </button>
                     </div>
                 </div>
@@ -68,30 +68,23 @@
         </div>
     </div>
 </div>
-<style>
-    .sale-pw-wrap { position: relative; }
-    .sale-pw-input { padding-right: 2.75rem; }
-    .sale-pw-toggle {
-        position: absolute; right: .35rem; top: 50%; transform: translateY(-50%);
-        width: 2.25rem; height: 2.25rem; border: 0; background: transparent; color: #64748b;
-        border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-    }
-    .sale-pw-toggle:hover { color: #0f766e; background: #f0fdfa; }
-</style>
-<script>
-    document.querySelectorAll('[data-password-toggle]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var input = document.getElementById(btn.getAttribute('aria-controls'));
-            if (!input) return;
-            var show = input.type === 'password';
-            input.type = show ? 'text' : 'password';
-            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
-            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-            var eye = btn.querySelector('.sale-pw-eye');
-            var eyeOff = btn.querySelector('.sale-pw-eye-off');
-            if (eye) eye.hidden = show;
-            if (eyeOff) eyeOff.hidden = !show;
-        });
-    });
-</script>
 @endsection
+@push('scripts')
+<script>
+(function () {
+    var btn = document.getElementById('sale_toggle_password');
+    var input = document.getElementById('sale_password');
+    var eyeShow = document.getElementById('sale_eye_show');
+    var eyeHide = document.getElementById('sale_eye_hide');
+    if (!btn || !input) return;
+    btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        var show = input.getAttribute('type') === 'password';
+        input.setAttribute('type', show ? 'text' : 'password');
+        btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        if (eyeShow) eyeShow.classList.toggle('hidden', show);
+        if (eyeHide) eyeHide.classList.toggle('hidden', !show);
+    });
+})();
+</script>
+@endpush

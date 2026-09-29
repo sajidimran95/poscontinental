@@ -1,13 +1,13 @@
-@extends('sale.layout')
+﻿@extends('sale.layout')
 @section('title', 'Orders')
-@section('header', 'Order list')
+@section('header', 'Orders')
 @section('content')
 <div class="sale-page-tool">
     <span class="sale-chip" id="saleOrderCount">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         {{ $orders->total() }} order(s)
     </span>
-    <a href="{{ route('sale.orders.create') }}" class="sale-btn-sm lg:hidden">
+    <a href="{{ route('sale.customers') }}" class="sale-btn-sm lg:hidden">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
         Create
     </a>
@@ -47,7 +47,6 @@
             </a>
             <a href="{{ route('sale.orders.show', $order->id) }}" class="sale-order-row__body min-w-0 flex-1 no-underline text-inherit">
                 <div class="font-extrabold text-[15px] truncate">{{ $order->invoice_no }}</div>
-                <div class="mt-0.5"><span class="sale-badge sale-badge--ordered">{{ $order->sourceLabel() }}</span></div>
                 @if(!empty($order->converted_invoice_no))
                     <div class="text-xs font-bold text-sale mt-0.5">Invoice {{ $order->converted_invoice_no }}</div>
                 @endif
@@ -78,11 +77,13 @@
                     @endif
                 @endif
                 <a href="{{ route('sale.orders.invoice', $order->id) }}" target="_blank" class="sale-act sale-act--dl" title="Invoice">Invoice</a>
-                <form method="POST" action="{{ route('sale.orders.destroy', $order->id) }}" onsubmit="return confirm('Delete order {{ $order->invoice_no }}?');">
-                    @csrf
-                    @method('DELETE')
-                    <button type="submit" class="sale-act sale-act--del" title="Delete">Delete</button>
-                </form>
+                @if(!empty($order->can_delete))
+                    <form method="POST" action="{{ route('sale.orders.destroy', $order->id) }}" onsubmit="return confirm('Delete order {{ $order->invoice_no }}?');">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="sale-act sale-act--del" title="Delete">Delete</button>
+                    </form>
+                @endif
             </div>
         </div>
     @empty
@@ -91,7 +92,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
             </div>
             <p class="text-slate-500 text-sm mb-4">No orders yet.</p>
-            <a href="{{ route('sale.orders.create') }}" class="sale-btn inline-block w-auto px-6">Create first order</a>
+            <a href="{{ route('sale.customers') }}" class="sale-btn inline-block w-auto px-6">Create first order</a>
         </div>
     @endforelse
 </div>
@@ -136,15 +137,11 @@
             signal: abort.signal
         }).then(function (res) { return res.text(); }).then(function (html) {
             const doc = new DOMParser().parseFromString(html, 'text/html');
-            const nextResults = doc.getElementById('saleOrderResults');
-            const nextCount = doc.getElementById('saleOrderCount');
-            const nextChips = doc.getElementById('saleOrderChips');
-            const results = document.getElementById('saleOrderResults');
-            const count = document.getElementById('saleOrderCount');
-            const chips = document.getElementById('saleOrderChips');
-            if (results && nextResults) results.innerHTML = nextResults.innerHTML;
-            if (count && nextCount) count.innerHTML = nextCount.innerHTML;
-            if (chips && nextChips) chips.innerHTML = nextChips.innerHTML;
+            ['saleOrderResults', 'saleOrderCount', 'saleOrderChips'].forEach(function (id) {
+                const next = doc.getElementById(id);
+                const cur = document.getElementById(id);
+                if (cur && next) cur.innerHTML = next.innerHTML;
+            });
         }).catch(function (err) {
             if (err.name !== 'AbortError') {
                 window.location.href = url;

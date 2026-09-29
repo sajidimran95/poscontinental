@@ -9,8 +9,8 @@
 
 @php
     $displayStatus = $order->sale_status ?? 'sale';
-    $badge = $displayStatus === 'invoiced' ? 'sale-badge--completed' : ($displayStatus === 'return' ? 'sale-badge--draft' : 'sale-badge--ordered');
-    $badgeLabel = $displayStatus === 'invoiced' ? 'Invoiced' : ($displayStatus === 'return' ? 'Return' : 'Sale');
+    $badge = $displayStatus === 'invoiced' ? 'sale-badge--completed' : 'sale-badge--ordered';
+    $badgeLabel = $displayStatus === 'invoiced' ? 'Invoiced' : 'Sale';
 @endphp
 
 <div class="sale-layout-2 space-y-3 lg:space-y-0">
@@ -35,10 +35,8 @@
                 </div>
                 <span class="sale-badge {{ $badge }} shrink-0">{{ $badgeLabel }}</span>
             </div>
-            @if(($order->sale_status ?? '') === 'invoiced' && !empty($order->invoice_pay_status))
-                <div class="mt-2">
-                    <span class="sale-badge {{ $order->invoice_pay_status === 'PAID' ? 'sale-badge--completed' : ($order->invoice_pay_status === 'PARTIAL' ? 'sale-badge--ordered' : 'sale-badge--draft') }}">{{ $order->invoice_pay_status }}</span>
-                </div>
+            @if($order->paymentTerm)
+                <div class="text-sm mt-3 text-slate-500">Terms: {{ $order->paymentTerm->name }}</div>
             @endif
         </div>
 
@@ -50,30 +48,61 @@
                 Items
             </div>
             <div class="divide-y divide-slate-100">
-                @foreach($order->sell_lines as $line)
+                @php
+                    $itemGroups = $order->sell_lines->groupBy(function ($line) {
+                        return (string) ($line->variation_id ?: $line->product_id);
+                    });
+                @endphp
+                @foreach($itemGroups as $groupLines)
                     @php
-                        $lineQty = (float) $line->quantity;
-                        $linePrice = (float) $line->unit_price_inc_tax;
-                        $lineTax = (float) ($line->item_tax ?? 0);
-                        $lineDisc = (float) ($line->line_discount_amount ?? 0);
+                        $first = $groupLines->first();
+                        $mix = [];
+                        $pcs = 0;
+                        $groupTotal = 0;
+                        $groupList = 0;
+                        $hasPack = false;
+                        foreach ($groupLines as $line) {
+                            $mult = 1;
+                            $unitName = optional(optional($line->product)->unit)->actual_name ?: 'Pc';
+                            if (!empty($line->sub_unit_id) && $line->sub_unit) {
+                                $mult = (float) ($line->sub_unit->base_unit_multiplier ?: 1);
+                                $unitName = $line->sub_unit->actual_name ?: $unitName;
+                            }
+                            $lineQty = $mult > 0 ? ((float) $line->quantity / $mult) : (float) $line->quantity;
+                            $mix[] = rtrim(rtrim(number_format($lineQty, 3), '0'), '.').' '.$unitName;
+                            $pcs += (float) $line->quantity;
+                            $sold = (float) $line->unit_price_inc_tax;
+                            $list = (float) ($line->unit_price_before_discount ?: $sold);
+                            $groupTotal += $sold * (float) $line->quantity;
+                            $groupList += max($list, $sold) * (float) $line->quantity;
+                            if ($mult > 1) {
+                                $hasPack = true;
+                            }
+                        }
+                        $mixText = implode(' + ', $mix);
+                        if ($hasPack) {
+                            $mixText .= '  =  '.rtrim(rtrim(number_format($pcs, 3), '0'), '.').' Pc';
+                        }
+                        $itemDisc = max(0, $groupList - $groupTotal);
+                        $itemDiscPct = $groupList > 0 ? round(($itemDisc / $groupList) * 100, 1) : 0;
                     @endphp
                     <div class="py-3 flex justify-between gap-3 text-sm">
-                        <div class="min-w-0 flex items-start gap-2">
-                            <span class="mt-0.5 w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-                            </span>
-                            <div class="min-w-0">
-                                <div class="font-semibold">{{ optional($line->product)->name }}</div>
-                                <div class="text-xs text-slate-400">Qty {{ number_format($lineQty, 2) }} × ${{ number_format($linePrice, 2) }}</div>
-                                @if($lineDisc > 0)
-                                    <div class="text-xs text-slate-400">Item discount ${{ number_format($lineDisc, 2) }}</div>
-                                @endif
-                                @if($lineTax > 0)
-                                    <div class="text-xs text-slate-400">Item tax ${{ number_format($lineTax * $lineQty, 2) }}</div>
-                                @endif
-                            </div>
+                        <div class="min-w-0">
+                            <div class="font-semibold">{{ optional($first->product)->name }}</div>
+                            <div class="text-xs text-slate-500 mt-0.5">{{ $mixText }}</div>
+                            @if($itemDisc > 0.009)
+                                <div class="text-xs font-bold text-rose-600 mt-1">
+                                    Disc −${{ number_format($itemDisc, 2) }}
+                                    @if($itemDiscPct > 0) ({{ rtrim(rtrim(number_format($itemDiscPct, 1), '0'), '.') }}%) @endif
+                                </div>
+                            @endif
                         </div>
-                        <div class="font-bold tabular-nums shrink-0">${{ number_format($lineQty * $linePrice, 2) }}</div>
+                        <div class="text-right shrink-0">
+                            @if($itemDisc > 0.009)
+                                <div class="text-xs text-slate-400 line-through tabular-nums">${{ number_format($groupList, 2) }}</div>
+                            @endif
+                            <div class="font-extrabold tabular-nums">${{ number_format($groupTotal, 2) }}</div>
+                        </div>
                     </div>
                 @endforeach
             </div>
@@ -83,10 +112,12 @@
                     <span class="text-slate-500">Subtotal</span>
                     <span class="tabular-nums font-semibold">${{ number_format($a['subtotal'] ?? 0, 2) }}</span>
                 </div>
+                @if(($a['discount'] ?? 0) > 0.009)
                 <div class="flex justify-between gap-3">
                     <span class="text-slate-500">{{ $a['discount_label'] ?? 'Discount' }}</span>
                     <span class="tabular-nums font-semibold">−${{ number_format($a['discount'] ?? 0, 2) }}</span>
                 </div>
+                @endif
                 <div class="flex justify-between gap-3">
                     <span class="text-slate-500">Tax</span>
                     <span class="tabular-nums font-semibold">${{ number_format($a['tax'] ?? 0, 2) }}</span>
@@ -158,7 +189,7 @@
                 @endif
                 @if($order->shipping_details)
                     <div class="text-xs font-bold uppercase tracking-wide text-slate-400 mb-1">Details</div>
-                    <div class="text-sm text-slate-700 whitespace-pre-line mb-3">{{ $order->shipping_details }}</div>
+                    <div class="text-sm text-slate-700 mb-3">{{ $order->shipping_details }}</div>
                 @endif
             </div>
         @endif
@@ -199,11 +230,13 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
                     Invoice
                 </a>
+                @if(!empty($order->can_delete))
                 <form method="POST" action="{{ route('sale.orders.destroy', $order->id) }}" class="mt-2" onsubmit="return confirm('Delete order {{ $order->invoice_no }}?');">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="sale-btn-ghost !w-full !text-rose-600 !border-rose-200">Delete order</button>
                 </form>
+                @endif
             </div>
         </div>
         <p class="text-xs text-slate-400 px-1">

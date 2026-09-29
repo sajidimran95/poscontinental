@@ -251,6 +251,7 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::delete('/api/parked-sales/{parkedSale}', [SaleParkedSaleController::class, 'destroy'])->name('api.parked_sales.destroy');
         Route::get('/api/categories', [SalePortalController::class, 'categoriesTree'])->name('api.categories');
         Route::get('/api/last-purchases', [SalePortalController::class, 'lastPurchases'])->name('api.last_purchases');
+        Route::get('/api/product-history', [SalePortalController::class, 'productOrderHistory'])->name('api.product_history');
         Route::get('/api/items', [SalePortalController::class, 'searchItems'])->name('api.items');
     });
 });

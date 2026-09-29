@@ -237,7 +237,9 @@
     $docMisc = (float) ($order->miscellaneous ?? 0);
     $docTax = (float) ($order->tax ?? 0);
     $docTotal = (float) ($order->total ?? 0);
-    $tobaccoCount = (int) $buckets['tobacco_count'] + (int) $buckets['cigarette_count'];
+    $fmtQty = fn (float $q): string => rtrim(rtrim(number_format($q, 2, '.', ','), '0'), '.');
+    $tobaccoCount = $fmtQty((float) $buckets['tobacco_qty'] + (float) $buckets['cigarette_qty']);
+    $allItemsQty = $fmtQty((float) $buckets['all_qty']);
     $tobaccoTotal = (float) $buckets['tobacco_total'] + (float) $buckets['cigarette_total'];
 
     $addrLine = trim($companyAddress.' '.$companyCityLine);
@@ -370,7 +372,7 @@
         </td>
         <td class="sum-box">
             <span class="sum-lbl">Total All Items</span>
-            <span class="sum-val">{{ (int) $buckets['all_count'] }}</span>
+            <span class="sum-val">{{ $allItemsQty }}</span>
         </td>
         <td class="gap">&nbsp;</td>
         <td class="tot-wrap">

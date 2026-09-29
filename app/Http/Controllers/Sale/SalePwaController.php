@@ -16,7 +16,7 @@ class SalePwaController extends Controller
         return [
             'app_name' => $name !== '' ? $name : 'Sales',
             'short_name' => mb_substr($name !== '' ? $name : 'Sales', 0, 12),
-            'theme_color' => '#0f766e',
+            'theme_color' => '#e53935',
             'background_color' => '#0b1220',
         ];
     }
@@ -58,7 +58,7 @@ class SalePwaController extends Controller
 
     public function serviceWorker()
     {
-        $version = config('app.asset_version', '1').'-sale-1';
+        $version = config('app.asset_version', '1').'-sale-2';
         $offline = url('/sale/pwa/offline');
         $cache = 'japspos-sale-pwa-v'.preg_replace('/[^a-zA-Z0-9._-]/', '', (string) $version);
 

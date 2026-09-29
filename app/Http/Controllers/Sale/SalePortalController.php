@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Sale;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\PaymentTerm;
 use App\Models\RouteLookup;
@@ -13,11 +14,17 @@ use App\Models\ShipVia;
 use App\Models\Site;
 use App\Models\User;
 use App\Services\DocumentPdfService;
+use App\Services\ItemPriceHistoryService;
 use App\Services\Rep\CreateSalesOrderFromRep;
 use App\Services\Rep\SalesRepScope;
 use App\Support\ItemPricing;
 use App\Support\ItemSearch;
+use App\Support\StockPolicy;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
@@ -56,6 +63,11 @@ class SalePortalController extends Controller
     protected function canDeleteOrders(User $user): bool
     {
         return $user->isSalesRep() || $user->canAccessFeature('sales.orders', 'delete');
+    }
+
+    protected function canEditPrice(User $user): bool
+    {
+        return $user->canAccessFeature('sales.price_override', 'view');
     }
 
     protected function locationsFor(User $user): array
@@ -100,9 +112,33 @@ class SalePortalController extends Controller
         return $customer;
     }
 
-    protected function presentOrder(SalesOrder $order, User $user): SalesOrder
+    /** One-line ship-to text used as the editable "Shipping address" on checkout. */
+    protected static function shipText(?string $address, ?string $city, ?string $state, ?string $zip): string
     {
-        $order->loadMissing(['customer', 'lines.item', 'invoice.payments', 'invoice.credits']);
+        return trim(implode(', ', array_filter(array_map(
+            fn ($v) => trim((string) $v),
+            [$address, $city, $state, $zip]
+        ))));
+    }
+
+    protected static function normalizeText(?string $text): string
+    {
+        return strtolower(preg_replace('/[\s,]+/', ' ', trim((string) $text)));
+    }
+
+    protected static function orderDisplayTotal(SalesOrder $order): float
+    {
+        $inv = $order->relationLoaded('invoice') ? $order->invoice : null;
+
+        return $inv ? (float) $inv->invoice_total : (float) $order->total;
+    }
+
+    protected function presentOrder(SalesOrder $order, User $user, bool $withLines = true): SalesOrder
+    {
+        $order->loadMissing(['customer', 'invoice.payments', 'invoice.credits']);
+        if ($withLines) {
+            $order->loadMissing('lines.item');
+        }
         $this->presentContact($order->customer);
         $order->setRelation('contact', $order->customer);
         $order->invoice_no = $order->order_number;
@@ -139,15 +175,25 @@ class SalePortalController extends Controller
 
         $order->can_show_edit = $this->canEditOrders($user);
         $order->can_edit = $order->can_show_edit && $order->status === 'New' && ! $invoiced;
+        $order->can_delete = $this->canDeleteOrders($user) && $order->status === 'New' && ! $invoiced;
 
-        foreach ($order->lines as $line) {
-            $line->quantity = (float) $line->qty_ordered;
-            $line->unit_price_inc_tax = (float) $line->price;
-            $line->item_tax = 0;
-            $line->line_discount_amount = (float) $line->discount;
-            $line->product = (object) ['name' => $line->description ?: $line->item_code];
+        if ($withLines) {
+            foreach ($order->lines as $line) {
+                $line->variation_id = (int) $line->item_id;
+                $line->product_id = (int) $line->item_id;
+                $line->quantity = (float) $line->qty_ordered;
+                $line->unit_price_inc_tax = (float) $line->price;
+                $line->unit_price_before_discount = (float) $line->price;
+                $line->item_tax = 0;
+                $line->line_discount_amount = (float) $line->discount;
+                $line->sub_unit_id = null;
+                $line->product = (object) [
+                    'name' => $line->description ?: $line->item_code,
+                    'unit' => (object) ['actual_name' => $line->uom ?: 'Pc'],
+                ];
+            }
+            $order->setRelation('sell_lines', $order->lines);
         }
-        $order->setRelation('sell_lines', $order->lines);
 
         return $order;
     }
@@ -157,29 +203,40 @@ class SalePortalController extends Controller
         return $order->portalAmounts();
     }
 
-    protected function saleOrderType(?string $mode): string
+    protected function priceFor(Item $item, ?Customer $customer): float
     {
-        return match ($mode) {
-            'return' => 'Return',
-            default => 'Sales Order',
-        };
+        return (float) ItemPricing::resolve(
+            $item,
+            $customer?->price_level_id ? (int) $customer->price_level_id : null,
+            $item->unit_of_measure,
+            $customer?->id
+        );
     }
 
-    protected function linesFromRequest(Request $request, User $user): array
+    protected function linesFromRequest(Request $request, User $user, Customer $customer): array
     {
+        $canPrice = $this->canEditPrice($user);
+        $rows = collect($request->input('products', []))->filter(fn ($r) => (float) ($r['quantity'] ?? 0) > 0);
+        $items = Item::query()
+            ->with('prices')
+            ->where('company_id', $user->company_id)
+            ->whereIn('id', $rows->map(fn ($r) => (int) ($r['variation_id'] ?? 0))->all())
+            ->get()
+            ->keyBy('id');
+
         $lines = [];
-        foreach ($request->input('products', []) as $row) {
-            $item = Item::query()
-                ->where('company_id', $user->company_id)
-                ->where('id', (int) ($row['variation_id'] ?? 0))
-                ->first();
+        foreach ($rows as $row) {
+            $item = $items->get((int) ($row['variation_id'] ?? 0));
             if (! $item) {
                 continue;
             }
+            $posted = $row['unit_price'] ?? null;
             $lines[] = [
                 'item_code' => $item->item_code,
-                'qty_ordered' => $row['quantity'],
-                'price' => $row['unit_price'] ?? null,
+                'qty_ordered' => (float) $row['quantity'],
+                'price' => $canPrice && $posted !== null && $posted !== ''
+                    ? round((float) $posted, 4)
+                    : $this->priceFor($item, $customer),
             ];
         }
 
@@ -190,26 +247,48 @@ class SalePortalController extends Controller
         return $lines;
     }
 
-    protected function salePayload(Request $request, User $user, array $lines): array
+    protected function salePayload(Request $request, User $user, Customer $customer, array $lines, ?SalesOrder $existing = null): array
     {
-        return [
+        $postedAddr = (string) $request->input('shipping_address', '');
+        $payload = [
             'lines' => $lines,
             'comments' => $request->input('sale_note'),
-            'ship_to_address_id' => $request->filled('ship_to_address_id') ? $request->integer('ship_to_address_id') : 0,
-            'ship_to_name' => $request->input('ship_to_name'),
-            'ship_to_phone' => $request->input('ship_to_phone'),
-            'ship_to_address' => $request->input('ship_to_address'),
-            'ship_to_city' => $request->input('ship_to_city'),
-            'ship_to_state' => $request->input('ship_to_state'),
-            'ship_to_zip' => $request->input('ship_to_zip'),
-            'ship_via_id' => $request->integer('ship_via_id') ?: null,
-            'payment_term_id' => $request->integer('payment_term_id') ?: null,
-            'route_id' => $request->integer('route_id') ?: null,
-            'ship_date' => $request->input('ship_date') ?: null,
             'ship_from_site_id' => $request->integer('location_id') ?: $user->site_id,
             'order_type' => 'Sales Order',
             'order_source' => SalesOrder::SOURCE_SALES,
         ];
+
+        if ($header = $this->checkoutHeader($request, $user, $customer)) {
+            return array_merge($payload, $header);
+        }
+
+        if ($existing) {
+            $payload['ship_via_id'] = $existing->ship_via_id;
+            $payload['payment_term_id'] = $existing->payment_term_id;
+            $payload['route_id'] = $existing->route_id;
+            $payload['ship_date'] = optional($existing->ship_date)->toDateString();
+            $default = static::shipText($existing->ship_to_address, $existing->ship_to_city, $existing->ship_to_state, $existing->ship_to_zip);
+            if (static::normalizeText($postedAddr) === static::normalizeText($default) || trim($postedAddr) === '') {
+                $payload['ship_to_address_id'] = $existing->ship_to_address_id ?: 0;
+                foreach (['ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip'] as $k) {
+                    $payload[$k] = $existing->{$k};
+                }
+
+                return $payload;
+            }
+        } else {
+            $default = $this->mapCustomerForSale($customer)['shipping_address'];
+            if (static::normalizeText($postedAddr) === static::normalizeText($default) || trim($postedAddr) === '') {
+                $payload['ship_to_address_id'] = -1;
+
+                return $payload;
+            }
+        }
+
+        $payload['ship_to_address_id'] = 0;
+        $payload['ship_to_address'] = trim($postedAddr);
+
+        return $payload;
     }
 
     protected function saleOrderRules(): array
@@ -218,10 +297,16 @@ class SalePortalController extends Controller
             'contact_id' => 'required|integer|exists:customers,id',
             'location_id' => 'required|integer',
             'products' => 'required|array|min:1',
-            'ship_to_address_id' => 'nullable|integer',
-            'ship_to_name' => 'nullable|string|max:255',
+            'products.*.variation_id' => 'required|integer',
+            'products.*.quantity' => 'required|numeric|min:0',
+            'products.*.unit_price' => 'nullable|numeric|min:0',
+            'sale_note' => 'nullable|string|max:2000',
+            'shipping_address' => 'nullable|string|max:1000',
+            'order_mode' => 'nullable|in:new_order,estimate,back_order',
+            'ship_to_address_id' => 'nullable|integer|min:-2',
+            'ship_to_name' => 'nullable|string|max:191',
             'ship_to_phone' => 'nullable|string|max:50',
-            'ship_to_address' => 'nullable|string|max:1000',
+            'ship_to_address' => 'nullable|string|max:255',
             'ship_to_city' => 'nullable|string|max:100',
             'ship_to_state' => 'nullable|string|max:50',
             'ship_to_zip' => 'nullable|string|max:20',
@@ -229,21 +314,41 @@ class SalePortalController extends Controller
             'payment_term_id' => 'nullable|integer',
             'route_id' => 'nullable|integer',
             'ship_date' => 'nullable|date',
-            'sale_note' => 'nullable|string|max:2000',
-            'order_mode' => 'nullable|in:new_order,return',
         ];
     }
 
-    protected function saleFormLookups(User $user): array
+    /** Continental order header fields (Ship Via, Terms, Route, Ship Date, Ship-To) posted from checkout. */
+    protected function checkoutHeader(Request $request, User $user, Customer $customer): ?array
     {
-        $companyId = $user->company_id;
+        if (! $request->has('ship_to_address_id')) {
+            return null;
+        }
 
-        return [
-            'locations' => $this->locationsFor($user),
-            'ship_vias' => ShipVia::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
-            'payment_terms' => PaymentTerm::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
-            'routes' => RouteLookup::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+        $companyId = (int) $user->company_id;
+        $pick = fn (string $model, string $key) => $request->filled($key)
+            && $model::query()->where('company_id', $companyId)->whereKey($request->integer($key))->exists()
+            ? $request->integer($key) : null;
+
+        $header = [
+            'ship_via_id' => $pick(ShipVia::class, 'ship_via_id'),
+            'payment_term_id' => $pick(PaymentTerm::class, 'payment_term_id'),
+            'route_id' => $pick(RouteLookup::class, 'route_id'),
+            'ship_date' => $request->input('ship_date') ?: null,
         ];
+
+        $shipTo = $request->integer('ship_to_address_id');
+        if ($shipTo === -2) {
+            $header['ship_to_address_id'] = 0;
+            foreach (['ship_to_name', 'ship_to_phone', 'ship_to_address', 'ship_to_city', 'ship_to_state', 'ship_to_zip'] as $k) {
+                $header[$k] = $request->input($k) ?: null;
+            }
+        } elseif ($shipTo > 0 && $customer->shippingAddresses()->whereKey($shipTo)->exists()) {
+            $header['ship_to_address_id'] = $shipTo;
+        } else {
+            $header['ship_to_address_id'] = 0;
+        }
+
+        return $header;
     }
 
     protected function mapCustomerForSale(Customer $c): array
@@ -305,39 +410,53 @@ class SalePortalController extends Controller
             'mobile' => $c->mobile ?: $c->telephone,
             'address' => $address,
             'initials' => $initials !== '' ? $initials : 'C',
-            'shipping_address' => trim(implode(', ', array_filter([
-                $defaultShip['address'],
-                $defaultShip['city'],
-                $defaultShip['state'],
-                $defaultShip['zip'],
-            ]))),
+            'shipping_address' => static::shipText($defaultShip['address'], $defaultShip['city'], $defaultShip['state'], $defaultShip['zip']),
             'shipping_addresses' => $mapped,
             'default_ship' => $defaultShip,
+            'bill_to' => $bill,
+            'credit_limit' => $c->credit_limit !== null ? (float) $c->credit_limit : null,
+            'acct' => $c->customer_id,
             'payment_term_id' => $c->payment_term_id ? (int) $c->payment_term_id : null,
             'route_id' => $c->delivery_route_id ? (int) $c->delivery_route_id : null,
         ];
     }
 
-    protected function mapProduct(Item $item, ?Customer $customer = null): array
+    /**
+     * @param  Collection<int, Item>  $items
+     */
+    protected function mapProducts(Collection $items, ?Customer $customer, User $user): array
+    {
+        $alerts = app(ItemPriceHistoryService::class)->salesAlertsForItemIds($items->pluck('id')->all());
+        $company = StockPolicy::company($user->company);
+
+        return $items->map(function (Item $item) use ($customer, $alerts, $company) {
+            $payload = $this->mapProduct($item, $customer, $company);
+            $alert = $alerts[(int) $item->id] ?? null;
+
+            return $alert ? array_merge($payload, $alert) : array_merge($payload, ['price_updated' => false, 'alert_type' => null]);
+        })->values()->all();
+    }
+
+    protected function mapProduct(Item $item, ?Customer $customer = null, $company = null): array
     {
         $item->loadMissing('prices');
         $img = filled($item->image_path) ? url('/media/'.$item->image_path) : null;
-        $price = ItemPricing::resolve(
-            $item,
-            $customer?->price_level_id ? (int) $customer->price_level_id : null,
-            $item->unit_of_measure,
-            $customer?->id
-        );
+        $price = $this->priceFor($item, $customer);
 
-        $payload = [
+        return [
             'product_id' => (int) $item->id,
             'variation_id' => (int) $item->id,
             'name' => trim($item->description.' ('.$item->item_code.')'),
             'sku' => $item->item_code,
             'price' => $price,
+            'base_price' => $price,
+            'catalog_base_price' => (float) ($item->list_price ?: $price),
             'stock' => (float) $item->available_quantity,
-            'enable_stock' => 1,
+            'enable_stock' => StockPolicy::allowsOversell($company, $item) ? 0 : 1,
             'product_type' => 'single',
+            'unit_id' => 0,
+            'unit_name' => $item->unit_of_measure ?: 'Pc',
+            'units' => [],
             'allow_decimal' => 1,
             'tax_id' => null,
             'category_id' => (int) ($item->category_id ?: 0),
@@ -345,8 +464,6 @@ class SalePortalController extends Controller
             'image' => $img,
             'has_image' => (bool) $img,
         ];
-
-        return app(\App\Services\ItemPriceHistoryService::class)->mergeIntoProductPayload($payload, $item);
     }
 
     protected function categoryTree(User $user): array
@@ -406,34 +523,92 @@ class SalePortalController extends Controller
         return $tree;
     }
 
+    /** Rep sales orders (not returns). */
+    protected function repOrders(User $user): Builder
+    {
+        return SalesRepScope::salesOrdersQuery($user)
+            ->where(fn ($q) => $q->whereNull('order_type')->orWhere('order_type', '!=', 'Return'));
+    }
+
+    protected function dashboardProduct(Item $item, $company): array
+    {
+        $img = filled($item->image_path) ? url('/media/'.$item->image_path) : null;
+
+        return [
+            'id' => $item->id,
+            'variation_id' => $item->id,
+            'name' => $item->description ?: $item->item_code,
+            'sku' => $item->item_code,
+            'price' => (float) ItemPricing::resolve($item, null, $item->unit_of_measure),
+            'image' => $img,
+            'image_url' => $img,
+            'has_image' => (bool) $img,
+            'in_stock' => StockPolicy::allowsOversell($company, $item) || (float) $item->available_quantity > 0,
+        ];
+    }
+
     public function home(Request $request)
     {
-        $user = $this->user()->loadMissing(['role', 'site', 'company']);
-        $orders = SalesRepScope::salesOrdersQuery($user);
-        $site = $user->site;
-        $company = $user->company;
+        $user = $this->user()->loadMissing(['company']);
+        $company = StockPolicy::company($user->company);
+
+        $todayRows = $this->repOrders($user)
+            ->with('invoice:id,sales_order_id,invoice_total')
+            ->where('created_at', '>=', now()->startOfDay())
+            ->get(['id', 'total']);
+        $monthRows = $this->repOrders($user)
+            ->with('invoice:id,sales_order_id,invoice_total')
+            ->where('created_at', '>=', now()->startOfMonth())
+            ->get(['id', 'total']);
+        $sum = fn ($rows) => (float) $rows->sum(fn ($o) => static::orderDisplayTotal($o));
 
         $stats = [
-            'today_total' => (clone $orders)->whereDate('order_date', now()->toDateString())->sum('total'),
-            'month_total' => (clone $orders)->where('order_date', '>=', now()->startOfMonth()->toDateString())->sum('total'),
-            'total_orders' => (clone $orders)->count(),
+            'today_orders' => $todayRows->count(),
+            'today_total' => $sum($todayRows),
+            'month_total' => $sum($monthRows),
+            'month_orders' => $monthRows->count(),
+            'due_orders' => $this->repOrders($user)->where('status', 'New')->whereDoesntHave('invoice')->count(),
         ];
 
-        $location = (object) [
-            'name' => $site->name ?? ($company->name ?? '—'),
-            'landmark' => $company->address ?? '—',
-            'city' => $company->city ?? null,
-            'state' => $company->state ?? null,
-            'zip_code' => $company->zip_code ?? null,
-            'mobile' => $company->phone ?? null,
-            'alternate_number' => null,
-        ];
+        $newProducts = Item::query()
+            ->with('prices')
+            ->where('company_id', $user->company_id)
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->orderByDesc('id')
+            ->limit(6)
+            ->get()
+            ->map(fn (Item $item) => $this->dashboardProduct($item, $company))
+            ->all();
+
+        $topIds = DB::table('sales_order_lines as l')
+            ->join('sales_orders as o', 'o.id', '=', 'l.sales_order_id')
+            ->where('o.company_id', $user->company_id)
+            ->where('o.created_at', '>=', now()->subDays(90))
+            ->whereNotNull('l.item_id')
+            ->groupBy('l.item_id')
+            ->orderByRaw('SUM(l.qty_ordered) DESC')
+            ->limit(8)
+            ->pluck('l.item_id')
+            ->all();
+
+        $topItems = Item::query()
+            ->with('prices')
+            ->whereIn('id', $topIds ?: [0])
+            ->where('is_inactive', false)
+            ->get()
+            ->keyBy('id');
+        $topProducts = collect($topIds)
+            ->map(fn ($id) => $topItems->get($id))
+            ->filter()
+            ->map(fn (Item $item) => (object) $this->dashboardProduct($item, $company))
+            ->values();
 
         return view('sale.dashboard', [
             'stats' => $stats,
-            'location' => $location,
-            'role_name' => $user->role?->label ?? 'Sales Rep',
-            'current_location_name' => $location->name,
+            'userName' => $user->name ?: $user->username,
+            'newProducts' => $newProducts,
+            'topProducts' => $topProducts,
         ]);
     }
 
@@ -451,6 +626,7 @@ class SalePortalController extends Controller
                 $term = '%'.$q.'%';
                 $query->where(function ($inner) use ($term) {
                     $inner->where('order_number', 'like', $term)
+                        ->orWhereHas('invoice', fn ($i) => $i->where('invoice_number', 'like', $term))
                         ->orWhereHas('customer', function ($c) use ($term) {
                             $c->where('company_name', 'like', $term)
                                 ->orWhere('contact', 'like', $term)
@@ -466,7 +642,7 @@ class SalePortalController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        $orders->getCollection()->transform(fn (SalesOrder $o) => $this->presentOrder($o, $user));
+        $orders->getCollection()->transform(fn (SalesOrder $o) => $this->presentOrder($o, $user, false));
 
         return view('sale.orders.index', ['orders' => $orders, 'q' => $q, 'status' => $status]);
     }
@@ -509,37 +685,80 @@ class SalePortalController extends Controller
         return redirect()->route('sale.orders')->with('status', ['success' => 1, 'msg' => 'Order '.$no.' deleted.']);
     }
 
+    protected function openBalance(User $user, Customer $customer): float
+    {
+        return (float) Invoice::previousOpenBalance((int) $user->company_id, (int) $customer->id);
+    }
+
+    protected function orderFormData(User $user): array
+    {
+        $user->loadMissing('company');
+        $companyId = (int) $user->company_id;
+
+        return [
+            'locations' => $this->locationsFor($user),
+            'companyName' => $user->company?->name ?? '',
+            'userName' => $user->name ?: $user->username,
+            'canEditPrice' => $this->canEditPrice($user),
+            'ship_vias' => ShipVia::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
+            'payment_terms' => PaymentTerm::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'days_due']),
+            'routes' => RouteLookup::query()->where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get(['id', 'code', 'name']),
+        ];
+    }
+
+    protected function lastOrderSummary(User $user, Customer $customer, ?int $exceptOrderId = null): array
+    {
+        $last = SalesOrder::query()
+            ->where('company_id', $user->company_id)
+            ->where('customer_id', $customer->id)
+            ->where('order_type', '!=', 'Return')
+            ->when($exceptOrderId, fn ($q) => $q->whereKeyNot($exceptOrderId))
+            ->with('invoice:id,sales_order_id,invoice_total')
+            ->latest('order_date')
+            ->latest('id')
+            ->first(['id', 'order_number', 'order_date', 'total']);
+
+        return [
+            'last_order_total' => $last ? (float) ($last->invoice?->invoice_total ?? $last->total) : 0.0,
+            'last_order_date' => $last?->order_date?->format('m/d/Y'),
+            'last_order_number' => $last?->order_number,
+        ];
+    }
+
     public function create(Request $request)
     {
         $user = $this->user();
         abort_unless($this->canEditOrders($user), 403);
 
-        $customers = SalesRepScope::companyCustomersQuery($user)
-            ->where('is_inactive', false)
-            ->orderBy('company_name')
-            ->get(['id', 'customer_id', 'company_name', 'contact', 'mobile', 'telephone', 'address', 'city']);
+        $contactId = (int) old('contact_id', $request->get('contact_id'));
+        $customer = $contactId > 0
+            ? SalesRepScope::companyCustomersQuery($user)->with('shippingAddresses')->find($contactId)
+            : null;
 
-        $default_customer = null;
-        $oldContactId = old('contact_id');
-        if (! empty($oldContactId)) {
-            $c = $customers->firstWhere('id', (int) $oldContactId)
-                ?? Customer::query()->find($oldContactId);
-            if ($c && (int) $c->company_id === (int) $user->company_id) {
-                $this->presentContact($c);
-                $default_customer = [
-                    'id' => $c->id,
-                    'text' => trim(($c->company_name ?: $c->contact).(($c->mobile ?: $c->telephone) ? ' ('.($c->mobile ?: $c->telephone).')' : '')),
-                    'shipping_address' => trim(implode(', ', array_filter([$c->address, $c->city]))),
-                ];
-            }
+        if (! $customer) {
+            return redirect()->route('sale.customers', $request->only('add'));
         }
 
-        return view('sale.orders.create', array_merge($this->saleFormLookups($user), [
-            'customers' => $customers,
+        $mapped = $this->mapCustomerForSale($customer);
+        $default_customer = array_merge($mapped, $this->lastOrderSummary($user, $customer), [
+            'address' => $mapped['shipping_address'] ?: $mapped['address'],
+            'open_balance' => $this->openBalance($user, $customer),
+        ]);
+
+        return view('sale.orders.create', array_merge($this->orderFormData($user), [
             'default_location' => $this->defaultLocationId($request, $user),
             'default_customer' => $default_customer,
             'edit_order' => null,
             'edit_lines' => [],
+            'checkout' => [
+                'order_number' => SalesOrder::nextNumber((int) $user->company_id),
+                'ship_to_address_id' => (int) $mapped['default_ship']['id'],
+                'ship_via_id' => null,
+                'payment_term_id' => $customer->payment_term_id ? (int) $customer->payment_term_id : null,
+                'route_id' => $customer->delivery_route_id ? (int) $customer->delivery_route_id : null,
+                'ship_date' => null,
+                'ship_to' => [],
+            ],
         ]));
     }
 
@@ -548,31 +767,76 @@ class SalePortalController extends Controller
         $user = $this->user();
         $this->presentOrder($salesOrder, $user);
         SalesRepScope::assertOrderAccess($user, $salesOrder);
-        abort_unless($salesOrder->can_edit, 403, 'This order cannot be edited.');
+        if (! $salesOrder->can_edit) {
+            return redirect()->route('sale.orders.show', $salesOrder)
+                ->with('status', ['success' => 0, 'msg' => 'This order is invoiced or closed and cannot be edited.']);
+        }
 
-        $edit_lines = $salesOrder->lines->map(fn ($line) => [
-            'product_id' => (int) $line->item_id,
-            'variation_id' => (int) $line->item_id,
-            'name' => $line->description,
-            'price' => (float) $line->price,
-            'quantity' => (float) $line->qty_ordered,
-            'enable_stock' => 1,
-            'product_type' => 'single',
-            'allow_decimal' => 1,
-        ])->values()->all();
+        $customer = $salesOrder->customer;
+        $items = Item::query()->with('prices')->whereIn('id', $salesOrder->lines->pluck('item_id')->filter()->all() ?: [0])->get()->keyBy('id');
+        $company = StockPolicy::company($user->company);
 
-        $cust = $salesOrder->customer;
-        $this->presentContact($cust);
+        $edit_lines = $salesOrder->lines->map(function ($line) use ($items, $customer, $company) {
+            $item = $items->get($line->item_id);
+            $base = $item ? $this->mapProduct($item, $customer, $company) : [
+                'product_id' => (int) $line->item_id,
+                'variation_id' => (int) $line->item_id,
+                'name' => $line->description,
+                'sku' => $line->item_code,
+                'stock' => 0,
+                'enable_stock' => 0,
+                'unit_id' => 0,
+                'unit_name' => $line->uom ?: 'Pc',
+                'units' => [],
+                'allow_decimal' => 1,
+            ];
 
-        return view('sale.orders.create', array_merge($this->saleFormLookups($user), [
-            'customers' => SalesRepScope::companyCustomersQuery($user)->where('is_inactive', false)->orderBy('company_name')->get(['id', 'customer_id', 'company_name', 'contact', 'mobile']),
+            return array_merge($base, [
+                'price' => (float) $line->price,
+                'base_price' => (float) $line->price,
+                'catalog_base_price' => (float) ($base['catalog_base_price'] ?? $line->price),
+                'quantity' => (float) $line->qty_ordered,
+                'sub_unit_id' => 0,
+            ]);
+        })->values()->all();
+
+        $shipText = static::shipText($salesOrder->ship_to_address, $salesOrder->ship_to_city, $salesOrder->ship_to_state, $salesOrder->ship_to_zip);
+        $mapped = $customer ? $this->mapCustomerForSale($customer) : [];
+        $default_customer = $customer ? array_merge($mapped, $this->lastOrderSummary($user, $customer, (int) $salesOrder->id), [
+            'shipping_address' => $shipText,
+            'address' => $shipText,
+            'open_balance' => $this->openBalance($user, $customer),
+        ]) : null;
+
+        $salesOrder->shipping_address = $shipText;
+
+        $knownAddress = $salesOrder->ship_to_address_id
+            && $customer?->shippingAddresses->contains('id', (int) $salesOrder->ship_to_address_id);
+        $sameAsBilling = $customer
+            && static::normalizeText($shipText) === static::normalizeText(static::shipText($customer->address, $customer->city, $customer->state, $customer->zip_code));
+        $shipToId = $knownAddress ? (int) $salesOrder->ship_to_address_id : ($sameAsBilling ? 0 : -2);
+
+        return view('sale.orders.create', array_merge($this->orderFormData($user), [
             'default_location' => $salesOrder->ship_from_site_id ?: $this->defaultLocationId($request, $user),
-            'default_customer' => $cust ? [
-                'id' => $cust->id,
-                'text' => trim(($cust->company_name ?: $cust->contact).($cust->mobile ? ' ('.$cust->mobile.')' : '')),
-            ] : null,
+            'default_customer' => $default_customer,
             'edit_order' => $salesOrder,
             'edit_lines' => $edit_lines,
+            'checkout' => [
+                'order_number' => $salesOrder->order_number,
+                'ship_to_address_id' => $shipToId,
+                'ship_via_id' => $salesOrder->ship_via_id ? (int) $salesOrder->ship_via_id : null,
+                'payment_term_id' => $salesOrder->payment_term_id ? (int) $salesOrder->payment_term_id : null,
+                'route_id' => $salesOrder->route_id ? (int) $salesOrder->route_id : null,
+                'ship_date' => $salesOrder->ship_date?->format('Y-m-d'),
+                'ship_to' => [
+                    'name' => $salesOrder->ship_to_name,
+                    'phone' => $salesOrder->ship_to_phone,
+                    'address' => $salesOrder->ship_to_address,
+                    'city' => $salesOrder->ship_to_city,
+                    'state' => $salesOrder->ship_to_state,
+                    'zip' => $salesOrder->ship_to_zip,
+                ],
+            ],
         ]));
     }
 
@@ -582,16 +846,16 @@ class SalePortalController extends Controller
         abort_unless($this->canEditOrders($user), 403);
 
         $request->validate($this->saleOrderRules());
-
-        $customer = Customer::query()->findOrFail($request->integer('contact_id'));
+        $customer = SalesRepScope::companyCustomersQuery($user)->findOrFail($request->integer('contact_id'));
 
         try {
-            $order = $creator->handle($user, $customer, $this->salePayload($request, $user, $this->linesFromRequest($request, $user)));
+            $order = $creator->handle($user, $customer, $this->salePayload($request, $user, $customer, $this->linesFromRequest($request, $user, $customer)));
         } catch (ValidationException $e) {
-            return back()->withInput()->withErrors($e->errors());
+            return back()->withInput()->withErrors($e->errors())
+                ->with('status', ['success' => 0, 'msg' => collect($e->errors())->flatten()->first() ?: 'Could not create order.']);
         }
 
-        return redirect()->route('sale.orders.show', $order)->with('status', ['success' => 1, 'msg' => 'Order '.$order->order_number.' created.']);
+        return redirect()->route('sale.orders.show', $order)->with('status', ['success' => 1, 'msg' => 'Sales order created: '.$order->order_number]);
     }
 
     public function update(Request $request, SalesOrder $salesOrder, CreateSalesOrderFromRep $creator)
@@ -601,16 +865,16 @@ class SalePortalController extends Controller
         SalesRepScope::assertOrderAccess($user, $salesOrder);
 
         $request->validate($this->saleOrderRules());
-
-        $customer = Customer::query()->findOrFail($request->integer('contact_id'));
+        $customer = SalesRepScope::companyCustomersQuery($user)->findOrFail($request->integer('contact_id'));
 
         try {
-            $order = $creator->rebuild($user, $salesOrder, $customer, $this->salePayload($request, $user, $this->linesFromRequest($request, $user)));
+            $order = $creator->rebuild($user, $salesOrder, $customer, $this->salePayload($request, $user, $customer, $this->linesFromRequest($request, $user, $customer), $salesOrder));
         } catch (ValidationException $e) {
-            return back()->withInput()->withErrors($e->errors());
+            return back()->withInput()->withErrors($e->errors())
+                ->with('status', ['success' => 0, 'msg' => collect($e->errors())->flatten()->first() ?: 'Could not update order.']);
         }
 
-        return redirect()->route('sale.orders.show', $order)->with('status', ['success' => 1, 'msg' => 'Order '.$order->order_number.' updated.']);
+        return redirect()->route('sale.orders.show', $order)->with('status', ['success' => 1, 'msg' => 'Sales order updated: '.$order->order_number]);
     }
 
     public function searchCustomers(Request $request)
@@ -664,11 +928,17 @@ class SalePortalController extends Controller
         $viaDepartment = (int) $request->get('via_department', 0) === 1
             || ($categoryId > 0 && ! Category::query()->where('company_id', $user->company_id)->whereKey($categoryId)->exists());
 
-        $customer = null;
-        if ($contactId > 0) {
-            $customer = Customer::query()
-                ->where('company_id', $user->company_id)
-                ->find($contactId);
+        $customer = $contactId > 0
+            ? Customer::query()->where('company_id', $user->company_id)->find($contactId)
+            : null;
+
+        if ($request->boolean('scan') && $term !== '') {
+            $scanned = Item::findByScanCode((int) $user->company_id, $term, 'sell');
+            if (! $scanned) {
+                return response()->json([]);
+            }
+
+            return response()->json($this->mapProducts(collect([$scanned]), $customer, $user));
         }
 
         $query = Item::query()
@@ -680,36 +950,20 @@ class SalePortalController extends Controller
         if ($variationId > 0) {
             $query->where('id', $variationId);
         }
-        if ($request->boolean('scan') && $term !== '') {
-            $scanned = Item::findByScanCode((int) $user->company_id, $term, 'sell');
-            if (! $scanned) {
-                return response()->json([]);
-            }
-
-            return response()->json([$this->mapProduct($scanned, $customer)]);
-        }
         if ($term !== '') {
             ItemSearch::constrain($query, $term);
         }
         if ($categoryId === -1) {
             $query->whereNull('category_id');
         } elseif ($subId > 0) {
-            if ($viaDepartment) {
-                $query->where('category_id', $subId);
-            } else {
-                $query->where('subcategory_id', $subId);
-            }
+            $query->where($viaDepartment ? 'category_id' : 'subcategory_id', $subId);
         } elseif ($categoryId > 0) {
-            if ($viaDepartment) {
-                $query->where('department_id', $categoryId);
-            } else {
-                $query->where('category_id', $categoryId);
-            }
+            $query->where($viaDepartment ? 'department_id' : 'category_id', $categoryId);
         }
 
         $items = $query->orderBy('description')->limit($limit)->get();
 
-        return response()->json($items->map(fn (Item $item) => $this->mapProduct($item, $customer))->values());
+        return response()->json($this->mapProducts($items, $customer, $user));
     }
 
     public function lastPurchases(Request $request)
@@ -720,36 +974,106 @@ class SalePortalController extends Controller
             return response()->json([]);
         }
 
-        $customer = Customer::query()
-            ->where('company_id', $user->company_id)
-            ->findOrFail($contactId);
+        $customer = Customer::query()->where('company_id', $user->company_id)->findOrFail($contactId);
 
-        $last = SalesOrder::query()
+        $orderIds = SalesOrder::query()
             ->where('company_id', $user->company_id)
             ->where('customer_id', $customer->id)
+            ->where(fn ($q) => $q->whereNull('order_type')->orWhere('order_type', '!=', 'Return'))
             ->orderByDesc('id')
-            ->first();
-
-        if (! $last) {
+            ->limit(40)
+            ->pluck('id');
+        if ($orderIds->isEmpty()) {
             return response()->json([]);
         }
 
-        $last->load('lines.item');
+        $lines = DB::table('sales_order_lines as l')
+            ->join('sales_orders as o', 'o.id', '=', 'l.sales_order_id')
+            ->whereIn('l.sales_order_id', $orderIds)
+            ->whereNotNull('l.item_id')
+            ->orderByDesc('o.id')
+            ->orderBy('l.line_no')
+            ->get(['l.item_id', 'l.qty_ordered', 'l.price', 'o.created_at', 'o.order_date']);
 
-        return response()->json($last->lines->map(function ($line) {
-            $item = $line->item;
+        $seen = [];
+        $firstByItem = [];
+        foreach ($lines as $l) {
+            $iid = (int) $l->item_id;
+            if (! isset($seen[$iid])) {
+                $seen[$iid] = true;
+                $firstByItem[$iid] = $l;
+            }
+        }
+
+        $items = Item::query()
+            ->with('prices')
+            ->where('company_id', $user->company_id)
+            ->whereIn('id', array_keys($firstByItem) ?: [0])
+            ->where('is_inactive', false)
+            ->where('can_sell', true)
+            ->get()
+            ->keyBy('id');
+        $company = StockPolicy::company($user->company);
+
+        $out = [];
+        foreach ($firstByItem as $iid => $l) {
+            $item = $items->get($iid);
+            if (! $item) {
+                continue;
+            }
+            $base = $this->mapProduct($item, $customer, $company);
+            $date = $l->created_at ? Carbon::parse($l->created_at) : ($l->order_date ? Carbon::parse($l->order_date) : null);
+            $out[] = array_merge($base, [
+                'quantity' => (float) $l->qty_ordered,
+                'last_qty' => (float) $l->qty_ordered,
+                'last_price' => (float) $l->price,
+                'last_date' => $date?->format('m/d/Y'),
+                'sub_unit_id' => 0,
+            ]);
+        }
+
+        return response()->json($out);
+    }
+
+    /**
+     * Past order lines for one product (last-ordered popup).
+     */
+    public function productOrderHistory(Request $request)
+    {
+        $user = $this->user();
+        $contactId = (int) $request->get('contact_id');
+        $itemId = (int) $request->get('variation_id');
+        if ($contactId < 1 || $itemId < 1) {
+            return response()->json([]);
+        }
+
+        $customer = Customer::query()->where('company_id', $user->company_id)->findOrFail($contactId);
+
+        $rows = DB::table('sales_order_lines as l')
+            ->join('sales_orders as o', 'o.id', '=', 'l.sales_order_id')
+            ->where('o.company_id', $user->company_id)
+            ->where('o.customer_id', $customer->id)
+            ->where(fn ($q) => $q->whereNull('o.order_type')->orWhere('o.order_type', '!=', 'Return'))
+            ->where('l.item_id', $itemId)
+            ->orderByDesc('o.id')
+            ->orderBy('l.line_no')
+            ->limit(20)
+            ->get(['o.order_number', 'o.created_at', 'o.order_date', 'l.qty_ordered', 'l.price', 'l.line_total', 'l.uom']);
+
+        return response()->json($rows->map(function ($r) {
+            $date = $r->created_at ? Carbon::parse($r->created_at) : ($r->order_date ? Carbon::parse($r->order_date) : null);
+            $qty = (float) $r->qty_ordered;
+            $price = (float) $r->price;
+            $total = $r->line_total !== null ? (float) $r->line_total : $qty * $price;
 
             return [
-                'product_id' => (int) $line->item_id,
-                'variation_id' => (int) $line->item_id,
-                'name' => $line->description.($line->item_code ? ' ('.$line->item_code.')' : ''),
-                'sku' => $line->item_code,
-                'price' => (float) $line->price,
-                'quantity' => (float) $line->qty_ordered,
-                'stock' => $item ? (float) $item->available_quantity : 0,
-                'enable_stock' => 1,
-                'product_type' => 'single',
-                'allow_decimal' => 1,
+                'order_number' => $r->order_number,
+                'date' => $date?->format('m/d/Y') ?? '',
+                'date_short' => $date?->format('M j, Y') ?? '',
+                'quantity' => $qty,
+                'unit_price' => $price,
+                'line_total' => round($total, 2),
+                'unit_name' => $r->uom ?: 'Pc',
             ];
         })->values());
     }
@@ -765,6 +1089,7 @@ class SalePortalController extends Controller
         $tree = $this->categoryTree($user);
 
         return view('sale.products.index', [
+            'locations' => $this->locationsFor($user),
             'default_location' => $this->defaultLocationId($request, $user),
             'categories' => $tree,
             'categoriesJson' => $tree,
@@ -774,11 +1099,10 @@ class SalePortalController extends Controller
     public function account(Request $request)
     {
         $user = $this->user();
-        $locations = $this->locationsFor($user);
 
         return view('sale.account', [
             'user' => $user,
-            'locations' => $locations,
+            'locations' => $this->locationsFor($user),
             'current_location_id' => $this->defaultLocationId($request, $user),
         ]);
     }
@@ -788,10 +1112,12 @@ class SalePortalController extends Controller
         $user = $this->user();
         $locations = $this->locationsFor($user);
         $id = (int) $request->validate(['location_id' => 'required|integer'])['location_id'];
-        abort_unless(array_key_exists($id, $locations), 422, 'Invalid location.');
+        if (! array_key_exists($id, $locations)) {
+            return back()->with('status', ['success' => 0, 'msg' => 'Invalid location.']);
+        }
         $request->session()->put('user.default_location_id', $id);
 
-        return back()->with('status', ['success' => 1, 'msg' => 'Default location saved.']);
+        return back()->with('status', ['success' => 1, 'msg' => 'Location updated: '.$locations[$id]]);
     }
 
     public function updatePassword(Request $request)
@@ -818,31 +1144,69 @@ class SalePortalController extends Controller
 
     public function delivery(Request $request)
     {
-        $user = $this->user();
+        $user = $this->user()->loadMissing('company');
         abort_unless($user->canAccessFeature('sales.orders', 'view') || $user->isSalesRep(), 403);
 
         $q = trim((string) $request->get('q', ''));
-        $start = $request->get('start_date');
-        $end = $request->get('end_date');
+        $start = (string) $request->get('start_date', now()->subDays(30)->toDateString());
+        $end = (string) $request->get('end_date', now()->toDateString());
+        try {
+            $startAt = Carbon::parse($start)->startOfDay();
+            $endAt = Carbon::parse($end)->endOfDay();
+        } catch (\Throwable) {
+            $startAt = now()->subDays(30)->startOfDay();
+            $endAt = now()->endOfDay();
+            $start = $startAt->toDateString();
+            $end = $endAt->toDateString();
+        }
 
-        $orders = SalesRepScope::salesOrdersQuery($user)
+        $company = $user->company;
+        $locationId = $this->defaultLocationId($request, $user);
+        $originName = trim((string) ($locationId ? ($this->locationsFor($user)[$locationId] ?? '') : '')) ?: trim((string) ($company?->name ?? ''));
+        $originCity = trim((string) ($company?->city ?? ''));
+        $originZip = (int) preg_replace('/\D+/', '', (string) ($company?->zip_code ?? ''));
+
+        $rows = $this->repOrders($user)
             ->with('customer')
+            ->whereBetween('created_at', [$startAt, $endAt])
             ->when($q !== '', function ($query) use ($q) {
                 $term = '%'.$q.'%';
                 $query->where(function ($inner) use ($term) {
                     $inner->where('order_number', 'like', $term)
-                        ->orWhereHas('customer', fn ($c) => $c->where('company_name', 'like', $term)->orWhere('contact', 'like', $term));
+                        ->orWhere('ship_to_address', 'like', $term)
+                        ->orWhere('ship_to_city', 'like', $term)
+                        ->orWhereHas('customer', fn ($c) => $c->where('company_name', 'like', $term)
+                            ->orWhere('contact', 'like', $term)
+                            ->orWhere('mobile', 'like', $term)
+                            ->orWhere('city', 'like', $term));
                 });
             })
-            ->when($start, fn ($query) => $query->whereDate('order_date', '>=', $start))
-            ->when($end, fn ($query) => $query->whereDate('order_date', '<=', $end))
-            ->orderByDesc('id')
-            ->paginate(20)
-            ->withQueryString();
+            ->orderBy('created_at')
+            ->limit(200)
+            ->get();
 
-        $orders->getCollection()->transform(fn (SalesOrder $o) => $this->presentOrder($o, $user));
+        $rows->each(function (SalesOrder $o) {
+            $this->presentContact($o->customer);
+            $o->setRelation('contact', $o->customer);
+            $o->invoice_no = $o->order_number;
+            $o->final_total = (float) $o->total;
+            $o->shipping_address = static::shipText($o->ship_to_address, $o->ship_to_city, $o->ship_to_state, $o->ship_to_zip);
+            $o->shipping_status = $o->delivery_status ? strtolower((string) $o->delivery_status) : null;
+        });
 
-        return view('sale.delivery', compact('orders', 'q', 'start', 'end'));
+        $sorted = $rows->sortBy(function (SalesOrder $o) use ($originZip, $originCity) {
+            $zip = (int) preg_replace('/\D+/', '', (string) ($o->ship_to_zip ?: $o->customer?->zip_code));
+            $zipDist = $originZip > 0 && $zip > 0 ? abs($zip - $originZip) : ($zip ?: 999999);
+            $city = trim((string) ($o->ship_to_city ?: $o->customer?->city));
+            $sameCity = ($originCity !== '' && strcasecmp($city, $originCity) === 0) ? 0 : 1;
+
+            return sprintf('%d-%08d-%s', $sameCity, $zipDist, strtolower((string) $o->shipping_address));
+        })->values();
+
+        $label = $originName !== '' ? $originName : ($originCity !== '' ? $originCity : 'POS');
+        $routes = $sorted->isEmpty() ? collect() : collect([$label => $sorted]);
+
+        return view('sale.delivery', compact('routes', 'start', 'end', 'q', 'originCity', 'originName'));
     }
 
     public function customers(Request $request)
@@ -850,27 +1214,57 @@ class SalePortalController extends Controller
         $user = $this->user();
         $canList = static::userCanListCustomers();
         $canCreate = static::userCanCreateCustomers();
-        abort_unless($canList || $canCreate, 403);
 
+        if (! $canList && ! $canCreate) {
+            return view('sale.customers.no_permission', ['canCreate' => false]);
+        }
         if (! $canList) {
-            return view('sale.customers.no_permission', ['canCreate' => $canCreate]);
+            return redirect()->route('sale.customers.create');
         }
 
         $term = trim((string) $request->get('q', ''));
-        $customers = SalesRepScope::customersQuery($user)
+        $customers = SalesRepScope::companyCustomersQuery($user)
+            ->where('is_inactive', false)
+            ->with('shippingAddresses')
             ->when($term !== '', function ($q) use ($term) {
                 $q->where(function ($c) use ($term) {
                     $c->where('company_name', 'like', "%{$term}%")
                         ->orWhere('contact', 'like', "%{$term}%")
                         ->orWhere('customer_id', 'like', "%{$term}%")
-                        ->orWhere('mobile', 'like', "%{$term}%");
+                        ->orWhere('mobile', 'like', "%{$term}%")
+                        ->orWhere('telephone', 'like', "%{$term}%")
+                        ->orWhere('email', 'like', "%{$term}%");
                 });
             })
             ->orderBy('company_name')
-            ->paginate(30)
-            ->withQueryString();
+            ->paginate(20)
+            ->appends(['q' => $term]);
 
-        $customers->getCollection()->transform(fn (Customer $c) => $this->presentContact($c) ?? $c);
+        $pageIds = $customers->getCollection()->pluck('id')->all();
+        $lastTotals = [];
+        if ($pageIds !== []) {
+            $lastIds = SalesOrder::query()
+                ->where('company_id', $user->company_id)
+                ->whereIn('customer_id', $pageIds)
+                ->groupBy('customer_id')
+                ->selectRaw('customer_id, MAX(id) as last_id')
+                ->pluck('last_id', 'customer_id');
+            if ($lastIds->isNotEmpty()) {
+                $lastTotals = SalesOrder::query()
+                    ->whereIn('id', $lastIds->values()->all())
+                    ->pluck('total', 'customer_id')
+                    ->map(fn ($v) => (float) $v)
+                    ->all();
+            }
+        }
+
+        $customers->getCollection()->transform(function (Customer $c) use ($lastTotals) {
+            $this->presentContact($c);
+            $c->shipping_address = $this->mapCustomerForSale($c)['shipping_address'];
+            $c->last_order_total = $lastTotals[$c->id] ?? 0;
+
+            return $c;
+        });
 
         return view('sale.customers.index', [
             'customers' => $customers,
@@ -882,7 +1276,9 @@ class SalePortalController extends Controller
 
     public function createCustomer()
     {
-        abort_unless(static::userCanCreateCustomers(), 403);
+        if (! static::userCanCreateCustomers()) {
+            return view('sale.customers.no_permission', ['action' => 'create']);
+        }
 
         return view('sale.customers.create', [
             'canList' => static::userCanListCustomers(),
@@ -921,10 +1317,8 @@ class SalePortalController extends Controller
             'customer_since' => now()->toDateString(),
         ]);
 
-        return redirect()->route('sale.customers')->with('status', [
-            'success' => 1,
-            'msg' => 'Customer '.$customer->customer_id.' created.',
-        ]);
+        return redirect()->route(static::userCanListCustomers() ? 'sale.customers' : 'sale.customers.create')
+            ->with('status', ['success' => 1, 'msg' => 'Customer '.$customer->customer_id.' created.']);
     }
 
     public function searchItems(Request $request)

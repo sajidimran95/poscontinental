@@ -40,8 +40,8 @@
             cursor: pointer;
         }
         .sale-inv-bar .primary {
-            background: #0f766e;
-            border-color: #0f766e;
+            background: #e53935;
+            border-color: #e53935;
             color: #fff;
         }
         .sale-inv-stage {

@@ -24,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('delivery') || $request->is('delivery/*')) {
                 return route('delivery.app.login');
             }
+            if ($request->is('shop') || $request->is('shop/*')) {
+                return route('ecommerce.login');
+            }
 
             return route('login');
         });
@@ -36,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'sale.app' => \App\Http\Middleware\EnsureSaleApp::class,
             'customer.app' => \App\Http\Middleware\EnsureCustomerApp::class,
             'delivery.app' => \App\Http\Middleware\EnsureDeliveryApp::class,
+            'store.enabled' => \App\Http\Middleware\EnsureStoreEnabled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -42,6 +42,20 @@ class AppServiceProvider extends ServiceProvider
             }
         );
 
+        \Illuminate\Support\Facades\View::composer('store.*', function ($view): void {
+            $attrs = request()->attributes;
+            if (! $attrs->has('store.view_shared')) {
+                $companyId = \App\Support\Store\StoreContext::companyId();
+                $attrs->set('store.view_shared', [
+                    'shop' => \App\Support\Store\StoreContext::shopInfo(),
+                    'nav_categories' => $companyId ? \App\Support\Store\StoreCatalog::headerCategories($companyId) : collect(),
+                    'nav_brands' => $companyId ? \App\Support\Store\StoreCatalog::brands($companyId)->sortByDesc('products_count')->take(20)->values() : collect(),
+                    'cart_totals' => ['count' => $companyId ? app(\App\Support\Store\StoreCart::class)->badgeCount() : 0],
+                ]);
+            }
+            $view->with($attrs->get('store.view_shared'));
+        });
+
         Blade::directive('userTime', function ($expression) {
             return "<?php echo user_time($expression); ?>";
         });

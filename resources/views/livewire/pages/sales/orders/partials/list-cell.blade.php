@@ -28,7 +28,7 @@
 @elseif ($colKey === 'order_source')
     <td>
         @php $src = (string) ($order->order_source ?? 'pos'); @endphp
-        <span @class(['desk-pill', 'desk-pill-muted' => $src === 'pos', 'desk-pill-new' => $src === 'sales', 'desk-pill-invoiced' => $src === 'customer'])>{{ $order->sourceLabel() }}</span>
+        <span @class(['desk-pill', 'desk-pill-muted' => $src === 'pos', 'desk-pill-new' => $src === 'sales', 'desk-pill-invoiced' => $src === 'customer']) @if ($src === \App\Models\SalesOrder::SOURCE_ECOMMERCE) style="{{ \App\Models\SalesOrder::ECOMMERCE_PILL_STYLE }}" @endif>{{ $order->sourceLabel() }}</span>
     </td>
 @elseif ($colKey === 'order_date')
     <td>{{ optional($order->order_date)?->format('n/j/Y') }}</td>
@@ -51,10 +51,8 @@
 @elseif ($colKey === 'created_by')
     <td>
         @php
-            $orderSource = $order->order_source ?? 'pos';
-            
-            // For customer app orders, show customer name instead of created_by user
-            if ($orderSource === 'customer') {
+            // Customer App / Ecommerce orders: show the customer instead of the created_by user
+            if ($order->isCustomerPlaced()) {
                 $displayText = $oc?->company_name ?: $oc?->contact ?: '—';
                 if ($oc?->portal_email) {
                     $displayText .= ' (' . $oc->portal_email . ')';

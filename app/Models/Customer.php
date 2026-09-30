@@ -82,6 +82,8 @@ class Customer extends Model implements AuthenticatableContract
         'owner_telephone',
         'owner_fax',
         'owner_email',
+        'web_status',
+        'web_registered_at',
     ];
 
     protected $hidden = [
@@ -112,6 +114,7 @@ class Customer extends Model implements AuthenticatableContract
             'customer_since' => 'date',
             'last_order_on' => 'date',
             'owner_ssn' => 'encrypted',
+            'web_registered_at' => 'datetime',
         ];
     }
 
@@ -172,6 +175,12 @@ class Customer extends Model implements AuthenticatableContract
     public function shippingAddresses(): HasMany
     {
         return $this->hasMany(CustomerShippingAddress::class)->orderBy('sort_order');
+    }
+
+    /** Licenses / certificates uploaded through the online store. */
+    public function ecomLicenses(): HasMany
+    {
+        return $this->hasMany(EcomCustomerLicense::class);
     }
 
     public function memorizedItemPrices(): HasMany

@@ -31,7 +31,7 @@ class ProjectKnowledge
             $byGroup[$group][] = $label.' (`'.$key.'`)';
         }
 
-        $order = ['File', 'Inquiry', 'Inventory', 'Sales', 'Purchasing', 'Reports', 'Other'];
+        $order = ['File', 'Inquiry', 'Inventory', 'Sales', 'Ecommerce', 'Purchasing', 'Reports', 'Other'];
         foreach ($order as $group) {
             if (empty($byGroup[$group])) {
                 continue;

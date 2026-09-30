@@ -1511,9 +1511,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             // Determine source based on order_source field
             $source = (string) ($this->salesOrder->order_source ?? 'pos');
             
-            if ($source === SalesOrder::SOURCE_CUSTOMER) {
-                // Customer App order
-                $orderSource = 'Customer App';
+            if ($this->salesOrder->isCustomerPlaced()) {
+                $orderSource = $this->salesOrder->sourceLabel();
                 $customerPortalEmail = $this->salesOrder->customer?->portal_email;
                 $creatorName = $this->salesOrder->customer?->company_name ?: $this->salesOrder->customer?->contact;
             } elseif ($source === SalesOrder::SOURCE_SALES) {

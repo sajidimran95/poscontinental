@@ -627,35 +627,45 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                             <button type="button" wire:click="addShipTo" class="desk-btn desk-btn-sm">Add Ship-To</button>
                         @endunless
                     </div>
+                    @php
+                        $shipCols = [
+                            'name' => ['Name', '16%'],
+                            'address' => ['Address', '24%'],
+                            'city' => ['City', '13%'],
+                            'state' => ['State', '7%'],
+                            'zip' => ['ZIP', '8%'],
+                            'telephone' => ['Telephone', '11%'],
+                            'fax' => ['Fax No.', '11%'],
+                            'class' => ['Class', '10%'],
+                        ];
+                        $shipInputStyle = 'width:100%;min-width:0;box-sizing:border-box;';
+                    @endphp
                     <div class="desk-grid entity-ship-grid">
-                        <table class="desk-table">
+                        <table class="desk-table" style="table-layout:fixed;width:100%;min-width:64rem;">
+                            <colgroup>
+                                <col style="width:4.5rem;">
+                                @foreach ($shipCols as [, $w])
+                                    <col style="width:{{ $w }};">
+                                @endforeach
+                                <col style="width:6rem;">
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th class="text-center">Primary</th>
-                                    <th>Name</th>
-                                    <th>Address</th>
-                                    <th>City</th>
-                                    <th>State</th>
-                                    <th>ZIP</th>
-                                    <th>Telephone</th>
-                                    <th>Fax No.</th>
-                                    <th>Class</th>
+                                    <th style="text-align:center;">Primary</th>
+                                    @foreach ($shipCols as [$label])
+                                        <th style="text-align:left;">{{ $label }}</th>
+                                    @endforeach
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($shippingAddresses as $i => $row)
-                                    <tr>
-                                        <td class="text-center"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.name" class="so-input ship-col-name" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.address" class="so-input ship-col-address" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.city" class="so-input ship-col-city" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.state" class="so-input ship-col-state" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.zip" class="so-input ship-col-zip" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.telephone" class="so-input ship-col-phone" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.fax" class="so-input ship-col-fax" /></td>
-                                        <td><input wire:model="shippingAddresses.{{ $i }}.class" class="so-input ship-col-class" /></td>
-                                        <td>
+                                    <tr wire:key="ship-to-{{ $i }}">
+                                        <td style="text-align:center;"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
+                                        @foreach ($shipCols as $field => $col)
+                                            <td><input wire:model="shippingAddresses.{{ $i }}.{{ $field }}" class="so-input" style="{{ $shipInputStyle }}" /></td>
+                                        @endforeach
+                                        <td style="text-align:center;">
                                             @unless ($viewMode)
                                                 <button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
                                             @endunless

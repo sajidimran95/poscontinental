@@ -55,6 +55,26 @@ class AppFeatures
                 'group' => 'File',
                 'routes' => ['admin.overselling-settings'],
             ],
+            'admin.ecommerce' => [
+                'label' => 'Ecommerce Settings',
+                'group' => 'Ecommerce',
+                'routes' => ['admin.ecommerce-settings'],
+            ],
+            'admin.ecommerce_applications' => [
+                'label' => 'Wholesale Applications',
+                'group' => 'Ecommerce',
+                'routes' => ['admin.ecommerce-applications', 'admin.ecommerce.license-file'],
+            ],
+            'admin.ecommerce_messages' => [
+                'label' => 'Contact Messages',
+                'group' => 'Ecommerce',
+                'routes' => ['admin.ecommerce-messages'],
+            ],
+            'admin.ecommerce_promotions' => [
+                'label' => 'Store Promotions',
+                'group' => 'Ecommerce',
+                'routes' => ['admin.ecommerce-promotions'],
+            ],
             'admin.japsai' => [
                 'label' => 'POS AI Settings',
                 'group' => 'File',
@@ -478,6 +498,12 @@ class AppFeatures
                 ['label' => 'Payments & Credits', 'feature' => 'sales.payments'],
                 ['label' => 'Credit Memos', 'feature' => 'sales.credit_memos'],
             ],
+            'Ecommerce' => [
+                ['label' => 'Wholesale Applications', 'feature' => 'admin.ecommerce_applications'],
+                ['label' => 'Store Promotions', 'feature' => 'admin.ecommerce_promotions'],
+                ['label' => 'Contact Messages', 'feature' => 'admin.ecommerce_messages'],
+                ['label' => 'Ecommerce Settings', 'feature' => 'admin.ecommerce'],
+            ],
             'Purchasing' => [
                 ['label' => 'Purchase Orders', 'feature' => 'purchasing.orders'],
                 ['label' => 'New Purchase Order', 'feature' => 'purchasing.orders'],
@@ -664,6 +690,10 @@ class AppFeatures
         return [
             'admin.company',
             'admin.overselling',
+            'admin.ecommerce',
+            'admin.ecommerce_applications',
+            'admin.ecommerce_messages',
+            'admin.ecommerce_promotions',
             'admin.japsai',
             'admin.users',
             'admin.email_setup',

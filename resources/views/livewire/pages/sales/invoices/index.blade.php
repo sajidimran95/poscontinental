@@ -1498,18 +1498,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                 <div class="desk-list-card__meta">
                                     @php 
                                         $src = (string) ($inv->salesOrder?->order_source ?? 'pos');
-                                        $sourceLabel = match($src) {
-                                            'sales' => 'Sales',
-                                            'customer' => 'Customer App',
-                                            default => 'POS',
-                                        };
+                                        $sourceLabel = $src === 'pos' ? 'POS' : \App\Models\SalesOrder::labelForSource($src);
                                     @endphp
                                     <span @class([
                                         'desk-pill',
                                         'desk-pill-muted' => $src === 'pos',
                                         'desk-pill-new' => $src === 'sales',
                                         'desk-pill-invoiced' => $src === 'customer',
-                                    ])>{{ $sourceLabel }}</span>
+                                    ]) @if ($src === \App\Models\SalesOrder::SOURCE_ECOMMERCE) style="{{ \App\Models\SalesOrder::ECOMMERCE_PILL_STYLE }}" @endif>{{ $sourceLabel }}</span>
                                     <span>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</span>
                                     @if ($inv->salesOrder?->order_number)
                                         <span>SO {{ $inv->salesOrder->order_number }}</span>
@@ -1518,7 +1514,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                 <div class="desk-list-card__name">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name ?: '—' }}</div>
                                 <div class="desk-list-card__sub">
                                     {{ $inv->customer?->customer_id }}
-                                    @if ($inv->salesOrder?->order_source === 'customer')
+                                    @if ($inv->salesOrder?->isCustomerPlaced())
                                         @php
                                             $creatorName = $inv->customer?->company_name ?: $inv->customer?->contact;
                                         @endphp

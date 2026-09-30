@@ -7,6 +7,7 @@ use App\Http\Controllers\DeliveryApp\DeliveryAppController;
 use App\Http\Controllers\DeliveryApp\DeliveryAuthController;
 use App\Http\Controllers\DeliveryApp\DeliveryPwaController;
 use App\Http\Controllers\DocumentPdfController;
+use App\Http\Controllers\EcommerceLicenseFileController;
 use App\Http\Controllers\DocumentTabController;
 use App\Http\Controllers\MsaSalesFileController;
 use App\Http\Controllers\ItemMediaController;
@@ -21,10 +22,61 @@ use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SpreadsheetDownloadController;
 use App\Http\Controllers\SalesOrderWindowController;
+use App\Http\Controllers\Store\StoreAccountController;
+use App\Http\Controllers\Store\StoreAuthController;
+use App\Http\Controllers\Store\StoreCartController;
+use App\Http\Controllers\Store\StoreCheckoutController;
+use App\Http\Controllers\Store\StoreHomeController;
+use App\Http\Controllers\Store\StorePageController;
+use App\Http\Controllers\Store\StoreQuickOrderController;
+use App\Http\Controllers\Store\StoreShopController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
-Route::redirect('/', '/login');
+Route::get('/', [StoreHomeController::class, 'root'])->name('ecommerce.home');
+
+// Online store (Company → Ecommerce Settings). 404 while the store is turned off.
+Route::prefix('shop')->middleware('store.enabled')->name('ecommerce.')->group(function () {
+    Route::get('/', [StoreShopController::class, 'index'])->name('shop');
+    Route::get('page/{slug}', [StorePageController::class, 'show'])->name('page');
+    Route::get('brands', [StoreShopController::class, 'brands'])->name('brands');
+    Route::get('promotions', [StoreShopController::class, 'promotions'])->name('promotions');
+    Route::get('promotions/{id}', [StoreShopController::class, 'promotion'])->whereNumber('id')->name('promotion');
+    Route::get('c/{slug}', [StoreShopController::class, 'category'])->name('category');
+    Route::get('p/{slug}', [StoreShopController::class, 'product'])->name('product');
+    Route::get('contact', [StorePageController::class, 'contact'])->name('contact');
+    Route::post('contact', [StorePageController::class, 'sendContact'])->middleware('throttle:5,1')->name('contact.send');
+
+    Route::get('cart', [StoreCartController::class, 'index'])->name('cart');
+    Route::post('cart/add', [StoreCartController::class, 'add'])->name('cart.add');
+    Route::post('cart/update', [StoreCartController::class, 'update'])->name('cart.update');
+    Route::post('cart/remove', [StoreCartController::class, 'remove'])->name('cart.remove');
+
+    Route::get('checkout', [StoreCheckoutController::class, 'index'])->name('checkout');
+    Route::post('checkout', [StoreCheckoutController::class, 'place'])->name('checkout.place');
+    Route::get('order/thanks/{token}', [StoreCheckoutController::class, 'thanks'])->name('thanks');
+    Route::get('track', [StoreCheckoutController::class, 'track'])->name('track');
+
+    Route::get('login', [StoreAuthController::class, 'showLogin'])->name('login');
+    Route::post('login', [StoreAuthController::class, 'login'])->middleware('throttle:10,1')->name('login.post');
+    Route::get('register', [StoreAuthController::class, 'showRegister'])->name('register');
+    Route::post('register', [StoreAuthController::class, 'register'])->middleware('throttle:5,1')->name('register.post');
+    Route::post('logout', [StoreAuthController::class, 'logout'])->name('logout');
+
+    Route::middleware('auth:customer')->group(function () {
+        Route::get('quick-order', [StoreQuickOrderController::class, 'index'])->name('quick_order');
+        Route::post('quick-order', [StoreQuickOrderController::class, 'submit'])->name('quick_order.submit');
+        Route::get('account', [StoreAccountController::class, 'index'])->name('account');
+        Route::get('account/orders', [StoreAccountController::class, 'orders'])->name('account.orders');
+        Route::match(['get', 'post'], 'account/licenses', [StoreAccountController::class, 'licenses'])->name('account.licenses');
+        Route::get('account/licenses/{license}/file', [StoreAccountController::class, 'licenseFile'])->name('account.licenses.file');
+        Route::match(['get', 'post'], 'account/profile', [StoreAccountController::class, 'profile'])->name('account.profile');
+        Route::match(['get', 'post'], 'account/password', [StoreAccountController::class, 'password'])->name('account.password');
+        Route::match(['get', 'post'], 'account/addresses', [StoreAccountController::class, 'addresses'])->name('account.addresses');
+        Route::get('wishlist', [StoreAccountController::class, 'wishlist'])->name('wishlist');
+        Route::post('wishlist', [StoreAccountController::class, 'toggleWishlist'])->name('wishlist.toggle');
+    });
+});
 
 Route::post('logout', LogoutController::class)
     ->middleware('auth')
@@ -61,6 +113,11 @@ Route::middleware(['auth', 'feature'])->group(function () {
     // Admin (company POS)
     Volt::route('admin/company-settings', 'pages.tobacco.company-settings')->name('admin.company-settings');
     Volt::route('admin/overselling-settings', 'pages.admin.overselling-settings')->name('admin.overselling-settings');
+    Volt::route('admin/ecommerce-settings', 'pages.admin.ecommerce-settings')->name('admin.ecommerce-settings');
+    Volt::route('admin/wholesale-applications', 'pages.admin.ecommerce-applications')->name('admin.ecommerce-applications');
+    Route::get('admin/wholesale-applications/licenses/{license}', [EcommerceLicenseFileController::class, 'show'])->name('admin.ecommerce.license-file');
+    Volt::route('admin/contact-messages', 'pages.admin.ecommerce-messages')->name('admin.ecommerce-messages');
+    Volt::route('admin/store-promotions', 'pages.admin.ecommerce-promotions')->name('admin.ecommerce-promotions');
     Volt::route('admin/japsai', 'pages.admin.japsai')->name('admin.japsai');
     Route::redirect('tobacco/filing-settings', '/admin/company-settings');
     Volt::route('admin/users', 'pages.admin.users')->name('admin.users.index');

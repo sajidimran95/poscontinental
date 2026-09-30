@@ -23,6 +23,9 @@ class Company extends Model
         'japs_ai_enabled', 'japs_ai_api_key', 'japs_ai_model', 'japs_ai_widget_enabled',
         'japs_ai_digest_enabled', 'japs_ai_match_tolerance',
         'shipping_latitude', 'shipping_longitude',
+        'ecommerce_enabled', 'ecommerce_store_name', 'ecommerce_tagline',
+        'ecommerce_phone', 'ecommerce_email', 'ecommerce_hours',
+        'ecommerce_nav_category_ids',
     ];
 
     protected function casts(): array
@@ -36,6 +39,8 @@ class Company extends Model
             'japs_ai_widget_enabled' => 'boolean',
             'japs_ai_digest_enabled' => 'boolean',
             'japs_ai_match_tolerance' => 'decimal:2',
+            'ecommerce_enabled' => 'boolean',
+            'ecommerce_nav_category_ids' => 'array',
         ];
     }
 

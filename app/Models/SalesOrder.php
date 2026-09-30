@@ -143,13 +143,30 @@ class SalesOrder extends Model
 
     public const SOURCE_CUSTOMER = 'customer';
 
-    public function sourceLabel(): string
+    public const SOURCE_ECOMMERCE = 'ecommerce';
+
+    /** Inline style for the Ecommerce source pill (desk-pill has no red variant). */
+    public const ECOMMERCE_PILL_STYLE = 'background:#fdecec;color:#b71c1c';
+
+    public static function labelForSource(?string $source): string
     {
-        return match ((string) ($this->order_source ?? 'pos')) {
+        return match ((string) ($source ?: self::SOURCE_POS)) {
             self::SOURCE_SALES => 'Sales',
             self::SOURCE_CUSTOMER => 'Customer App',
+            self::SOURCE_ECOMMERCE => 'Ecommerce',
             default => 'POS Sale',
         };
+    }
+
+    public function sourceLabel(): string
+    {
+        return static::labelForSource($this->order_source);
+    }
+
+    /** Orders placed by the customer themselves (Customer App or Ecommerce), not by staff. */
+    public function isCustomerPlaced(): bool
+    {
+        return in_array($this->order_source, [self::SOURCE_CUSTOMER, self::SOURCE_ECOMMERCE], true);
     }
 
     /**

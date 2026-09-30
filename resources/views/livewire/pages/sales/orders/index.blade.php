@@ -918,14 +918,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         'desk-pill-muted' => $src === 'pos',
                                         'desk-pill-new' => $src === 'sales',
                                         'desk-pill-invoiced' => $src === 'customer',
-                                    ])>{{ $order->sourceLabel() }}</span>
+                                    ]) @if ($src === \App\Models\SalesOrder::SOURCE_ECOMMERCE) style="{{ \App\Models\SalesOrder::ECOMMERCE_PILL_STYLE }}" @endif>{{ $order->sourceLabel() }}</span>
                                     <span>{{ $order->order_type }}</span>
                                     <span>{{ optional($order->order_date)?->format('n/j/Y') }}</span>
                                 </div>
                                 <div class="desk-list-card__name">{{ $oc?->company_name ?: $oc?->contact ?: '—' }}</div>
                                 <div class="desk-list-card__sub">
                                     {{ $oc?->customer_id }}{{ $oc?->telephone ? ' · '.$oc->telephone : '' }}
-                                    @if ($src === 'customer')
+                                    @if ($order->isCustomerPlaced())
                                         @php
                                             $creatorName = $oc?->company_name ?: $oc?->contact;
                                         @endphp

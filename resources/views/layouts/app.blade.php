@@ -305,6 +305,13 @@
                                 ['Payments & Credits', 'sales.payments.index'],
                                 ['Credit Memos', 'sales.credit-memos.index'],
                             ],
+                            'Ecommerce' => [
+                                ['Wholesale Applications', 'admin.ecommerce-applications'],
+                                ['Store Promotions', 'admin.ecommerce-promotions'],
+                                ['Contact Messages', 'admin.ecommerce-messages'],
+                                ['Ecommerce Settings', 'admin.ecommerce-settings'],
+                                ['Open Online Store', 'ecommerce.home', 'external'],
+                            ],
                             'Purchasing' => [
                                 ['Purchase Orders', 'purchasing.orders.index'],
                                 ['New Purchase Order', 'purchasing.orders.create'],
@@ -345,7 +352,11 @@
                                 if ($row[1] === 'deliveries.driver' && $menuUser?->canAccessFeature('delivery.manage', 'view')) {
                                     continue;
                                 }
-                                $menuItems[] = [$row[0], $row[1], $canRoute($row[1])];
+                                $isExternal = ($row[2] ?? null) === 'external';
+                                if ($isExternal && ! \App\Support\Store\StoreContext::enabled()) {
+                                    continue;
+                                }
+                                $menuItems[] = [$row[0], $row[1], $canRoute($row[1]), $isExternal];
                             }
                         @endphp
                         @continue($menuItems === [])
@@ -357,8 +368,10 @@
                                 aria-haspopup="true"
                             >{{ $menu }}</button>
                             <div class="hidden group-hover:block absolute left-0 top-full z-50 min-w-52 bg-white text-slate-800 shadow-lg border border-slate-400 py-1" role="menu">
-                                @foreach ($menuItems as [$label, $route, $allowed])
-                                    @if ($allowed)
+                                @foreach ($menuItems as [$label, $route, $allowed, $isExternal])
+                                    @if ($allowed && $isExternal)
+                                        <a href="{{ route($route) }}" target="_blank" rel="noopener" class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap border-t border-slate-200 mt-1" role="menuitem">{{ $label }} ↗</a>
+                                    @elseif ($allowed)
                                         @php
                                             $isSoCreate = $route === 'sales.orders.create';
                                             $menuHref = route('pos.tabs.open', ['route' => $route, 'label' => $label]);
@@ -557,7 +570,10 @@
                     'profile' => 'My Profile',
                     'admin.company-settings' => 'Company Settings',
                     'admin.overselling-settings' => 'Overselling Settings',
-                    'admin.japsai' => 'POS AI Settings',
+                    'admin.ecommerce-settings' => 'Ecommerce Settings',
+                    'admin.ecommerce-applications' => 'Wholesale Applications',
+                    'admin.ecommerce-messages' => 'Contact Messages',
+                    'admin.ecommerce-promotions' => 'Store Promotions',                    'admin.japsai' => 'POS AI Settings',
                     'admin.users.index' => 'Users & Roles',
                     'admin.email-setup' => 'Email Setup',
                     'admin.email-logs' => 'Email Send Log',

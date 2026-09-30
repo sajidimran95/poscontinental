@@ -14,21 +14,15 @@
     <td>
         @php 
             $src = (string) ($inv->salesOrder?->order_source ?? 'pos');
-            $sourceLabel = match($src) {
-                'sales' => 'Sales',
-                'customer' => 'Customer App',
-                default => 'POS Sale',
-            };
+            $sourceLabel = \App\Models\SalesOrder::labelForSource($src);
         @endphp
-        <span @class(['desk-pill', 'desk-pill-muted' => $src === 'pos', 'desk-pill-new' => $src === 'sales', 'desk-pill-invoiced' => $src === 'customer'])>{{ $sourceLabel }}</span>
+        <span @class(['desk-pill', 'desk-pill-muted' => $src === 'pos', 'desk-pill-new' => $src === 'sales', 'desk-pill-invoiced' => $src === 'customer']) @if ($src === \App\Models\SalesOrder::SOURCE_ECOMMERCE) style="{{ \App\Models\SalesOrder::ECOMMERCE_PILL_STYLE }}" @endif>{{ $sourceLabel }}</span>
     </td>
 @elseif ($colKey === 'created_by')
     <td>
         @php
-            $orderSource = $inv->salesOrder?->order_source ?? 'pos';
-            
-            // For customer app orders, show customer name instead of created_by user
-            if ($orderSource === 'customer') {
+            // Customer App / Ecommerce orders: show the customer instead of the created_by user
+            if ($inv->salesOrder?->isCustomerPlaced()) {
                 $displayText = $inv->customer?->company_name ?: $inv->customer?->contact ?: '—';
                 if ($inv->customer?->portal_email) {
                     $displayText .= ' (' . $inv->customer->portal_email . ')';

@@ -58,7 +58,12 @@
     <h2 class="ca-section-title">Top Products</h2>
     <a href="{{ route('customer.orders.create') }}" class="ca-link">SEE ALL</a>
 </div>
-<div class="grid grid-cols-2 gap-3">
+<style>
+    .ca-top-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+    @media (min-width: 640px) { .ca-top-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    @media (min-width: 1700px) { .ca-top-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+</style>
+<div class="ca-top-grid">
     @foreach($topProducts as $p)
         <a href="{{ route('customer.orders.create', ['add' => $p['variation_id']]) }}" class="ca-card block !p-2.5 group">
             <div class="overflow-hidden rounded-2xl mb-2 ring-1 ring-slate-100">

@@ -334,7 +334,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         if ($this->favorite === 'not_paid') {
             $this->statusFilter = 'NOT PAID';
@@ -347,13 +347,13 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public function updatedCreatedByUserId(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->favorite = match ($this->statusFilter) {
             'NOT PAID' => 'not_paid',
@@ -365,7 +365,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -375,7 +375,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->favorite = 'all';
         $this->createdByUserId = '';
         $this->selectedId = null;
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function refreshList(): void

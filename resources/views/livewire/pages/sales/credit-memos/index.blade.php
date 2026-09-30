@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use App\Livewire\Concerns\BrowsesItemsForDocument;
 use App\Livewire\Concerns\CustomizesDeskListColumns;
@@ -348,13 +348,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function updatedSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->statusFilter = match ($this->favorite) {
             'open' => 'Open',
@@ -365,7 +365,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->favorite = match ($this->statusFilter) {
             'Open' => 'open',
@@ -376,13 +376,13 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function viewSelected(): void

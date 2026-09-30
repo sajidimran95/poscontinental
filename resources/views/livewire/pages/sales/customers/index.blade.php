@@ -173,32 +173,32 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedSearch(): void
     {
         $this->rememberDeskTabSearch();
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedFavorite(): void
     {
         $this->restoreDeskTabSearch();
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -206,7 +206,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->selectedId = null;
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function toggleCompactView(): void
@@ -216,7 +216,7 @@ new #[Layout('layouts.app'), Title('Customers')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function viewSelected(): mixed

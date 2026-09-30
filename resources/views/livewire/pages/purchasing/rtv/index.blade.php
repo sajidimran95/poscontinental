@@ -252,13 +252,13 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->statusFilter = match ($this->favorite) {
             'new' => 'New',
@@ -269,7 +269,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->favorite = match ($this->statusFilter) {
             'New' => 'new',
@@ -281,7 +281,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -290,7 +290,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $this->statusFilter = '';
         $this->favorite = 'all';
         $this->selectedId = null;
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function toggleCompactView(): void
@@ -300,7 +300,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function editSelected(): void

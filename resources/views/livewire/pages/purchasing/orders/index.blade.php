@@ -198,12 +198,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     public function updatingSearch(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedFavorite(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         $this->statusFilter = match ($this->favorite) {
             'pending' => 'pending',
@@ -214,7 +214,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     public function updatedStatusFilter(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
         if ($this->statusFilter === 'pending') {
             $this->favorite = 'pending';
@@ -225,24 +225,24 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     public function updatedDateFrom(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedDateTo(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function updatedSupplierId(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
         $this->selectedId = null;
     }
 
     public function clearSearch(): void
     {
         $this->search = '';
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function newSearch(): void
@@ -255,7 +255,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->supplierId = '';
         $this->selectedId = null;
         $this->clearQueryCriteria();
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     public function openDeskQuery(): void
@@ -278,7 +278,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
     public function refreshList(): void
     {
-        $this->resetPage();
+        $this->resetDeskList();
     }
 
     protected function purchaseOrderRoute(PurchaseOrder $order): string

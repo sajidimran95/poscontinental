@@ -549,16 +549,11 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                 <div class="so-form-row so-form-row-pair entity-header-row" style="margin-top:.75rem">
                     <span class="so-form-lbl">Customer App</span>
                     <div class="entity-status-btns" role="radiogroup" aria-label="Customer App status">
-                        <label class="desk-btn desk-btn-sm {{ $this->portalAppOn() ? 'is-on' : '' }}" style="cursor:pointer">
-                            <input type="radio" wire:model.live="portal_active" value="1" style="margin-right:.35rem"> Active
-                        </label>
-                        <label class="desk-btn desk-btn-sm {{ ! $this->portalAppOn() ? 'is-on-danger' : '' }}" style="cursor:pointer">
-                            <input type="radio" wire:model.live="portal_active" value="0" style="margin-right:.35rem"> Inactive
-                        </label>
+                        <button type="button" role="radio" aria-checked="{{ $this->portalAppOn() ? 'true' : 'false' }}" wire:click="$set('portal_active', true)" @class(['desk-btn desk-btn-sm', 'is-on' => $this->portalAppOn()]) style="touch-action:manipulation">Active</button>
+                        <button type="button" role="radio" aria-checked="{{ $this->portalAppOn() ? 'false' : 'true' }}" wire:click="$set('portal_active', false)" @class(['desk-btn desk-btn-sm', 'is-on-danger' => ! $this->portalAppOn()]) style="touch-action:manipulation">Inactive</button>
                     </div>
                 </div>
                 @if ($this->portalAppOn())
-                    <p class="text-xs text-slate-500" style="margin:.35rem 0 .5rem">Sign-in at <strong>/customer</strong> uses Email or Mobile (at least one is required) plus this password.</p>
                     <div class="so-form-row">
                         <label class="so-form-lbl" for="portal_email">App login email</label>
                         <input id="portal_email" type="email" wire:model="portal_email" class="so-input" placeholder="Leave blank to use Email" />
@@ -627,7 +622,46 @@ new #[Layout('layouts.app'), Title('Customer')] class extends Component
                             <button type="button" wire:click="addShipTo" class="desk-btn desk-btn-sm">Add Ship-To</button>
                         @endunless
                     </div>
-
+                    @php
+                        $shipCols = [
+                            'name' => ['Name', '16%'],
+                            'address' => ['Address', '24%'],
+                            'city' => ['City', '13%'],
+                            'state' => ['State', '7%'],
+                            'zip' => ['ZIP', '8%'],
+                            'telephone' => ['Telephone', '11%'],
+                            'fax' => ['Fax No.', '11%'],
+                            'class' => ['Class', '10%'],
+                        ];
+                        $shipInputStyle = 'width:100%;min-width:0;box-sizing:border-box;';
+                    @endphp
+                    <div class="desk-grid entity-ship-grid">
+                        <table class="desk-table" style="table-layout:fixed;width:100%;min-width:64rem;">
+                            <colgroup>
+                                <col style="width:4.5rem;">
+                                @foreach ($shipCols as [, $w])
+                                    <col style="width:{{ $w }};">
+                                @endforeach
+                                <col style="width:6rem;">
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th style="text-align:center;">Primary</th>
+                                    @foreach ($shipCols as [$label])
+                                        <th style="text-align:left;">{{ $label }}</th>
+                                    @endforeach
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($shippingAddresses as $i => $row)
+                                    <tr wire:key="ship-to-{{ $i }}">
+                                        <td style="text-align:center;"><input type="radio" name="primary_ship" wire:click="setPrimaryShipTo({{ $i }})" @checked($row['is_primary'] ?? false) /></td>
+                                        @foreach ($shipCols as $field => $col)
+                                            <td><input wire:model="shippingAddresses.{{ $i }}.{{ $field }}" class="so-input" style="{{ $shipInputStyle }}" /></td>
+                                        @endforeach
+                                        <td style="text-align:center;">
+                                            @unless ($viewMode)
                                                 <button type="button" wire:click="removeShipTo({{ $i }})" class="desk-btn desk-btn-sm">Remove</button>
                                             @endunless
                                         </td>

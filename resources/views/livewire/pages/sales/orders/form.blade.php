@@ -40,6 +40,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 {
     use ReturnsToDeskList;
     use SortsItemBrowse;
+    use \App\Livewire\Concerns\ChecksAllBrowseItems;
     public ?SalesOrder $salesOrder = null;
 
     /** View-only (same layout as edit, locked). */

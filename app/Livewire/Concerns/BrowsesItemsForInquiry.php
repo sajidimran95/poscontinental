@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
  */
 trait BrowsesItemsForInquiry
 {
+    use ChecksAllBrowseItems;
     use SortsItemBrowse;
     public bool $showBrowse = false;
 

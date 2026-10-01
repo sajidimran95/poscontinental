@@ -28,6 +28,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     use ReturnsToDeskList;
     use ScansVendorInvoiceWithAi;
     use SortsItemBrowse;
+    use \App\Livewire\Concerns\ChecksAllBrowseItems;
     public ?PurchaseOrder $purchaseOrder = null;
 
     /** View-only (same layout as edit, locked). */

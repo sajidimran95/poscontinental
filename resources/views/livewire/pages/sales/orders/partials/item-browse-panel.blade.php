@@ -144,6 +144,7 @@
             .so-item-browse-table tr.is-checked.is-focused {
                 background: #dbeafe;
             }
+            .so-item-browse-table th.is-check input[type="checkbox"],
             .so-item-browse-table td.is-check input[type="checkbox"] {
                 width: 1rem;
                 height: 1rem;
@@ -616,16 +617,39 @@
                     $wire.openBrowseEditSelected(this.checked[0]);
                 },
                 selectAllVisible() {
-                    this.checked = [...this.$el.querySelectorAll('tr[data-browse-id]')].map((el) => Number(el.dataset.browseId)).filter(Boolean);
+                    this.checked = [...this.$root.querySelectorAll('tr[data-browse-id]')].map((el) => Number(el.dataset.browseId)).filter(Boolean);
                     this.selected = this.checked.length === 1 ? this.checked[0] : 0;
+                },
+                allChecked(ids) {
+                    return ids.length > 0 && ids.every((id) => this.isChecked(id));
+                },
+                someChecked(ids) {
+                    return ids.some((id) => this.isChecked(id)) && !this.allChecked(ids);
+                },
+                checkingAll: false,
+                toggleAll(ids, total) {
+                    ids = ids.map(Number).filter(Boolean);
+                    if (this.allChecked(ids)) {
+                        this.clearChecked();
+                        return;
+                    }
+                    this.checked = [...new Set([...this.checked, ...ids])];
+                    this.selected = this.checked.length === 1 ? this.checked[0] : 0;
+                    if (Number(total) > ids.length && typeof $wire.browseAllMatchingIds === 'function') {
+                        this.checkingAll = true;
+                        $wire.browseAllMatchingIds().then((all) => {
+                            this.checked = [...new Set([...this.checked, ...(all || []).map(Number).filter(Boolean)])];
+                            this.selected = this.checked.length === 1 ? this.checked[0] : 0;
+                        }).finally(() => { this.checkingAll = false; });
+                    }
                 },
                 clearChecked() {
                     this.checked = [];
                     this.selected = 0;
-                    this.$el.querySelectorAll('.so-item-browse-table input[type=checkbox]').forEach((el) => {
+                    this.$root.querySelectorAll('.so-item-browse-table input[type=checkbox]').forEach((el) => {
                         el.checked = false;
                     });
-                    this.$el.querySelectorAll('.so-item-browse-table tr.is-checked').forEach((el) => {
+                    this.$root.querySelectorAll('.so-item-browse-table tr.is-checked').forEach((el) => {
                         el.classList.remove('is-checked');
                     });
                 },
@@ -722,6 +746,14 @@
                         <input type="checkbox" wire:model.live="browseNewOnly" />
                         New only ({{ $itemNewDays }} days)
                     </label>
+                    <span class="so-item-browse-check" style="font-weight:700;color:#166534;" x-show="checked.length > 0 || checkingAll" x-cloak>
+                        <span x-show="checkingAll">Checking all items…</span>
+                        <span x-show="!checkingAll" x-text="checked.length.toLocaleString() + ' item' + (checked.length === 1 ? '' : 's') + ' checked'"></span>
+                        @php $browseCheckAllLimit = (int) $this::BROWSE_CHECK_ALL_LIMIT; @endphp
+                        @if ($browseTotal > $browseCheckAllLimit)
+                            <span x-show="!checkingAll && checked.length >= {{ $browseCheckAllLimit }}" style="color:#92400e;font-weight:600;">(max {{ number_format($browseCheckAllLimit) }} — narrow the search to check the rest)</span>
+                        @endif
+                    </span>
                     <span class="so-item-browse-count" wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters,loadMoreBrowseItems,refreshBrowseItems,insertBrowseChecked,insertBrowseSelected,selectAllBrowseVisible,sortBrowseBy,pickBrowseItem">Loading…</span>
                 </div>
                 @if (filled($lineWarning))
@@ -776,7 +808,19 @@
                                     };
                                 @endphp
                                 <tr>
-                                    <th scope="col" class="is-check" aria-label="Check"></th>
+                                    @php $browseRowIds = collect($browseRows)->map(fn ($r) => (int) $r['id'])->filter()->values()->all(); @endphp
+                                    <th scope="col" class="is-check" style="text-align:center !important">
+                                        <input
+                                            type="checkbox"
+                                            class="so-browse-check-all"
+                                            :checked="allChecked(@js($browseRowIds))"
+                                            :indeterminate="someChecked(@js($browseRowIds))"
+                                            @click="toggleAll(@js($browseRowIds), {{ (int) $browseTotal }})"
+                                            @disabled(count($browseRowIds) === 0)
+                                            title="Check / uncheck all items"
+                                            aria-label="Check all items"
+                                        />
+                                    </th>
                                     <th scope="col" @class(['is-sorted' => $bsField === 'item_code'])>
                                         <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('item_code')" title="Sort by Item Code">
                                             <span>Item Code</span><span class="so-browse-sort-ico">{!! $bsIco('item_code') !!}</span>

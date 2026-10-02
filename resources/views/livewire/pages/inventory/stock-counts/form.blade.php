@@ -164,9 +164,29 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     {
         $companyId = auth()->user()->company_id;
 
-        return array_merge($this->documentBrowseViewData(), [
-            'sites' => Site::query()->where('company_id', $companyId)->orderBy('code')->get(),
-            'users' => User::query()
+        $totalItemsCounted = 0;
+        $totalQtyCounted = 0.0;
+        $filledLineCount = 0;
+        foreach ($this->lines as $line) {
+            $hasItem = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
+            if ($hasItem) {
+                $filledLineCount++;
+            }
+            if ($hasItem && filled($line['count_time'] ?? null)) {
+                $totalItemsCounted++;
+                $totalQtyCounted += (float) ($line['counted'] ?: 0);
+            }
+        }
+
+        // Sites/users only needed on General — skip on Expand when lines are large.
+        $sites = collect();
+        $users = collect();
+        if ($this->activeTab === 'general') {
+            $sites = Site::query()
+                ->where('company_id', $companyId)
+                ->orderBy('code')
+                ->get(['id', 'code', 'name']);
+            $users = User::query()
                 ->where('company_id', $companyId)
                 ->where(function ($q) {
                     $q->where('is_active', true);
@@ -175,21 +195,20 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                     }
                 })
                 ->orderBy('name')
-                ->get(),
+                ->get(['id', 'name']);
+        }
+
+        return array_merge($this->documentBrowseViewData(), [
+            'sites' => $sites,
+            'users' => $users,
             'tabs' => [
                 'general' => 'General',
                 'expand' => 'Expand',
                 'comments' => 'Comments',
             ],
-            'totalItemsCounted' => collect($this->lines)->filter(
-                fn ($l) => filled($l['item_code'] ?? null) && filled($l['count_time'] ?? null)
-            )->count(),
-            'totalQtyCounted' => collect($this->lines)
-                ->filter(fn ($l) => filled($l['count_time'] ?? null))
-                ->sum(fn ($l) => (float) ($l['counted'] ?: 0)),
-            'filledLineCount' => collect($this->lines)->filter(
-                fn ($l) => filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0
-            )->count(),
+            'totalItemsCounted' => $totalItemsCounted,
+            'totalQtyCounted' => $totalQtyCounted,
+            'filledLineCount' => $filledLineCount,
             'isProcessed' => $this->status === 'Processed',
         ]);
     }
@@ -363,62 +382,151 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
 
         $companyId = (int) auth()->user()->company_id;
-        $already = collect($this->lines)
-            ->map(fn ($l) => (int) ($l['item_id'] ?? 0))
-            ->filter()
-            ->all();
+        $already = [];
+        foreach ($this->lines as $line) {
+            $id = (int) ($line['item_id'] ?? 0);
+            if ($id > 0) {
+                $already[$id] = true;
+            }
+        }
 
         $items = Item::query()
             ->where('company_id', $companyId)
             ->where('is_inactive', false)
             ->whereIn('id', $itemIds)
-            ->get()
+            ->get([
+                'id',
+                'item_code',
+                'description',
+                'unit_of_measure',
+                'quantity_in_stock',
+                'allocated_qty',
+            ])
             ->keyBy('id');
 
-        $added = 0;
+        $uoms = $this->browseUomsForRows($items);
+
+        $toAdd = [];
         $skippedDup = null;
+        $skippedDupId = null;
         foreach ($itemIds as $itemId) {
             $item = $items->get($itemId);
             if (! $item) {
                 continue;
             }
-            if (in_array($itemId, $already, true)) {
-                $skippedDup ??= $item->item_code;
+            if (isset($already[$itemId])) {
+                $skippedDup ??= (string) $item->item_code;
+                $skippedDupId ??= $itemId;
                 continue;
             }
+            $already[$itemId] = true;
+            $toAdd[] = $item;
+        }
 
-            $index = $this->resolveCountTargetIndex();
-            $this->fillLineFromItem($index, $item);
-            $already[] = $itemId;
-            $added++;
+        if ($toAdd === []) {
+            if ($skippedDup !== null) {
+                $this->lookupMessage = $skippedDup.' is already on this count.';
+                $this->lineWarning = $this->lookupMessage;
+                $this->lineWarningKind = 'warning';
+                $this->playPosSound('warning');
+                foreach ($this->lines as $i => $line) {
+                    if ((int) ($line['item_id'] ?? 0) === (int) $skippedDupId) {
+                        $this->highlightCountLine((int) $i);
 
-            $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
-            if (! $hasEmpty) {
-                $this->addLine();
+                        break;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        $bulk = count($toAdd) > 1;
+        $lines = $this->lines;
+        $lastIndex = null;
+
+        foreach ($toAdd as $item) {
+            $index = $this->findEmptyLineIndexIn($lines);
+            if ($index === null) {
+                $lines[] = $this->emptyLine();
+                $index = count($lines) - 1;
+            }
+            // Consume targeted empty slot only once (first bulk item).
+            if ($this->browseLineIndex === $index) {
+                $this->browseLineIndex = null;
+            }
+            $lines[$index] = $this->linePayloadFromItem(
+                $item,
+                $uoms[(int) $item->id] ?? null
+            );
+            $lastIndex = $index;
+        }
+
+        $hasEmpty = false;
+        foreach ($lines as $line) {
+            if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
+                $hasEmpty = true;
+                break;
+            }
+        }
+        if (! $hasEmpty) {
+            $lines[] = $this->emptyLine();
+        }
+
+        $this->lines = $lines;
+
+        // Bulk Insert All: never scroll/focus per (or last) row — that janks with hundreds of lines.
+        if ($lastIndex !== null) {
+            $this->selectedLineIndex = $lastIndex;
+            if (! $bulk) {
+                $this->highlightCountLine($lastIndex);
             }
         }
 
-        if ($added === 0 && $skippedDup !== null) {
-            $this->lookupMessage = $skippedDup.' is already on this count.';
-            $this->lineWarning = $this->lookupMessage;
-            $this->lineWarningKind = 'warning';
-            $this->playPosSound('warning');
-            foreach ($this->lines as $i => $line) {
-                if ((int) ($line['item_id'] ?? 0) === (int) ($items->firstWhere('item_code', $skippedDup)?->id ?? 0)) {
-                    $this->highlightCountLine((int) $i);
-                    break;
-                }
-            }
-        } elseif ($added > 0) {
-            foreach (array_reverse($this->lines, true) as $i => $line) {
-                if (filled($line['item_code'] ?? null)) {
-                    $this->highlightCountLine((int) $i);
-                    break;
-                }
+        return count($toAdd);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $lines
+     */
+    protected function findEmptyLineIndexIn(array $lines): ?int
+    {
+        $idx = $this->browseLineIndex;
+        if ($idx !== null && isset($lines[$idx]) && ! filled($lines[$idx]['item_code'] ?? null) && empty($lines[$idx]['item_id'])) {
+            return (int) $idx;
+        }
+
+        foreach ($lines as $i => $line) {
+            if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
+                return (int) $i;
             }
         }
 
-        return $added;
+        return null;
+    }
+
+    /**
+     * @return array{item_id:int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:null}
+     */
+    protected function linePayloadFromItem(Item $item, ?string $uom = null): array
+    {
+        $resolvedUom = strtoupper(trim((string) ($uom ?? '')));
+        if ($resolvedUom === '') {
+            $resolvedUom = $item->displayUom();
+        }
+
+        return [
+            'item_id' => (int) $item->id,
+            'item_code' => (string) $item->item_code,
+            'description' => (string) ($item->description ?? ''),
+            'uom' => $resolvedUom,
+            // System on-hand qty (may be negative if oversold) — show truthfully.
+            'in_stock' => number_format((float) $item->quantity_in_stock, 4, '.', ''),
+            'allocated' => number_format((float) ($item->allocated_qty ?? 0), 4, '.', ''),
+            // Default counted display to 0; variance waits until the user confirms (count_time).
+            'counted' => '0',
+            'count_time' => null,
+        ];
     }
 
     public function pickEntryHit(int $itemId): void
@@ -526,6 +634,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         if (str_contains(strtolower($this->lookupMessage), 'was not found')) {
             $this->lookupMessage = '';
         }
+        $this->skipRender();
         $this->clearAndFocusEntry();
     }
 
@@ -548,7 +657,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->lineWarning = '';
         $this->playPosSound('success');
 
-        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+        $hasEmpty = false;
+        foreach ($this->lines as $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                $hasEmpty = true;
+                break;
+            }
+        }
         if (! $hasEmpty) {
             $this->addLine();
         }
@@ -581,15 +696,9 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     protected function resolveCountTargetIndex(): int
     {
-        $idx = $this->browseLineIndex;
-        if ($idx !== null && isset($this->lines[$idx]) && ! filled($this->lines[$idx]['item_code'] ?? null) && empty($this->lines[$idx]['item_id'])) {
-            return (int) $idx;
-        }
-
-        foreach ($this->lines as $i => $line) {
-            if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
-                return (int) $i;
-            }
+        $index = $this->findEmptyLineIndexIn($this->lines);
+        if ($index !== null) {
+            return $index;
         }
 
         $this->addLine();
@@ -599,13 +708,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     protected function firstEmptyCountLineIndex(): ?int
     {
-        foreach ($this->lines as $i => $line) {
-            if (! filled($line['item_code'] ?? null) && empty($line['item_id'])) {
-                return (int) $i;
-            }
-        }
-
-        return null;
+        return $this->findEmptyLineIndexIn($this->lines);
     }
 
     public function focusLineScan(int $index): void
@@ -642,28 +745,39 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->focusLineCode($index);
     }
 
-    protected function fillLineFromItem(int $index, Item $item): void
+    public function selectCountLine(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+        $this->selectedLineIndex = $index;
+        $this->skipRender();
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                document.querySelectorAll('.sc-lines-table tbody tr.is-selected').forEach((r) => r.classList.remove('is-selected'));
+                document.getElementById('sc-line-row-{$index}')?.classList.add('is-selected');
+            });
+        JS);
+    }
+
+    protected function fillLineFromItem(int $index, Item $item, ?string $uom = null): void
     {
         $lines = $this->lines;
-        $lines[$index]['item_id'] = $item->id;
-        $lines[$index]['item_code'] = $item->item_code;
-        $lines[$index]['description'] = $item->description ?? '';
-        $lines[$index]['uom'] = $item->displayUom();
-        // System on-hand qty (may be negative if oversold) — show truthfully.
-        $lines[$index]['in_stock'] = number_format((float) $item->quantity_in_stock, 4, '.', '');
-        $lines[$index]['allocated'] = number_format((float) $item->allocated_qty, 4, '.', '');
-        // Leave Counted blank until the user enters a count (do not prefill 0).
-        $lines[$index]['counted'] = '';
-        $lines[$index]['count_time'] = null;
+        $lines[$index] = $this->linePayloadFromItem($item, $uom);
         $this->lines = $lines;
     }
 
     protected function highlightCountLine(int $index): void
     {
         $this->selectedLineIndex = $index;
+        // Scroll/focus only for single-line adds (scan / one browse pick) — not bulk Insert All.
         $this->js('requestAnimationFrame(() => {
+            document.querySelectorAll(".sc-lines-table tbody tr.is-selected").forEach((r) => r.classList.remove("is-selected"));
             const row = document.getElementById("sc-line-row-'.$index.'");
-            if (row) row.scrollIntoView({ block: "nearest" });
+            if (row) {
+                row.classList.add("is-selected");
+                row.scrollIntoView({ block: "nearest" });
+            }
             const counted = document.getElementById("sc-line-counted-'.$index.'");
             if (counted && !counted.disabled) { counted.focus(); counted.select(); }
         });');
@@ -688,10 +802,78 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         if ($raw === '') {
             $this->lines[$index]['counted'] = '';
             $this->lines[$index]['count_time'] = null;
+        } else {
+            $this->lines[$index]['count_time'] = \App\Support\UserTimezone::now()->format('Y-m-d H:i:s');
+        }
 
+        // Large counts: patch this row + header totals in the DOM instead of re-rendering every line.
+        if (count($this->lines) >= 40) {
+            $this->skipRender();
+            $this->patchCountLineDisplay($index);
+        }
+    }
+
+    protected function patchCountLineDisplay(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
             return;
         }
-        $this->lines[$index]['count_time'] = \App\Support\UserTimezone::now()->format('Y-m-d H:i:s');
+        $line = $this->lines[$index];
+        $countTime = $line['count_time'] ?? null;
+        $countedRaw = $line['counted'] ?? '';
+        $variance = null;
+        if (filled($countTime) && $countedRaw !== '' && $countedRaw !== null) {
+            $variance = (float) $countedRaw - (float) ($line['in_stock'] ?? 0);
+        }
+
+        $totalItems = 0;
+        $totalQty = 0.0;
+        foreach ($this->lines as $l) {
+            $hasItem = filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0;
+            if ($hasItem && filled($l['count_time'] ?? null)) {
+                $totalItems++;
+                $totalQty += (float) ($l['counted'] ?: 0);
+            }
+        }
+
+        $varianceText = $variance === null ? '—' : number_format($variance, 2);
+        $varianceNeg = $variance !== null && $variance < 0;
+        $variancePos = $variance !== null && $variance > 0;
+        $timeText = $countTime
+            ? \Illuminate\Support\Carbon::parse($countTime)->format('n/j/Y g:i:s A')
+            : '—';
+        $qtyText = number_format($totalQty, 2);
+
+        $payload = json_encode([
+            'index' => $index,
+            'varianceText' => $varianceText,
+            'varianceNeg' => $varianceNeg,
+            'variancePos' => $variancePos,
+            'timeText' => $timeText,
+            'totalItems' => $totalItems,
+            'qtyText' => $qtyText,
+        ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                const p = {$payload};
+                const row = document.getElementById('sc-line-row-' + p.index);
+                if (row) {
+                    const cells = row.querySelectorAll('td');
+                    // Item Code, Desc, UOM, In Stock, Allocated, Counted, Variance, Count Time, Action
+                    const varCell = cells[6];
+                    const timeCell = cells[7];
+                    if (varCell) {
+                        varCell.textContent = p.varianceText;
+                        varCell.classList.toggle('sc-var-neg', !!p.varianceNeg);
+                        varCell.classList.toggle('sc-var-pos', !!p.variancePos);
+                    }
+                    if (timeCell) timeCell.textContent = p.timeText;
+                }
+                document.querySelectorAll('[data-sc-total-items]').forEach((el) => { el.textContent = String(p.totalItems); });
+                document.querySelectorAll('[data-sc-total-qty]').forEach((el) => { el.textContent = p.qtyText; });
+            });
+        JS);
     }
 
     public function updatedProcessedBy(): void
@@ -866,7 +1048,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                     ])>{{ $status }}</span>
                 </div>
                 @if ($activeTab === 'expand')
-                    <div class="entity-balance">Counted: <strong>{{ $totalItemsCounted }}</strong> items</div>
+                    <div class="entity-balance">Counted: <strong data-sc-total-items>{{ $totalItemsCounted }}</strong> items</div>
                 @endif
             </div>
 
@@ -933,11 +1115,11 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 <div class="item-price-summary" style="grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 28rem;">
                     <div class="item-price-stat">
                         <span>Items Counted</span>
-                        <strong>{{ $totalItemsCounted }}</strong>
+                        <strong data-sc-total-items>{{ $totalItemsCounted }}</strong>
                     </div>
                     <div class="item-price-stat">
                         <span>Qty Counted</span>
-                        <strong>{{ number_format($totalQtyCounted, 2) }}</strong>
+                        <strong data-sc-total-qty>{{ number_format($totalQtyCounted, 2) }}</strong>
                     </div>
                 </div>
 
@@ -1026,7 +1208,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                     wire:model.blur="lines.{{ $i }}.counted"
                                                     class="so-input text-right item-cell-qty"
                                                     inputmode="decimal"
-                                                    placeholder="—"
+                                                    placeholder="0"
                                                     @disabled($isProcessed)
                                                     aria-label="Counted qty line {{ $i + 1 }}"
                                                 />

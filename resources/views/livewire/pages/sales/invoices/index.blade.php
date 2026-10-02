@@ -100,13 +100,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function mount(): void
     {
         $this->bootDeskListColumns();
-        $today = now()->toDateString();
-        if ($this->dateFrom === '') {
-            $this->dateFrom = $today;
-        }
-        if ($this->dateTo === '') {
-            $this->dateTo = $today;
-        }
+        // Default: all invoices (no date clamp); scroll loads more.
         if ($this->pay) {
             $id = (int) $this->pay;
             $this->pay = null;
@@ -373,8 +367,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             $this->dateTo = $today;
         } elseif ($this->favorite === 'all') {
             $this->statusFilter = '';
-            $this->dateFrom = $today;
-            $this->dateTo = $today;
+            $this->dateFrom = '';
+            $this->dateTo = '';
         }
     }
 
@@ -417,9 +411,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->statusFilter = '';
         $this->favorite = 'all';
         $this->createdByUserId = '';
-        $today = now()->toDateString();
-        $this->dateFrom = $today;
-        $this->dateTo = $today;
+        $this->dateFrom = '';
+        $this->dateTo = '';
         $this->selectedId = null;
         $this->resetDeskList();
     }

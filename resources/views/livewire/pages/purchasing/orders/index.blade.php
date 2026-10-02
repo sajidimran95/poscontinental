@@ -122,12 +122,21 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             'queryOperators' => $this->deskQueryOperatorOptions(),
             'savedDeskQueries' => $this->loadSavedDeskQueries(),
             'deskQueryTitle' => 'Purchase Order Query',
-            'filterSuppliers' => Cache::remember('po.filter_suppliers.v1.'.$companyId, 180, fn () => Supplier::query()
-                ->where('company_id', $companyId)
-                ->where('is_inactive', false)
-                ->orderBy('name')
-                ->limit(500)
-                ->get(['id', 'supplier_id', 'name'])),
+            'filterSuppliers' => Cache::remember('po.filter_suppliers.v2.'.$companyId, 180, function () use ($companyId) {
+                return Supplier::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_inactive', false)
+                    ->orderBy('name')
+                    ->limit(500)
+                    ->get(['id', 'supplier_id', 'name'])
+                    ->map(fn (Supplier $s) => [
+                        'id' => (int) $s->id,
+                        'supplier_id' => (string) $s->supplier_id,
+                        'name' => (string) $s->name,
+                    ])
+                    ->values()
+                    ->all();
+            }),
         ] + $this->deskListColumnViewData(1);
     }
 
@@ -541,7 +550,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
                         <select wire:model.live="supplierId" class="desk-select orders-party-select" aria-label="Supplier">
                             <option value="">All suppliers</option>
                             @foreach ($filterSuppliers as $sup)
-                                <option value="{{ $sup->id }}">{{ $sup->supplier_id }} — {{ $sup->name }}</option>
+                                <option value="{{ $sup['id'] }}">{{ $sup['supplier_id'] }} — {{ $sup['name'] }}</option>
                             @endforeach
                         </select>
                         <select

@@ -198,6 +198,45 @@ class Item extends Model
         return $this->created_at->gte(now()->subDays(self::NEW_ITEM_DAYS));
     }
 
+    /**
+     * U/M for lists and forms: items.unit_of_measure, else first pricing-row UOM.
+     */
+    public function displayUom(): string
+    {
+        $fromItem = strtoupper(trim((string) ($this->unit_of_measure ?? '')));
+        if ($fromItem !== '') {
+            return $fromItem;
+        }
+
+        // Optional subquery / joined attribute from list queries.
+        $fromAttr = strtoupper(trim((string) ($this->getAttribute('price_uom') ?? '')));
+        if ($fromAttr !== '') {
+            return $fromAttr;
+        }
+
+        if ($this->relationLoaded('prices')) {
+            foreach ($this->prices as $price) {
+                $u = strtoupper(trim((string) ($price->uom ?? '')));
+                if ($u !== '') {
+                    return $u;
+                }
+            }
+
+            return 'EA';
+        }
+
+        $fromPrice = $this->prices()
+            ->whereNotNull('uom')
+            ->where('uom', '!=', '')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->value('uom');
+
+        $resolved = strtoupper(trim((string) ($fromPrice ?? '')));
+
+        return $resolved !== '' ? $resolved : 'EA';
+    }
+
     public function scopeNewItems(Builder $query): Builder
     {
         return $query->where('created_at', '>=', now()->subDays(self::NEW_ITEM_DAYS));

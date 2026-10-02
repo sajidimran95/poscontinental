@@ -18,6 +18,7 @@ use App\Services\InventoryService;
 use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
@@ -1520,6 +1521,17 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 'category:id,code,name',
                 'subcategory:id,code,name',
             ])
+            ->selectSub(
+                DB::table('item_prices')
+                    ->select('uom')
+                    ->whereColumn('item_prices.item_id', 'items.id')
+                    ->whereNotNull('uom')
+                    ->where('uom', '!=', '')
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->limit(1),
+                'price_uom'
+            )
             ->where('company_id', $companyId)
             ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->when($this->categoryFilter !== '', fn ($q) => $q->where('category_id', (int) $this->categoryFilter))
@@ -1548,6 +1560,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             'department' => (string) ($item->department?->name ?? ''),
             'category' => (string) ($item->category?->name ?? ''),
             'subcategory' => (string) ($item->subcategory?->name ?? ''),
+            'unit_of_measure' => $item->displayUom(),
             default => match ($col['type']) {
                 'money' => $this->excelNumber((float) $item->{$colKey}, 2),
                 'qty' => $this->excelNumber((float) ($colKey === 'available_quantity' ? $item->available_quantity : $item->{$colKey}), 2),
@@ -1811,6 +1824,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                             <td>{{ $item->category?->name ?: '—' }}</td>
                                         @elseif ($colKey === 'subcategory')
                                             <td>{{ $item->subcategory?->name ?: '—' }}</td>
+                                        @elseif ($colKey === 'unit_of_measure')
+                                            <td>{{ $item->displayUom() }}</td>
                                         @elseif ($colKey === 'description' || $colKey === 'extended_description' || $colKey === 'item_line_message')
                                             @php $text = (string) ($item->{$colKey} ?? ''); @endphp
                                             <td title="{{ $text }}">
@@ -2530,7 +2545,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                             <div><strong>{{ $adjustItem->item_code }}</strong></div>
                             <div>{{ $adjustItem->description }}</div>
                             <div style="margin-top:.35rem">On hand: <span class="isa-stock">{{ number_format((float) $adjustItem->quantity_in_stock, 2) }}</span>
-                                <span style="font-size:12px;color:#64748b">{{ $adjustItem->unit_of_measure ?: '' }}</span>
+                                <span style="font-size:12px;color:#64748b">{{ $adjustItem->displayUom() }}</span>
                             </div>
                             <div style="font-size:12px;color:#64748b;margin-top:.15rem">
                                 Allocated {{ number_format((float) $adjustItem->allocated_qty, 2) }}

@@ -603,7 +603,10 @@
                     $wire.pickBrowseItem(Number(id), true);
                 },
                 insertChecked() {
+                    if (this.checkingAll) return;
                     const ids = [...this.checked];
+                    if (!ids.length && this.selected) ids.push(this.selected);
+                    if (!ids.length) return;
                     this.clearChecked();
                     $wire.insertBrowseChecked(ids).then(() => this.clearChecked());
                 },

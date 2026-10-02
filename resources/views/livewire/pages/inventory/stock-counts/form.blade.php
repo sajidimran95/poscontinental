@@ -17,6 +17,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 {
     use BrowsesItemsForDocument {
         openItemBrowse as openDocumentItemBrowse;
+        insertBrowseChecked as insertDocumentBrowseChecked;
     }
     use SearchesItemEntryHits;
     use ReturnsToDeskList;
@@ -180,8 +181,12 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 'expand' => 'Expand',
                 'comments' => 'Comments',
             ],
-            'totalItemsCounted' => collect($this->lines)->filter(fn ($l) => filled($l['counted'] ?? null))->count(),
-            'totalQtyCounted' => collect($this->lines)->sum(fn ($l) => (float) ($l['counted'] ?: 0)),
+            'totalItemsCounted' => collect($this->lines)->filter(
+                fn ($l) => filled($l['item_code'] ?? null) && filled($l['count_time'] ?? null)
+            )->count(),
+            'totalQtyCounted' => collect($this->lines)
+                ->filter(fn ($l) => filled($l['count_time'] ?? null))
+                ->sum(fn ($l) => (float) ($l['counted'] ?: 0)),
             'filledLineCount' => collect($this->lines)->filter(
                 fn ($l) => filled($l['item_code'] ?? null) || (int) ($l['item_id'] ?? 0) > 0
             )->count(),
@@ -296,43 +301,124 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->where('is_inactive', false)
-            ->find($itemId);
+        $added = $this->appendItemsToCount([(int) $itemId]);
+        if ($added === 0) {
+            return;
+        }
 
-        if (! $item) {
-            $this->playPosSound('error');
+        $this->lookupMessage = '';
+        $this->lineWarning = '';
+        $this->playPosSound('success');
+        $this->browseLineIndex = $this->firstEmptyCountLineIndex();
+        $this->focusBrowseSearch();
+    }
+
+    /**
+     * Insert every checked Browse item in one pass (avoids only the first row landing on the count).
+     */
+    public function insertBrowseChecked($ids = null): void
+    {
+        if ($this->status === 'Processed') {
+            return;
+        }
+
+        if (is_array($ids) && $ids !== []) {
+            $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
+        }
+
+        $ids = array_values(array_unique(array_map('intval', $this->browseCheckedIds)));
+        if ($ids === []) {
+            $this->insertBrowseSelected();
 
             return;
         }
 
-        foreach ($this->lines as $i => $line) {
-            if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
-                $this->lookupMessage = $item->item_code.' is already on this count (line '.((int) $i + 1).').';
-                $this->lineWarning = $this->lookupMessage;
-                $this->lineWarningKind = 'warning';
-                $this->playPosSound('warning');
-                $this->highlightCountLine((int) $i);
-                $this->focusBrowseSearch();
+        $added = $this->appendItemsToCount($ids);
+        $this->browseCheckedIds = [];
+        $this->browseSelectedId = null;
+        $this->browseChecksVersion++;
+        $this->dispatch('browse-checks-cleared');
+        $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
 
-                return;
+        if ($added > 0) {
+            $this->lookupMessage = $added === 1
+                ? '1 item added to the count.'
+                : $added.' items added to the count.';
+            $this->lineWarning = $this->lookupMessage;
+            $this->lineWarningKind = 'success';
+            $this->playPosSound('success');
+            $this->browseLineIndex = $this->firstEmptyCountLineIndex();
+            $this->focusBrowseSearch();
+        }
+    }
+
+    /**
+     * @param  list<int>  $itemIds
+     */
+    protected function appendItemsToCount(array $itemIds): int
+    {
+        $itemIds = array_values(array_unique(array_filter(array_map('intval', $itemIds))));
+        if ($itemIds === []) {
+            return 0;
+        }
+
+        $companyId = (int) auth()->user()->company_id;
+        $already = collect($this->lines)
+            ->map(fn ($l) => (int) ($l['item_id'] ?? 0))
+            ->filter()
+            ->all();
+
+        $items = Item::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->whereIn('id', $itemIds)
+            ->get()
+            ->keyBy('id');
+
+        $added = 0;
+        $skippedDup = null;
+        foreach ($itemIds as $itemId) {
+            $item = $items->get($itemId);
+            if (! $item) {
+                continue;
+            }
+            if (in_array($itemId, $already, true)) {
+                $skippedDup ??= $item->item_code;
+                continue;
+            }
+
+            $index = $this->resolveCountTargetIndex();
+            $this->fillLineFromItem($index, $item);
+            $already[] = $itemId;
+            $added++;
+
+            $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
+            if (! $hasEmpty) {
+                $this->addLine();
             }
         }
 
-        $index = $this->resolveCountTargetIndex();
-        $this->fillLineFromItem($index, $item);
-        $this->highlightCountLine($index);
-        $this->lookupMessage = '';
-        $this->lineWarning = '';
-        $this->playPosSound('success');
-
-        $hasEmpty = collect($this->lines)->contains(fn ($l) => ! filled($l['item_code'] ?? null));
-        if (! $hasEmpty) {
-            $this->addLine();
+        if ($added === 0 && $skippedDup !== null) {
+            $this->lookupMessage = $skippedDup.' is already on this count.';
+            $this->lineWarning = $this->lookupMessage;
+            $this->lineWarningKind = 'warning';
+            $this->playPosSound('warning');
+            foreach ($this->lines as $i => $line) {
+                if ((int) ($line['item_id'] ?? 0) === (int) ($items->firstWhere('item_code', $skippedDup)?->id ?? 0)) {
+                    $this->highlightCountLine((int) $i);
+                    break;
+                }
+            }
+        } elseif ($added > 0) {
+            foreach (array_reverse($this->lines, true) as $i => $line) {
+                if (filled($line['item_code'] ?? null)) {
+                    $this->highlightCountLine((int) $i);
+                    break;
+                }
+            }
         }
-        $this->browseLineIndex = $this->firstEmptyCountLineIndex();
-        $this->focusBrowseSearch();
+
+        return $added;
     }
 
     public function pickEntryHit(int $itemId): void
@@ -562,9 +648,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $lines[$index]['item_id'] = $item->id;
         $lines[$index]['item_code'] = $item->item_code;
         $lines[$index]['description'] = $item->description ?? '';
-        $lines[$index]['uom'] = $item->unit_of_measure ?? '';
-        $lines[$index]['in_stock'] = (string) $item->quantity_in_stock;
-        $lines[$index]['allocated'] = (string) $item->allocated_qty;
+        $lines[$index]['uom'] = $item->displayUom();
+        // System on-hand qty (may be negative if oversold) — not available qty.
+        $lines[$index]['in_stock'] = number_format((float) $item->quantity_in_stock, 4, '.', '');
+        $lines[$index]['allocated'] = number_format((float) $item->allocated_qty, 4, '.', '');
+        // Default counted qty to 0; variance / "items counted" wait until the user confirms a count.
+        $lines[$index]['counted'] = '0';
+        $lines[$index]['count_time'] = null;
         $this->lines = $lines;
     }
 
@@ -587,10 +677,21 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public function updatedLines($value, $key): void
     {
-        if (str_ends_with($key, '.counted') && filled($value)) {
-            $index = (int) explode('.', $key)[0];
-            $this->lines[$index]['count_time'] = \App\Support\UserTimezone::now()->format('Y-m-d H:i:s');
+        if (! str_ends_with($key, '.counted')) {
+            return;
         }
+        $index = (int) explode('.', $key)[0];
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+        $raw = trim((string) ($value ?? ''));
+        if ($raw === '') {
+            $this->lines[$index]['counted'] = '';
+            $this->lines[$index]['count_time'] = null;
+
+            return;
+        }
+        $this->lines[$index]['count_time'] = \App\Support\UserTimezone::now()->format('Y-m-d H:i:s');
     }
 
     public function updatedProcessedBy(): void
@@ -705,6 +806,42 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
+    <style>
+        .sc-lines-table {
+            table-layout: fixed;
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #dbe3ee;
+        }
+        .sc-lines-table .col-code { width: 9rem; min-width: 8rem; }
+        .sc-lines-table .col-desc { width: auto; }
+        .sc-lines-table .col-uom { width: 4rem; }
+        .sc-lines-table .col-qty { width: 6.5rem; }
+        .sc-lines-table .col-time { width: 10rem; }
+        .sc-lines-table .col-action { width: 5.5rem; }
+        .sc-lines-table thead th,
+        .sc-lines-table tbody td {
+            border: 1px solid #e2e8f0 !important;
+            border-top-color: #e8eef5 !important;
+            border-left-color: #edf2f7 !important;
+            vertical-align: middle;
+        }
+        .sc-lines-table thead th {
+            background: #f1f5f9 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            font-weight: 700;
+        }
+        .sc-lines-table th.desk-money,
+        .sc-lines-table td.sc-col-qty { text-align: right !important; }
+        .sc-lines-table td.sc-col-counted { padding: 0.25rem 0.35rem !important; }
+        .sc-lines-table td.sc-col-counted .so-input {
+            width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0; text-align: right;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+        }
+        .sc-lines-table tbody tr:hover td { background: #f8fafc; }
+        .sc-lines-table tbody tr.is-selected td { background: #eff6ff; }
+    </style>
     <form wire:submit="save" class="desk-main entity-form item-form">
         <x-action-bar :title="$stockCount ? 'Stock Count '.$stock_count_no : 'New Stock Count'" />
 
@@ -850,10 +987,10 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                     <th>Item Code</th>
                                     <th>Description</th>
                                     <th class="text-center">UOM</th>
-                                    <th class="text-center">In Stock</th>
-                                    <th class="text-center">Allocated</th>
-                                    <th class="text-center">Counted</th>
-                                    <th class="text-center">Variance</th>
+                                    <th class="desk-money">In Stock</th>
+                                    <th class="desk-money">Allocated</th>
+                                    <th class="desk-money">Counted</th>
+                                    <th class="desk-money">Variance</th>
                                     <th>Count Time</th>
                                     <th></th>
                                 </tr>
@@ -862,7 +999,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                 @foreach ($lines as $i => $line)
                                     @php
                                         $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
-                                        $variance = filled($line['counted'])
+                                        // Variance only after a real count entry (count_time), so empty/0 placeholder does not show −In Stock.
+                                        $variance = filled($line['count_time'] ?? null) && $line['counted'] !== '' && $line['counted'] !== null
                                             ? (float) $line['counted'] - (float) $line['in_stock']
                                             : null;
                                     @endphp
@@ -878,19 +1016,20 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                             </td>
                                             <td class="item-cell-desc" title="{{ $line['description'] }}">{{ $line['description'] ?: '—' }}</td>
                                             <td class="text-center">{{ $line['uom'] ?: '—' }}</td>
-                                            <td class="desk-money">{{ number_format((float) $line['in_stock'], 2) }}</td>
-                                            <td class="desk-money">{{ number_format((float) $line['allocated'], 2) }}</td>
-                                            <td class="text-center">
+                                            <td class="desk-money sc-col-qty">{{ number_format((float) $line['in_stock'], 2) }}</td>
+                                            <td class="desk-money sc-col-qty">{{ number_format((float) $line['allocated'], 2) }}</td>
+                                            <td class="sc-col-qty sc-col-counted">
                                                 <input
                                                     id="sc-line-counted-{{ $i }}"
-                                                    wire:model.live="lines.{{ $i }}.counted"
+                                                    wire:model.blur="lines.{{ $i }}.counted"
                                                     class="so-input text-right item-cell-qty"
+                                                    inputmode="decimal"
                                                     @disabled($isProcessed)
                                                     aria-label="Counted qty line {{ $i + 1 }}"
                                                 />
                                             </td>
-                                            <td @class(['desk-money', 'sc-var-neg' => $variance !== null && $variance < 0, 'sc-var-pos' => $variance !== null && $variance > 0])>
-                                                {{ $variance !== null ? number_format($variance, 2) : '' }}
+                                            <td @class(['desk-money', 'sc-col-qty', 'sc-var-neg' => $variance !== null && $variance < 0, 'sc-var-pos' => $variance !== null && $variance > 0])>
+                                                {{ $variance !== null ? number_format($variance, 2) : '—' }}
                                             </td>
                                             <td class="sc-time">{{ $line['count_time'] ? \Illuminate\Support\Carbon::parse($line['count_time'])->format('n/j/Y g:i:s A') : '—' }}</td>
                                             <td class="text-center">

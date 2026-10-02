@@ -252,6 +252,20 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'price_level_id' => $p->price_level_id,
             ])->all();
 
+            // Older imports often left Inventory UOM blank while Pricing had BX/EA/etc.
+            if (trim($this->unit_of_measure) === '') {
+                foreach ($this->prices as $priceRow) {
+                    $priceUom = strtoupper(trim((string) ($priceRow['uom'] ?? '')));
+                    if ($priceUom !== '') {
+                        $this->unit_of_measure = $priceUom;
+                        break;
+                    }
+                }
+            }
+            if (trim($this->unit_of_measure) === '') {
+                $this->unit_of_measure = 'EA';
+            }
+
             $this->suppliers = $item->itemSuppliers->map(fn (ItemSupplier $s) => [
                 'supplier_id' => $s->supplier_id,
                 'supplier_item_code' => $s->supplier_item_code ?? '',
@@ -287,6 +301,9 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             if ($scanUpc !== '') {
                 $this->primary_upc = $scanUpc;
                 $this->upcs = [['upc' => $scanUpc, 'is_primary' => true]];
+            }
+            if (trim($this->unit_of_measure) === '') {
+                $this->unit_of_measure = 'EA';
             }
         }
 

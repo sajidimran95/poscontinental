@@ -6868,12 +6868,32 @@
     .item-sup-table .col-action { width: 6.5rem; }
 
     /* Stock count lines */
-    .sc-lines-table .col-code { width: 18rem; min-width: 16rem; }
+    .sc-lines-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    .sc-lines-table .col-code { width: 9rem; min-width: 8rem; }
     .sc-lines-table .col-desc { width: auto; }
-    .sc-lines-table .col-uom { width: 4.5rem; }
-    .sc-lines-table .col-qty { width: 7rem; }
-    .sc-lines-table .col-time { width: 9.5rem; }
-    .sc-lines-table .col-action { width: 6.5rem; }
+    .sc-lines-table .col-uom { width: 4rem; }
+    .sc-lines-table .col-qty { width: 6.5rem; }
+    .sc-lines-table .col-time { width: 10rem; }
+    .sc-lines-table .col-action { width: 5.5rem; }
+    .sc-lines-table th.desk-money,
+    .sc-lines-table td.sc-col-qty {
+        text-align: right !important;
+        vertical-align: middle;
+    }
+    .sc-lines-table td.sc-col-counted {
+        padding: 0.25rem 0.35rem !important;
+    }
+    .sc-lines-table td.sc-col-counted .so-input {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        margin: 0;
+        text-align: right;
+    }
 
     .sc-var-neg {
         color: #b91c1c !important;

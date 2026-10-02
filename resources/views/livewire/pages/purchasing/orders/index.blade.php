@@ -47,13 +47,6 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
     public function mount(): void
     {
         $this->bootDeskListColumns();
-        $today = now()->toDateString();
-        if ($this->dateFrom === '') {
-            $this->dateFrom = now()->startOfMonth()->toDateString();
-        }
-        if ($this->dateTo === '') {
-            $this->dateTo = $today;
-        }
     }
 
     public function with(): array
@@ -237,9 +230,9 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         } elseif ($this->favorite === 'month') {
             $this->dateFrom = now()->startOfMonth()->toDateString();
             $this->dateTo = $today;
-        } elseif ($this->favorite === 'all') {
-            $this->dateFrom = now()->startOfMonth()->toDateString();
-            $this->dateTo = $today;
+        } else {
+            $this->dateFrom = '';
+            $this->dateTo = '';
         }
     }
 
@@ -281,9 +274,8 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->favorite = 'all';
-        $today = now()->toDateString();
-        $this->dateFrom = now()->startOfMonth()->toDateString();
-        $this->dateTo = $today;
+        $this->dateFrom = '';
+        $this->dateTo = '';
         $this->supplierId = '';
         $this->selectedId = null;
         $this->clearQueryCriteria();

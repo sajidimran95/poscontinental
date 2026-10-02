@@ -73,6 +73,76 @@ body.sale-page-create .pp-cart-cta {
     padding: 6px 12px; font-size: 12.5px; font-weight: 800;
     white-space: nowrap;
 }
+body.sale-page-create .pp-parked-btn {
+    background: rgba(255,255,255,.14);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+body.sale-page-create .pp-parked-btn:hover { background: rgba(255,255,255,.22); }
+#parkedBody .pp-parked-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef2f7;
+    box-sizing: border-box;
+}
+#parkedBody .pp-parked-row:last-child { border-bottom: 0; }
+#parkedBody .pp-parked-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+#parkedBody .pp-parked-main strong {
+    display: block;
+    font-size: 15px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.25;
+    word-break: break-word;
+}
+#parkedBody .pp-parked-meta {
+    margin-top: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#parkedBody .pp-parked-when {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: #94a3b8;
+}
+#parkedBody .pp-parked-discard {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 4.75rem;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    border-radius: 8px;
+    border: 1px solid #fecdd3;
+    background: #fff1f2;
+    color: #e11d48;
+    cursor: pointer;
+    white-space: nowrap;
+}
 body.sale-page-create .pp-price-input {
     width: 88px; max-width: 100%;
     border: 1px solid #C9E6DE; border-radius: 8px;
@@ -115,7 +185,7 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
             <div class="pp-topbar__right">
                 <span class="hidden" id="orderCustomerName">{{ $default_customer['text'] ?? ($edit_order->contact->supplier_business_name ?? $edit_order->contact->name ?? '') }}</span>
                 @if(empty($edit_order))
-                    <button type="button" class="pp-cart-cta hidden" id="parkedOpenBtn" style="border:0;cursor:pointer">Parked</button>
+                    <button type="button" class="pp-parked-btn hidden" id="parkedOpenBtn" title="Park sale">Park</button>
                 @endif
                 <span class="pp-sales">{{ $userName ?? '' }}</span>
                 <span class="pp-avatar">{{ strtoupper(mb_substr((string) ($userName ?? ''), 0, 1)) }}</span>
@@ -963,8 +1033,11 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
         const multiplier = Number(unit.multiplier) || 1;
         const basePrice = (typeof r.base_price !== 'undefined' && r.base_price !== null)
             ? Number(r.base_price)
-            : (Number(r.price) / (multiplier || 1));
-        return { units, unit, multiplier, basePrice, unitPrice: basePrice * multiplier };
+            : (Number(
+                r.unit_price != null ? r.unit_price
+                    : (r.price != null ? r.price : 0)
+            ) / (multiplier || 1));
+        return { units, unit, multiplier, basePrice, unitPrice: (r.unit_price != null && (!units.length || !piece)) ? Number(r.unit_price) : (basePrice * multiplier) };
     }
 
     function hasPackUnits(units) {
@@ -1197,8 +1270,21 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
             unit_price: Number(l.unit_price) || 0,
             quantity: Number(l.quantity),
             allow_decimal: l.allow_decimal ? 1 : 0,
+            sub_unit_id: Number(l.sub_unit_id) || 0,
+            unit_id: Number(l.unit_id || l.sub_unit_id) || 0,
+            unit_name: String(l.unit_name || 'Pc'),
+            base_price: Number(l.base_price) || Number(l.unit_price) || 0,
+            enable_stock: Number(l.enable_stock) || 0,
+            stock: Number(l.stock) || 0,
+            sku: String(l.sku || ''),
+            image: String(l.image || ''),
+            has_image: !!l.has_image,
+            units: Array.isArray(l.units) ? l.units : [],
         }));
-        if (!lines.length || !contactId.value) return;
+        if (!lines.length || !contactId.value) {
+            alert('Add items and select a customer before parking.');
+            return false;
+        }
         try {
             const res = await fetch(parkedUrl, {
                 method: 'POST',
@@ -1215,44 +1301,80 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 alert(err.message || 'Could not park this sale.');
-                return;
+                return false;
             }
             clearDraftStorage();
-        } catch (e) {}
+            await loadParked();
+            return true;
+        } catch (e) {
+            alert('Could not park this sale.');
+            return false;
+        }
     }
     async function clearDraftServer() {
         clearDraftStorage();
     }
-    async function loadParked() {
+    let parkedCount = 0;
+    function syncParkBtn() {
         const btn = document.getElementById('parkedOpenBtn');
-        if (!btn || isEdit || !contactId.value) return [];
+        if (!btn || isEdit) return;
+        const hasCart = cartHasItems();
+        if (hasCart) {
+            btn.textContent = parkedCount > 0 ? ('Park · ' + parkedCount) : 'Park';
+            btn.title = parkedCount > 0
+                ? ('Park this sale · ' + parkedCount + ' parked')
+                : 'Park this sale';
+            btn.classList.remove('hidden');
+            btn.dataset.mode = 'park';
+            return;
+        }
+        if (parkedCount > 0) {
+            btn.textContent = 'Parked (' + parkedCount + ')';
+            btn.title = 'Open parked sales';
+            btn.classList.remove('hidden');
+            btn.dataset.mode = 'list';
+            return;
+        }
+        btn.textContent = 'Park';
+        btn.dataset.mode = 'park';
+        btn.classList.add('hidden');
+    }
+    async function loadParked() {
+        if (isEdit) return [];
         try {
-            const rows = (await fetchJson(parkedUrl)).filter((r) => String(r.customer_id) === String(contactId.value));
-            btn.textContent = 'Parked (' + rows.length + ')';
-            btn.classList.toggle('hidden', rows.length === 0);
+            const rows = await fetchJsonList(parkedUrl);
+            parkedCount = rows.length;
+            syncParkBtn();
             return rows;
         } catch (e) {
+            parkedCount = 0;
+            syncParkBtn();
             return [];
         }
     }
     async function openParked() {
         const body = document.getElementById('parkedBody');
+        const title = document.querySelector('#parkedSheet .sale-sheet__title');
         if (!body) return;
         body.innerHTML = '<div class="px-4 py-3 text-sm text-slate-400">Loading…</div>';
         saleOpenSheet('parkedSheet');
         const rows = await loadParked();
+        if (title) title.textContent = rows.length ? ('Parked sales (' + rows.length + ')') : 'Parked sales';
         if (!rows.length) {
             body.innerHTML = '<div class="px-4 py-3 text-sm text-slate-400">No parked sales</div>';
             return;
         }
         body.innerHTML = rows.map((r) => {
             const when = r.updated_at ? new Date(r.updated_at).toLocaleString() : '';
-            return `<div class="sale-act-row" style="justify-content:space-between">
-                <button type="button" data-recall="${r.id}" style="all:unset;cursor:pointer;flex:1;min-width:0">
-                    <b>${escapeHtml(String(r.line_count))} items · ${money(r.total)}</b>
-                    <div class="text-xs text-slate-400">${escapeHtml(when)}</div>
+            const who = r.customer_label || ('Customer #' + (r.customer_id || ''));
+            const items = Number(r.line_count) === 1 ? '1 item' : (String(r.line_count) + ' items');
+            return `<div class="pp-parked-row">
+                <button type="button" class="pp-parked-main" data-recall="${r.id}">
+                    <strong>${escapeHtml(String(who))}</strong>
+                    <div class="pp-parked-meta">${escapeHtml(items)} · ${money(r.total)}</div>
+                    <div class="pp-parked-when">${escapeHtml(when)}</div>
                 </button>
-                <button type="button" data-discard="${r.id}" class="sale-act sale-act--del">Discard</button>
+                <button type="button" class="pp-parked-discard" data-discard="${r.id}">Discard</button>
             </div>`;
         }).join('');
         body.querySelectorAll('[data-recall]').forEach((b) => b.onclick = () => recallParked(b.dataset.recall));
@@ -1261,34 +1383,85 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
     async function recallParked(id) {
         let row;
         try { row = await fetchJson(parkedUrl + '/' + id); } catch (e) { alert('Could not open parked sale'); return; }
+        if (Array.isArray(row)) row = row[0] || {};
         const p = (row && row.payload) || {};
+        const lines = Array.isArray(p.lines) ? p.lines : [];
+        if (!lines.length) {
+            alert('This parked sale has no items.');
+            return;
+        }
+        if (row.customer_id) {
+            setCustomer(
+                String(row.customer_id),
+                row.customer_label || ('Customer #' + row.customer_id),
+                '',
+                false,
+                null,
+                { display_name: row.customer_label || '' }
+            );
+        }
         cart.length = 0;
-        const ids = (p.lines || []).map((l) => l.variation_id).filter(Boolean);
+        const ids = lines.map((l) => l.variation_id).filter(Boolean);
         let fresh = {};
-        if (ids.length) {
+        if (ids.length && contactId.value) {
             try {
-                const found = await Promise.all(ids.map((vid) => fetchJson(@json(route('sale.api.products')) + '?contact_id=' + encodeURIComponent(contactId.value) + '&variation_id=' + encodeURIComponent(vid))));
+                const found = await Promise.all(ids.map((vid) => fetchJsonList(
+                    @json(route('sale.api.products'))
+                    + '?contact_id=' + encodeURIComponent(contactId.value)
+                    + '&location_id=' + encodeURIComponent(locationId.value || '')
+                    + '&variation_id=' + encodeURIComponent(vid)
+                )));
                 found.forEach((rows) => { if (rows[0]) fresh[String(rows[0].variation_id)] = rows[0]; });
             } catch (e) {}
         }
-        (p.lines || []).forEach((l) => {
-            const base = fresh[String(l.variation_id)] || l;
-            addToCart(Object.assign({}, base, { quantity: Number(l.quantity) || 1 }), true, true);
+        lines.forEach((l) => {
+            const base = Object.assign({}, fresh[String(l.variation_id)] || {}, l, {
+                quantity: Number(l.quantity) || 1,
+                unit_price: l.unit_price != null ? Number(l.unit_price) : undefined,
+                // Recall must restore even if currently out of stock.
+                enable_stock: 0,
+            });
+            if (base.unit_price == null && base.price != null) base.unit_price = Number(base.price);
+            if (base.base_price == null && base.unit_price != null) base.base_price = Number(base.unit_price);
+            if (base.price == null && base.unit_price != null) base.price = Number(base.unit_price);
+            addToCart(base, true, true);
             const line = cart.find((c) => Number(c.variation_id) === Number(l.variation_id));
-            if (line && l.unit_price != null) line.unit_price = Number(l.unit_price);
+            if (line && l.unit_price != null) {
+                line.unit_price = Number(l.unit_price);
+                line.list_unit_price = Number(l.unit_price);
+                if (!line.base_price) line.base_price = Number(l.unit_price);
+            }
         });
+        if (!cartHasItems()) {
+            alert('Could not restore parked items to the cart.');
+            return;
+        }
         applyCheckoutFields(p.shipping);
-        renderCart();
         saleCloseSheet('parkedSheet');
-        await fetch(parkedUrl + '/' + id, { method: 'DELETE', headers: jsonHeaders(), credentials: 'same-origin' }).catch(() => {});
-        loadParked();
+        try {
+            await fetch(parkedUrl + '/' + id, { method: 'DELETE', headers: jsonHeaders(), credentials: 'same-origin' });
+        } catch (e) {}
+        await loadParked();
+        await loadBrowse((productSearch && productSearch.value) || '');
+        renderCart();
     }
     async function discardParked(id) {
         if (!confirm('Discard this parked sale?')) return;
         await fetch(parkedUrl + '/' + id, { method: 'DELETE', headers: jsonHeaders(), credentials: 'same-origin' }).catch(() => {});
         openParked();
     }
-    document.getElementById('parkedOpenBtn')?.addEventListener('click', openParked);
+    document.getElementById('parkedOpenBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('parkedOpenBtn');
+        if (!btn) return;
+        if (btn.dataset.mode === 'park' && cartHasItems()) {
+            const ok = await parkCart();
+            if (!ok) return;
+            await clearCart(true);
+            syncParkBtn();
+            return;
+        }
+        openParked();
+    });
     function cartHasItems() {
         return cart.some((l) => Number(l.quantity) > 0);
     }
@@ -1604,7 +1777,7 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
         if (orderSubId) url += '&sub_category_id=' + encodeURIComponent(orderSubId);
         else if (orderCatId) url += '&category_id=' + encodeURIComponent(orderCatId);
         try {
-            browseRows = await fetchJson(url);
+            browseRows = await fetchJsonList(url);
             browseRows.forEach((row) => {
                 const piece = smallestUnit(row.units);
                 if (piece && (row.sub_unit_id == null || row.sub_unit_id === '')) {
@@ -1783,7 +1956,8 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
         });
         const display = rows.length ? rows.map((r) => {
             const meta = unitMeta(r);
-            const found = cart.find(c => Number(c.variation_id) === Number(r.variation_id) && Number(c.sub_unit_id || 0) === Number(meta.unit.id || 0));
+            const found = cart.find(c => Number(c.variation_id) === Number(r.variation_id) && Number(c.sub_unit_id || 0) === Number(meta.unit.id || 0))
+                || cart.find(c => Number(c.variation_id) === Number(r.variation_id));
             if (found) return found;
             return {
                 product_id: r.product_id,
@@ -1807,13 +1981,25 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
                 allow_decimal: !!Number(meta.unit.allow_decimal),
                 _browse: r,
             };
-        }) : cart;
+        }) : cart.slice();
+        // Keep recalled / cart-only lines visible even if not in the current browse page.
+        if (rows.length) {
+            const shown = new Set(display.map((d) => String(d.variation_id) + ':' + String(d.sub_unit_id || 0)));
+            cart.filter((c) => Number(c.quantity) > 0).forEach((c) => {
+                const key = String(c.variation_id) + ':' + String(c.sub_unit_id || 0);
+                if (!shown.has(key) && !display.some((d) => Number(d.variation_id) === Number(c.variation_id))) {
+                    display.unshift(c);
+                    shown.add(key);
+                }
+            });
+        }
         const countEl = document.getElementById('orderResultCount');
         if (countEl) countEl.textContent = 'Results: ' + (browseRows.length || cart.length);
         display.forEach((line, idx) => {
             const cartIdx = cart.findIndex(c => Number(c.variation_id) === Number(line.variation_id) && Number(c.sub_unit_id || 0) === Number(line.sub_unit_id || 0));
-            const qty = cartIdx >= 0 ? cart[cartIdx].quantity : 0;
-            const unitPrice = cartIdx >= 0 ? cart[cartIdx].unit_price : line.unit_price;
+            const cartIdxLoose = cartIdx >= 0 ? cartIdx : cart.findIndex(c => Number(c.variation_id) === Number(line.variation_id));
+            const qty = cartIdxLoose >= 0 ? cart[cartIdxLoose].quantity : 0;
+            const unitPrice = cartIdxLoose >= 0 ? cart[cartIdxLoose].unit_price : line.unit_price;
             const lineTot = qty * unitPrice;
             const units = line.units || [];
             const q = (productSearch.value || '').trim();
@@ -1833,12 +2019,12 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
             el.className = 'pp-card' + (oos ? ' is-oos' : '');
             const toggle = packToggleHtml(units, line.sub_unit_id, line.variation_id, line.base_price);
             const unitLabel = (line.unit_name || '').trim();
-            const piece = Number((cartIdx >= 0 ? cart[cartIdx].base_price : line.base_price) || unitPrice) || 0;
+            const piece = Number((cartIdxLoose >= 0 ? cart[cartIdxLoose].base_price : line.base_price) || unitPrice) || 0;
             const lastBtn = last
                 ? `<button type="button" class="pp-last" data-hist="${line.variation_id}" data-hist-name="${escapeHtml(line.name)}">Last ordered: <b>${escapeHtml(String(last.last_date || ''))}</b> ›</button>`
                 : `<div class="pp-last">No prior orders</div>`;
-            const priceHtml = canEditOrderPrice && cartIdx >= 0
-                ? `<input type="number" min="0" step="0.01" class="pp-price-input" data-price="${cartIdx}" value="${Number(unitPrice).toFixed(2)}" inputmode="decimal">`
+            const priceHtml = canEditOrderPrice && cartIdxLoose >= 0
+                ? `<input type="number" min="0" step="0.01" class="pp-price-input" data-price="${cartIdxLoose}" value="${Number(unitPrice).toFixed(2)}" inputmode="decimal">`
                 : `<div class="pp-price">${money(unitPrice)}</div>`;
             el.innerHTML = `
                 <div class="pp-img">${thumb}</div>
@@ -1853,9 +2039,9 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
                     `}
                     <div class="pp-bottom">
                         <div class="sale-ois-qty">
-                            <button type="button" class="is-minus" ${oos || cartIdx < 0 ? 'disabled' : 'data-dec="'+cartIdx+'"'}>−</button>
-                            <input type="text" value="${qty}" ${oos ? 'disabled' : (cartIdx >= 0 ? 'data-qty="'+cartIdx+'"' : '')} class="sale-qty-input" autocomplete="off">
-                            <button type="button" class="is-plus" ${oos ? 'disabled' : (cartIdx >= 0 ? 'data-inc="'+cartIdx+'"' : 'data-add-b="'+idx+'"')}>+</button>
+                            <button type="button" class="is-minus" ${oos || cartIdxLoose < 0 ? 'disabled' : 'data-dec="'+cartIdxLoose+'"'}>−</button>
+                            <input type="text" value="${qty}" ${oos ? 'disabled' : (cartIdxLoose >= 0 ? 'data-qty="'+cartIdxLoose+'"' : '')} class="sale-qty-input" autocomplete="off">
+                            <button type="button" class="is-plus" ${oos ? 'disabled' : (cartIdxLoose >= 0 ? 'data-inc="'+cartIdxLoose+'"' : 'data-add-b="'+idx+'"')}>+</button>
                         </div>
                         <div class="pp-total${qty ? '' : ' zero'}">${money(lineTot)}</div>
                     </div>
@@ -1872,6 +2058,7 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
         }
         const checkoutBtn = document.getElementById('goShippingBtn');
         if (checkoutBtn) checkoutBtn.classList.toggle('is-off', total <= 0);
+        syncParkBtn();
         syncScanUi();
         applyProductView(window.__saleProductView || 'item', false);
 
@@ -1957,7 +2144,11 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
 
     async function fetchJson(url) {
         const res = await fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-        const data = await res.json();
+        if (!res.ok) throw new Error('Request failed');
+        return await res.json();
+    }
+    async function fetchJsonList(url) {
+        const data = await fetchJson(url);
         return Array.isArray(data) ? data : [];
     }
 

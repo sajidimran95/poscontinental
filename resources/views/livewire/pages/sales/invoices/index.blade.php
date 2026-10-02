@@ -43,6 +43,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     /** User who created the related sales order. */
     public string $createdByUserId = '';
 
+    public string $dateFrom = '';
+
+    public string $dateTo = '';
+
     public ?int $selectedId = null;
 
     public string $permissionNotice = '';
@@ -96,6 +100,13 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function mount(): void
     {
         $this->bootDeskListColumns();
+        $today = now()->toDateString();
+        if ($this->dateFrom === '') {
+            $this->dateFrom = $today;
+        }
+        if ($this->dateTo === '') {
+            $this->dateTo = $today;
+        }
         if ($this->pay) {
             $id = (int) $this->pay;
             $this->pay = null;
@@ -121,7 +132,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ])
             ->with([
                 'customer:id,customer_id,company_name,portal_email',
-                'salesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source',
+                'salesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source,sales_rep_id',
                 'salesOrder.createdBy:id,name',
             ])
             ->where('company_id', $companyId)
@@ -152,6 +163,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         } elseif ($this->favorite === 'paid') {
             $query->where('status', 'PAID');
         }
+
+        $this->constrainDeskDateColumn($query, 'invoice_date', $this->dateFrom, $this->dateTo);
 
         if ($this->createdByUserId !== '' && ctype_digit((string) $this->createdByUserId)) {
             $uid = (int) $this->createdByUserId;
@@ -224,10 +237,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 'all' => 'All Invoices',
                 'not_paid' => 'NOT PAID',
                 'paid' => 'PAID',
+                'month' => 'This Month',
+                'today' => 'Today',
             ],
             'listTitle' => match (true) {
                 $this->statusFilter === 'NOT PAID', $this->favorite === 'not_paid' => 'Invoices List (NOT PAID)',
                 $this->statusFilter === 'PAID', $this->favorite === 'paid' => 'Invoices List (PAID)',
+                $this->favorite === 'month' => 'Invoices List (This Month)',
+                $this->favorite === 'today' => 'Invoices List (Today)',
                 default => 'Invoices List',
             },
             'filterUsers' => Cache::remember('orders.filter_users.v1.'.$companyId, 180, fn () => User::assignableSalesRepsQuery($companyId)
@@ -336,13 +353,39 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     {
         $this->resetDeskList();
         $this->selectedId = null;
+        $today = now()->toDateString();
         if ($this->favorite === 'not_paid') {
             $this->statusFilter = 'NOT PAID';
+            // Status is selective; allow all dates so older unpaid invoices stay visible.
+            $this->dateFrom = '';
+            $this->dateTo = '';
         } elseif ($this->favorite === 'paid') {
             $this->statusFilter = 'PAID';
+            $this->dateFrom = $today;
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'today') {
+            $this->statusFilter = '';
+            $this->dateFrom = $today;
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'month') {
+            $this->statusFilter = '';
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
         } elseif ($this->favorite === 'all') {
             $this->statusFilter = '';
+            $this->dateFrom = $today;
+            $this->dateTo = $today;
         }
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->resetDeskList();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetDeskList();
     }
 
     public function updatedCreatedByUserId(): void
@@ -374,6 +417,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->statusFilter = '';
         $this->favorite = 'all';
         $this->createdByUserId = '';
+        $today = now()->toDateString();
+        $this->dateFrom = $today;
+        $this->dateTo = $today;
         $this->selectedId = null;
         $this->resetDeskList();
     }
@@ -1404,6 +1450,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     />
 
                     <div class="orders-toolbar-right">
+                        <label class="desk-toolbar-label" for="invoices-date-from">From</label>
+                        <input id="invoices-date-from" type="date" wire:model.live="dateFrom" class="desk-input" aria-label="Invoice date from" />
+                        <label class="desk-toolbar-label" for="invoices-date-to">To</label>
+                        <input id="invoices-date-to" type="date" wire:model.live="dateTo" class="desk-input" aria-label="Invoice date to" />
                         <select
                             wire:model.live="createdByUserId"
                             class="desk-select orders-party-select"

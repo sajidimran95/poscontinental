@@ -432,6 +432,7 @@ def import_customers(cur, company_id: int, route_map: dict) -> dict:
     now = now_sql()
     id_map = {}
     skipped = 0
+    used_codes: set[str] = set()
     for r in rows:
         chief_id = pick(r, "_CustomerID")
         # Prefer Chief display code first (CustomerID is the account code)
@@ -440,6 +441,11 @@ def import_customers(cur, company_id: int, route_map: dict) -> dict:
             chief_id,
             "C",
         )
+        # Chief sometimes reuses the same CustomerID for different accounts —
+        # keep every row by suffixing CODE-{chiefId} on collisions.
+        if code in used_codes and chief_id is not None:
+            code = f"{code}-{chief_id}"[:64]
+        used_codes.add(code)
         # Prefer name fields
         company_name = s(
             pick(r, "CompanyName", "CustomerName", "Name", "BillToName", "Company"),

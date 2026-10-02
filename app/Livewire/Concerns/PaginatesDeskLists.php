@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Cache;
 
 trait PaginatesDeskLists
 {
-    public int $listLimit = 40;
+    public int $listLimit = 25;
 
     protected function deskListPageSize(): int
     {

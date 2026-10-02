@@ -45,6 +45,10 @@ new #[Layout('layouts.app'), Title('Suppliers')] class extends Component
         $hasSearch = $this->search !== '';
 
         $query = Supplier::query()
+            ->select([
+                'id', 'company_id', 'supplier_id', 'name', 'address', 'phone1', 'email', 'web_page',
+                'contact_name', 'is_inactive', 'is_tobacco_supplier',
+            ])
             ->where('company_id', $companyId)
             ->when($hasSearch, function ($q) {
                 $term = '%'.$this->search.'%';

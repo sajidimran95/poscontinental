@@ -583,6 +583,7 @@ def import_rtv_lines(src_cur, mysql_cur, rtv_map: dict, item_map: dict, item_by_
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import Chief receipts and RTVs into POS MySQL")
     parser.add_argument("--keep-existing", action="store_true", help="Do not delete current receipts/RTVs first")
+    parser.add_argument("--since", default=None, help="Only import receipts/RTVs on or after this date (YYYY-MM-DD)")
     args = parser.parse_args()
 
     company_id = COMPANY_ID
@@ -593,6 +594,21 @@ def main() -> int:
     log.info("Loading Chief receipts and RTVs from MSSQL…")
     receipts = fetch_all(src_cur, "SELECT * FROM dbo.InventoryReceipts_tbl")
     rtvs = fetch_all(src_cur, "SELECT * FROM dbo.RTVs_tbl")
+    if args.since:
+        since = parse_date(args.since)
+        if not since:
+            log.error("Invalid --since date: %s", args.since)
+            return 1
+        br, bt = len(receipts), len(rtvs)
+        receipts = [
+            r for r in receipts
+            if (real_date(pick(r, "ReceiptDate", "DateCreated")) or since) >= since
+        ]
+        rtvs = [
+            r for r in rtvs
+            if (real_date(pick(r, "RtvDate", "RTVDate", "DateCreated")) or since) >= since
+        ]
+        log.info("Filtered to since %s: receipts %s→%s, RTVs %s→%s", args.since, br, len(receipts), bt, len(rtvs))
     log.info("Chief receipts: %s, RTVs: %s", len(receipts), len(rtvs))
 
     conn = mysql_conn()

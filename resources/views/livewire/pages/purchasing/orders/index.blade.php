@@ -9,6 +9,7 @@ use App\Livewire\Concerns\SortsDeskList;
 use App\Models\InventoryReceiving;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -46,6 +47,13 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
     public function mount(): void
     {
         $this->bootDeskListColumns();
+        $today = now()->toDateString();
+        if ($this->dateFrom === '') {
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+        }
+        if ($this->dateTo === '') {
+            $this->dateTo = $today;
+        }
     }
 
     public function with(): array
@@ -53,6 +61,11 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = PurchaseOrder::query()
+            ->select([
+                'id', 'company_id', 'po_number', 'order_type', 'reference_no', 'requisition_date',
+                'status', 'buyer_id', 'required_date', 'supplier_id',
+                'subtotal', 'trade_discount', 'freight', 'miscellaneous', 'tax', 'total',
+            ])
             ->with(['supplier:id,name,supplier_id', 'buyer:id,name'])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
@@ -67,8 +80,6 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             })
             ->when($this->favorite === 'pending', fn ($q) => $q->whereIn('status', ['New', 'Partially Received']))
             ->when($this->favorite === 'received', fn ($q) => $q->where('status', 'Received'))
-            ->when($this->favorite === 'month', fn ($q) => $q->where('requisition_date', '>=', now()->startOfMonth()))
-            ->when($this->favorite === 'today', fn ($q) => $q->whereDate('requisition_date', today()))
             ->when($this->statusFilter === 'pending', fn ($q) => $q->whereIn('status', ['New', 'Partially Received']))
             ->when($this->statusFilter === 'received', fn ($q) => $q->where('status', 'Received'));
         $this->constrainDeskDateColumn($query, 'requisition_date', $this->dateFrom, $this->dateTo);
@@ -111,12 +122,12 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
             'queryOperators' => $this->deskQueryOperatorOptions(),
             'savedDeskQueries' => $this->loadSavedDeskQueries(),
             'deskQueryTitle' => 'Purchase Order Query',
-            'filterSuppliers' => Supplier::query()
+            'filterSuppliers' => Cache::remember('po.filter_suppliers.v1.'.$companyId, 180, fn () => Supplier::query()
                 ->where('company_id', $companyId)
                 ->where('is_inactive', false)
                 ->orderBy('name')
                 ->limit(500)
-                ->get(['id', 'supplier_id', 'name']),
+                ->get(['id', 'supplier_id', 'name'])),
         ] + $this->deskListColumnViewData(1);
     }
 
@@ -205,11 +216,22 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
     {
         $this->resetDeskList();
         $this->selectedId = null;
+        $today = now()->toDateString();
         $this->statusFilter = match ($this->favorite) {
             'pending' => 'pending',
             'received' => 'received',
             default => $this->statusFilter,
         };
+        if ($this->favorite === 'today') {
+            $this->dateFrom = $today;
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'month') {
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'all') {
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
+        }
     }
 
     public function updatedStatusFilter(): void
@@ -250,8 +272,9 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
         $this->search = '';
         $this->statusFilter = '';
         $this->favorite = 'all';
-        $this->dateFrom = '';
-        $this->dateTo = '';
+        $today = now()->toDateString();
+        $this->dateFrom = now()->startOfMonth()->toDateString();
+        $this->dateTo = $today;
         $this->supplierId = '';
         $this->selectedId = null;
         $this->clearQueryCriteria();

@@ -462,6 +462,7 @@ def refresh_status(cur, company_id: int):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import Chief purchase orders into POS MySQL")
     parser.add_argument("--keep-existing", action="store_true", help="Do not delete current POs first")
+    parser.add_argument("--since", default=None, help="Only import POs created on or after this date (YYYY-MM-DD)")
     args = parser.parse_args()
 
     company_id = COMPANY_ID
@@ -471,6 +472,17 @@ def main() -> int:
 
     log.info("Loading Chief purchase orders from MSSQL…")
     orders = fetch_all(src_cur, "SELECT * FROM dbo.PurchaseOrders_tbl")
+    if args.since:
+        since = parse_date(args.since)
+        if not since:
+            log.error("Invalid --since date: %s", args.since)
+            return 1
+        before = len(orders)
+        orders = [
+            r for r in orders
+            if (parse_date(pick(r, "DateCreated", "RequisitionDate")) or since) >= since
+        ]
+        log.info("Filtered POs to since %s: %s→%s", args.since, before, len(orders))
     log.info("Chief purchase orders: %s", len(orders))
 
     conn = mysql_conn()

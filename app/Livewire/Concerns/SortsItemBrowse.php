@@ -54,6 +54,11 @@ trait SortsItemBrowse
             return $query->orderByDesc('created_at')->orderBy('item_code');
         }
 
+        // Qty < 0 filter: -1 → -2 → … (closest to zero first)
+        if (! empty($this->browseQtyLtZero) && in_array($field, ['quantity_in_stock', 'available'], true)) {
+            $dir = 'desc';
+        }
+
         return match ($field) {
             'item_code' => $query->orderBy('item_code', $dir)->orderBy('id', $dir),
             'description' => $query->orderBy('description', $dir)->orderBy('item_code'),

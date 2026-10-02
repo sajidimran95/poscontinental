@@ -411,6 +411,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** @var array<int, array{box_number:string,tracking_number:string}> */
     public array $boxes = [];
 
+    /**
+     * When true, skip per-line tax/credit/AI work (batch insert / multi-add).
+     * Request-local — not a Livewire public property.
+     */
+    protected bool $deferLineSideEffects = false;
+
+    /** @var array<int, int>|null item_id => first line index */
+    protected ?array $lineIndexByItemId = null;
+
+    /** @var array<int, float>|null item_id => qty on this order */
+    protected ?array $orderQtyByItemId = null;
+
+    /** @var array{id:int,credit_limit:float,balance:float,available_credit:float}|null */
+    protected ?array $creditSnapshot = null;
+
     public function mount(mixed $salesOrder = null): void
     {
         if (! $salesOrder instanceof SalesOrder && is_numeric($salesOrder)) {
@@ -633,7 +648,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
         if ($this->createWindowId && ! $this->salesOrder?->exists) {
-            $this->persistCreateWindowDraft();
+            // Throttle draft writes while scanning/adding many lines (session+cache is expensive).
+            $this->persistCreateWindowDraft(force: false);
         }
     }
 
@@ -729,7 +745,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function updatedActiveTab(): void
     {
-        $this->persistCreateWindowDraft();
+        $this->persistCreateWindowDraft(force: true);
     }
 
     public function exportLinesToExcel(): mixed
@@ -803,10 +819,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         return ExcelCsv::download('browse-items.csv', ['Item Code', 'Description', 'UOM', 'Price', 'Available', 'On Hand'], $rows);
     }
 
-    protected function persistCreateWindowDraft(): void
+    protected function persistCreateWindowDraft(bool $force = true): void
     {
         if (! $this->createWindowId) {
             return;
+        }
+
+        // Rapid scan/add: avoid rewriting the full lines array to session+cache every request.
+        if (! $force) {
+            $throttleKey = 'so.draft.throttle.'.$this->createWindowId;
+            if (Cache::has($throttleKey)) {
+                return;
+            }
+            Cache::put($throttleKey, 1, 3);
+        } else {
+            Cache::forget('so.draft.throttle.'.$this->createWindowId);
         }
 
         $draft = [];
@@ -1007,12 +1034,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return 0.0;
         }
 
-        $current = 0.0;
-        foreach ($this->lines as $line) {
-            if ((int) ($line['item_id'] ?? 0) === $itemId) {
-                $current += (float) ($line['qty_ordered'] ?? 0);
-            }
-        }
+        $qtyMap = $this->orderQtyMap();
+        $current = (float) ($qtyMap[$itemId] ?? 0.0);
 
         $previous = 0.0;
         if ($this->salesOrder?->exists) {
@@ -1023,6 +1046,70 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         return $current - $previous;
+    }
+
+    /**
+     * @return array<int, float> item_id => qty_ordered on this form
+     */
+    protected function orderQtyMap(): array
+    {
+        if ($this->orderQtyByItemId !== null) {
+            return $this->orderQtyByItemId;
+        }
+
+        $map = [];
+        foreach ($this->lines as $line) {
+            $id = (int) ($line['item_id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $map[$id] = ($map[$id] ?? 0.0) + (float) ($line['qty_ordered'] ?? 0);
+        }
+
+        return $this->orderQtyByItemId = $map;
+    }
+
+    /**
+     * @return array<int, int> item_id => first line index
+     */
+    protected function lineIndexMap(): array
+    {
+        if ($this->lineIndexByItemId !== null) {
+            return $this->lineIndexByItemId;
+        }
+
+        $map = [];
+        foreach ($this->lines as $i => $line) {
+            $id = (int) ($line['item_id'] ?? 0);
+            if ($id <= 0 || isset($map[$id])) {
+                continue;
+            }
+            $map[$id] = (int) $i;
+        }
+
+        return $this->lineIndexByItemId = $map;
+    }
+
+    protected function invalidateLineCaches(): void
+    {
+        $this->lineIndexByItemId = null;
+        $this->orderQtyByItemId = null;
+    }
+
+    protected function rememberLineIndex(int $itemId, int $index): void
+    {
+        if ($itemId <= 0) {
+            return;
+        }
+        if ($this->lineIndexByItemId === null) {
+            $this->lineIndexMap();
+        }
+        if (! isset($this->lineIndexByItemId[$itemId])) {
+            $this->lineIndexByItemId[$itemId] = $index;
+        }
+        if ($this->orderQtyByItemId === null) {
+            $this->orderQtyMap();
+        }
     }
 
     protected function refreshSelectedLineStock(?int $index = null, ?Item $knownItem = null): void
@@ -1039,7 +1126,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ? $knownItem
             : Item::query()
                 ->where('company_id', auth()->user()->company_id)
-                ->find($itemId);
+                ->find($itemId, ['id', 'item_code', 'quantity_in_stock', 'allocated_qty']);
 
         if (! $item) {
             $this->clearSelectedStock();
@@ -1049,12 +1136,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $onHand = (float) $item->quantity_in_stock;
         $allocated = (float) $item->allocated_qty;
-        $orderedOnOrder = 0.0;
-        foreach ($this->lines as $line) {
-            if ((int) ($line['item_id'] ?? 0) === $itemId) {
-                $orderedOnOrder += (float) ($line['qty_ordered'] ?? 0);
-            }
-        }
+        $orderedOnOrder = (float) ($this->orderQtyMap()[$itemId] ?? 0.0);
 
         $delta = $this->orderQtyDeltaForItem($itemId);
         $invoiced = (bool) $this->salesOrder?->invoice;
@@ -1087,10 +1169,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lineMsgDescription = (string) ($this->lines[$i]['description'] ?? '');
     }
 
-    public function removeSelectedLine(): void
+    public function removeSelectedLine(): mixed
     {
+        // Red toolbar X: remove selected line, or leave/cancel order if none selected.
         if ($this->selectedLineIndex === null) {
-            return;
+            $url = $this->cancelLeaveUrl();
+            $this->skipWindowDraftPersist = true;
+            $this->lines = [];
+            $this->js('window.location.replace('.json_encode($url).')');
+            $this->skipRender();
+
+            return null;
         }
         $this->removeLine($this->selectedLineIndex);
         $this->selectedLineIndex = null;
@@ -1099,6 +1188,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showLineMessageAlert = false;
         $this->syncLineContextHeader(null);
         $this->clearSelectedStock();
+
+        return null;
     }
 
     public function openLineSubstitutes(?int $index = null): void
@@ -1608,31 +1699,55 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         ->all()
                 ))->filter(fn ($r) => is_array($r) && isset($r['id']))
                 : collect(),
-            'browseItems' => collect($this->browseRows)->map(function (array $row) {
-                $id = (int) ($row['id'] ?? 0);
-                $delta = $this->orderQtyDeltaForItem($id);
-                $onHand = (float) ($row['on_hand'] ?? 0);
-                $available = (float) ($row['available'] ?? 0);
-                $invoiced = (bool) $this->salesOrder?->invoice;
-                if ($invoiced) {
-                    $onHand -= $delta;
-                    $row['on_hand'] = $onHand;
-                    $row['available'] = $onHand;
-                } else {
-                    $row['available'] = $available - $delta;
+            'browseItems' => (function () {
+                if ($this->browseRows === []) {
+                    return collect();
                 }
+                $qtyMap = $this->orderQtyMap();
+                $prevByItem = [];
+                if ($this->salesOrder?->exists) {
+                    $this->salesOrder->loadMissing('lines');
+                    foreach ($this->salesOrder->lines as $prev) {
+                        $pid = (int) ($prev->item_id ?? 0);
+                        if ($pid > 0) {
+                            $prevByItem[$pid] = ($prevByItem[$pid] ?? 0.0) + (float) $prev->qty_ordered;
+                        }
+                    }
+                }
+                $invoiced = (bool) $this->salesOrder?->invoice;
 
-                return $row;
-            }),
+                return collect($this->browseRows)->map(function (array $row) use ($qtyMap, $prevByItem, $invoiced) {
+                    $id = (int) ($row['id'] ?? 0);
+                    $delta = ($qtyMap[$id] ?? 0.0) - ($prevByItem[$id] ?? 0.0);
+                    $onHand = (float) ($row['on_hand'] ?? 0);
+                    $available = (float) ($row['available'] ?? 0);
+                    if ($invoiced) {
+                        $onHand -= $delta;
+                        $row['on_hand'] = $onHand;
+                        $row['available'] = $onHand;
+                    } else {
+                        $row['available'] = $available - $delta;
+                    }
+
+                    return $row;
+                });
+            })(),
             'browseCustomers' => $browseCustomers,
             'isTypingCustomer' => $isTypingCustomer,
             'browseCategories' => $this->showBrowse
-                ? Category::query()
-                    ->where('company_id', $companyId)
-                    ->where('is_active', true)
-                    ->orderBy('code')
-                    ->orderBy('name')
-                    ->get(['id', 'code', 'name'])
+                ? collect(Cache::remember(
+                    'lookups.categories.v1.'.$companyId,
+                    180,
+                    fn () => Category::query()
+                        ->where('company_id', $companyId)
+                        ->where('is_active', true)
+                        ->orderBy('code')
+                        ->orderBy('name')
+                        ->get(['id', 'code', 'name'])
+                        ->map(fn ($r) => ['id' => (int) $r->id, 'code' => (string) $r->code, 'name' => (string) $r->name])
+                        ->values()
+                        ->all()
+                ))->map(fn ($r) => (object) $r)
                 : collect(),
             'browseSubcategories' => ($this->showBrowse && $this->browseCategoryId)
                 ? Subcategory::query()
@@ -1652,13 +1767,29 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             'totalDiscounts' => $filledLines->sum(fn ($l) => (float) $l['discount']),
             'totalAllowances' => 0,
             'hasLines' => $filledLines->isNotEmpty(),
-            'parkedCount' => app(ParkedSaleService::class)->listFor(auth()->user())->count(),
-            'taxSchedules' => TaxSchedule::query()
-                ->where('company_id', $companyId)
-                ->where('is_active', true)
-                ->orderBy('rate')
-                ->orderBy('name')
-                ->get(['id', 'code', 'name', 'rate']),
+            'parkedCount' => (int) Cache::remember(
+                'parked.count.'.(int) auth()->id(),
+                15,
+                fn () => app(ParkedSaleService::class)->listFor(auth()->user())->count()
+            ),
+            'taxSchedules' => collect(Cache::remember(
+                'lookups.tax_schedules.v1.'.$companyId,
+                180,
+                fn () => TaxSchedule::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->orderBy('rate')
+                    ->orderBy('name')
+                    ->get(['id', 'code', 'name', 'rate'])
+                    ->map(fn ($r) => [
+                        'id' => (int) $r->id,
+                        'code' => (string) $r->code,
+                        'name' => (string) $r->name,
+                        'rate' => (float) $r->rate,
+                    ])
+                    ->values()
+                    ->all()
+            ))->map(fn ($r) => (object) $r),
             'canChangePrice' => $this->userCanChangeOrderPrice(),
             'itemNewDays' => defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30,
             'oversellingOn' => StockPolicy::allowsNegativeStock(),
@@ -1757,6 +1888,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function setBrowseQtyLtZero(bool $on = true): void
     {
         $this->browseQtyLtZero = $on;
+        if ($on) {
+            // Closest to zero first among negatives: -1, -2, -3… (not deepest negatives at top)
+            $this->browseSortField = 'quantity_in_stock';
+            $this->browseSortDir = 'desc';
+        }
         $this->browseSavedSearchOpen = true;
         if ($this->showBrowse) {
             $this->resetBrowseAndLoadFirstPage();
@@ -1941,26 +2077,48 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $companyId = (int) auth()->user()->company_id;
         $added = 0;
         $deferredSubstitute = null;
+        $addedItemIds = [];
 
-        foreach ($ids as $itemId) {
-            $item = Item::query()
-                ->with(['prices', 'taxSchedule'])
-                ->where('company_id', $companyId)
-                ->find($itemId);
-            if (! $item) {
-                continue;
-            }
-            if ($this->shouldPromptForceSubstitute($item)) {
-                if ($deferredSubstitute === null) {
-                    $deferredSubstitute = $item;
+        $items = Item::query()
+            ->with(['prices', 'taxSchedule'])
+            ->where('company_id', $companyId)
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $this->deferLineSideEffects = true;
+        try {
+            foreach ($ids as $itemId) {
+                $item = $items->get($itemId);
+                if (! $item) {
+                    continue;
                 }
+                if ($this->shouldPromptForceSubstitute($item)) {
+                    if ($deferredSubstitute === null) {
+                        $deferredSubstitute = $item;
+                    }
 
-                continue;
+                    continue;
+                }
+                if ($this->canAddItemToOrder($item)) {
+                    $this->appendItemLine($item);
+                    $added++;
+                    $addedItemIds[] = (int) $item->id;
+                }
             }
-            if ($this->canAddItemToOrder($item)) {
-                $this->appendItemLine($item);
-                $added++;
+        } finally {
+            $this->deferLineSideEffects = false;
+        }
+
+        if ($added > 0) {
+            $this->taxManual = false;
+            $this->refreshCreditWarning();
+            $this->suggestTax();
+            $lastIndex = $this->selectedLineIndex;
+            if ($lastIndex !== null) {
+                $this->highlightScannedLine($lastIndex);
             }
+            $this->playPosSound('success');
         }
 
         $this->itemEntry = '';
@@ -1986,8 +2144,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->notifyAlert($added.' item(s) added. Some out-of-stock items were skipped (need substitute).', 'warning');
         }
 
-        if ($this->showBrowse) {
-            $this->resetBrowseAndLoadFirstPage();
+        // Keep the open browse page — do not re-count/reload 10k items after each insert.
+        if ($this->showBrowse && $addedItemIds !== []) {
+            $this->refreshBrowseStockFromDatabase($addedItemIds);
             $this->focusBrowseSearch();
         }
     }
@@ -2209,8 +2368,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->browseHasMore = false;
         $this->browseLoadingMore = false;
         $companyId = (int) auth()->user()->company_id;
-        $this->browseTotal = $this->browseBaseQuery($companyId)->count();
+        $this->browseTotal = $this->browseFilteredCount($companyId);
         $this->appendBrowsePage(0);
+    }
+
+    /**
+     * COUNT(*) on the full sellable catalog is expensive (~10k+). Cache the unfiltered total.
+     */
+    protected function browseFilteredCount(int $companyId): int
+    {
+        $hasFilters = $this->browseNewOnly
+            || $this->browseQtyLtZero
+            || $this->browseCategoryId
+            || $this->browseSubcategoryId
+            || filled($this->browseSearch);
+
+        $query = $this->browseBaseQuery($companyId);
+        if (! $hasFilters) {
+            return (int) Cache::remember(
+                'so.browse.sellable_count.'.$companyId,
+                60,
+                fn () => (int) $query->count()
+            );
+        }
+
+        return (int) $query->count();
     }
 
     protected function appendBrowsePage(int $offset): void
@@ -2219,9 +2401,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $newDays = defined(Item::class.'::NEW_ITEM_DAYS') ? Item::NEW_ITEM_DAYS : 30;
         $newSince = now()->subDays($newDays);
 
+        // Fetch pageSize+1 so hasMore does not depend on recounting the full catalog.
         $rows = $this->applyBrowseOrder($this->browseBaseQuery($companyId))
             ->offset($offset)
-            ->limit(self::BROWSE_PAGE_SIZE)
+            ->limit(self::BROWSE_PAGE_SIZE + 1)
             ->get([
                 'id',
                 'item_code',
@@ -2232,6 +2415,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'allocated_qty',
                 'created_at',
             ]);
+
+        $hasMore = $rows->count() > self::BROWSE_PAGE_SIZE;
+        if ($hasMore) {
+            $rows = $rows->take(self::BROWSE_PAGE_SIZE);
+        }
 
         $uoms = $this->browseUomsForRows($rows);
 
@@ -2267,7 +2455,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
-        $this->browseHasMore = count($this->browseRows) < $this->browseTotal;
+        $this->browseHasMore = $hasMore;
+        // Keep Record Count honest when we skipped a full recount during load-more.
+        if ($this->browseTotal < count($this->browseRows)) {
+            $this->browseTotal = count($this->browseRows) + ($hasMore ? 1 : 0);
+        }
     }
 
     /**
@@ -2455,6 +2647,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $newId) {
             $this->customerAlert = '';
             $this->creditWarning = '';
+            $this->creditSnapshot = null;
             $this->aiCreditTrend = '';
             $this->aiReorderNote = '';
             $this->aiAddOns = [];
@@ -2471,6 +2664,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if (! $customer) {
             $this->customerAlert = '';
             $this->creditWarning = '';
+            $this->creditSnapshot = null;
             $this->aiCreditTrend = '';
             $this->aiReorderNote = '';
             $this->aiAddOns = [];
@@ -2532,6 +2726,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->showShipToModal = false;
         $this->syncCustomerTypeQuery($customer);
         $this->shipToFlash = '';
+        $this->creditSnapshot = null;
         $this->refreshCreditWarning();
         $this->refreshAiCustomerHints($customer);
         $this->suggestTax();
@@ -2793,6 +2988,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function updatedLines($value = null, $key = null): void
     {
+        if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount|item_id)$/', $key, $m)) {
+            $this->orderQtyByItemId = null;
+            if ($m[2] === 'item_id') {
+                $this->lineIndexByItemId = null;
+            }
+        }
         if (is_string($key) && preg_match('/^(\d+)\.(qty_ordered|unit_discount)$/', $key, $m)) {
             $i = (int) $m[1];
             if ($m[2] === 'qty_ordered' && isset($this->lines[$i])) {
@@ -3157,21 +3358,40 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         $this->creditWarning = '';
         if (! $this->customer_id) {
+            $this->creditSnapshot = null;
+
             return;
         }
-        $customer = Customer::query()->find($this->customer_id);
-        if (! $customer || (float) $customer->credit_limit <= 0) {
+
+        $customerId = (int) $this->customer_id;
+        if ($this->creditSnapshot === null || (int) ($this->creditSnapshot['id'] ?? 0) !== $customerId) {
+            $customer = Customer::query()->find($customerId, ['id', 'credit_limit', 'balance']);
+            if (! $customer || (float) $customer->credit_limit <= 0) {
+                $this->creditSnapshot = ['id' => $customerId, 'credit_limit' => 0.0, 'balance' => 0.0, 'available_credit' => 0.0];
+
+                return;
+            }
+            $this->creditSnapshot = [
+                'id' => $customerId,
+                'credit_limit' => (float) $customer->credit_limit,
+                'balance' => (float) $customer->balance,
+                'available_credit' => (float) $customer->available_credit,
+            ];
+        }
+
+        if ((float) ($this->creditSnapshot['credit_limit'] ?? 0) <= 0) {
             return;
         }
-        $available = (float) $customer->available_credit;
+
+        $available = (float) $this->creditSnapshot['available_credit'];
         $total = $this->orderTotalAmount();
         if ($total > $available) {
             $this->creditWarning = sprintf(
                 'Order total $%s exceeds available credit $%s (limit $%s − balance $%s).',
                 number_format($total, 2),
                 number_format($available, 2),
-                number_format((float) $customer->credit_limit, 2),
-                number_format((float) $customer->balance, 2),
+                number_format((float) $this->creditSnapshot['credit_limit'], 2),
+                number_format((float) $this->creditSnapshot['balance'], 2),
             );
         }
     }
@@ -3379,13 +3599,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function removeLine(int $i): void
     {
-        $this->openRemoveLineConfirm($i);
+        // Direct remove — confirm modal felt broken/slow with large carts.
+        $this->performRemoveLine($i);
     }
 
     protected function performRemoveLine(int $i): void
     {
         unset($this->lines[$i]);
         $this->lines = array_values($this->lines);
+        $this->invalidateLineCaches();
         if ($this->selectedLineIndex === $i) {
             $this->selectedLineIndex = null;
             $this->clearSelectedStock();
@@ -4206,7 +4428,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             || str_contains(strtolower($this->lineWarning), 'not found')) {
             $this->lineWarning = '';
         }
-        $this->clearAndFocusEntry();
+        // Box already cleared in the browser — skip heavy 600-line re-render.
+        $this->skipRender();
     }
 
     /**
@@ -4266,8 +4489,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->browseSelectedId = null;
             $this->dispatch('browse-checks-cleared');
             $this->queueItemOrPromptSubstitute($item);
+            // Do not reload the full browse list after every insert — just refresh stock for this SKU.
             if ($this->showBrowse) {
-                $this->resetBrowseAndLoadFirstPage();
+                $this->refreshBrowseStockFromDatabase([(int) $item->id]);
                 $this->focusBrowseSearch();
             }
         } else {
@@ -4539,6 +4763,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($existingIndex !== null) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
             $this->lines[$existingIndex]['qty_ordered'] = $this->formatQty($qty + 1);
+            $this->orderQtyByItemId = null;
             $this->recalcLineDiscount($existingIndex);
             $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
             $instr = trim((string) ($this->lines[$existingIndex]['instructions'] ?? ''));
@@ -4547,18 +4772,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->showLineMessageAlert = $msg !== '' || $instr !== '';
             $this->refreshSelectedLineStock($existingIndex, $item);
             $this->taxManual = false;
-            $this->refreshCreditWarning();
-            $this->suggestTax();
-            $this->highlightScannedLine($existingIndex);
-            $this->playPosSound('success');
+            if (! $this->deferLineSideEffects) {
+                $this->refreshCreditWarning();
+                $this->suggestTax();
+                $this->highlightScannedLine($existingIndex);
+                $this->playPosSound('success');
+            }
 
             return;
         }
 
         $this->lines[] = $this->emptyLine();
-        $this->fillLineFromItem(count($this->lines) - 1, $item);
-        $this->highlightScannedLine(count($this->lines) - 1);
-        $this->playPosSound('success');
+        $index = count($this->lines) - 1;
+        $this->fillLineFromItem($index, $item);
+        $this->rememberLineIndex((int) $item->id, $index);
+        if (! $this->deferLineSideEffects) {
+            $this->highlightScannedLine($index);
+            $this->playPosSound('success');
+        }
     }
 
     protected function highlightScannedLine(int $index): void
@@ -4586,10 +4817,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function findLineIndexForItem(int $itemId): ?int
     {
-        foreach ($this->lines as $i => $line) {
-            if ((int) ($line['item_id'] ?? 0) === $itemId) {
-                return (int) $i;
-            }
+        $map = $this->lineIndexMap();
+        if (isset($map[$itemId])) {
+            return $map[$itemId];
         }
 
         return null;
@@ -4650,32 +4880,39 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->orderLineMessagePopup = '';
         $this->orderLineInstructionsPopup = '';
         $this->showLineMessageAlert = false;
+        $this->rememberLineIndex((int) $item->id, $index);
         $this->refreshSelectedLineStock($index, $item);
         if ($item->relationLoaded('taxSchedule') || $item->tax_schedule_id) {
             $this->itemTaxRateCache[(int) $item->id] = (float) ($item->taxSchedule?->rate ?? 0);
         }
         $this->taxManual = false;
-        $this->refreshCreditWarning();
-        $this->suggestTax();
-        $this->highlightScannedLine($index);
-        $this->refreshAiAddOns($item);
-        $priceAlert = app(ItemPriceHistoryService::class)->salesAlertPayload($item);
-        if ($priceAlert) {
-            $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
-            $this->lineWarning = $priceAlert['price_update_message'];
-            $this->lineWarningKind = 'info';
-            $this->lineWarningTick++;
-            $this->priceUpdateAlertKind = $kind === 'cost' ? 'cost' : 'sales';
-            $this->priceUpdateAlertTitle = $this->priceUpdateAlertKind === 'cost'
-                ? 'PO / Cost updated'
-                : 'Sales price updated';
-            $code = trim((string) $item->item_code);
-            $this->priceUpdateAlertMessage = trim(
-                ($code !== '' ? $code.' — ' : '')
-                .($priceAlert['price_update_message'] ?? '')
-            );
-            $this->showPriceUpdateAlertModal = true;
-            $this->js('window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss("line")');
+        $this->orderQtyByItemId = null;
+        if (! $this->deferLineSideEffects) {
+            $this->refreshCreditWarning();
+            $this->suggestTax();
+            $this->refreshAiAddOns($item);
+            $priceAlert = app(ItemPriceHistoryService::class)->salesAlertPayload($item);
+            if ($priceAlert) {
+                $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
+                $this->lineWarning = $priceAlert['price_update_message'];
+                $this->lineWarningKind = 'info';
+                $this->lineWarningTick++;
+                $this->priceUpdateAlertKind = $kind === 'cost' ? 'cost' : 'sales';
+                $this->priceUpdateAlertTitle = $this->priceUpdateAlertKind === 'cost'
+                    ? 'PO / Cost updated'
+                    : 'Sales price updated';
+                $code = trim((string) $item->item_code);
+                $this->priceUpdateAlertMessage = trim(
+                    ($code !== '' ? $code.' — ' : '')
+                    .($priceAlert['price_update_message'] ?? '')
+                );
+                $this->showPriceUpdateAlertModal = true;
+                $this->js('window.scheduleSoBannerDismiss && window.scheduleSoBannerDismiss("line")');
+            }
+        } else {
+            // Batch path: keep selection on the last filled line without per-row scroll JS.
+            $this->selectedLineIndex = $index;
+            $this->syncLineContextHeader($index);
         }
     }
 
@@ -4837,8 +5074,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         $isInvoicedDoc = (bool) $this->salesOrder?->invoice;
+        $stockItems = Item::query()
+            ->whereIn('id', array_keys($neededByItem))
+            ->get(['id', 'item_code', 'quantity_in_stock', 'allocated_qty', 'allow_back_order', 'company_id'])
+            ->keyBy('id');
         foreach ($neededByItem as $itemId => $needed) {
-            $item = Item::query()->find($itemId);
+            $item = $stockItems->get($itemId);
             if (! $item) {
                 $this->addError('lines', 'One or more items could not be found.');
                 $this->activeTab = 'items';
@@ -5003,6 +5244,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $order = SalesOrder::query()->create($data);
             }
 
+            $lineRows = [];
+            $now = now();
             foreach (array_values($this->lines) as $i => $line) {
                 if (! filled($line['item_code'] ?? null)) {
                     continue;
@@ -5019,7 +5262,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $discount = isset($line['unit_discount'])
                     ? round($qty * $unitDiscount, 4)
                     : (float) ($line['discount'] ?? 0);
-                $order->lines()->create([
+                $lineRows[] = [
+                    'sales_order_id' => $order->id,
                     'item_id' => (int) $line['item_id'],
                     'item_code' => $line['item_code'],
                     'description' => $line['description'] ?: null,
@@ -5032,7 +5276,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'instructions' => filled($line['instructions'] ?? null) ? $line['instructions'] : null,
                     'line_total' => ($qty * $price) - $discount,
                     'line_no' => $i + 1,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            foreach (array_chunk($lineRows, 250) as $chunk) {
+                DB::table('sales_order_lines')->insert($chunk);
             }
 
             foreach (array_values($this->boxes) as $i => $box) {
@@ -5352,21 +5601,34 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         });
     }
 
+    /**
+     * Leave the order screen without Livewire morphing hundreds of lines.
+     * Browser navigates straight to the lightweight leave route.
+     */
+    public function cancelLeaveUrl(): string
+    {
+        return route('sales.orders.leave', array_filter([
+            'order' => ($this->salesOrder instanceof SalesOrder && $this->salesOrder->exists)
+                ? $this->salesOrder->id
+                : null,
+            'w' => $this->createWindowId ?: null,
+            'to_invoices' => $this->shouldReturnToInvoiceList() ? 1 : null,
+        ]));
+    }
+
     public function cancelAction(): mixed
     {
-        if ($this->salesOrder?->exists) {
-            $this->salesOrder->releaseEditLock(auth()->user());
+        // Avoid Livewire hydrate/morph of the full lines array — jump immediately.
+        $url = $this->cancelLeaveUrl();
+        $this->skipWindowDraftPersist = true;
+        $this->lines = [];
+        $this->boxes = [];
+        $this->browseCheckedIds = [];
+        $this->entryHits = [];
+        $this->js('window.location.replace('.json_encode($url).')');
+        $this->skipRender();
 
-            return $this->redirect(route('sales.orders.index'), navigate: true);
-        }
-
-        if ($this->createWindowId) {
-            $this->closeCreateWindow($this->createWindowId);
-
-            return null;
-        }
-
-        return $this->redirect(route('sales.orders.index'), navigate: true);
+        return null;
     }
 }; ?>
 
@@ -5379,7 +5641,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             @elseif (! ($salesOrder instanceof \App\Models\SalesOrder && $salesOrder->exists))
                 <x-action-item label="Edit" kbd="Ctrl+E" sep wire:click="openOpenOrderModal" />
             @endif
-            <x-action-item label="Cancel" kbd="Ctrl+Z" sep wire:click="cancelAction" />
+            <x-action-item
+                label="Cancel"
+                kbd="Ctrl+Z"
+                sep
+                x-on:click.prevent="window.location.replace(@js($this->cancelLeaveUrl()))"
+            />
         </x-slot:menu>
     </x-action-bar>
 
@@ -5902,7 +6169,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                         <td class="col-num">
                                             @if ($selectedLineIndex === $i && ! $viewMode && $filled)
                                                 <input
-                                                    wire:model.live="lines.{{ $i }}.unit_discount"
+                                                    wire:model.blur="lines.{{ $i }}.unit_discount"
                                                     wire:click.stop
                                                     wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'unit_discount', 1)"
                                                     wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'unit_discount', -1)"
@@ -5919,16 +6186,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 ${{ number_format(($qty * (float) $line['price']) - $lineDisc, 2) }}
                                             @endif
                                         </td>
-                                        <td class="col-action">
+                                        <td class="col-action" wire:click.stop>
                                             @if ($filled && ! $viewMode)
                                                 <button
                                                     type="button"
-                                                    wire:click.stop="removeLine({{ $i }})"
                                                     class="so-icon-btn so-icon-btn-sm so-line-remove-btn"
-                                                    title="Remove item"
+                                                    title="Remove this item"
                                                     aria-label="Remove item {{ $line['item_code'] }}"
+                                                    wire:click="removeLine({{ $i }})"
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="removeLine({{ $i }})"
+                                                    onclick="event.preventDefault(); event.stopPropagation();"
                                                 >
-                                                    <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                                    <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6" aria-hidden="true" style="pointer-events:none"><path d="M3 3l6 6M9 3L3 9"/></svg>
                                                 </button>
                                             @endif
                                         </td>
@@ -6006,12 +6276,18 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             @unless ($viewMode)
                                 <button
                                     type="button"
-                                    wire:click="clearItemEntry"
                                     class="so-icon-btn"
                                     title="Clear item code"
                                     aria-label="Clear item code"
+                                    wire:click="clearItemEntry"
+                                    onclick="
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        var el = document.getElementById('so-item-entry');
+                                        if (el) { el.value = ''; el.focus(); }
+                                    "
                                 >
-                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" style="pointer-events:none"><path d="M3 3l6 6M9 3L3 9"/></svg>
                                 </button>
                                 <button
                                     type="button"
@@ -6039,7 +6315,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                             <button type="button" wire:click="printPickList" class="so-icon-btn" title="Print pick list" tabindex="-1" aria-label="Print pick list">
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 2h8v8H2zM4 4h4M4 6h4M4 8h2"/></svg>
                             </button>
-                            <button type="button" wire:click="removeSelectedLine" class="so-icon-btn" title="Delete selected line" tabindex="-1" aria-label="Delete line">
+                            <button
+                                type="button"
+                                wire:click="removeSelectedLine"
+                                class="so-icon-btn"
+                                title="Delete selected line — or Cancel order if none selected"
+                                tabindex="-1"
+                                aria-label="Delete line or cancel order"
+                            >
                                 <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
                             </button>
                             <button type="button" wire:click="addLine" class="so-icon-btn" title="New line" aria-label="New line">
@@ -6338,7 +6621,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             />
         </div>
         <div class="so-bottom-actions">
-            <a href="{{ $returnToInvoiceList ? route('sales.invoices.index') : route('sales.orders.index') }}" wire:navigate class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
+            <a href="{{ $this->cancelLeaveUrl() }}" class="so-btn-cancel">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
             @if ($viewMode && $salesOrder instanceof \App\Models\SalesOrder)
                 <button type="button" wire:click="enterEditMode" class="so-btn-save">
                     {{ $salesOrder->invoice ? 'Edit Invoice' : 'Edit Order' }}

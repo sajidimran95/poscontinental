@@ -4548,6 +4548,14 @@
         background: #fff;
     }
 
+    /* Invisible trigger at list bottom — auto-loads next page on mouse scroll */
+    .desk-scroll-sentinel {
+        height: 1px;
+        width: 100%;
+        pointer-events: none;
+        flex: 0 0 auto;
+    }
+
     /* List tables: stretch to viewport, truncate long cells (Orders / Items / Invoices / etc.) */
     .desk-grid > .desk-table {
         table-layout: fixed;

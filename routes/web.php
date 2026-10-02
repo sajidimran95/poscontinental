@@ -171,6 +171,8 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Route::post('sales/orders/create/windows/{window}/close', [SalesOrderWindowController::class, 'close'])
         ->where('window', '[0-9a-fA-F\-]{36}')
         ->name('sales.orders.windows.close');
+    Route::get('sales/orders/leave', [SalesOrderWindowController::class, 'leave'])
+        ->name('sales.orders.leave');
     Volt::route('sales/orders/create', 'pages.sales.orders.form')->name('sales.orders.create');
     Route::get('sales/orders/{salesOrder}/print', [DocumentPdfController::class, 'salesOrder'])
         ->name('sales.orders.print');

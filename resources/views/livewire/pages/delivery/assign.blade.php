@@ -148,6 +148,10 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
         $term = trim($this->search);
 
         $invoicesQuery = Invoice::query()
+            ->select([
+                'id', 'company_id', 'invoice_number', 'invoice_date', 'customer_id', 'sales_order_id',
+                'status', 'invoice_total',
+            ])
             ->with([
                 'customer:id,customer_id,company_name,telephone',
                 'salesOrder:id,order_number,delivery_status,delivery_user_id,ship_to_city,ship_to_state,ship_to_zip,ship_to_address,bill_to_name',
@@ -173,9 +177,9 @@ new #[Layout('layouts.app'), Title('Delivery Management')] class extends Compone
                             ->orWhere('telephone', 'like', $like);
                     })->orWhereHas('salesOrder', fn ($o) => $o->where('bill_to_name', 'like', $like));
                 });
-            })
-            ->when($this->date_from !== '', fn ($q) => $q->whereDate('invoice_date', '>=', $this->date_from))
-            ->when($this->date_to !== '', fn ($q) => $q->whereDate('invoice_date', '<=', $this->date_to))
+            });
+        $this->constrainDeskDateColumn($invoicesQuery, 'invoice_date', $this->date_from, $this->date_to);
+        $invoicesQuery
             ->when($term !== '', function ($q) use ($term) {
                 $like = '%'.$term.'%';
                 $q->where(function ($inner) use ($like) {

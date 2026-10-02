@@ -61,8 +61,11 @@ def fetch_all(cur, sql: str) -> list[dict]:
     return rows
 
 
-def iter_rows(cur, sql: str, size: int = 2000):
-    cur.execute(sql)
+def iter_rows(cur, sql: str, size: int = 2000, params=None):
+    if params is None:
+        cur.execute(sql)
+    else:
+        cur.execute(sql, params)
     cols = [d[0] for d in cur.description]
     while True:
         chunk = cur.fetchmany(size)
@@ -96,7 +99,10 @@ def money(val) -> float:
 
 
 def load_customer_map(mysql_cur, company_id: int) -> dict[str, int]:
-    """Chief _CustomerID → MySQL customers.id via Customers_tbl display code."""
+    """Chief _CustomerID → MySQL customers.id via Customers_tbl display code.
+
+    Duplicate Chief CustomerID codes may be stored as CODE or CODE-{chiefId}.
+    """
     path = find_csv("Customers_tbl.csv")
     code_by_chief: dict[str, str] = {}
     if path:
@@ -112,7 +118,7 @@ def load_customer_map(mysql_cur, company_id: int) -> dict[str, int]:
     by_code = {str(r["customer_id"]): int(r["id"]) for r in mysql_cur.fetchall() if r["customer_id"]}
     out = {}
     for chief_id, code in code_by_chief.items():
-        mid = by_code.get(code)
+        mid = by_code.get(f"{code}-{chief_id}") or by_code.get(code)
         if mid:
             out[chief_id] = mid
     log.info("Customer map: %s chief ids -> mysql", len(out))
@@ -292,18 +298,11 @@ def import_orders(cur, company_id: int, customer_map: dict, orders: list[dict]) 
 
 def import_lines(mssql_cur, mysql_cur, mysql_conn_obj, order_map: dict, item_map: dict, item_by_code: dict):
     now = now_sql()
-    sql = """
-        SELECT _OrderID, Sequence, _ItemID, ItemCode, ItemDescription, UnitOfMeasure,
-               QuantityOrdered, QuantityShipped, Price, Discount, ExtendedTotal,
-               ItemMessage, LineInstructions
-        FROM dbo.SalesOrderDetails_tbl
-        WHERE _OrderID IN (
-            SELECT _OrderID FROM dbo.Invoices_Orders_tbl
-            UNION
-            SELECT _OrderID FROM dbo.CreditMemos_Orders_tbl
-        )
-        ORDER BY _OrderID, Sequence, _LineID
-    """
+    order_ids = [oid for oid in order_map.keys() if oid]
+    if not order_ids:
+        log.info("No order ids for line import")
+        return 0
+
     batch = []
     n = 0
     skipped = 0
@@ -314,45 +313,58 @@ def import_lines(mssql_cur, mysql_cur, mysql_conn_obj, order_map: dict, item_map
           line_total, line_no, created_at, updated_at
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """
-    for r in iter_rows(mssql_cur, sql, 2500):
-        oid = pick(r, "_OrderID")
-        so_id = order_map.get(str(oid)) if oid is not None else None
-        if not so_id:
-            skipped += 1
-            continue
-        code = s(pick(r, "ItemCode"), 64)
-        item_id = None
-        iid = pick(r, "_ItemID")
-        if iid is not None:
-            item_id = item_map.get(str(iid))
-        if item_id is None and code:
-            item_id = item_by_code.get(code)
-        batch.append(
-            (
-                so_id,
-                item_id,
-                code,
-                s(pick(r, "ItemDescription"), 191),
-                s(pick(r, "UnitOfMeasure"), 16),
-                money(pick(r, "QuantityOrdered")),
-                money(pick(r, "QuantityShipped")),
-                money(pick(r, "Price")),
-                money(pick(r, "Discount")),
-                s(pick(r, "ItemMessage"), 191),
-                s(pick(r, "LineInstructions")),
-                money(pick(r, "ExtendedTotal")),
-                int(dec(pick(r, "Sequence"), 0)),
-                now,
-                now,
+    # Lines for every mapped SO (includes open/uninvoiced last-year orders)
+    chunk_size = 800
+    for i in range(0, len(order_ids), chunk_size):
+        part = order_ids[i : i + chunk_size]
+        placeholders = ",".join("?" for _ in part)
+        sql = f"""
+            SELECT _OrderID, Sequence, _ItemID, ItemCode, ItemDescription, UnitOfMeasure,
+                   QuantityOrdered, QuantityShipped, Price, Discount, ExtendedTotal,
+                   ItemMessage, LineInstructions
+            FROM dbo.SalesOrderDetails_tbl
+            WHERE _OrderID IN ({placeholders})
+            ORDER BY _OrderID, Sequence, _LineID
+        """
+        for r in iter_rows(mssql_cur, sql, 2500, tuple(part)):
+            oid = pick(r, "_OrderID")
+            so_id = order_map.get(str(oid)) if oid is not None else None
+            if not so_id:
+                skipped += 1
+                continue
+            code = s(pick(r, "ItemCode"), 64)
+            item_id = None
+            iid = pick(r, "_ItemID")
+            if iid is not None:
+                item_id = item_map.get(str(iid))
+            if item_id is None and code:
+                item_id = item_by_code.get(code)
+            batch.append(
+                (
+                    so_id,
+                    item_id,
+                    code,
+                    s(pick(r, "ItemDescription"), 191),
+                    s(pick(r, "UnitOfMeasure"), 16),
+                    money(pick(r, "QuantityOrdered")),
+                    money(pick(r, "QuantityShipped")),
+                    money(pick(r, "Price")),
+                    money(pick(r, "Discount")),
+                    s(pick(r, "ItemMessage"), 191),
+                    s(pick(r, "LineInstructions")),
+                    money(pick(r, "ExtendedTotal")),
+                    int(dec(pick(r, "Sequence"), 0)),
+                    now,
+                    now,
+                )
             )
-        )
-        if len(batch) >= 800:
-            mysql_cur.executemany(insert_sql, batch)
-            n += len(batch)
-            batch = []
-            if n % 40000 == 0:
-                mysql_conn_obj.commit()
-                log.info("Order lines inserted: %s", n)
+            if len(batch) >= 800:
+                mysql_cur.executemany(insert_sql, batch)
+                n += len(batch)
+                batch = []
+                if n % 40000 == 0:
+                    mysql_conn_obj.commit()
+                    log.info("Order lines inserted: %s", n)
     if batch:
         mysql_cur.executemany(insert_sql, batch)
         n += len(batch)
@@ -573,6 +585,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Import Chief invoices into POS MySQL")
     parser.add_argument("--keep-existing", action="store_true", help="Do not delete current invoices first")
     parser.add_argument("--skip-lines", action="store_true", help="Skip sales order line items (faster, no PDF lines)")
+    parser.add_argument("--since", default=None, help="Only import invoices/credit memos on or after this date (YYYY-MM-DD)")
     args = parser.parse_args()
 
     company_id = COMPANY_ID
@@ -588,6 +601,33 @@ def main() -> int:
     memo_order_rows = fetch_all(src_cur, "SELECT _MemoID, _OrderID FROM dbo.CreditMemos_Orders_tbl")
     inv_credits = fetch_all(src_cur, "SELECT * FROM dbo.Invoices_CreditMemos_tbl")
 
+    if args.since:
+        since = parse_date(args.since)
+        if not since:
+            log.error("Invalid --since date: %s", args.since)
+            return 1
+        before_inv, before_memo = len(invoices), len(memos)
+        invoices = [r for r in invoices if (parse_date(pick(r, "InvoiceDate")) or since) >= since]
+        memos = [r for r in memos if (parse_date(pick(r, "MemoDate", "DateCreated")) or since) >= since]
+        keep_inv = {str(pick(r, "_InvoiceID")) for r in invoices if pick(r, "_InvoiceID") is not None}
+        keep_memo = {str(pick(r, "_MemoID")) for r in memos if pick(r, "_MemoID") is not None}
+        inv_order_rows = [r for r in inv_order_rows if str(pick(r, "_InvoiceID")) in keep_inv]
+        memo_order_rows = [r for r in memo_order_rows if str(pick(r, "_MemoID")) in keep_memo]
+        payments = [r for r in payments if str(pick(r, "_InvoiceID")) in keep_inv]
+        inv_credits = [
+            r for r in inv_credits
+            if str(pick(r, "_InvoiceID")) in keep_inv and str(pick(r, "_MemoID")) in keep_memo
+        ]
+        log.info(
+            "Filtered to since %s: invoices %s→%s, credit memos %s→%s, payments %s",
+            args.since,
+            before_inv,
+            len(invoices),
+            before_memo,
+            len(memos),
+            len(payments),
+        )
+
     inv_orders = {str(pick(r, "_InvoiceID")): pick(r, "_OrderID") for r in inv_order_rows if pick(r, "_InvoiceID") is not None}
     memo_orders = {str(pick(r, "_MemoID")): pick(r, "_OrderID") for r in memo_order_rows if pick(r, "_MemoID") is not None}
     needed_orders = {str(v) for v in inv_orders.values() if v is not None} | {str(v) for v in memo_orders.values() if v is not None}
@@ -601,7 +641,19 @@ def main() -> int:
     )
 
     all_orders = fetch_all(src_cur, "SELECT * FROM dbo.SalesOrders_tbl")
-    orders = [r for r in all_orders if pick(r, "_OrderID") is not None and str(pick(r, "_OrderID")) in needed_orders]
+    # With --since: import ALL sales orders in the window (not only invoice-linked).
+    # Without --since: keep invoice/memo-linked orders only.
+    if args.since:
+        since = parse_date(args.since)
+        orders = []
+        for r in all_orders:
+            if pick(r, "_OrderID") is None:
+                continue
+            od = parse_date(pick(r, "OrderDate", "DateCreated"))
+            if od is not None and od >= since:
+                orders.append(r)
+    else:
+        orders = [r for r in all_orders if pick(r, "_OrderID") is not None and str(pick(r, "_OrderID")) in needed_orders]
     order_rows = {str(pick(r, "_OrderID")): r for r in orders if pick(r, "_OrderID") is not None}
     log.info("Sales orders to import: %s", len(orders))
 

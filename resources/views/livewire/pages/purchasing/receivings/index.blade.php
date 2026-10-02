@@ -47,9 +47,14 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $hasSearch = $this->search !== '';
 
         $query = InventoryReceiving::query()
+            ->select([
+                'id', 'company_id', 'receipt_number', 'receipt_date', 'purchase_order_id', 'reference_no',
+                'status', 'supplier_id', 'buyer_id', 'site_id', 'received_by', 'shipping_carrier',
+                'comments', 'processed_at',
+            ])
             ->with([
                 'supplier:id,name,supplier_id',
-                'purchaseOrder:id,po_number',
+                'purchaseOrder:id,po_number,requisition_date,required_date',
                 'site:id,code,name',
                 'buyer:id,name',
             ])

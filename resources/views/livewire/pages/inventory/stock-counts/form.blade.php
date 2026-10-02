@@ -649,11 +649,11 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $lines[$index]['item_code'] = $item->item_code;
         $lines[$index]['description'] = $item->description ?? '';
         $lines[$index]['uom'] = $item->displayUom();
-        // System on-hand qty (may be negative if oversold) — not available qty.
+        // System on-hand qty (may be negative if oversold) — show truthfully.
         $lines[$index]['in_stock'] = number_format((float) $item->quantity_in_stock, 4, '.', '');
         $lines[$index]['allocated'] = number_format((float) $item->allocated_qty, 4, '.', '');
-        // Default counted qty to 0; variance / "items counted" wait until the user confirms a count.
-        $lines[$index]['counted'] = '0';
+        // Leave Counted blank until the user enters a count (do not prefill 0).
+        $lines[$index]['counted'] = '';
         $lines[$index]['count_time'] = null;
         $this->lines = $lines;
     }
@@ -1016,7 +1016,9 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                             </td>
                                             <td class="item-cell-desc" title="{{ $line['description'] }}">{{ $line['description'] ?: '—' }}</td>
                                             <td class="text-center">{{ $line['uom'] ?: '—' }}</td>
-                                            <td class="desk-money sc-col-qty">{{ number_format((float) $line['in_stock'], 2) }}</td>
+                                            <td @class(['desk-money', 'sc-col-qty', 'sc-var-neg' => (float) $line['in_stock'] < 0])>
+                                                {{ number_format((float) $line['in_stock'], 2) }}
+                                            </td>
                                             <td class="desk-money sc-col-qty">{{ number_format((float) $line['allocated'], 2) }}</td>
                                             <td class="sc-col-qty sc-col-counted">
                                                 <input
@@ -1024,6 +1026,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                     wire:model.blur="lines.{{ $i }}.counted"
                                                     class="so-input text-right item-cell-qty"
                                                     inputmode="decimal"
+                                                    placeholder="—"
                                                     @disabled($isProcessed)
                                                     aria-label="Counted qty line {{ $i + 1 }}"
                                                 />

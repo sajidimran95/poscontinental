@@ -96,7 +96,11 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         $hasSearch = $this->search !== '';
 
         $query = ReturnToVendor::query()
-            ->with(['supplier', 'requestedBy'])
+            ->select([
+                'id', 'company_id', 'rtv_number', 'rtv_date', 'status', 'reference_no',
+                'supplier_id', 'requested_by_id', 'site_id', 'subtotal', 'discount', 'freight', 'total',
+            ])
+            ->with(['supplier:id,name,supplier_id', 'requestedBy:id,name'])
             ->where('company_id', $companyId)
             ->when($hasSearch, function ($q) {
                 $term = '%'.$this->search.'%';

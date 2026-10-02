@@ -101,8 +101,15 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $companyId = auth()->user()->company_id;
 
         $query = CreditMemo::query()
-            ->with(['customer', 'salesOrder.invoice'])
-            ->withSum('applications as applied_sum', 'amount')
+            ->select([
+                'id', 'company_id', 'memo_number', 'memo_date', 'customer_id', 'sales_order_id',
+                'amount', 'status', 'reason', 'reference_no', 'comments',
+            ])
+            ->with([
+                'customer:id,customer_id,company_name',
+                'salesOrder:id,order_number',
+                'salesOrder.invoice:id,sales_order_id,invoice_number',
+            ])
             ->where('company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $term = '%'.$this->search.'%';
@@ -129,6 +136,11 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             $query->where('status', 'Applied');
         }
 
+        $sortNeedsApplied = $this->sortField === 'remaining';
+        if ($sortNeedsApplied) {
+            $query->withSum('applications as applied_sum', 'amount');
+        }
+
         $query = $this->applyDeskSort($query, 'memo_date', 'desc');
 
         $selectedOrder = null;
@@ -146,9 +158,24 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             });
 
         $scroll = $this->scrollDeskList($query);
+        $memos = $scroll['rows'];
+
+        if (! $sortNeedsApplied) {
+            $ids = $memos->pluck('id')->filter()->all();
+            if ($ids !== []) {
+                $applied = \App\Models\InvoiceCredit::query()
+                    ->whereIn('credit_memo_id', $ids)
+                    ->groupBy('credit_memo_id')
+                    ->selectRaw('credit_memo_id, COALESCE(SUM(amount), 0) as s')
+                    ->pluck('s', 'credit_memo_id');
+                $memos->each(function (CreditMemo $m) use ($applied) {
+                    $m->setAttribute('applied_sum', (float) ($applied[$m->id] ?? 0));
+                });
+            }
+        }
 
         $data = [
-            'memos' => $scroll['rows'],
+            'memos' => $memos,
             'listHasMore' => $scroll['hasMore'],
             'listShown' => $scroll['shown'],
             'listTitle' => match (true) {

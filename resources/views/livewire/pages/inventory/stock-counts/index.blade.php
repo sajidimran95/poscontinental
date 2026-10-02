@@ -44,7 +44,11 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
         $hasQuery = $this->queryCriteria !== [];
 
         $query = StockCount::query()
-            ->with(['site', 'processedByUser'])
+            ->select([
+                'id', 'company_id', 'stock_count_no', 'description', 'status', 'date_created',
+                'site_id', 'processed_by', 'date_processed', 'last_count_date',
+            ])
+            ->with(['site:id,code,name', 'processedByUser:id,name'])
             ->where('company_id', $companyId)
             ->when($hasSearch, function ($q) {
                 $term = '%'.$this->search.'%';

@@ -199,7 +199,8 @@ class Item extends Model
     }
 
     /**
-     * U/M for lists and forms: items.unit_of_measure, else first pricing-row UOM.
+     * U/M for lists and forms: items.unit_of_measure, else first loaded pricing-row UOM.
+     * Does not query item_prices per row (that made desk lists slow after large imports).
      */
     public function displayUom(): string
     {
@@ -208,7 +209,7 @@ class Item extends Model
             return $fromItem;
         }
 
-        // Optional subquery / joined attribute from list queries.
+        // Optional attribute from a list join/subquery (avoided on desk lists for speed).
         $fromAttr = strtoupper(trim((string) ($this->getAttribute('price_uom') ?? '')));
         if ($fromAttr !== '') {
             return $fromAttr;
@@ -221,20 +222,9 @@ class Item extends Model
                     return $u;
                 }
             }
-
-            return 'EA';
         }
 
-        $fromPrice = $this->prices()
-            ->whereNotNull('uom')
-            ->where('uom', '!=', '')
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->value('uom');
-
-        $resolved = strtoupper(trim((string) ($fromPrice ?? '')));
-
-        return $resolved !== '' ? $resolved : 'EA';
+        return 'EA';
     }
 
     public function scopeNewItems(Builder $query): Builder

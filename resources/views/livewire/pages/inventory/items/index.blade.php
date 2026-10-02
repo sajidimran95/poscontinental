@@ -18,7 +18,6 @@ use App\Services\InventoryService;
 use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
@@ -1521,17 +1520,8 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 'category:id,code,name',
                 'subcategory:id,code,name',
             ])
-            ->selectSub(
-                DB::table('item_prices')
-                    ->select('uom')
-                    ->whereColumn('item_prices.item_id', 'items.id')
-                    ->whereNotNull('uom')
-                    ->where('uom', '!=', '')
-                    ->orderBy('sort_order')
-                    ->orderBy('id')
-                    ->limit(1),
-                'price_uom'
-            )
+            // UOM comes from items.unit_of_measure (backfilled from prices). Avoid correlated
+            // selectSub on item_prices — it made the list scan expensive after large imports.
             ->where('company_id', $companyId)
             ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
             ->when($this->categoryFilter !== '', fn ($q) => $q->where('category_id', (int) $this->categoryFilter))

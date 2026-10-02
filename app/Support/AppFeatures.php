@@ -137,7 +137,7 @@ class AppFeatures
             'sales.orders' => [
                 'label' => 'Sales Orders',
                 'group' => 'Sales',
-                'routes' => ['sales.orders.index', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.show', 'sales.orders.print', 'sales.orders.invoice', 'sales.orders.pick-list'],
+                'routes' => ['sales.orders.index', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.show', 'sales.orders.print', 'sales.orders.invoice', 'sales.orders.pick-list', 'sales.orders.leave'],
             ],
             'sales.price_override' => [
                 'label' => 'Change Order Price',

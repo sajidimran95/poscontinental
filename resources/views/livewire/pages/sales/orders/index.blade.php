@@ -101,9 +101,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         } elseif ($this->favorite === 'month') {
             $this->dateFrom = now()->startOfMonth()->toDateString();
             $this->dateTo = $today;
-        } elseif (in_array($this->favorite, ['all', 'new'], true)) {
-            $this->dateFrom = '';
-            $this->dateTo = '';
+        } elseif ($this->favorite === 'new') {
+            // New open orders: keep a short window so we do not scan the full history.
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
+        } elseif ($this->favorite === 'all') {
+            // All open orders still defaults to this month; clear dates manually for full history.
+            $this->dateFrom = now()->startOfMonth()->toDateString();
+            $this->dateTo = $today;
         }
         $this->resetDeskList();
     }

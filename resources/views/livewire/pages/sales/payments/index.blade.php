@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
@@ -14,7 +15,24 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.app'), Title('Payments')] class extends Component
 {
     use SortsDeskList;
+    use PaginatesDeskLists;
+
     public ?int $customer_id = null;
+
+    /** All payments & credits list */
+    public string $plSearch = '';
+
+    /** '' | payment | credit | returned */
+    public string $plType = '';
+
+    public string $plFrom = '';
+
+    public string $plTo = '';
+
+    /** @var list<string> "payment:{id}" / "credit:{id}" */
+    public array $plKeys = [];
+
+    public bool $plOpen = false;
 
     public string $customerSearch = '';
 
@@ -170,7 +188,36 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->find($this->customer_id, ['id', 'customer_id', 'company_name', 'contact'])
             : null;
 
+        $scroll = ($this->plOpen && $this->customer_id)
+            ? $this->scrollDeskList($this->paymentListQuery($companyId))
+            : ['rows' => collect(), 'hasMore' => false, 'shown' => 0];
+        $payList = $scroll['rows'];
+        $payListHasMore = $scroll['hasMore'];
+        $payListShown = $scroll['shown'];
+
+        $bouncedIds = [];
+        $checkInvoiceIds = $payList
+            ->filter(fn ($r) => $r->kind === 'payment' && InvoicePayment::isCheckMethod($r->method))
+            ->pluck('invoice_id')
+            ->unique()
+            ->values()
+            ->all();
+        if ($checkInvoiceIds !== []) {
+            $bouncedIds = InvoicePayment::query()
+                ->whereIn('invoice_id', $checkInvoiceIds)
+                ->where('payment_method', InvoicePayment::RETURNED_CHECK_METHOD)
+                ->pluck('comments')
+                ->map(fn ($c) => preg_match('/#(\d+)/', (string) $c, $m) ? (int) $m[1] : 0)
+                ->filter()
+                ->values()
+                ->all();
+        }
+
         return [
+            'payList' => $payList,
+            'payListHasMore' => $payListHasMore,
+            'payListShown' => $payListShown,
+            'bouncedIds' => $bouncedIds,
             'selectedCustomer' => $selectedCustomer,
             'browseCustomers' => $browseCustomers,
             'openInvoices' => $invoices,
@@ -203,7 +250,359 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'cr_date' => 'memo_date',
             'cr_reason' => 'reason',
             'cr_remaining' => 'amount',
+            'pl_date' => 'row_date',
+            'pl_customer' => 'customer_name',
+            'pl_invoice' => 'invoice_number',
+            'pl_method' => 'method',
+            'pl_ref' => 'ref',
+            'pl_amount' => 'amount',
         ];
+    }
+
+    /** One list of every saved payment and applied credit (newest first). */
+    protected function paymentListQuery(int $companyId)
+    {
+        $customerId = $this->customer_id;
+        $from = $this->plFrom;
+        $to = $this->plTo;
+
+        $payments = DB::table('invoice_payments as ip')
+            ->join('invoices as i', 'i.id', '=', 'ip.invoice_id')
+            ->leftJoin('customers as c', 'c.id', '=', 'i.customer_id')
+            ->where('i.company_id', $companyId)
+            ->when($customerId, fn ($q) => $q->where('i.customer_id', $customerId))
+            ->when($from !== '', fn ($q) => $q->where('ip.payment_date', '>=', $from))
+            ->when($to !== '', fn ($q) => $q->where('ip.payment_date', '<=', $to))
+            ->when($this->plType === 'returned', fn ($q) => $q->where('ip.payment_method', InvoicePayment::RETURNED_CHECK_METHOD))
+            ->selectRaw("'payment' as kind, ip.id as row_id, ip.invoice_id, ip.payment_date as row_date,
+                ip.payment_method as method, ip.check_number as ref, ip.amount, ip.comments,
+                i.invoice_number, i.customer_id, c.customer_id as customer_code, c.company_name as customer_name,
+                ip.created_at");
+
+        $credits = DB::table('invoice_credits as ic')
+            ->join('invoices as i', 'i.id', '=', 'ic.invoice_id')
+            ->leftJoin('credit_memos as cm', 'cm.id', '=', 'ic.credit_memo_id')
+            ->leftJoin('customers as c', 'c.id', '=', 'i.customer_id')
+            ->where('i.company_id', $companyId)
+            ->when($customerId, fn ($q) => $q->where('i.customer_id', $customerId))
+            ->when($from !== '', fn ($q) => $q->whereRaw('COALESCE(cm.memo_date, DATE(ic.created_at)) >= ?', [$from]))
+            ->when($to !== '', fn ($q) => $q->whereRaw('COALESCE(cm.memo_date, DATE(ic.created_at)) <= ?', [$to]))
+            ->selectRaw("'credit' as kind, ic.id as row_id, ic.invoice_id, COALESCE(cm.memo_date, DATE(ic.created_at)) as row_date,
+                'Credit Memo' as method, cm.memo_number as ref, ic.amount, cm.reason as comments,
+                i.invoice_number, i.customer_id, c.customer_id as customer_code, c.company_name as customer_name,
+                ic.created_at");
+
+        $source = match ($this->plType) {
+            'payment', 'returned' => $payments,
+            'credit' => $credits,
+            default => $payments->unionAll($credits),
+        };
+
+        $query = DB::query()->fromSub($source, 'pl');
+
+        $term = trim($this->plSearch);
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function ($q) use ($like, $term) {
+                $q->where('customer_name', 'like', $like)
+                    ->orWhere('customer_code', 'like', $like)
+                    ->orWhere('invoice_number', 'like', $like)
+                    ->orWhere('ref', 'like', $like)
+                    ->orWhere('method', 'like', $like)
+                    ->orWhere('comments', 'like', $like);
+                $num = str_replace([',', '$'], '', $term);
+                if (is_numeric($num)) {
+                    $q->orWhereRaw('ABS(amount - ?) < 0.005', [(float) $num]);
+                }
+            });
+        }
+
+        $map = $this->deskSortMap();
+        $useSort = str_starts_with($this->sortField, 'pl_') && isset($map[$this->sortField]);
+        $query->orderBy(
+            $useSort ? $map[$this->sortField] : 'row_date',
+            $useSort && $this->sortDir === 'asc' ? 'asc' : 'desc'
+        );
+
+        return $query->orderByDesc('created_at')->orderByDesc('row_id');
+    }
+
+    /** @return list<array{0: string, 1: int}> */
+    protected function plSelections(): array
+    {
+        $out = [];
+        foreach ($this->plKeys as $key) {
+            if (preg_match('/^(payment|credit):(\d+)$/', (string) $key, $m)) {
+                $out[] = [$m[1], (int) $m[2]];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Exactly one selected row, or null. */
+    protected function plSelection(): ?array
+    {
+        $sel = $this->plSelections();
+
+        return count($sel) === 1 ? $sel[0] : null;
+    }
+
+    /** @return list<string> */
+    protected function plVisibleKeys(): array
+    {
+        if (! $this->customer_id) {
+            return [];
+        }
+
+        return $this->scrollDeskList($this->paymentListQuery((int) auth()->user()->company_id))['rows']
+            ->map(fn ($r) => $r->kind.':'.$r->row_id)
+            ->values()
+            ->all();
+    }
+
+    protected function plInvoiceIdFor(string $kind, int $id): int
+    {
+        return $kind === 'credit'
+            ? (int) InvoiceCredit::query()->whereKey($id)->value('invoice_id')
+            : (int) InvoicePayment::query()->whereKey($id)->value('invoice_id');
+    }
+
+    protected function plCanEdit(): bool
+    {
+        if (auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            return true;
+        }
+        session()->flash('status', 'Your role cannot change payments. Enable Payments & Credits permission.');
+
+        return false;
+    }
+
+    public function plToggle(): void
+    {
+        $this->plOpen = ! $this->plOpen;
+        $this->plKeys = [];
+        $this->resetDeskList();
+    }
+
+    public function plSelect(string $key): void
+    {
+        if (in_array($key, $this->plKeys, true)) {
+            $this->plKeys = array_values(array_diff($this->plKeys, [$key]));
+        } else {
+            $this->plKeys[] = $key;
+        }
+    }
+
+    public function plSelectAll(): void
+    {
+        $visible = $this->plVisibleKeys();
+        $allSelected = $visible !== [] && array_diff($visible, $this->plKeys) === [];
+        $this->plKeys = $allSelected ? [] : $visible;
+    }
+
+    public function updatedPlSearch(): void
+    {
+        $this->resetDeskList();
+        $this->plKeys = [];
+    }
+
+    public function updatedPlType(): void
+    {
+        $this->resetDeskList();
+        $this->plKeys = [];
+    }
+
+    public function updatedPlFrom(): void
+    {
+        $this->resetDeskList();
+    }
+
+    public function updatedPlTo(): void
+    {
+        $this->resetDeskList();
+    }
+
+    public function plClearFilters(): void
+    {
+        $this->plSearch = '';
+        $this->plType = '';
+        $this->plFrom = '';
+        $this->plTo = '';
+        $this->plKeys = [];
+        $this->resetDeskList();
+    }
+
+    public function plRefresh(): void
+    {
+        $this->resetDeskList();
+    }
+
+    public function plVoidSelected(): void
+    {
+        $sel = $this->plSelections();
+        if ($sel === []) {
+            session()->flash('status', 'Select one or more payments or credits in the list first.');
+
+            return;
+        }
+        if (! $this->plCanEdit()) {
+            return;
+        }
+
+        $svc = app(\App\Services\InvoicePaymentReversalService::class);
+        $companyId = (int) auth()->user()->company_id;
+        // Originals before returned-check lines, so a check and its return in one selection both clear cleanly.
+        usort($sel, fn ($a, $b) => strcmp($a[0], $b[0]) ?: $a[1] <=> $b[1]);
+
+        $done = 0;
+        $total = 0.0;
+        $errors = [];
+        foreach ($sel as [$kind, $id]) {
+            $exists = $kind === 'credit'
+                ? InvoiceCredit::query()->whereKey($id)->exists()
+                : InvoicePayment::query()->whereKey($id)->exists();
+            if (! $exists) {
+                continue;
+            }
+            try {
+                $total += $kind === 'credit'
+                    ? $svc->removeCredit($id, $companyId)
+                    : $svc->removePayment($id, $companyId);
+                $done++;
+            } catch (\Throwable $e) {
+                report($e);
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        $this->plKeys = [];
+        $msg = $done === 1 ? '1 row voided' : $done.' rows voided';
+        $msg .= ' ($'.number_format($total, 2).' owed again). Invoice balances restored.';
+        if ($errors !== []) {
+            $msg .= ' '.count($errors).' failed: '.$errors[0];
+        }
+        session()->flash('status', $msg);
+    }
+
+    public function plReturnCheck(): void
+    {
+        $ids = collect($this->plSelections())
+            ->filter(fn ($s) => $s[0] === 'payment')
+            ->pluck(1)
+            ->filter(fn ($id) => InvoicePayment::isCheckMethod(InvoicePayment::query()->whereKey($id)->value('payment_method')))
+            ->values();
+        if ($ids->isEmpty()) {
+            session()->flash('status', 'Select one or more check payments in the list first.');
+
+            return;
+        }
+        if (! $this->plCanEdit()) {
+            return;
+        }
+
+        $svc = app(\App\Services\InvoicePaymentReversalService::class);
+        $companyId = (int) auth()->user()->company_id;
+        $done = 0;
+        $total = 0.0;
+        $skipped = 0;
+        foreach ($ids as $id) {
+            try {
+                $total += $svc->returnCheck((int) $id, $companyId, (int) auth()->id());
+                $done++;
+            } catch (\Throwable $e) {
+                $skipped++;
+            }
+        }
+
+        $this->plKeys = [];
+        $fee = InvoicePayment::RETURNED_CHECK_FEE;
+        $msg = $done.' check'.($done === 1 ? '' : 's').' returned. $'.number_format($total, 2)
+            .' owed again plus $'.number_format($fee * $done, 2).' returned-check fees (Miscellaneous).';
+        if ($skipped) {
+            $msg .= ' '.$skipped.' skipped (already returned).';
+        }
+        session()->flash('status', $msg);
+    }
+
+    public function plReverseInvoice(): void
+    {
+        $sel = $this->plSelections();
+        if ($sel === []) {
+            session()->flash('status', 'Select one or more payments or credits in the list first.');
+
+            return;
+        }
+        if (! $this->plCanEdit()) {
+            return;
+        }
+
+        $invoiceIds = collect($sel)
+            ->map(fn ($s) => $this->plInvoiceIdFor($s[0], $s[1]))
+            ->filter()
+            ->unique()
+            ->values();
+        if ($invoiceIds->isEmpty()) {
+            session()->flash('status', 'Selected rows no longer exist.');
+
+            return;
+        }
+
+        $companyId = (int) auth()->user()->company_id;
+        $svc = app(\App\Services\InvoicePaymentReversalService::class);
+        $reversed = 0;
+        foreach ($invoiceIds as $invoiceId) {
+            try {
+                if ($svc->reverseInvoice((int) $invoiceId, $companyId)['rows'] > 0) {
+                    $reversed++;
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $numbers = Invoice::query()->whereIn('id', $invoiceIds)->pluck('invoice_number')->implode(', ');
+        $this->plKeys = [];
+        session()->flash('status', $reversed === 0
+            ? 'Nothing to reverse on invoice '.$numbers.'.'
+            : 'All payments and credits reversed on '.$reversed.' invoice'.($reversed === 1 ? '' : 's').' ('.$numbers.'). Unpaid again.');
+    }
+
+    public function plOpenInvoice(): mixed
+    {
+        $sel = $this->plSelection();
+        if (! $sel) {
+            session()->flash('status', 'Select exactly one row to open its invoice.');
+
+            return null;
+        }
+
+        $invoiceId = $this->plInvoiceIdFor($sel[0], $sel[1]);
+
+        return $invoiceId
+            ? $this->redirect(route('sales.invoices.index', ['pay' => $invoiceId]), navigate: true)
+            : null;
+    }
+
+    public function plPrintReceipt(): void
+    {
+        $sel = $this->plSelection();
+        if (! $sel || $sel[0] !== 'payment') {
+            session()->flash('status', 'Select exactly one payment to print its receipt.');
+
+            return;
+        }
+
+        $payment = InvoicePayment::query()
+            ->whereHas('invoice', fn ($q) => $q->where('company_id', auth()->user()->company_id))
+            ->find($sel[1]);
+        if (! $payment) {
+            session()->flash('status', 'Payment not found.');
+
+            return;
+        }
+
+        $this->js('window.open('.json_encode(route('sales.invoices.receipt', [$payment->invoice_id, $payment->id])).', "_blank")');
     }
 
     public function openCustomerBrowse(): void
@@ -267,6 +666,9 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     public function updatedCustomerId(): void
     {
+        $this->resetDeskList();
+        $this->plKeys = [];
+        $this->plOpen = false;
         $this->selected = [];
         $this->pay_amount = '0';
         $this->pay_check_number = '';
@@ -671,6 +1073,18 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     public function voidPayment(): void
     {
+        if ($this->plKeys !== []) {
+            $this->plVoidSelected();
+
+            return;
+        }
+
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot void payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
         $id = collect($this->selected)->filter()->keys()->first();
         if (! $id) {
             session()->flash('status', 'Select an invoice first.');
@@ -681,6 +1095,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $payment = InvoicePayment::query()
             ->whereHas('invoice', fn ($q) => $q->where('company_id', auth()->user()->company_id))
             ->where('invoice_id', (int) $id)
+            ->where('payment_method', '!=', InvoicePayment::RETURNED_CHECK_METHOD)
             ->orderByDesc('id')
             ->first();
 
@@ -690,8 +1105,38 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
-        $payment->delete();
-        session()->flash('status', 'Payment voided.');
+        try {
+            $amount = app(\App\Services\InvoicePaymentReversalService::class)
+                ->removePayment((int) $payment->id, (int) auth()->user()->company_id);
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Could not void payment. '.$e->getMessage());
+
+            return;
+        }
+
+        session()->flash('status', 'Payment $'.number_format($amount, 2).' voided. Invoice balance restored.');
+    }
+
+    public function returnCheckHit(int $paymentId): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot return checks. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        try {
+            $amount = app(\App\Services\InvoicePaymentReversalService::class)
+                ->returnCheck($paymentId, (int) auth()->user()->company_id, (int) auth()->id());
+        } catch (\Throwable $e) {
+            session()->flash('status', 'Could not return check. '.$e->getMessage());
+
+            return;
+        }
+
+        session()->flash('status', 'Check returned. $'.number_format($amount, 2).' is due again plus $'
+            .number_format(InvoicePayment::RETURNED_CHECK_FEE, 2).' returned-check fee (Miscellaneous).');
     }
 
     public function closeDesk(): mixed
@@ -705,9 +1150,25 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         <x-action-bar title="Payments — Customer First">
             <x-slot:menu>
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
-                <x-action-item label="Payments & Credits" />
+                <x-action-item label="Open Invoice Payments & Credits" sep wire:click="plOpenInvoice" />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelectedPayment" />
-                <x-action-item label="Void Payment" sep wire:click="voidPayment" />
+                <x-action-item label="Print Receipt" wire:click="plPrintReceipt" />
+                <x-action-item
+                    label="Void Selected Payment / Credit"
+                    sep
+                    wire:click="voidPayment"
+                    wire:confirm="Void the selected payment or credit? The invoice will owe this amount again."
+                />
+                <x-action-item
+                    label="Return Check"
+                    wire:click="plReturnCheck"
+                    wire:confirm="Return the selected check? The invoice owes it again plus a ${{ number_format(\App\Models\InvoicePayment::RETURNED_CHECK_FEE, 2) }} returned-check fee."
+                />
+                <x-action-item
+                    label="Reverse Invoice Payments"
+                    wire:click="plReverseInvoice"
+                    wire:confirm="Reverse ALL payments and credits on the selected row's invoice? It becomes fully unpaid again."
+                />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
         </x-action-bar>
@@ -717,7 +1178,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 <div class="desk-flash" role="status">{{ session('status') }}</div>
             @endif
 
-            <div class="entity-grid-2" style="grid-template-columns:minmax(14rem,18rem) minmax(20rem,1fr);gap:0.75rem 1.25rem;max-width:48rem;margin-bottom:1rem;align-items:end">
+            <div class="entity-grid-2" style="grid-template-columns:minmax(18rem,26rem) minmax(22rem,1fr);gap:0.75rem 1.25rem;max-width:62rem;margin-bottom:1rem;align-items:end">
                 <div class="so-form-row">
                     <label class="so-form-lbl" for="payment_check_search">Search by check #</label>
                     <input
@@ -725,6 +1186,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         type="search"
                         wire:model.live.debounce.300ms="checkSearch"
                         class="so-input"
+                        style="width:100%;min-width:18rem;height:2.1rem;font-size:14px"
                         placeholder="Enter check number…"
                         autocomplete="off"
                     />
@@ -749,6 +1211,14 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                             <button type="button" wire:click="openCustomerBrowse" class="so-icon-btn" title="Browse" aria-label="Browse customers">
                                 <svg viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="9" cy="6" r="1"/></svg>
                             </button>
+                            @if ($customer_id)
+                                <button
+                                    type="button"
+                                    @class(['desk-btn desk-btn-sm pl-list-btn', 'desk-btn-primary' => ! $plOpen])
+                                    wire:click="plToggle"
+                                    title="Show this customer's payments and credits"
+                                >{{ $plOpen ? 'Hide List' : 'List' }}</button>
+                            @endif
                         </div>
                         @if (! $showCustomerBrowse && ! $customer_id && trim($customerSearch) !== '')
                             <div class="so-lookup-panel" role="listbox" aria-label="Customer suggestions" style="position:absolute;left:0;right:0;z-index:30;max-height:16rem;margin-top:0.2rem">
@@ -788,9 +1258,18 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                     <x-desk-sort-th field="chk_customer" label="Customer" />
                                     <x-desk-sort-th field="chk_invoice" label="Invoice" />
                                     <x-desk-sort-th field="chk_amount" label="Amount" align="right" />
+                                    <th style="width:7.5rem"></th>
                                 </tr>
                             </thead>
                             <tbody>
+                                @php
+                                    $returnedHitIds = $checkHits
+                                        ->filter(fn ($rh) => \App\Models\InvoicePayment::isReturnedCheckMethod($rh->payment_method))
+                                        ->map(fn ($rh) => preg_match('/#(\d+)/', (string) $rh->comments, $m) ? (int) $m[1] : 0)
+                                        ->filter()
+                                        ->values()
+                                        ->all();
+                                @endphp
                                 @forelse ($checkHits as $hit)
                                     <tr
                                         wire:key="check-hit-{{ $hit->id }}"
@@ -803,10 +1282,25 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                         <td>{{ $hit->invoice?->customer?->customer_id }} — {{ $hit->invoice?->customer?->company_name }}</td>
                                         <td class="desk-num">{{ $hit->invoice?->invoice_number }}</td>
                                         <td class="desk-money">${{ number_format((float) $hit->amount, 2) }}</td>
+                                        <td class="text-center" wire:click.stop>
+                                            @if (\App\Models\InvoicePayment::isReturnedCheckMethod($hit->payment_method))
+                                                <span class="pc-returned-tag">Returned</span>
+                                            @elseif (in_array((int) $hit->id, $returnedHitIds, true))
+                                                <span class="pc-returned-tag">Bounced</span>
+                                            @elseif (\App\Models\InvoicePayment::isCheckMethod($hit->payment_method) && $canEnterPayments)
+                                                <button
+                                                    type="button"
+                                                    class="pc-row-return"
+                                                    style="float:none"
+                                                    wire:click="returnCheckHit({{ $hit->id }})"
+                                                    wire:confirm="Return check #{{ $hit->check_number }} (${{ number_format((float) $hit->amount, 2) }})? Invoice {{ $hit->invoice?->invoice_number }} will owe this amount again plus a ${{ number_format(\App\Models\InvoicePayment::RETURNED_CHECK_FEE, 2) }} returned-check fee."
+                                                >Return Check</button>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr class="is-empty">
-                                        <td colspan="5">No payments found for that check number.</td>
+                                        <td colspan="6">No payments found for that check number.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -892,15 +1386,15 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     </div>
                 @endif
 
-                <div class="entity-fieldset" style="margin-top:1rem;max-width:48rem" @class(['opacity-60' => ! $canEnterPayments])>
+                <div class="entity-fieldset" style="margin-top:1rem;max-width:64rem" @class(['opacity-60' => ! $canEnterPayments])>
                     <legend>Apply Payment</legend>
                     @unless ($canEnterPayments)
                         <p class="item-hint" style="padding:0 0 0.5rem">Payments are disabled for your role. Enable <strong>Payments &amp; Credits → Edit</strong> to apply.</p>
                     @endunless
-                    <div class="entity-grid-2" style="grid-template-columns:repeat({{ $isCheckMethod ? 4 : 3 }},minmax(0,1fr));gap:0.75rem">
+                    <div class="entity-grid-2" style="grid-template-columns:{{ $isCheckMethod ? 'minmax(12rem,1fr) minmax(10rem,1fr) minmax(16rem,1.4fr) minmax(12rem,1fr)' : 'minmax(12rem,1fr) minmax(10rem,1fr) minmax(12rem,1fr)' }};gap:0.75rem 1rem">
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_date_cf">Date</label>
-                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" @disabled(! $canEnterPayments) />
+                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" style="flex:1 1 auto;width:100%;min-width:8.5rem" @disabled(! $canEnterPayments) />
                         </div>
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_method_cf">Method</label>
@@ -918,6 +1412,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                     type="text"
                                     wire:model="pay_check_number"
                                     class="so-input @error('pay_check_number') is-invalid @enderror"
+                                    style="flex:1 1 auto;width:100%;min-width:11rem"
                                     placeholder="Check number"
                                     autocomplete="off"
                                     @disabled(! $canEnterPayments)
@@ -929,7 +1424,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         @endif
                         <div class="so-form-row so-form-row-side">
                             <label class="so-form-lbl" for="pay_amount_cf">Cash / check</label>
-                            <input id="pay_amount_cf" wire:model.live="pay_amount" class="so-input text-right" @disabled(! $canEnterPayments) />
+                            <input id="pay_amount_cf" wire:model.live="pay_amount" class="so-input text-right" style="flex:1 1 auto;width:100%;min-width:7rem" @disabled(! $canEnterPayments) />
                         </div>
                     </div>
 
@@ -977,6 +1472,164 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 @if (trim($checkSearch) === '')
                     <div class="desk-empty-hint">Select a customer to view unpaid invoices and apply payments, or search by check number.</div>
                 @endif
+            @endif
+
+            @php
+                $plSelRows = $payList->filter(fn ($r) => in_array($r->kind.':'.$r->row_id, $plKeys, true))->values();
+                $plSelCount = count($plKeys);
+                $plSelRow = $plSelCount === 1 ? $plSelRows->first() : null;
+                $plSelTotal = (float) $plSelRows->sum(fn ($r) => (float) $r->amount);
+                $plSelChecks = $plSelRows->filter(fn ($r) => $r->kind === 'payment'
+                    && \App\Models\InvoicePayment::isCheckMethod($r->method)
+                    && ! in_array((int) $r->row_id, $bouncedIds, true))->count();
+                $plSelInvoices = $plSelRows->pluck('invoice_number')->unique()->values();
+                $plAllSelected = $payList->isNotEmpty()
+                    && $payList->every(fn ($r) => in_array($r->kind.':'.$r->row_id, $plKeys, true));
+            @endphp
+            @if ($customer_id && $plOpen)
+            <div class="entity-section pl-section" style="margin-top:1.25rem">
+                <div class="pl-bar">
+                    <span class="pl-title">
+                        Payments &amp; Credits
+                        <span class="desk-title-meta">{{ number_format($payListShown) }}{{ $payListHasMore ? '+' : '' }}</span>
+                    </span>
+                    <input
+                        type="search"
+                        wire:model.live.debounce.300ms="plSearch"
+                        class="so-input pl-search"
+                        placeholder="Search invoice #, check #, memo #, amount…"
+                        aria-label="Search payments and credits"
+                    />
+                    <select wire:model.live="plType" class="so-input pl-filter" aria-label="Type">
+                        <option value="">All types</option>
+                        <option value="payment">Payments</option>
+                        <option value="credit">Credits</option>
+                        <option value="returned">Returned checks</option>
+                    </select>
+                    <label class="pl-lbl" for="pl-from">From</label>
+                    <input id="pl-from" type="date" wire:model.live="plFrom" class="so-input pl-date" aria-label="From date" />
+                    <label class="pl-lbl" for="pl-to">To</label>
+                    <input id="pl-to" type="date" wire:model.live="plTo" class="so-input pl-date" aria-label="To date" />
+                    @if ($plSearch !== '' || $plType !== '' || $plFrom !== '' || $plTo !== '')
+                        <button type="button" class="desk-btn desk-btn-sm" wire:click="plClearFilters">Clear</button>
+                    @endif
+                </div>
+
+                <div class="pl-actions">
+                    <span class="pl-sel-label">
+                        @if ($plSelRow)
+                            Selected: <strong>{{ $plSelRow->kind === 'credit' ? 'Credit' : $plSelRow->method }}</strong>
+                            ${{ number_format((float) $plSelRow->amount, 2) }} · Invoice {{ $plSelRow->invoice_number }}
+                        @elseif ($plSelCount > 1)
+                            <strong>{{ $plSelCount }} selected</strong> · ${{ number_format($plSelTotal, 2) }}
+                            · {{ $plSelInvoices->count() }} invoice{{ $plSelInvoices->count() === 1 ? '' : 's' }}
+                            <button type="button" class="pl-clear-sel" wire:click="$set('plKeys', [])">Clear</button>
+                        @else
+                            Click rows to select (multiple allowed), or tick the header box to select all.
+                        @endif
+                    </span>
+                    <button
+                        type="button"
+                        class="desk-btn desk-btn-sm pl-btn-danger"
+                        wire:click="plVoidSelected"
+                        wire:confirm="Void {{ $plSelCount }} selected row{{ $plSelCount === 1 ? '' : 's' }} (${{ number_format($plSelTotal, 2) }})? The invoices will owe these amounts again."
+                        @disabled($plSelCount === 0 || ! $canEnterPayments)
+                    >Void{{ $plSelCount > 1 ? ' ('.$plSelCount.')' : '' }}</button>
+                    <button
+                        type="button"
+                        class="desk-btn desk-btn-sm pl-btn-warn"
+                        wire:click="plReturnCheck"
+                        wire:confirm="Return {{ $plSelChecks }} check{{ $plSelChecks === 1 ? '' : 's' }}? Each invoice owes the check again plus a ${{ number_format(\App\Models\InvoicePayment::RETURNED_CHECK_FEE, 2) }} returned-check fee (Miscellaneous)."
+                        @disabled($plSelChecks === 0 || ! $canEnterPayments)
+                    >Return Check{{ $plSelChecks > 1 ? ' ('.$plSelChecks.')' : '' }}</button>
+                    <button
+                        type="button"
+                        class="desk-btn desk-btn-sm"
+                        wire:click="plReverseInvoice"
+                        wire:confirm="Reverse ALL payments and credits on invoice {{ $plSelInvoices->implode(', ') }}? {{ $plSelInvoices->count() === 1 ? 'It becomes' : 'They become' }} fully unpaid again."
+                        @disabled($plSelCount === 0 || ! $canEnterPayments)
+                    >Reverse Payment{{ $plSelInvoices->count() > 1 ? ' ('.$plSelInvoices->count().')' : '' }}</button>
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="plOpenInvoice" @disabled(! $plSelRow)>Open Invoice</button>
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="plPrintReceipt" @disabled(! $plSelRow || $plSelRow->kind !== 'payment')>Print Receipt</button>
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="plRefresh" title="Refresh">↻</button>
+                </div>
+
+                <x-desk-scroll-grid :has-more="$payListHasMore" style="max-height:30rem">
+                    <table class="desk-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center" style="width:2rem">
+                                    <input
+                                        type="checkbox"
+                                        wire:key="pl-all-{{ $plAllSelected ? 1 : 0 }}"
+                                        wire:click.prevent="plSelectAll"
+                                        @checked($plAllSelected)
+                                        @disabled($payList->isEmpty())
+                                        title="Select all shown"
+                                        aria-label="Select all shown rows"
+                                    />
+                                </th>
+                                <x-desk-sort-th field="pl_date" label="Date" />
+                                <th style="width:5.5rem">Type</th>
+                                <x-desk-sort-th field="pl_customer" label="Customer" />
+                                <x-desk-sort-th field="pl_invoice" label="Invoice" />
+                                <x-desk-sort-th field="pl_method" label="Method" />
+                                <x-desk-sort-th field="pl_ref" label="Check / Memo #" />
+                                <x-desk-sort-th field="pl_amount" label="Amount" align="right" />
+                                <th>Comments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($payList as $row)
+                                @php
+                                    $rowKey = $row->kind.':'.$row->row_id;
+                                    $rowIsReturn = $row->kind === 'payment' && \App\Models\InvoicePayment::isReturnedCheckMethod($row->method);
+                                    $rowBounced = $row->kind === 'payment' && in_array((int) $row->row_id, $bouncedIds, true);
+                                    $rowSel = in_array($rowKey, $plKeys, true);
+                                @endphp
+                                <tr
+                                    wire:key="pl-{{ $rowKey }}"
+                                    wire:click="plSelect('{{ $rowKey }}')"
+                                    @class(['is-selected' => $rowSel, 'cursor-pointer'])
+                                >
+                                    <td class="text-center">
+                                        <input
+                                            type="checkbox"
+                                            wire:key="pl-chk-{{ $rowKey }}-{{ $rowSel ? 1 : 0 }}"
+                                            @checked($rowSel)
+                                            onclick="event.preventDefault()"
+                                            aria-label="Select row"
+                                        />
+                                    </td>
+                                    <td>{{ $row->row_date ? \Illuminate\Support\Carbon::parse($row->row_date)->format('n/j/Y') : '—' }}</td>
+                                    <td>
+                                        @if ($row->kind === 'credit')
+                                            <span class="pl-tag pl-tag-credit">Credit</span>
+                                        @elseif ($rowIsReturn)
+                                            <span class="pc-returned-tag">Returned</span>
+                                        @elseif ($rowBounced)
+                                            <span class="pc-returned-tag">Bounced</span>
+                                        @else
+                                            <span class="pc-saved-tag">Payment</span>
+                                        @endif
+                                    </td>
+                                    <td>{{ $row->customer_code }}{{ $row->customer_code ? ' — ' : '' }}{{ $row->customer_name }}</td>
+                                    <td class="desk-num">{{ $row->invoice_number }}</td>
+                                    <td>{{ $row->method }}</td>
+                                    <td class="desk-num">{{ $row->ref ?: '—' }}</td>
+                                    <td class="desk-money">${{ number_format((float) $row->amount, 2) }}</td>
+                                    <td class="pl-comments">{{ $row->comments }}</td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty">
+                                    <td colspan="9">No payments or credits found.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </x-desk-scroll-grid>
+                <x-desk-load-more :has-more="$payListHasMore" />
+            </div>
             @endif
         </div>
     </div>

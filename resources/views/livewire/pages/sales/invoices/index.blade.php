@@ -223,8 +223,18 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ? max(0, round($savedBalance - $draftPayTotal - $draftCreditTotal, 2))
             : 0;
 
+        $reversibleIds = $invoices
+            ->filter(fn (Invoice $inv) => $inv->status === 'PAID'
+                || (float) ($inv->payments_sum_amount ?? 0) > 0.0001
+                || (float) ($inv->credits_sum_amount ?? 0) > 0.0001)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
         return [
             'invoices' => $invoices,
+            'reversibleIds' => $reversibleIds,
             'listHasMore' => $scroll['hasMore'],
             'listShown' => $scroll['shown'],
             'favorites' => [
@@ -1033,6 +1043,149 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->selectedCreditIndex = $index;
     }
 
+    public function removeSavedPayment(int $paymentId): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot remove payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        $ok = InvoicePayment::query()
+            ->whereKey($paymentId)
+            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->exists();
+        if (! $ok) {
+            session()->flash('status', 'Payment not found on this invoice.');
+
+            return;
+        }
+
+        try {
+            $amount = app(\App\Services\InvoicePaymentReversalService::class)
+                ->removePayment($paymentId, (int) auth()->user()->company_id);
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Could not remove payment. '.$e->getMessage());
+
+            return;
+        }
+
+        if ($this->lastPaymentId === $paymentId) {
+            $this->lastPaymentId = null;
+        }
+        session()->flash('status', $amount < 0
+            ? 'Returned check undone. $'.number_format(abs($amount), 2).' counted as paid again and the fee was removed.'
+            : 'Payment $'.number_format($amount, 2).' voided. Invoice balance restored.');
+    }
+
+    public function returnSavedCheck(int $paymentId): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot return checks. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        $ok = InvoicePayment::query()
+            ->whereKey($paymentId)
+            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->exists();
+        if (! $ok) {
+            session()->flash('status', 'Check payment not found on this invoice.');
+
+            return;
+        }
+
+        try {
+            $amount = app(\App\Services\InvoicePaymentReversalService::class)
+                ->returnCheck($paymentId, (int) auth()->user()->company_id, (int) auth()->id());
+        } catch (\Throwable $e) {
+            session()->flash('status', 'Could not return check. '.$e->getMessage());
+
+            return;
+        }
+
+        session()->flash('status', 'Check returned. $'.number_format($amount, 2).' is due again plus $'
+            .number_format(InvoicePayment::RETURNED_CHECK_FEE, 2).' returned-check fee (Miscellaneous).');
+    }
+
+    public function reverseSelectedPayments(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot reverse payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        try {
+            $result = app(\App\Services\InvoicePaymentReversalService::class)
+                ->reverseInvoice((int) $this->selectedId, (int) auth()->user()->company_id);
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Could not reverse payments. '.$e->getMessage());
+
+            return;
+        }
+
+        if ($result['rows'] === 0) {
+            session()->flash('status', 'This invoice has no payments or credits to reverse.');
+
+            return;
+        }
+        if (abs($result['payments']) <= 0.0001 && abs($result['credits']) <= 0.0001) {
+            session()->flash('status', 'Payments and returned checks removed. Invoice is unpaid again.');
+
+            return;
+        }
+
+        $parts = [];
+        if (abs($result['payments']) > 0.0001) {
+            $parts[] = 'payments $'.number_format($result['payments'], 2);
+        }
+        if (abs($result['credits']) > 0.0001) {
+            $parts[] = 'credits $'.number_format($result['credits'], 2);
+        }
+        session()->flash('status', 'Reversed '.implode(' and ', $parts).'. Invoice is unpaid again.');
+    }
+
+    public function removeSavedCredit(int $invoiceCreditId): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot remove credits. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        $ok = InvoiceCredit::query()
+            ->whereKey($invoiceCreditId)
+            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->exists();
+        if (! $ok) {
+            session()->flash('status', 'Credit not found on this invoice.');
+
+            return;
+        }
+
+        try {
+            $amount = app(\App\Services\InvoicePaymentReversalService::class)
+                ->removeCredit($invoiceCreditId, (int) auth()->user()->company_id);
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Could not remove credit. '.$e->getMessage());
+
+            return;
+        }
+
+        session()->flash('status', 'Credit $'.number_format($amount, 2).' removed. Credit memo is open again.');
+    }
+
     public function updatedDraftCredits($value, string $key): void
     {
         // When a credit memo is selected, default amount to min(remaining, invoice balance) — credit first, not cash.
@@ -1404,6 +1557,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             <x-slot:menu>
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
                 <x-action-item label="Payments & Credits" sep wire:click="openPaymentsSelected" />
+                <x-action-item
+                    label="Reverse Payment"
+                    wire:click="reverseSelectedPayments"
+                    wire:confirm="Reverse all payments and credits on the selected invoice? It will be fully unpaid again and credit memos go back to open."
+                    :disabled="! $canEnterPayments"
+                    x-bind:disabled="! {{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}"
+                    x-bind:title="{{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) ? 'Reverse all payments on this invoice' : 'Select a paid invoice to reverse its payment'"
+                />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
                 <x-action-item
                     label="Void Invoice"
@@ -1733,15 +1894,52 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    @php
+                                        $returnedCheckIds = $modalInvoice->payments
+                                            ->filter(fn ($rp) => \App\Models\InvoicePayment::isReturnedCheckMethod($rp->payment_method))
+                                            ->map(fn ($rp) => preg_match('/#(\d+)/', (string) $rp->comments, $m) ? (int) $m[1] : 0)
+                                            ->filter()
+                                            ->values()
+                                            ->all();
+                                    @endphp
                                     @foreach ($modalInvoice->payments as $p)
+                                        @php
+                                            $pIsCheck = \App\Models\InvoicePayment::isCheckMethod($p->payment_method);
+                                            $pIsReturnLine = \App\Models\InvoicePayment::isReturnedCheckMethod($p->payment_method);
+                                            $pWasReturned = $pIsCheck && in_array((int) $p->id, $returnedCheckIds, true);
+                                        @endphp
                                         <tr class="pc-row-saved">
                                             <td>{{ optional($p->payment_date)?->format('n/j/Y') }}</td>
                                             <td>{{ $p->payment_method }}</td>
                                             <td class="desk-num">{{ $p->check_number ?: '—' }}</td>
                                             <td class="desk-money">${{ number_format((float) $p->amount, 2) }}</td>
                                             <td>
-                                                <span class="pc-saved-tag">Saved</span>
+                                                @if ($pIsReturnLine)
+                                                    <span class="pc-returned-tag">Returned</span>
+                                                @elseif ($pWasReturned)
+                                                    <span class="pc-returned-tag">Bounced</span>
+                                                @else
+                                                    <span class="pc-saved-tag">Saved</span>
+                                                @endif
                                                 {{ $p->comments }}
+                                                @if ($pIsCheck && ! $pWasReturned)
+                                                    <button
+                                                        type="button"
+                                                        class="pc-row-return"
+                                                        wire:click="returnSavedCheck({{ $p->id }})"
+                                                        wire:confirm="Return check #{{ $p->check_number ?: $p->id }} (${{ number_format((float) $p->amount, 2) }})? The invoice will owe this amount again plus a ${{ number_format(\App\Models\InvoicePayment::RETURNED_CHECK_FEE, 2) }} returned-check fee (Miscellaneous)."
+                                                        title="Return check (bounced)"
+                                                    >Return Check</button>
+                                                @endif
+                                                <button
+                                                    type="button"
+                                                    class="pc-row-remove"
+                                                    wire:click="removeSavedPayment({{ $p->id }})"
+                                                    wire:confirm="{{ $pIsReturnLine
+                                                        ? 'Undo this returned check? The check counts as paid again and the returned-check fee is removed.'
+                                                        : 'Void this payment of $'.number_format((float) $p->amount, 2).'? The invoice will owe this amount again.' }}"
+                                                    title="{{ $pIsReturnLine ? 'Undo returned check' : 'Void payment' }}"
+                                                >{{ $pIsReturnLine ? 'Undo' : 'Void' }}</button>
                                             </td>
                                         </tr>
                                     @endforeach
@@ -1830,7 +2028,16 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                                 @if ($hasCreditSalesOrder)
                                                     <td class="desk-num">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
                                                 @endif
-                                                <td class="desk-money">${{ number_format((float) $c->amount, 2) }}</td>
+                                                <td class="desk-money">
+                                                    ${{ number_format((float) $c->amount, 2) }}
+                                                    <button
+                                                        type="button"
+                                                        class="pc-row-remove"
+                                                        wire:click="removeSavedCredit({{ $c->id }})"
+                                                        wire:confirm="Void this applied credit of ${{ number_format((float) $c->amount, 2) }}? The credit memo goes back to open."
+                                                        title="Void credit"
+                                                    >Void</button>
+                                                </td>
                                             </tr>
                                         @endforeach
 

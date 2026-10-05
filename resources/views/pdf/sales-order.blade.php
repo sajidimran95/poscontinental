@@ -318,14 +318,26 @@
         ? optional($invoiceDoc->invoice_date)?->format('m/d/Y')
         : optional($order->order_date)?->format('m/d/Y');
 
+    $lineSortKey = fn ($line) => [
+        mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
+        (int) ($line->item?->category_id ?? PHP_INT_MAX),
+        mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
+        mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
+        (int) ($line->line_no ?? 0),
+        (int) $line->id,
+    ];
     $lines = $order->lines
-        ->sortBy([
-            fn ($line) => mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
-            fn ($line) => mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
-            fn ($line) => mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
-            fn ($line) => (int) ($line->line_no ?? 0),
-            fn ($line) => (int) $line->id,
-        ])
+        ->sort(function ($a, $b) use ($lineSortKey) {
+            [$ka, $kb] = [$lineSortKey($a), $lineSortKey($b)];
+            foreach ($ka as $i => $va) {
+                $cmp = is_int($va) ? $va <=> $kb[$i] : strnatcasecmp($va, $kb[$i]);
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+            }
+
+            return 0;
+        })
         ->values();
     $buckets = DocumentMerchandiseTotals::fromLines($lines);
 

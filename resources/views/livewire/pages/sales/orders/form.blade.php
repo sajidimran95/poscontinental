@@ -511,7 +511,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->lines = $salesOrder->lines->map(function ($l) {
                 $qty = (float) $l->qty_ordered;
                 $discount = (float) $l->discount;
-                $unitDiscount = $qty > 0 ? round($discount / $qty, 4) : $discount;
+                $unitDiscount = abs($qty) >= 0.0001 ? round($discount / $qty, 4) : $discount;
 
                 return [
                     'item_id' => $l->item_id,
@@ -4938,7 +4938,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $lineDiscount = (float) $order->lines->sum('discount');
         $newTotal = round((float) $order->total, 4);
         $applied = (float) $invoice->payments->sum('amount') + (float) $invoice->credits->sum('amount');
-        if ($newTotal + 0.0001 < $applied) {
+        $hasReturnLines = $order->lines->contains(fn ($l) => (float) $l->qty_ordered < 0);
+        if (! $hasReturnLines && $newTotal + 0.0001 < $applied) {
             throw ValidationException::withMessages([
                 'invoice' => 'Invoice total cannot be less than payments and credits already applied ($'.number_format($applied, 2).').',
             ]);
@@ -5031,7 +5032,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         foreach ($this->lines as $i => $line) {
-            if (! filled($line['item_code'] ?? null) || (float) ($line['qty_ordered'] ?? 0) <= 0) {
+            if (! filled($line['item_code'] ?? null) || abs((float) ($line['qty_ordered'] ?? 0)) < 0.0001) {
                 continue;
             }
             if (empty($line['item_id'])) {
@@ -5050,7 +5051,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $neededByItem = [];
         foreach ($this->lines as $line) {
-            if (empty($line['item_id']) || (float) ($line['qty_ordered'] ?? 0) <= 0) {
+            if (empty($line['item_id']) || abs((float) ($line['qty_ordered'] ?? 0)) < 0.0001) {
                 continue;
             }
             $itemId = (int) $line['item_id'];
@@ -5066,7 +5067,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 }
                 $oldQty = (float) $prev->qty_ordered;
                 $shipped = (float) ($prev->qty_shipped ?? 0);
-                if ($shipped > 0) {
+                if (abs($shipped) >= 0.0001) {
                     $oldQty = $shipped;
                 }
                 $previousByItem[(int) $prev->item_id] = ($previousByItem[(int) $prev->item_id] ?? 0) + $oldQty;
@@ -5220,7 +5221,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     }
                     $qty = (float) $oldLine->qty_ordered;
                     $shipped = (float) ($oldLine->qty_shipped ?? 0);
-                    if ($shipped > 0) {
+                    if (abs($shipped) >= 0.0001) {
                         $qty = $shipped;
                     }
                     $oldQtyByItem[(int) $oldLine->item_id] = ($oldQtyByItem[(int) $oldLine->item_id] ?? 0) + $qty;
@@ -5254,7 +5255,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     continue;
                 }
                 $qty = (float) $line['qty_ordered'];
-                if ($qty <= 0) {
+                if (abs($qty) < 0.0001) {
                     continue;
                 }
                 $price = (float) $line['price'];
@@ -5339,7 +5340,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->lines = $this->salesOrder->lines->map(function ($l) {
                 $qty = (float) $l->qty_ordered;
                 $discount = (float) $l->discount;
-                $unitDiscount = $qty > 0 ? round($discount / $qty, 4) : $discount;
+                $unitDiscount = abs($qty) >= 0.0001 ? round($discount / $qty, 4) : $discount;
                 $price = $this->formatMoney($l->price);
 
                 return [

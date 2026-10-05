@@ -97,6 +97,13 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public string $edit_subtotal = '';
 
+    public ?int $returnInvoiceId = null;
+
+    /** @var array<int|string, string> original line id => return qty */
+    public array $returnQty = [];
+
+    public string $returnNote = '';
+
     public function mount(): void
     {
         $this->bootDeskListColumns();
@@ -296,7 +303,140 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 + (float) str_replace(',', '', $this->edit_tax),
                 2
             ),
-        ] + $this->deskListColumnViewData(1);
+        ] + $this->returnViewData($companyId) + $this->deskListColumnViewData(1);
+    }
+
+    /**
+     * @return array{returnInvoice: ?Invoice, returnRows: \Illuminate\Support\Collection, returnPreview: float}
+     */
+    protected function returnViewData(int $companyId): array
+    {
+        $invoice = $this->returnInvoiceId
+            ? Invoice::query()
+                ->with(['customer:id,customer_id,company_name', 'salesOrder.lines', 'payments', 'credits'])
+                ->where('company_id', $companyId)
+                ->find($this->returnInvoiceId)
+            : null;
+        $rows = $invoice?->salesOrder
+            ? app(\App\Services\InvoiceReturnService::class)->returnableLines($invoice->salesOrder)
+            : collect();
+
+        $preview = 0.0;
+        foreach ($rows as $row) {
+            $q = (float) str_replace(',', '', (string) ($this->returnQty[$row['line']->id] ?? ''));
+            if ($q <= 0) {
+                continue;
+            }
+            $q = min($q, $row['returnable']);
+            $unitDisc = $row['sold'] > 0 ? (float) $row['line']->discount / $row['sold'] : 0;
+            $preview += $q * ((float) $row['line']->price - $unitDisc);
+        }
+
+        return [
+            'returnInvoice' => $invoice,
+            'returnRows' => $rows,
+            'returnPreview' => round($preview, 2),
+        ];
+    }
+
+    public function openReturnItems(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.invoices', 'edit')) {
+            session()->flash('status', 'Your role cannot return items on invoices.');
+
+            return;
+        }
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+        if (! $invoice?->sales_order_id) {
+            session()->flash('status', 'This invoice has no sales order lines to return.');
+
+            return;
+        }
+
+        $this->returnInvoiceId = (int) $invoice->id;
+        $this->returnQty = [];
+        $this->returnNote = '';
+        $this->resetErrorBag('return');
+    }
+
+    public function closeReturnItems(): void
+    {
+        $this->returnInvoiceId = null;
+        $this->returnQty = [];
+        $this->returnNote = '';
+        $this->resetErrorBag('return');
+    }
+
+    public function returnFullLine(int $lineId, string $qty): void
+    {
+        $this->returnQty[$lineId] = $qty;
+    }
+
+    public function returnAllLines(): void
+    {
+        $invoice = $this->returnInvoiceId ? Invoice::query()->with('salesOrder.lines')->find($this->returnInvoiceId) : null;
+        if (! $invoice?->salesOrder) {
+            return;
+        }
+        foreach (app(\App\Services\InvoiceReturnService::class)->returnableLines($invoice->salesOrder) as $row) {
+            if ($row['returnable'] > 0) {
+                $this->returnQty[$row['line']->id] = rtrim(rtrim(number_format($row['returnable'], 4, '.', ''), '0'), '.');
+            }
+        }
+    }
+
+    public function saveReturnItems(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.invoices', 'edit') || ! $this->returnInvoiceId) {
+            return;
+        }
+
+        $qty = [];
+        foreach ($this->returnQty as $lineId => $raw) {
+            $raw = trim(str_replace(',', '', (string) $raw));
+            if ($raw === '') {
+                continue;
+            }
+            if (! is_numeric($raw) || (float) $raw < 0) {
+                $this->addError('return', 'Return qty must be a positive number.');
+
+                return;
+            }
+            $qty[(int) $lineId] = (float) $raw;
+        }
+
+        try {
+            $result = app(\App\Services\InvoiceReturnService::class)->addReturn(
+                $this->returnInvoiceId,
+                (int) auth()->user()->company_id,
+                $qty,
+                $this->returnNote,
+                (int) auth()->id()
+            );
+        } catch (\RuntimeException $e) {
+            $this->addError('return', $e->getMessage());
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            $this->addError('return', 'Could not save return. '.$e->getMessage());
+
+            return;
+        }
+
+        $this->closeReturnItems();
+        $msg = 'Returned '.$result['lines'].' item line(s): $'.number_format(abs($result['amount']), 2).' taken off the invoice. Stock added back.';
+        if ($result['balance'] < -0.004) {
+            $msg .= ' Customer refund due: -$'.number_format(abs($result['balance']), 2).'.';
+        }
+        session()->flash('status', $msg);
     }
 
     protected function deskListColumnCatalog(): array
@@ -1565,6 +1705,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     x-bind:disabled="! {{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}"
                     x-bind:title="{{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) ? 'Reverse all payments on this invoice' : 'Select a paid invoice to reverse its payment'"
                 />
+                <x-action-item
+                    label="Return Items"
+                    sep
+                    wire:click="openReturnItems"
+                    :disabled="! $canEditInvoice"
+                    x-bind:disabled="! $wire.selectedId || {{ $canEditInvoice ? 'false' : 'true' }}"
+                    title="Return qty from the selected invoice (adds RETURN ITEM lines)"
+                />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
                 <x-action-item
                     label="Void Invoice"
@@ -2157,6 +2305,100 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     <div class="entity-footer-actions" style="justify-content:flex-end;gap:.5rem">
                         <button type="button" wire:click="closeInvoiceEdit" class="desk-btn">Cancel</button>
                         <button type="submit" class="desk-btn desk-btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($returnInvoice)
+        @php
+            $retBalance = (float) $returnInvoice->invoice_balance;
+            $retNewTotal = (float) $returnInvoice->invoice_total - $returnPreview;
+            $retNewBalance = $retBalance - $returnPreview;
+            $retFmt = fn ($q) => rtrim(rtrim(number_format((float) $q, 2, '.', ''), '0'), '.');
+        @endphp
+        <div class="desk-modal-backdrop" wire:click.self="closeReturnItems" role="dialog" aria-modal="true" aria-label="Return items">
+            <div class="desk-modal desk-modal-lg" style="max-width:960px">
+                <div class="desk-modal-head">
+                    <span>Return items — Invoice {{ $returnInvoice->invoice_number }}
+                        @if ($returnInvoice->customer) · {{ $returnInvoice->customer->company_name }} @endif
+                    </span>
+                    <button type="button" wire:click="closeReturnItems" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <form wire:submit="saveReturnItems" wire:confirm="Save this return? RETURN ITEM lines will be added to the invoice and stock goes back in." class="desk-modal-body space-y-3">
+                    <p class="item-hint" style="margin:0">
+                        Original lines stay on the invoice. Each return is added as a negative line noted <strong>RETURN ITEM</strong>,
+                        stock goes back in, and the invoice total drops. If the invoice is already paid, the customer balance goes negative (refund due).
+                    </p>
+
+                    <div style="max-height:52vh;overflow:auto;border:1px solid var(--desk-border, #cbd5e1)">
+                        <table class="desk-table w-full" style="font-size:.85rem">
+                            <thead>
+                                <tr>
+                                    <th class="text-left">Item</th>
+                                    <th class="text-left">Description</th>
+                                    <th class="text-right">Price</th>
+                                    <th class="text-right">Sold</th>
+                                    <th class="text-right">Returned</th>
+                                    <th class="text-right">Can return</th>
+                                    <th class="text-right" style="width:110px">Return qty</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($returnRows as $row)
+                                    @php $ln = $row['line']; @endphp
+                                    <tr wire:key="ret-{{ $ln->id }}" @class(['opacity-50' => $row['returnable'] <= 0])>
+                                        <td>{{ $ln->item_code }}</td>
+                                        <td>{{ $ln->description }}</td>
+                                        <td class="text-right tabular-nums">${{ number_format((float) $ln->price, 2) }}</td>
+                                        <td class="text-right tabular-nums">{{ $retFmt($row['sold']) }}</td>
+                                        <td class="text-right tabular-nums">{{ $row['returned'] > 0 ? $retFmt($row['returned']) : '' }}</td>
+                                        <td class="text-right tabular-nums">{{ $retFmt($row['returnable']) }}</td>
+                                        <td class="text-right">
+                                            @if ($row['returnable'] > 0)
+                                                <input type="text" inputmode="decimal" wire:model.live.debounce.300ms="returnQty.{{ $ln->id }}"
+                                                    class="so-input text-right" style="width:90px" placeholder="0" autocomplete="off" />
+                                            @endif
+                                        </td>
+                                        <td>
+                                            @if ($row['returnable'] > 0)
+                                                <button type="button" class="desk-btn" style="padding:.1rem .5rem"
+                                                    wire:click="returnFullLine({{ $ln->id }}, '{{ $retFmt($row['returnable']) }}')">Full</button>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="8" class="text-center">No lines to return.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="so-form-row so-form-row-side">
+                        <label class="so-form-lbl" for="return_note">Note / reason</label>
+                        <input id="return_note" type="text" wire:model="returnNote" class="so-input" maxlength="200" placeholder="e.g. damaged, wrong item" autocomplete="off" />
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(4,auto);gap:.25rem 1.5rem;justify-content:end" class="tabular-nums">
+                        <span>Invoice total</span><strong>${{ number_format((float) $returnInvoice->invoice_total, 2) }}</strong>
+                        <span>Return amount</span><strong style="color:#b91c1c">-${{ number_format($returnPreview, 2) }}</strong>
+                        <span>New total</span><strong>${{ number_format($retNewTotal, 2) }}</strong>
+                        <span>New balance</span>
+                        <strong @style(['color:#b91c1c' => $retNewBalance < -0.004])>
+                            {{ $retNewBalance < -0.004 ? '-$'.number_format(abs($retNewBalance), 2).' (refund due)' : '$'.number_format($retNewBalance, 2) }}
+                        </strong>
+                    </div>
+
+                    @error('return') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
+
+                    <div class="entity-footer-actions" style="justify-content:space-between;gap:.5rem">
+                        <button type="button" wire:click="returnAllLines" class="desk-btn">Return all</button>
+                        <div style="display:flex;gap:.5rem">
+                            <button type="button" wire:click="closeReturnItems" class="desk-btn">Cancel</button>
+                            <button type="submit" class="desk-btn desk-btn-primary">Save return</button>
+                        </div>
                     </div>
                 </form>
             </div>

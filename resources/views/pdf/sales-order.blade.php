@@ -340,6 +340,7 @@
         })
         ->values();
     $buckets = DocumentMerchandiseTotals::fromLines($lines);
+    $returnsTotal = (float) $lines->filter(fn ($l) => (float) $l->qty_ordered < 0)->sum('line_total');
 
     $docSubtotal = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->subtotal : (float) ($order->subtotal ?? 0);
     $docDiscount = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->trade_discount : (float) ($order->trade_discount ?? 0);
@@ -512,7 +513,11 @@
                 <td class="col-item">{{ $line->item_code }}</td>
                 <td class="col-desc">
                     <div>{{ $line->description }}</div>
-                    @if ($showLineMessage && ($lineMsg = SalesOrderLinePresentation::lineMessage($line)))
+                    @if ($qty < 0)
+                        <div class="line-msg" style="font-weight:bold">
+                            {{ SalesOrderLinePresentation::lineMessage($line) ?: \App\Services\InvoiceReturnService::RETURN_NOTE }}
+                        </div>
+                    @elseif ($showLineMessage && ($lineMsg = SalesOrderLinePresentation::lineMessage($line)))
                         <div class="line-msg">
                             <span class="line-msg-lbl">Line Message:</span>{{ $lineMsg }}
                         </div>
@@ -562,6 +567,12 @@
                     <td class="lbl">SUBTOTAL</td>
                     <td class="amt">${{ number_format($docSubtotal, 2) }}</td>
                 </tr>
+                @if ($returnsTotal < -0.004)
+                    <tr>
+                        <td class="lbl">INCL. RETURNS</td>
+                        <td class="amt">-${{ number_format(abs($returnsTotal), 2) }}</td>
+                    </tr>
+                @endif
                 @if ($docDiscount != 0.0)
                     <tr>
                         <td class="lbl">TRADE DISCOUNT</td>
@@ -614,6 +625,12 @@
                     <td class="lbl">TOTAL DUE</td>
                     <td class="amt">${{ number_format($totalDue, 2) }}</td>
                 </tr>
+                @if ($isInvoiceDoc && $thisOpen < -0.004)
+                    <tr class="due">
+                        <td class="lbl">REFUND DUE</td>
+                        <td class="amt">-${{ number_format(abs($thisOpen), 2) }}</td>
+                    </tr>
+                @endif
                 </tbody>
             </table>
         </td>

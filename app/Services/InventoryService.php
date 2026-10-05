@@ -316,11 +316,8 @@ class InventoryService
                 continue;
             }
 
-            $qty = (float) $line->qty_shipped;
-            if ($qty <= 0) {
-                $qty = (float) $line->qty_ordered;
-            }
-            if ($qty <= 0) {
+            $qty = $this->lineStockQty($line);
+            if (abs($qty) < 0.0001) {
                 continue;
             }
 
@@ -330,21 +327,23 @@ class InventoryService
             }
 
             $onHand = (float) $item->quantity_in_stock;
-            $company = Company::query()->find($order->company_id);
-            $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
-            if ($err) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
-                    'invoice' => $err,
-                ]);
+            if ($qty > 0) {
+                $company = Company::query()->find($order->company_id);
+                $err = StockPolicy::invoiceQtyError($item, $qty, $onHand, $company);
+                if ($err) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'invoice' => $err,
+                    ]);
+                }
             }
 
             $newQty = $onHand - $qty;
-            $item->update([
+            $item->update(array_filter([
                 'quantity_in_stock' => $newQty,
-                'last_sold_at' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
-            ]);
+                'last_sold_at' => $qty > 0 ? ($invoice->invoice_date?->toDateString() ?? now()->toDateString()) : null,
+            ], fn ($v) => $v !== null));
 
-            if ((float) $line->qty_shipped <= 0) {
+            if (abs((float) $line->qty_shipped) < 0.0001) {
                 $line->update(['qty_shipped' => $qty]);
             }
 
@@ -368,6 +367,16 @@ class InventoryService
     }
 
     /**
+     * Shipped qty (or ordered when nothing shipped). Negative for return lines.
+     */
+    protected function lineStockQty(\App\Models\SalesOrderLine $line): float
+    {
+        $qty = (float) $line->qty_shipped;
+
+        return abs($qty) >= 0.0001 ? $qty : (float) $line->qty_ordered;
+    }
+
+    /**
      * Put stock back and reopen the sales order when an invoice is voided.
      */
     public function reverseInvoiceStock(SalesOrder $order, Invoice $invoice): void
@@ -379,11 +388,8 @@ class InventoryService
                 continue;
             }
 
-            $qty = (float) $line->qty_shipped;
-            if ($qty <= 0) {
-                $qty = (float) $line->qty_ordered;
-            }
-            if ($qty <= 0) {
+            $qty = $this->lineStockQty($line);
+            if (abs($qty) < 0.0001) {
                 continue;
             }
 
@@ -428,7 +434,7 @@ class InventoryService
                 continue;
             }
             $qty = (float) $line->qty_ordered;
-            if ($qty <= 0) {
+            if (abs($qty) < 0.0001) {
                 continue;
             }
             $id = (int) $line->item_id;

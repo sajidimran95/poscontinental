@@ -657,7 +657,7 @@
     </tr>
     </tbody>
 </table>
-<table class="doc-end" style="width:100%;margin-top:8px;border-collapse:collapse">
+<table class="doc-end" style="width:100%;margin-top:28px;border-collapse:collapse">
     <tr>
         <td style="width:62%;vertical-align:bottom;font-size:9px;border:none;padding:0">
             <strong>RECEIVED BY</strong>

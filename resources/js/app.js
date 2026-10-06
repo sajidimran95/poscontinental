@@ -1206,9 +1206,8 @@ function initPosTabKeepAlive() {
         }
 
         const countEl = menu.querySelector('[data-pos-window-count]');
-        const max = countEl ? (parseInt(countEl.getAttribute('data-max') || '9', 10) || 9) : 9;
         if (countEl) {
-            countEl.textContent = tabs.length + '/' + max + ' windows';
+            countEl.textContent = tabs.length + (tabs.length === 1 ? ' window' : ' windows') + ' open';
         }
 
         const closeWrap = menu.querySelector('[data-pos-window-close-all-wrap]');

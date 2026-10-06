@@ -12,18 +12,18 @@ class DocumentTabManager
 {
     public const SESSION_KEY = 'pos_document_tabs';
 
-    public const MAX_TABS = 9;
+    public const MAX_TABS = PHP_INT_MAX;
 
     public const DRAFT_TTL_SECONDS = 43200;
 
     /**
      * Total open windows (document tabs + New Sales Order windows).
      */
-    public const MAX_OPEN_WINDOWS = 9;
+    public const MAX_OPEN_WINDOWS = PHP_INT_MAX;
 
     public static function tabLimitMessage(): string
     {
-        return self::MAX_OPEN_WINDOWS.' tabs are already open. Close 1 tab, then open this.';
+        return 'Too many tabs are open. Close 1 tab, then open this.';
     }
 
     /**

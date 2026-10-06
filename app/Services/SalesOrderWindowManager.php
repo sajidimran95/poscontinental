@@ -9,7 +9,7 @@ class SalesOrderWindowManager
 {
     public const SESSION_KEY = 'so_create_windows';
 
-    public const MAX_WINDOWS = 9;
+    public const MAX_WINDOWS = PHP_INT_MAX;
 
     /** Keep unsaved SO tab drafts for 12 hours. */
     public const DRAFT_TTL_SECONDS = 43200;

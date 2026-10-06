@@ -267,14 +267,6 @@
                             return $menuUser?->canAccessFeature($feature, $action) ?? false;
                         };
                         $routeExists = fn (?string $route) => $route && Route::has($route);
-                        $menuDocTabs = app(\App\Services\DocumentTabManager::class);
-                        $menuSoWins = app(\App\Services\SalesOrderWindowManager::class);
-                        $menuOpenByRoute = [];
-                        foreach ($menuDocTabs->list() as $openTab) {
-                            $menuOpenByRoute[$openTab['route']] = $openTab['url'];
-                        }
-                        $menuOpenTotal = $menuDocTabs->count() + $menuSoWins->count();
-                        $menuWindowMax = \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS;
                         $menus = [
                             'File' => [
                                 ['My Profile', 'profile'],
@@ -373,17 +365,10 @@
                                         <a href="{{ route($route) }}" target="_blank" rel="noopener" class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap border-t border-slate-200 mt-1" role="menuitem">{{ $label }} ↗</a>
                                     @elseif ($allowed)
                                         @php
-                                            $isSoCreate = $route === 'sales.orders.create';
                                             $menuHref = route('pos.tabs.open', ['route' => $route, 'label' => $label]);
-                                            $menuBlocked = ! $isSoCreate
-                                                && empty($menuOpenByRoute[$route])
-                                                && $menuOpenTotal >= $menuWindowMax;
                                         @endphp
                                         <a
                                             href="{{ $menuHref }}"
-                                            @if ($menuBlocked)
-                                                onclick="event.preventDefault(); window.showPosTabLimit && window.showPosTabLimit();"
-                                            @endif
                                             class="block px-3 py-1.5 hover:bg-sky-100 whitespace-nowrap"
                                             role="menuitem"
                                         >{{ $label }}</a>
@@ -426,7 +411,6 @@
                             ];
                         }
                         $windowOpenCount = count($windowMenuItems);
-                        $windowMax = \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS;
                         $windowHomeActive = (request()->route()?->getName() ?? 'home') === 'home';
                     @endphp
                     <div class="relative group" data-pos-window-menu>
@@ -485,8 +469,8 @@
                                     >Close All</button>
                                 @endif
                             </div>
-                            <div class="px-3 py-1 text-[11px] text-slate-500 select-none" aria-hidden="true" data-pos-window-count data-max="{{ $windowMax }}">
-                                {{ $windowOpenCount }}/{{ $windowMax }} windows
+                            <div class="px-3 py-1 text-[11px] text-slate-500 select-none" aria-hidden="true" data-pos-window-count>
+                                {{ $windowOpenCount }} {{ $windowOpenCount === 1 ? 'window' : 'windows' }} open
                             </div>
                         </div>
                     </div>
@@ -639,8 +623,6 @@
                 $soWindowAdd = $soWindows->count() > 0 || $routeName === 'sales.orders.create';
                 $homeIsActive = $routeName === 'home';
                 $openWindowCount = count($builtTabs);
-                $windowsAtMax = $openWindowCount >= \App\Services\DocumentTabManager::MAX_OPEN_WINDOWS
-                    || $soWindows->count() >= \App\Services\SalesOrderWindowManager::MAX_WINDOWS;
             @endphp
             <div class="chief-tabs">
                 <div @class(['chief-tab', 'chief-tab-active' => $homeIsActive]) data-desk-key="{{ \App\Support\PosDeskKey::fromUrl(route('home')) }}" data-desk-home="1">
@@ -650,10 +632,10 @@
                 <button
                     type="button"
                     class="chief-tab-add"
-                    title="{{ $windowsAtMax ? \App\Services\DocumentTabManager::tabLimitMessage() : 'New Sales Order' }}"
+                    title="New Sales Order"
                     aria-label="Open another New Sales Order"
                     style="display:inline-flex;align-items:center;justify-content:center;align-self:stretch;box-sizing:border-box;height:100%;min-width:3.5rem;padding:0 1.35rem;margin:0;border:none;border-right:1px solid #15803d;border-radius:0;background:#22c55e;color:#fff;font-size:1.4rem;font-weight:700;line-height:1;cursor:pointer;flex:0 0 auto;"
-                    onclick="if ({{ $windowsAtMax ? 'true' : 'false' }}) { window.showPosTabLimit && window.showPosTabLimit(); return false; } window.__posOpenHref && window.__posOpenHref({{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }});"
+                    onclick="window.__posOpenHref && window.__posOpenHref({{ json_encode(route('pos.tabs.open', ['route' => 'sales.orders.create', 'label' => 'New Sales Order'])) }});"
                 >+</button>
 
                 @foreach ($builtTabs as $tab)

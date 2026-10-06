@@ -171,6 +171,7 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 ->where('inventory_receiving_id', $this->inventory_receiving_id)
                 ->where('qty_received', '>', 0)
                 ->when($this->itemBrowseSearch !== '', fn ($q) => ItemSearch::constrainCodeDescription($q, $this->itemBrowseSearch))
+                ->when($this->itemBrowseSearch !== '', fn ($q) => ItemSearch::orderByRelevance($q, $this->itemBrowseSearch, 'item_code', 'description', null))
                 ->orderBy('line_no')
                 ->limit(100)
                 ->get()

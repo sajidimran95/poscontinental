@@ -50,6 +50,10 @@ trait SortsItemBrowse
             $field = 'quantity_in_stock';
         }
 
+        if (filled($this->browseSearch ?? null)) {
+            \App\Support\ItemSearch::orderByRelevance($query, $this->browseSearch);
+        }
+
         if (! empty($this->browseNewOnly) && $field === 'quantity_in_stock') {
             return $query->orderByDesc('created_at')->orderBy('item_code');
         }

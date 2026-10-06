@@ -29,6 +29,7 @@ trait SearchesItemEntryHits
             ->where('is_inactive', false);
 
         ItemSearch::constrain($rows, $q);
+        ItemSearch::orderByRelevance($rows, $q);
 
         $this->entryHits = $rows
             ->orderBy('item_code')

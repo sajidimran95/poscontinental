@@ -234,6 +234,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 ? SalesOrderLine::query()
                     ->where('sales_order_id', $this->sales_order_id)
                     ->when(filled($this->itemBrowseSearch), fn ($q) => ItemSearch::constrainCodeDescription($q, $this->itemBrowseSearch))
+                    ->when(filled($this->itemBrowseSearch), fn ($q) => ItemSearch::orderByRelevance($q, $this->itemBrowseSearch, 'item_code', 'description', null))
                     ->orderBy('line_no')
                     ->get(['id', 'item_id', 'item_code', 'description', 'uom', 'qty_ordered', 'qty_shipped', 'price', 'line_total', 'line_no'])
                 : collect(),

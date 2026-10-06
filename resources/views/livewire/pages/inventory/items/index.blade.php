@@ -1524,6 +1524,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             // selectSub on item_prices — it made the list scan expensive after large imports.
             ->where('company_id', $companyId)
             ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
+            ->when($this->search !== '', fn ($q) => ItemSearch::orderByRelevance($q, $this->search, 'items.item_code', 'items.description', 'items.primary_upc'))
             ->when($this->categoryFilter !== '', fn ($q) => $q->where('category_id', (int) $this->categoryFilter))
             ->when($this->favorite === 'new', fn ($q) => $q->newItems())
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))

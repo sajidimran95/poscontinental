@@ -2503,25 +2503,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ->when($this->browseQtyLtZero, fn ($q) => $q->where('quantity_in_stock', '<', 0))
             ->when($this->browseCategoryId, fn ($q) => $q->where('category_id', $this->browseCategoryId))
             ->when($this->browseSubcategoryId, fn ($q) => $q->where('subcategory_id', $this->browseSubcategoryId))
-            ->when(filled($this->browseSearch), function ($q) {
-                // Browse search: look for whole phrase (not word tokens)
-                // More precise than general ItemSearch
-                $search = trim($this->browseSearch);
-                $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
-                $q->where(function ($w) use ($like) {
-                    $w->whereRaw('LOWER(item_code) LIKE LOWER(?)', [$like])
-                        ->orWhereRaw('LOWER(description) LIKE LOWER(?)', [$like])
-                        ->orWhereRaw("LOWER(IFNULL(extended_description, '')) LIKE LOWER(?)", [$like])
-                        ->orWhereRaw("LOWER(IFNULL(primary_upc, '')) LIKE LOWER(?)", [$like])
-                        ->orWhereRaw("LOWER(IFNULL(manufacturer, '')) LIKE LOWER(?)", [$like])
-                        ->orWhereExists(function ($sub) use ($like) {
-                            $sub->selectRaw('1')
-                                ->from('item_upcs')
-                                ->whereColumn('item_upcs.item_id', 'items.id')
-                                ->whereRaw('LOWER(item_upcs.upc) LIKE LOWER(?)', [$like]);
-                        });
-                });
-            });
+            ->when(filled($this->browseSearch), fn ($q) => \App\Support\ItemSearch::constrain($q, $this->browseSearch));
     }
 
     /**
@@ -4239,6 +4221,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             ->where('is_inactive', false)
             ->where('can_sell', true);
         ItemSearch::constrain($rows, $q);
+        ItemSearch::orderByRelevance($rows, $q);
 
         $this->entryHits = $rows
             ->orderBy('item_code')

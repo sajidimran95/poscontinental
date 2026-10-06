@@ -628,9 +628,32 @@ class DocumentPdfService
         $count = max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
         $data['pageLabel'] = (string) $count;
 
-        return Pdf::loadView($view, $data)
+        $pdf = Pdf::loadView($view, $data)
             ->setPaper('letter')
             ->setOption('defaultFont', 'Helvetica');
+
+        // pdf.sales-order repeats its header (with "X of N") on every page itself.
+        if ($count < 2 || $view === 'pdf.sales-order') {
+            return $pdf;
+        }
+
+        // Page 1 shows "1 of N" in its header box; later pages get "Page X of N" top-right.
+        $pdf->render();
+        $dompdf = $pdf->getDomPDF();
+        $canvas = $dompdf->getCanvas();
+        $bold = $dompdf->getFontMetrics()->getFont('Helvetica', 'bold');
+        $width = $canvas->get_width();
+        $canvas->page_script(function (int $pageNumber, int $pageCount, $canvas, $fontMetrics) use ($bold, $width) {
+            if ($pageNumber < 2) {
+                return;
+            }
+            $text = 'Page '.$pageNumber.' of '.$pageCount;
+            $size = 10.0;
+            $textWidth = $fontMetrics->getTextWidth($text, $bold, $size);
+            $canvas->text($width - $textWidth - 32, 12, $text, $bold, $size);
+        });
+
+        return $pdf;
     }
 
     /** @deprecated Use documentPdfWithPageCount() */

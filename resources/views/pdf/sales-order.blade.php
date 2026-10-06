@@ -4,7 +4,10 @@
     <meta charset="utf-8">
     <title>{{ $docTitle ?? 'Sales Order' }} {{ $barcodeValue ?? $order->order_number }}</title>
     <style>
-        @page { size: letter; margin: 0.4in 0.45in 0.45in; }
+        @page { size: letter; margin: 3.05in 0.45in 0.45in; }
+        /* Company / Sold To / invoice box / account bar repeat on every page. */
+        .page-head { position: fixed; top: -2.68in; left: 0; right: 0; }
+        .pagenum:after { content: counter(page) " of {{ (int) ($pageLabel ?? 1) }}"; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -54,8 +57,8 @@
             padding-top: 2px;
             min-height: 14px;
         }
-        .barcode-wrap { text-align: right; margin: 4px 0 2px; width: 100%; }
-        .barcode-wrap img { width: 100%; max-width: 280px; height: 56px; }
+        .barcode-wrap { text-align: right; margin: 3px 0 2px; width: 100%; }
+        .barcode-wrap img { max-width: 170px; height: 34px; }
         .addr-wrap { width: 100%; margin: 10px 0 8px; border-collapse: collapse; }
         .addr-wrap td.addr-cell,
         .addr-wrap td.inv-cell {
@@ -74,9 +77,9 @@
             width: 50%;
             background: none;
             color: #000;
-            font-size: 8px;
+            font-size: 10px;
             letter-spacing: 0.06em;
-            padding: 2px 6px;
+            padding: 3px 7px;
             text-align: left;
             border-bottom: 1px solid #222;
         }
@@ -86,11 +89,11 @@
             width: 50%;
             vertical-align: top;
             text-align: left;
-            padding: 3px 6px 4px;
-            font-size: 9.5px;
+            padding: 5px 7px 6px;
+            font-size: 12px;
         }
-        .addr-name { font-weight: bold; font-size: 10px; text-align: left; line-height: 1.2; }
-        .addr-line { margin: 0; padding: 0; text-align: left; font-size: 9px; line-height: 1.2; }
+        .addr-name { font-weight: bold; font-size: 13.5px; text-align: left; line-height: 1.25; }
+        .addr-line { margin: 1px 0 0; padding: 0; text-align: left; font-size: 12px; line-height: 1.25; }
         .meta-bar {
             width: 100%;
             border: 1px solid #222;
@@ -121,17 +124,17 @@
             table-layout: fixed;
             border-collapse: collapse;
         }
-        table.items col.col-qty, table.items th.col-qty, table.items td.col-qty { width: 5%; }
+        table.items col.col-qty, table.items th.col-qty, table.items td.col-qty { width: 6%; }
         table.items col.col-item, table.items th.col-item, table.items td.col-item { width: 9%; }
-        table.items col.col-desc, table.items th.col-desc, table.items td.col-desc { width: 50%; }
-        table.items col.col-uom, table.items th.col-uom, table.items td.col-uom { width: 5%; }
-        table.items col.col-price, table.items th.col-price, table.items td.col-price { width: 11%; }
-        table.items col.col-disc, table.items th.col-disc, table.items td.col-disc { width: 10%; }
+        table.items col.col-desc, table.items th.col-desc, table.items td.col-desc { width: 55%; }
+        table.items col.col-uom, table.items th.col-uom, table.items td.col-uom { width: 4%; }
+        table.items col.col-price, table.items th.col-price, table.items td.col-price { width: 9%; }
+        table.items col.col-disc, table.items th.col-disc, table.items td.col-disc { width: 7%; }
         table.items col.col-total, table.items th.col-total, table.items td.col-total { width: 10%; }
         table.items th {
             background: #333;
             color: #fff;
-            font-size: 8.5px;
+            font-size: 9.5px;
             font-weight: bold;
             letter-spacing: 0.04em;
             padding: 5px 4px;
@@ -152,7 +155,7 @@
         }
         table.items td {
             padding: 3px 4px;
-            font-size: 9.5px;
+            font-size: 11px;
             vertical-align: top;
             border-left: 1px solid #ccc;
             border-right: 1px solid #ccc;
@@ -179,9 +182,15 @@
         }
         table.items th.col-qty, table.items td.col-qty { padding-left: 2px; padding-right: 3px; }
         table.items th.col-uom, table.items td.col-uom { padding-left: 2px; padding-right: 2px; text-align: center; }
-        table.items th.col-item, table.items td.col-item { text-align: left; }
+        table.items th.col-item, table.items td.col-item { text-align: left; white-space: nowrap; padding-left: 3px; padding-right: 2px; }
+        table.items td.col-item.is-long { font-size: 9px; }
         table.items th.col-desc, table.items td.col-desc { text-align: left; }
-        table.items td.col-desc { font-size: 10.5px; }
+        table.items td.col-desc { font-size: 11px; }
+        table.items td.col-desc .desc-one {
+            white-space: nowrap;
+            overflow: hidden;
+            width: 100%;
+        }
         .right { text-align: right; }
         .foot-sum {
             width: 100%;
@@ -222,10 +231,12 @@
         .foot-sum td.bal-box {
             padding: 6px 3px;
             text-align: center;
+            vertical-align: middle;
             font-size: 8.5px;
             font-weight: bold;
             white-space: nowrap;
         }
+        .foot-sum.merch-sum { margin-top: 6px; }
         .foot-sum td.tot-wrap {
             width: 32%;
             padding: 0;
@@ -258,7 +269,9 @@
             font-size: 12px;
             padding: 6px;
         }
-        .sign { margin-top: 14px; font-size: 9px; }
+        .doc-end { page-break-inside: avoid; }
+        .doc-foot { page-break-inside: avoid; margin-top: 18px; }
+        .sign { margin-top: 8px; font-size: 9px; }
         .sign-line {
             border-bottom: 1px solid #000;
             width: 55%;
@@ -269,8 +282,8 @@
             text-align: center;
             font-weight: bold;
             font-size: 10px;
-            margin-top: 22px;
-            padding-top: 8px;
+            margin-top: 8px;
+            padding-top: 0;
             letter-spacing: 0.04em;
         }
         .logo-img { max-height: 48px; max-width: 160px; margin-bottom: 3px; }
@@ -359,10 +372,10 @@
     // Previous due = sum of all other open invoice balances for this customer
     $previousBalance = $previousInvoices['total'];
     $todayInvoice = $docTotal;
-    // TOTAL DUE = this document total only (do not add previous due)
-    $totalDue = round($docTotal, 2);
+    $totalDue = round($docTotal + $previousBalance, 2);
 @endphp
 
+<div class="page-head">
 <table class="hdr">
     <tr>
         <td style="width:55%">
@@ -386,7 +399,7 @@
                 in all correspondence regarding this transaction.
             </div>
             <div class="barcode-wrap">
-                {!! Code128Barcode::html($barcodeValue, 3, 56) !!}
+                {!! Code128Barcode::html($barcodeValue, 2, 34) !!}
             </div>
             @if ($isInvoiceDoc)
                 <div class="notice" style="margin-top:4px">Please pay invoice in full. A fee will be applied for NSF checks.</div>
@@ -443,7 +456,7 @@
                 <tr>
                     <td>NUMBER<div class="val">{{ $headerNumber }}</div></td>
                     <td>DATE<div class="val">{{ $headerDate }}</div></td>
-                    <td>PAGE<div class="val">{{ $pageLabel ?? '1' }}</div></td>
+                    <td>PAGE<div class="val pagenum"></div></td>
                 </tr>
                 </tbody>
             </table>
@@ -470,6 +483,7 @@
         <td>{{ $paymentLabel }}</td>
     </tr>
 </table>
+</div>
 
 <table class="items">
     <colgroup>
@@ -488,7 +502,7 @@
             <th class="col-desc">DESCRIPTION</th>
             <th class="col-uom">U/M</th>
             <th class="col-price">UNIT</th>
-            <th class="col-disc">DISCOUNT</th>
+            <th class="col-disc">DISC</th>
             <th class="col-total">TOTAL</th>
         </tr>
     </thead>
@@ -510,9 +524,10 @@
             @endphp
             <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="col-qty">{{ $qtyLabel }}</td>
-                <td class="col-item">{{ $line->item_code }}</td>
+                @php $itemCode = (string) $line->item_code; @endphp
+                <td @class(['col-item', 'is-long' => mb_strlen($itemCode) > 7])>{{ $itemCode }}</td>
                 <td class="col-desc">
-                    <div>{{ $line->description }}</div>
+                    <div class="desc-one">{{ mb_strimwidth((string) $line->description, 0, 52, '') }}</div>
                     @if ($qty < 0)
                         <div class="line-msg" style="font-weight:bold">
                             {{ SalesOrderLinePresentation::lineMessage($line) ?: \App\Services\InvoiceReturnService::RETURN_NOTE }}
@@ -536,7 +551,8 @@
     </tbody>
 </table>
 
-{{-- Same layout; 3 merchandise totals + gap + right totals --}}
+<div class="doc-foot">
+{{-- Balances (left) + totals (right); merchandise boxes at the bottom --}}
 <table class="foot-sum">
     <colgroup>
         <col style="width:22%">
@@ -547,18 +563,9 @@
     </colgroup>
     <tbody>
     <tr>
-        <td class="sum-box">
-            <span class="sum-lbl">TOTAL TOBACCO</span>
-            <span class="sum-val">${{ number_format((float) $buckets['tobacco_total'], 2) }}</span>
-        </td>
-        <td class="sum-box">
-            <span class="sum-lbl">TOTAL CIGARETTES</span>
-            <span class="sum-val">${{ number_format((float) $buckets['cigarette_total'], 2) }}</span>
-        </td>
-        <td class="sum-box">
-            <span class="sum-lbl">TOTAL OTHER PRODUCTS</span>
-            <span class="sum-val">${{ number_format((float) $buckets['other_total'], 2) }}</span>
-        </td>
+        <td class="bal-box">PREVIOUS BALANCE<br><span class="sum-val">${{ number_format($previousBalance, 2) }}</span></td>
+        <td class="bal-box">TOTAL CREDITS<br><span class="sum-val">${{ number_format($creditTotal, 2) }}</span></td>
+        <td class="bal-box">TOTAL PAYMENTS<br><span class="sum-val">${{ number_format($payTotal, 2) }}</span></td>
         <td class="gap">&nbsp;</td>
         <td class="tot-wrap">
             <table class="tot-inner">
@@ -601,26 +608,10 @@
                     <td class="lbl">{{ $isInvoiceDoc ? 'INVOICE TOTAL' : 'ORDER TOTAL' }}</td>
                     <td class="amt">${{ number_format($docTotal, 2) }}</td>
                 </tr>
-                </tbody>
-            </table>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="3" style="padding:0;border:1px solid #222">
-            <table style="width:100%;border-collapse:collapse;table-layout:fixed">
-                <tbody>
                 <tr>
-                    <td class="bal-box" style="width:33.33%;border:none;border-right:1px solid #222">PREVIOUS BALANCE: ${{ number_format($previousBalance, 2) }}</td>
-                    <td class="bal-box" style="width:33.33%;border:none;border-right:1px solid #222">TOTAL CREDITS: ${{ number_format($creditTotal, 2) }}</td>
-                    <td class="bal-box" style="width:33.34%;border:none">TOTAL PAYMENTS: ${{ number_format($payTotal, 2) }}</td>
+                    <td class="lbl">PREVIOUS BALANCE</td>
+                    <td class="amt">${{ number_format($previousBalance, 2) }}</td>
                 </tr>
-                </tbody>
-            </table>
-        </td>
-        <td class="gap">&nbsp;</td>
-        <td class="tot-wrap">
-            <table class="tot-inner">
-                <tbody>
                 <tr class="due">
                     <td class="lbl">TOTAL DUE</td>
                     <td class="amt">${{ number_format($totalDue, 2) }}</td>
@@ -637,11 +628,45 @@
     </tr>
     </tbody>
 </table>
-<div class="sign">
-    <strong>RECEIVED BY</strong>
-    <span class="sign-line">&nbsp;</span>
-    <div style="margin-top:4px;font-size:8px">SIGNATURE ACKNOWLEDGES RECEIPT OF THE TOTALS SHOWN ABOVE.</div>
+
+<table class="foot-sum merch-sum">
+    <colgroup>
+        <col style="width:25%">
+        <col style="width:25%">
+        <col style="width:25%">
+        <col style="width:25%">
+    </colgroup>
+    <tbody>
+    <tr>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL TOBACCO</span>
+            <span class="sum-val">${{ number_format((float) $buckets['tobacco_total'], 2) }}</span>
+        </td>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL CIGARETTES</span>
+            <span class="sum-val">${{ number_format((float) $buckets['cigarette_total'], 2) }}</span>
+        </td>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL CIGARETTES QTY</span>
+            <span class="sum-val">{{ rtrim(rtrim(number_format((float) $buckets['cigarette_qty'], 2), '0'), '.') ?: '0' }}</span>
+        </td>
+        <td class="sum-box">
+            <span class="sum-lbl">TOTAL OTHER PRODUCTS</span>
+            <span class="sum-val">${{ number_format((float) $buckets['other_total'], 2) }}</span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+<table class="doc-end" style="width:100%;margin-top:8px;border-collapse:collapse">
+    <tr>
+        <td style="width:62%;vertical-align:bottom;font-size:9px;border:none;padding:0">
+            <strong>RECEIVED BY</strong>
+            <span class="sign-line" style="width:70%">&nbsp;</span>
+            <div style="margin-top:3px;font-size:8px">SIGNATURE ACKNOWLEDGES RECEIPT OF THE TOTALS SHOWN ABOVE.</div>
+        </td>
+        <td class="thanks" style="width:38%;vertical-align:bottom;text-align:right;border:none;padding:0;margin:0">THANK YOU FOR YOUR BUSINESS</td>
+    </tr>
+</table>
 </div>
-<div class="thanks">THANK YOU FOR YOUR BUSINESS</div>
 </body>
 </html>

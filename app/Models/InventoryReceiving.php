@@ -47,6 +47,35 @@ class InventoryReceiving extends Model
         return $this->belongsTo(User::class, 'buyer_id');
     }
 
+    /**
+     * Receiving number = PO number. A second receiving on the same PO gets "-2", "-3", ...
+     */
+    public static function numberForPurchaseOrder(PurchaseOrder $po): string
+    {
+        $base = trim((string) $po->po_number);
+        if ($base === '') {
+            return static::nextNumber((int) $po->company_id);
+        }
+
+        $taken = static::query()
+            ->where('company_id', $po->company_id)
+            ->where(fn ($q) => $q->where('receipt_number', $base)->orWhere('receipt_number', 'like', $base.'-%'))
+            ->pluck('receipt_number')
+            ->map(fn ($n) => (string) $n)
+            ->all();
+
+        if (! in_array($base, $taken, true)) {
+            return $base;
+        }
+
+        $n = 2;
+        while (in_array($base.'-'.$n, $taken, true)) {
+            $n++;
+        }
+
+        return $base.'-'.$n;
+    }
+
     public static function nextNumber(int $companyId): string
     {
         $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('receipt_number');

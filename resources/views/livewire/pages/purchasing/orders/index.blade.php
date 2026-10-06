@@ -461,7 +461,7 @@ new #[Layout('layouts.app'), Title('Purchase Orders')] class extends Component
 
         $receiving = InventoryReceiving::query()->create([
             'company_id' => $po->company_id,
-            'receipt_number' => InventoryReceiving::nextNumber($po->company_id),
+            'receipt_number' => InventoryReceiving::numberForPurchaseOrder($po),
             'receipt_date' => now()->toDateString(),
             'purchase_order_id' => $po->id,
             'status' => 'New',

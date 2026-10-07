@@ -270,7 +270,9 @@
             padding: 6px;
         }
         .doc-end { page-break-inside: avoid; }
-        .doc-foot { page-break-inside: avoid; margin-top: 18px; }
+        /* Footer sits at the bottom of the last page; the spacer reserves its height in the flow. */
+        .doc-foot-space { page-break-inside: avoid; }
+        .doc-foot { position: absolute; left: 0; right: 0; bottom: 0; }
         .sign { margin-top: 8px; font-size: 9px; }
         .sign-line {
             border-bottom: 1px solid #000;
@@ -334,8 +336,8 @@
     $lineSortKey = fn ($line) => [
         mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
         (int) ($line->item?->category_id ?? PHP_INT_MAX),
-        mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
         mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
+        mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
         (int) ($line->line_no ?? 0),
         (int) $line->id,
     ];
@@ -551,6 +553,10 @@
     </tbody>
 </table>
 
+@php
+    $footExtraRows = collect([$returnsTotal < -0.004, $docDiscount != 0.0, $docFreight != 0.0, $docMisc != 0.0, $docTax != 0.0, $isInvoiceDoc && $thisOpen < -0.004])->filter()->count();
+@endphp
+<div class="doc-foot-space" style="height: {{ 220 + 22 * $footExtraRows }}px"></div>
 <div class="doc-foot">
 {{-- Balances (left) + totals (right); merchandise boxes at the bottom --}}
 <table class="foot-sum">

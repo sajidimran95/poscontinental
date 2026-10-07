@@ -159,6 +159,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     'customer_label' => data_get($p, 'customer_label'),
                     'line_count' => (int) data_get($p, 'line_count'),
                     'total' => (float) data_get($p, 'total'),
+                    'is_auto' => (bool) data_get($p, 'is_auto'),
                     'updated_at' => is_object($updated) && method_exists($updated, 'format')
                         ? $updated->format('n/j/Y g:i A')
                         : (is_string($updated) ? $updated : null),
@@ -1059,7 +1060,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 wire:click="recallParkedSale({{ $parked['id'] }})"
                                 style="flex:1; text-align:left; border:0; background:#fff; padding:.85rem 1rem; cursor:pointer;"
                             >
-                                <div style="font-weight:700;">{{ $parked['customer_label'] ?: 'Customer' }}</div>
+                                <div style="font-weight:700;">
+                                    {{ $parked['customer_label'] ?: 'Customer' }}
+                                    @if (! empty($parked['is_auto']))
+                                        <span style="font-size:.7rem; font-weight:600; color:#1d4ed8; background:#dbeafe; border-radius:4px; padding:1px 6px; margin-left:4px;">Auto-saved</span>
+                                    @endif
+                                </div>
                                 <div style="font-size:.8rem; color:#64748b;">{{ $parked['line_count'] }} item(s) · ${{ number_format($parked['total'], 2) }}@if($parked['updated_at']) · {{ $parked['updated_at'] }}@endif</div>
                             </button>
                             <button

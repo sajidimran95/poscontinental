@@ -650,7 +650,67 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->createWindowId && ! $this->salesOrder?->exists) {
             // Throttle draft writes while scanning/adding many lines (session+cache is expensive).
             $this->persistCreateWindowDraft(force: false);
+            $this->autoParkWindow();
         }
+    }
+
+    #[\Livewire\Attributes\Renderless]
+    public function autosaveNow(): void
+    {
+        if ($this->viewMode || ! $this->createWindowId || $this->salesOrder?->exists) {
+            return;
+        }
+        $this->persistCreateWindowDraft();
+    }
+
+    /**
+     * Keep this window's order in Parked (auto-saved) so it survives reload, logout, sleep or closing the tab.
+     * Writes only when the order content changed.
+     */
+    protected function autoParkWindow(): void
+    {
+        if ($this->viewMode || ! $this->createWindowId || $this->salesOrder?->exists) {
+            return;
+        }
+
+        $hashKey = 'so.autopark.hash.'.$this->createWindowId;
+        $data = $this->parkData();
+        if ($data === null) {
+            if (Cache::has($hashKey)) {
+                $this->forgetAutoPark();
+            }
+
+            return;
+        }
+
+        $hash = md5(json_encode($data['payload']));
+        if (Cache::get($hashKey) === $hash) {
+            return;
+        }
+
+        try {
+            app(ParkedSaleService::class)->autoSave(
+                auth()->user(),
+                $this->createWindowId,
+                $data['customer'],
+                $data['label'],
+                $data['payload'],
+                $data['count'],
+                $data['total'],
+            );
+            Cache::put($hashKey, $hash, SalesOrderWindowManager::DRAFT_TTL_SECONDS);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    protected function forgetAutoPark(): void
+    {
+        if (! $this->createWindowId) {
+            return;
+        }
+        Cache::forget('so.autopark.hash.'.$this->createWindowId);
+        app(ParkedSaleService::class)->forgetWindow(auth()->user(), $this->createWindowId);
     }
 
     #[On('so-windows-open')]
@@ -3789,6 +3849,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'customer_label' => $p->customer_label,
                 'line_count' => (int) $p->line_count,
                 'total' => (float) $p->total,
+                'is_auto' => (bool) $p->is_auto,
                 'updated_at' => optional($p->updated_at)->format('n/j/Y g:i A'),
             ])
             ->all();
@@ -3893,8 +3954,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        $filled = $this->filledParkLines();
-        if ($filled->isEmpty()) {
+        if ($this->filledParkLines()->isEmpty()) {
             $this->notifyAlert('Add at least one item before parking this sale.', 'warning');
 
             return;
@@ -3905,11 +3965,42 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $customer = Customer::query()->find($this->customer_id);
-        if (! $customer || (int) $customer->company_id !== (int) auth()->user()->company_id) {
+        $data = $this->parkData();
+        if ($data === null) {
             $this->notifyAlert('Select a valid customer.', 'error');
 
             return;
+        }
+
+        try {
+            app(ParkedSaleService::class)->park(auth()->user(), $data['customer'], $data['label'], $data['payload'], $data['count'], $data['total']);
+        } catch (ValidationException $e) {
+            $this->notifyAlert(collect($e->errors())->flatten()->first() ?: 'Could not park this sale.', 'error');
+
+            return;
+        }
+
+        $this->forgetAutoPark();
+        if (! $this->salesOrder?->exists) {
+            $this->resetBlankNewOrder();
+        }
+        $this->refreshParkedList();
+        $this->notifyAlert('Sale parked. Use Parked Sales to recall it.', 'success');
+    }
+
+    /**
+     * @return array{customer: Customer, label: string, payload: array<string, mixed>, count: int, total: float}|null
+     */
+    protected function parkData(): ?array
+    {
+        $filled = $this->filledParkLines();
+        if ($filled->isEmpty() || ! $this->customer_id) {
+            return null;
+        }
+
+        $customer = Customer::query()->find($this->customer_id);
+        if (! $customer || (int) $customer->company_id !== (int) auth()->user()->company_id) {
+            return null;
         }
 
         $form = [];
@@ -3929,8 +4020,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $total = (float) $filled->sum(fn ($l) => ((float) ($l['qty_ordered'] ?? 0) * (float) ($l['price'] ?? 0)) - (float) ($l['discount'] ?? 0));
         $label = trim($this->bill_to_name ?: ($customer->company_name ?: $customer->contact ?: ''));
 
-        try {
-            app(ParkedSaleService::class)->park(auth()->user(), $customer, $label, [
+        return [
+            'customer' => $customer,
+            'label' => $label,
+            'count' => $filled->count(),
+            'total' => $total,
+            'payload' => [
                 'source' => 'desktop',
                 'form' => $form,
                 'customer_id' => (int) $customer->id,
@@ -3952,18 +4047,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'sale_note' => $this->comments,
                     'location_id' => $this->ship_from_site_id,
                 ],
-            ], $filled->count(), $total);
-        } catch (ValidationException $e) {
-            $this->notifyAlert(collect($e->errors())->flatten()->first() ?: 'Could not park this sale.', 'error');
-
-            return;
-        }
-
-        if (! $this->salesOrder?->exists) {
-            $this->resetBlankNewOrder();
-        }
-        $this->refreshParkedList();
-        $this->notifyAlert('Sale parked. Use Parked Sales to recall it.', 'success');
+            ],
+        ];
     }
 
     protected function resetBlankNewOrder(): void
@@ -4019,6 +4104,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $row = app(ParkedSaleService::class)->findOwn(auth()->user(), $id);
         $payload = is_array($row->payload) ? $row->payload : [];
+
+        // The order already in this window stays in Parked as its own entry.
+        if ($this->createWindowId) {
+            app(ParkedSaleService::class)->detachWindow(auth()->user(), $this->createWindowId);
+            Cache::forget('so.autopark.hash.'.$this->createWindowId);
+        }
 
         if (isset($payload['form']) && is_array($payload['form'])) {
             $this->applyCreateWindowDraft($payload['form']);
@@ -5299,6 +5390,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $itemIds = collect($this->lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
         $itemIds = array_values(array_unique(array_merge($itemIds, $previousItemIds)));
 
+        if ($isNewOrder) {
+            $this->forgetAutoPark();
+        }
+
         if ($this->shouldReturnToInvoiceList()) {
             if ($this->salesOrder?->exists) {
                 $this->salesOrder->releaseEditLock(auth()->user());
@@ -6577,7 +6672,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                 wire:click="recallParkedSale({{ $parked['id'] }})"
                                 style="flex:1; text-align:left; border:0; background:#fff; padding:.85rem 1rem; cursor:pointer;"
                             >
-                                <div style="font-weight:700;">{{ $parked['customer_label'] ?: 'Customer' }}</div>
+                                <div style="font-weight:700;">
+                                    {{ $parked['customer_label'] ?: 'Customer' }}
+                                    @if (! empty($parked['is_auto']))
+                                        <span style="font-size:.7rem; font-weight:600; color:#1d4ed8; background:#dbeafe; border-radius:4px; padding:1px 6px; margin-left:4px;">Auto-saved</span>
+                                    @endif
+                                </div>
                                 <div style="font-size:.8rem; color:#64748b;">{{ $parked['line_count'] }} item(s) · ${{ number_format($parked['total'], 2) }}@if($parked['updated_at']) · {{ $parked['updated_at'] }}@endif</div>
                             </button>
                             <button
@@ -7298,6 +7398,27 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             buf = '';
             $wire.addItemFromEntry(code);
         }, true);
+    })();
+
+    // Autosave to Parked: send typed-but-unsent fields (comments, addresses, PO...) to the server.
+    (function () {
+        let dirty = false;
+        const markDirty = () => { dirty = true; };
+        $wire.$el.addEventListener('input', markDirty, true);
+        $wire.$el.addEventListener('change', markDirty, true);
+        const flush = () => {
+            if (!dirty) return;
+            dirty = false;
+            $wire.autosaveNow();
+        };
+        setInterval(() => {
+            if (document.visibilityState === 'visible') flush();
+        }, 20000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flush();
+        });
+        window.addEventListener('pagehide', flush);
+        window.addEventListener('beforeunload', flush);
     })();
 
     $wire.on('open-order-print-urls', (payload) => {

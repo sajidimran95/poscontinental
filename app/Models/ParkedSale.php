@@ -11,6 +11,8 @@ class ParkedSale extends Model
         'company_id',
         'user_id',
         'customer_id',
+        'window_id',
+        'is_auto',
         'customer_label',
         'line_count',
         'total',
@@ -21,6 +23,7 @@ class ParkedSale extends Model
     {
         return [
             'payload' => 'array',
+            'is_auto' => 'boolean',
             'total' => 'decimal:4',
         ];
     }

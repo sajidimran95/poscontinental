@@ -2867,8 +2867,13 @@
         gap: 0.5rem 0.65rem !important;
     }
 
+    .item-popup .so-form-row-side {
+        grid-template-columns: 7.25rem minmax(0, 1fr);
+        column-gap: 0.5rem;
+    }
+
     .item-popup .so-form-lbl {
-        min-width: 5.5rem;
+        white-space: nowrap;
     }
 
     .item-popup .item-hint {

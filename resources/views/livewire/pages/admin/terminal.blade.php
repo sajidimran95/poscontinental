@@ -35,6 +35,25 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         ], 'Migrations completed successfully.');
     }
 
+    public function auditInvoices(): void
+    {
+        $this->output = '';
+        $this->status = '';
+        $this->error = '';
+
+        try {
+            $exit = Artisan::call('invoices:audit', ['--company' => (int) (auth()->user()?->company_id ?? 0) ?: null]);
+            $this->output = "> php artisan invoices:audit\n".trim(Artisan::output());
+            if ($exit === 0) {
+                $this->status = 'All invoice statuses match their balances.';
+            } else {
+                $this->error = 'Some invoices have a status that does not match their balance. See the list below.';
+            }
+        } catch (\Throwable $e) {
+            $this->error = $e->getMessage();
+        }
+    }
+
     public function optimizeClear(): void
     {
         $this->runCommands([
@@ -271,7 +290,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -280,7 +299,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -290,7 +309,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="syncAllocatedStock"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Resync allocated stock from open sales orders? Fixes Available qty when allocation is stale."
                 >
@@ -298,9 +317,18 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 </button>
                 <button
                     type="button"
+                    wire:click="auditInvoices"
+                    wire:loading.attr="disabled"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    class="desk-btn desk-btn-primary"
+                >
+                    Audit Invoices
+                </button>
+                <button
+                    type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn"
                 >
                     Optimize Clear
@@ -309,7 +337,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="buildAssets"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Rebuild CSS/JS with npm run build? Required after design/CSS updates (e.g. Expand tab)."
                 >
@@ -319,7 +347,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="storageLink"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn"
                     wire:confirm="Create or refresh the public/storage link? Needed for item images and uploads."
                 >
@@ -329,7 +357,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="syncItemMedia"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Copy item images from storage into public/uploads so previews work on the live server?"
                 >
@@ -343,7 +371,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedDemoData"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Seed demo master + documents (SO, PO, Receiving, Invoice, RTV)? Existing demo numbers are skipped."
                 >
@@ -353,7 +381,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedUom"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn desk-btn-primary"
                 >
                     Seed UOM Schedules
@@ -362,7 +390,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runSeeders"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
                     class="desk-btn"
                     wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
@@ -372,6 +400,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
 
             <p class="item-hint" style="border:0;margin:0.75rem 0 0;padding:0;font-size:0.75rem;color:#64748b">
                 <strong>Resync Allocated Stock</strong> — fixes Available (on hand − open order qty) &nbsp;·&nbsp;
+                <strong>Audit Invoices</strong> — lists invoices whose PAID / NOT PAID status does not match total − payments − credits &nbsp;·&nbsp;
                 <strong>Seed Demo Data</strong> — customers, suppliers, items, <strong>SO / PO / Receiving / Invoice / RTV</strong> &nbsp;·&nbsp;
                 <strong>npm run build</strong> — rebuilds CSS/JS into <code>public/build</code> &nbsp;·&nbsp;
                 <strong>Sync Item Images</strong> — <code>storage/app/public/items</code> → <code>public/uploads/items</code> &nbsp;·&nbsp;
@@ -387,9 +416,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

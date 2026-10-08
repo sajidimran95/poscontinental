@@ -269,6 +269,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $showLineMessageModal = false;
 
+    public bool $showItemInfo = false;
+
+    public string $itemInfoUrl = '';
+
     public string $lineMessageEdit = '';
 
     public string $lineInstructionsEdit = '';
@@ -1236,7 +1240,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $url = $this->cancelLeaveUrl();
             $this->skipWindowDraftPersist = true;
             $this->lines = [];
-            $this->js('window.location.replace('.json_encode($url).')');
+            $this->js('window.__posSoLeave('.json_encode($url).')');
             $this->skipRender();
 
             return null;
@@ -1340,6 +1344,48 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->lineInstructionsEdit = (string) ($this->lines[$i]['instructions'] ?? '');
         $this->showLineMessageAlert = false;
         $this->showLineMessageModal = true;
+    }
+
+    public function openItemInfo(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        $itemId = $i !== null ? (int) ($this->lines[$i]['item_id'] ?? 0) : 0;
+        $exists = $itemId > 0 && Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->whereKey($itemId)
+            ->exists();
+
+        if (! $exists) {
+            $this->notifyAlert('Select a line with an item first.', 'warning');
+
+            return;
+        }
+
+        $this->itemInfoUrl = route('inventory.items.show', ['item' => $itemId, 'pos_embed' => 1, 'popup' => 1], false);
+        $this->showItemInfo = true;
+    }
+
+    public function closeItemInfo(): void
+    {
+        $this->showItemInfo = false;
+        $this->itemInfoUrl = '';
+    }
+
+    /** The item popup saved: keep this order's lines in step with the new code / description. */
+    public function itemPopupSaved(int $itemId): void
+    {
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
+        if (! $item) {
+            return;
+        }
+
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) !== (int) $item->id) {
+                continue;
+            }
+            $this->lines[$i]['item_code'] = $item->item_code;
+            $this->lines[$i]['description'] = $item->description;
+        }
     }
 
     public function saveLineMessage(): void
@@ -3791,7 +3837,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->resetErrorBag('invoiceEmailTo');
 
         if ($print) {
-            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder));
+            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder).'?v='.time());
         }
     }
 
@@ -5704,7 +5750,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->boxes = [];
         $this->browseCheckedIds = [];
         $this->entryHits = [];
-        $this->js('window.location.replace('.json_encode($url).')');
+        $this->js('window.__posSoLeave('.json_encode($url).')');
         $this->skipRender();
 
         return null;
@@ -5724,7 +5770,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 label="Cancel"
                 kbd="Ctrl+Z"
                 sep
-                x-on:click.prevent="window.location.replace(@js($this->cancelLeaveUrl()))"
+                x-on:click.prevent="window.__posSoLeave(@js($this->cancelLeaveUrl()))"
             />
         </x-slot:menu>
     </x-action-bar>
@@ -6388,6 +6434,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </div>
                         @unless ($viewMode)
                             <div class="so-entry-tools">
+                            <button
+                                type="button"
+                                wire:click="openItemInfo"
+                                class="so-icon-btn"
+                                title="Item details for selected line"
+                                tabindex="-1"
+                                aria-label="Item details"
+                                @disabled($selectedLineIndex === null || ! filled($lines[$selectedLineIndex]['item_id'] ?? null))
+                            >
+                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="4.6"/><path d="M6 5.4v3M6 3.6v.1"/></svg>
+                            </button>
                             <button type="button" wire:click="printInvoiceStyle" class="so-icon-btn" title="Print invoice (F10)" tabindex="-1" aria-label="Print invoice" data-pos-print>
                                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
                             </button>
@@ -7217,6 +7274,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showItemInfo && $itemInfoUrl)
+        <div
+            class="desk-modal-backdrop"
+            x-data
+            x-on:message.window="
+                if ($event.origin !== window.location.origin || ! $event.data) return;
+                if ($event.data.type === 'item-popup-close') $wire.closeItemInfo();
+                if ($event.data.type === 'item-popup-saved') $wire.itemPopupSaved($event.data.item_id);
+            "
+            role="dialog" aria-modal="true" aria-label="Item" style="z-index:95"
+        >
+            <div class="desk-modal so-item-popup">
+                <button type="button" wire:click="closeItemInfo" class="so-item-popup-close" aria-label="Close">×</button>
+                <iframe src="{{ $itemInfoUrl }}" title="Item" class="so-item-popup-frame"></iframe>
+            </div>
+        </div>
+    @endif
+
     @if ($showSubstitutePrompt)
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="cancelSubstitutePrompt" role="dialog" aria-modal="true" aria-labelledby="sub-prompt-title">
             <div class="bg-white border border-slate-500 shadow-xl w-full max-w-lg">
@@ -7421,11 +7496,21 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         window.addEventListener('beforeunload', flush);
     })();
 
+    // Saving from the dialog can close this tab's iframe right away, which kills its timers —
+    // open from the top window so every print still fires.
     $wire.on('open-order-print-urls', (payload) => {
-        const urls = payload?.urls ?? payload?.[0]?.urls ?? [];
-        (Array.isArray(urls) ? urls : []).forEach((url, i) => {
-            if (!url) return;
-            setTimeout(() => window.open(url, '_blank'), i * 250);
+        const urls = (payload?.urls ?? payload?.[0]?.urls ?? []).filter(Boolean);
+        let host = window;
+        try {
+            if (window.top && window.top.location.origin === window.location.origin) host = window.top;
+        } catch (e) {}
+        urls.forEach((url, i) => {
+            const abs = new URL(url, window.location.origin).href;
+            if (i === 0) {
+                host.open(abs, '_blank');
+                return;
+            }
+            host.setTimeout(() => host.open(abs, '_blank'), i * 400);
         });
     });
 

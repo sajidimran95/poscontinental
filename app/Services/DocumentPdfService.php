@@ -91,7 +91,30 @@ class DocumentPdfService
                 ['label' => 'Order No:', 'value' => $order->order_number],
                 ['label' => 'Order Status:', 'value' => $invoice->status],
             ],
-        ]);
+        ], $this->invoicePageStrip($order, $invoice));
+    }
+
+    /**
+     * Summary boxes stamped at the bottom of every page except the last of a multi-page invoice.
+     *
+     * @return array<string, string>
+     */
+    protected function invoicePageStrip(SalesOrder $order, Invoice $invoice): array
+    {
+        $previous = Invoice::previousOpenInvoices(
+            (int) $order->company_id,
+            $order->customer_id ? (int) $order->customer_id : null,
+            $invoice->id
+        )['total'];
+        $buckets = \App\Support\DocumentMerchandiseTotals::fromLines($order->lines);
+        $qty = static fn (float $v): string => rtrim(rtrim(number_format($v, 2), '0'), '.') ?: '0';
+
+        return [
+            'PREVIOUS BALANCE' => '$'.number_format((float) $previous, 2),
+            '# ITEMS' => $qty((float) $order->lines->sum('qty_ordered')),
+            '# CIG' => $qty((float) $buckets['cigarette_qty']),
+            'INVOICE TOTAL' => '$'.number_format((float) $invoice->invoice_total, 2),
+        ];
     }
 
     public function creditMemoPdf(CreditMemo $memo, ?User $user = null)
@@ -500,7 +523,7 @@ class DocumentPdfService
         $order->loadMissing(['invoice', 'customer']);
         $label = $order->invoice?->invoice_number ?: ('SO-'.$order->order_number);
         $subject = $subject ?: 'Invoice '.$label;
-        $pdf = $this->salesOrderInvoiceStylePdf($order, $user);
+        $pdf = $this->salesOrderPdf($order, $user);
         $filename = $order->invoice
             ? 'invoice-'.$order->invoice->invoice_number.'.pdf'
             : 'invoice-so-'.$order->order_number.'.pdf';
@@ -618,19 +641,22 @@ class DocumentPdfService
     /**
      * Put the total page count in the PAGE cell / "Page 1 of N" label.
      */
-    protected function documentPdfWithPageCount(string $view, array $data)
+    /**
+     * @param  array<string, string>  $pageStrip  label => value boxes for the bottom of every page but the last
+     */
+    protected function documentPdfWithPageCount(string $view, array $data, array $pageStrip = [])
     {
         $data['pageLabel'] = '1';
-        $probe = Pdf::loadView($view, $data)
-            ->setPaper('letter')
-            ->setOption('defaultFont', 'Helvetica');
-        $probe->render();
-        $count = max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
+        $count = $this->probePageCount($view, $data);
         $data['pageLabel'] = (string) $count;
 
         $pdf = Pdf::loadView($view, $data)
             ->setPaper('letter')
             ->setOption('defaultFont', 'Helvetica');
+
+        if ($count >= 2 && $pageStrip !== []) {
+            $this->stampPageStrip($pdf, $pageStrip);
+        }
 
         // pdf.sales-order repeats its header (with "X of N") on every page itself.
         if ($count < 2 || $view === 'pdf.sales-order') {
@@ -654,6 +680,48 @@ class DocumentPdfService
         });
 
         return $pdf;
+    }
+
+    protected function probePageCount(string $view, array $data): int
+    {
+        $probe = Pdf::loadView($view, $data)
+            ->setPaper('letter')
+            ->setOption('defaultFont', 'Helvetica');
+        $probe->render();
+
+        return max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
+    }
+
+    /**
+     * @param  array<string, string>  $boxes
+     */
+    protected function stampPageStrip(object $pdf, array $boxes): void
+    {
+        $pdf->render();
+        $dompdf = $pdf->getDomPDF();
+        $canvas = $dompdf->getCanvas();
+        $bold = $dompdf->getFontMetrics()->getFont('Helvetica', 'bold');
+        $width = $canvas->get_width();
+        $height = $canvas->get_height();
+
+        $canvas->page_script(function (int $pageNumber, int $pageCount, $canvas, $fontMetrics) use ($boxes, $bold, $width, $height) {
+            if ($pageNumber >= $pageCount) {
+                return;
+            }
+            $margin = 32.4;
+            $boxH = 28.0;
+            $top = $height - 34.0 - $boxH;
+            $boxW = ($width - 2 * $margin) / count($boxes);
+            $x = $margin;
+            foreach ($boxes as $label => $value) {
+                $canvas->rectangle($x, $top, $boxW, $boxH, [0.13, 0.13, 0.13], 0.8);
+                $lw = $fontMetrics->getTextWidth($label, $bold, 7.0);
+                $canvas->text($x + ($boxW - $lw) / 2, $top + 4, $label, $bold, 7.0);
+                $vw = $fontMetrics->getTextWidth($value, $bold, 11.0);
+                $canvas->text($x + ($boxW - $vw) / 2, $top + 13, $value, $bold, 11.0);
+                $x += $boxW;
+            }
+        });
     }
 
     /** @deprecated Use documentPdfWithPageCount() */

@@ -278,6 +278,9 @@ function initDeskColResize() {
                 const col = th.getAttribute('data-col');
                 const w = map[col];
                 if (! w) {
+                    if (table.getAttribute('data-col-resize') === 'invoices-list' && col === 'bill_to') {
+                        setColumnWidth(table, index, 288);
+                    }
                     return;
                 }
                 setColumnWidth(table, index, w);
@@ -1011,6 +1014,10 @@ function posIsTabsOpen(href) {
     }
 }
 
+window.__posSoLeave = function (url) {
+    window.location.replace(url);
+};
+
 function initPosTabKeepAlive() {
     const host = document.querySelector('.pos-frame-host');
     const inIframe = window.parent !== window;
@@ -1044,6 +1051,21 @@ function initPosTabKeepAlive() {
             return msg;
         }
 
+        window.__posSoLeave = function (url) {
+            const u = new URL(url, window.location.origin);
+            if (selfDeskKey.indexOf('so:') === 0) {
+                window.location.replace(u.href);
+                return;
+            }
+            window.parent.postMessage({
+                type: 'pos-return-list',
+                list_url: u.searchParams.get('to_invoices') ? '/sales/invoices' : '/sales/orders',
+                close_desk: selfDeskKey,
+                release_url: u.pathname + u.search,
+                message: '',
+            }, window.location.origin);
+        };
+
         document.addEventListener('click', function (e) {
             const a = e.target.closest('a[href]');
             if (! a || a.target === '_blank' || a.hasAttribute('download')) {
@@ -1060,6 +1082,12 @@ function initPosTabKeepAlive() {
                 return;
             }
             if (href.origin !== window.location.origin) {
+                return;
+            }
+            if (href.pathname === '/sales/orders/leave') {
+                e.preventDefault();
+                e.stopPropagation();
+                window.__posSoLeave(href.href);
                 return;
             }
             if (posIsTabsOpen(href.href) || posDeskKey(href.href) !== posDeskKey(window.location.href)) {
@@ -1330,7 +1358,8 @@ function initPosTabKeepAlive() {
         opts = opts || {};
         const clean = posCleanHref(href);
         const key = posDeskKey(clean);
-        if (key === '/sales/orders' || key === '/sales/invoices') {
+        const keepInPlace = key === '/sales/orders';
+        if (key === '/sales/invoices') {
             opts.reload = true;
         }
         if (key === '/home' || key === '/') {
@@ -1344,7 +1373,13 @@ function initPosTabKeepAlive() {
             });
             currentDeskKey = key;
             setActiveTab(key);
-            if (opts.reload) {
+            if (opts.reload && keepInPlace && window.Livewire && typeof Livewire.all === 'function') {
+                Livewire.all().forEach(function (c) {
+                    if (iframe.contains(c.$wire.$el)) {
+                        c.$wire.$refresh();
+                    }
+                });
+            } else if (opts.reload) {
                 if (! refreshLivewireList(iframe)) {
                     if (window.Livewire && typeof Livewire.navigate === 'function') {
                         Livewire.navigate(clean);
@@ -1360,7 +1395,7 @@ function initPosTabKeepAlive() {
             persistDocTab(clean);
             return;
         }
-        if (opts.reload && iframe && iframe.tagName === 'IFRAME') {
+        if (opts.reload && ! keepInPlace && iframe && iframe.tagName === 'IFRAME') {
             iframe.remove();
             frames.delete(key);
             iframe = null;
@@ -1378,8 +1413,29 @@ function initPosTabKeepAlive() {
             const curKey = cur ? posDeskKey(cur) : '';
             const want = clean.split('#')[0];
             const have = cur.split('#')[0];
-            if (curKey !== key || have !== want) {
+            const sameList = keepInPlace && curKey === key && want.indexOf('?') === -1;
+            if (curKey !== key || (have !== want && ! sameList)) {
                 iframe.src = posEmbedSrc(clean);
+            } else if (keepInPlace) {
+                if (opts.reload) {
+                    try {
+                        const lw = iframe.contentWindow && iframe.contentWindow.Livewire;
+                        if (lw && typeof lw.all === 'function') {
+                            lw.all().forEach(function (c) {
+                                c.$wire.$refresh();
+                            });
+                        }
+                    } catch (err) {}
+                }
+            } else if (/^\/(purchasing|inventory)\//.test(key) && ! /\/(edit|create|show)$/.test(key)) {
+                try {
+                    const lw = iframe.contentWindow && iframe.contentWindow.Livewire;
+                    if (lw && typeof lw.all === 'function') {
+                        lw.all().forEach(function (c) {
+                            c.$wire.$refresh();
+                        });
+                    }
+                } catch (err) {}
             }
         }
         frames.forEach(function (f, k) {
@@ -1748,6 +1804,12 @@ function initPosTabKeepAlive() {
             return;
         }
         if (e.data && e.data.type === 'pos-return-list') {
+            if (e.data.release_url) {
+                fetch(e.data.release_url, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                }).catch(function () {});
+            }
             if (e.data.close_desk) {
                 closeDeskFrame(e.data.close_desk);
             }
@@ -1772,7 +1834,7 @@ function initPosTabKeepAlive() {
                 return;
             }
             if (e.data.next_url) {
-                showFrame(e.data.next_url);
+                showFrame(e.data.next_url, { reload: posDeskKey(posCleanHref(e.data.next_url)) === '/sales/orders' });
                 return;
             }
             const nextSo = document.querySelector('.chief-tab[data-desk-key^="so:"] a.chief-tab-link');

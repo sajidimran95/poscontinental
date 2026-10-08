@@ -5,6 +5,7 @@
     $entryFocus = $entryFocus ?? 'focusItemScan';
     $entryDisabled = $entryDisabled ?? false;
     $entryPlaceholder = $entryPlaceholder ?? 'Scan to add instantly · type name or code to search';
+    $entrySuggest = $entrySuggest ?? true;
 @endphp
 <div class="so-scan-bar" role="search" style="max-width:28rem;min-width:16rem;height:2.15rem">
     <button
@@ -35,6 +36,7 @@
             rapid: false,
             inputId: {{ json_encode($entryInputId) }},
             commit: {{ json_encode($entryCommit) }},
+            suggest: {{ $entrySuggest ? 'true' : 'false' }},
             // Both commit paths empty the box first, so one scan cannot commit twice and repeat scans are never dropped.
             send(box, v) {
                 if (box) box.value = '';
@@ -43,6 +45,7 @@
             el() { return document.getElementById(this.inputId); },
             scheduleAuto() {
                 clearTimeout(this.timer);
+                if (! this.suggest && ! this.rapid) return;
                 // 30ms of silence = end of a scanner burst (without it a half-read barcode can be sent).
                 const delay = this.rapid ? 30 : 400;
                 this.timer = setTimeout(() => {
@@ -58,7 +61,7 @@
                         this.rapid = false;
                         return;
                     }
-                    $wire.searchEntryHits(v);
+                    if (this.suggest) $wire.searchEntryHits(v);
                     this.rapid = false;
                 }, delay);
             },
@@ -69,7 +72,7 @@
                     clearTimeout(this.timer);
                     const box = this.el();
                     const v = (box?.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                    if (this.rapid || this.scanLike(v)) {
+                    if (this.rapid || this.scanLike(v) || ! this.suggest) {
                         this.send(box, v);
                         this.rapid = false;
                         return;
@@ -116,7 +119,7 @@
             $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
             rapid = false;
             const v = ($el.value || '').trim();
-            if (v.length >= 2) {
+            if (v.length >= 2 && suggest) {
                 $wire.searchEntryHits(v);
             }
         "
@@ -140,7 +143,7 @@
         </button>
     @endunless
 </div>
-@if ($entryHits !== [])
+@if ($entrySuggest && $entryHits !== [])
     <div class="so-entry-hits" role="listbox" aria-label="Matching items" style="flex:1 1 100%;max-height:12rem;overflow-y:auto;background:#fff;border:1px solid #94a3b8;border-radius:6px;margin-top:.35rem">
         @foreach ($entryHits as $hit)
             <button type="button" class="so-entry-hit" wire:click="pickEntryHit({{ (int) $hit['id'] }})" wire:key="entry-hit-{{ $hit['id'] }}" style="display:flex;align-items:baseline;gap:.6rem;width:100%;padding:.42rem .7rem;text-align:left;border:0;border-bottom:1px solid #eef2f6;background:#fff;cursor:pointer;font-size:13px">

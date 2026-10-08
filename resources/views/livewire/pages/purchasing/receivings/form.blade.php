@@ -100,7 +100,21 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
     {
         abort_if($this->viewMode || $this->status === 'Processed', 403);
 
+        $this->receipt_number = trim($this->receipt_number);
+        $this->validate([
+            'receipt_number' => [
+                'required', 'string', 'max:64',
+                \Illuminate\Validation\Rule::unique('inventory_receivings', 'receipt_number')
+                    ->where('company_id', $this->receiving->company_id)
+                    ->ignore($this->receiving->id),
+            ],
+        ], [
+            'receipt_number.required' => 'Receipt number is required.',
+            'receipt_number.unique' => 'Receipt number is already used by another receiving.',
+        ]);
+
         $this->receiving->update([
+            'receipt_number' => $this->receipt_number,
             'receipt_date' => $this->receipt_date ?: null,
             'reference_no' => $this->reference_no !== '' ? $this->reference_no : null,
             'buyer_id' => $this->buyer_id ?: null,
@@ -135,7 +149,13 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
         }
 
         $this->save(false);
-        app(InventoryService::class)->processReceiving($this->receiving->fresh('lines'));
+        try {
+            app(InventoryService::class)->processReceiving($this->receiving->fresh('lines'));
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first());
+
+            return;
+        }
         $this->returnToDeskList('purchasing.receivings.index');
     }
 
@@ -146,7 +166,7 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
 }; ?>
 
 <div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $lockEdit])>
+    <form wire:submit="save" @class(['desk-main entity-form item-form', 'item-form-readonly' => $lockEdit])>
         <x-action-bar title="Action">
             <x-slot:menu>
                 <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$lockEdit" />
@@ -157,13 +177,26 @@ new #[Layout('layouts.app'), Title('Receiving')] class extends Component
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
+        @if ($errors->any())
+            <div class="desk-flash bp-flash-error" role="alert">
+                <strong>Receiving not saved.</strong>
+                <ul style="margin:0.35rem 0 0;padding-left:1.15rem">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
         <fieldset class="so-form-fields">
         <div class="entity-body">
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
                     <label class="so-form-lbl" for="receipt_number">Receipt No.</label>
-                    <input id="receipt_number" value="{{ $receipt_number }}" class="so-input font-mono so-input-ro" readonly />
+                    <div class="so-form-ctl">
+                        <input id="receipt_number" wire:model="receipt_number" class="so-input font-mono @error('receipt_number') is-invalid @enderror" @disabled($lockEdit) />
+                        @error('receipt_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                    </div>
                     <span class="so-form-lbl">Status</span>
                     <span @class([
                         'desk-pill',

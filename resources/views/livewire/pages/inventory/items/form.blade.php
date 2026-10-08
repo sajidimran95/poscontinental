@@ -180,9 +180,13 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public bool $showJournal = false;
 
+    /** Opened from the sales order item popup: Close / Save talk to the parent window instead of navigating. */
+    public bool $popup = false;
+
     public function mount(?Item $item = null): void
     {
         $this->viewMode = request()->routeIs('inventory.items.show');
+        $this->popup = request()->boolean('popup') && (bool) $item?->exists;
 
         if ($item?->exists) {
             abort_unless($item->company_id === auth()->user()->company_id, 403);
@@ -1130,9 +1134,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
+        $this->item_code = trim($this->item_code);
+
         try {
             $this->validate([
-                'item_code' => 'required|string|max:64',
+                'item_code' => [
+                    'required', 'string', 'max:64',
+                    \Illuminate\Validation\Rule::unique('items', 'item_code')
+                        ->where('company_id', auth()->user()->company_id)
+                        ->ignore($this->item?->id),
+                ],
                 'description' => 'required|string|max:2000',
                 'unit_of_measure' => 'nullable|string|max:16',
                 'list_price' => 'nullable|numeric|min:0',
@@ -1159,6 +1170,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 'batches.*.notes' => 'nullable|string|max:500',
             ], [
                 'item_code.required' => 'Item Code is required.',
+                'item_code.unique' => 'Item Code is already used by another item.',
                 'description.required' => 'Description is required.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -1441,6 +1453,15 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             }
         }
 
+        if ($this->popup) {
+            $this->item = $item->load(['upcs', 'prices', 'itemSuppliers', 'substitutes', 'batches']);
+            $this->viewMode = true;
+            session()->flash('status', 'Item saved.');
+            $this->js('window.parent && window.parent.postMessage({type:"item-popup-saved",item_id:'.(int) $item->id.'}, window.location.origin)');
+
+            return;
+        }
+
         session()->flash(
             'status',
             'Item saved.'.($imagePath ? ' Image stored.' : '')
@@ -1448,6 +1469,21 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         );
 
         $this->returnToDeskList('inventory.items.index');
+    }
+
+    public function popupEdit(): void
+    {
+        abort_unless($this->popup && $this->item?->exists, 403);
+        $this->viewMode = false;
+    }
+
+    public function popupCancelEdit(): void
+    {
+        abort_unless($this->popup && $this->item?->exists, 403);
+        $this->resetErrorBag();
+        $this->mount($this->item->fresh());
+        $this->popup = true;
+        $this->viewMode = true;
     }
 
     public function copyItem(): void
@@ -1462,17 +1498,29 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $this->item_code = '';
         $this->quantity_in_stock = '0';
         $this->allocated_qty = '0';
-        session()->flash('status', 'Item copied. Enter a new item code and save.');
+        // Barcodes are unique per item; the copy starts with none.
+        $this->primary_upc = '';
+        $this->upcs = [['upc' => '', 'is_primary' => true]];
+        $this->upcScan = '';
+        $this->upcScanMessage = '';
+        $this->resetErrorBag(['primary_upc', 'upcs']);
+        session()->flash('status', 'Item copied. Enter a new item code and UPC, then save.');
     }
 
     public function cancelAction(): mixed
     {
+        if ($this->popup) {
+            $this->js('window.parent && window.parent.postMessage({type:"item-popup-close"}, window.location.origin)');
+
+            return null;
+        }
+
         return $this->redirect(route('inventory.items.index'), navigate: true);
     }
 }; ?>
 
-<div class="desk-page entity-page">
-    <form wire:submit="save" class="desk-main entity-form item-form" @class(['item-form-readonly' => $viewMode])>
+<div @class(['desk-page entity-page', 'item-popup-page' => $popup])>
+    <form wire:submit="save" @class(['desk-main entity-form item-form', 'item-form-readonly' => $viewMode, 'item-popup' => $popup])>
         @php
             $pageTitle = $viewMode
                 ? 'View Item — '.$item_code
@@ -1483,7 +1531,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         <x-action-bar :title="$pageTitle">
             <x-slot:menu>
                 <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
-                <x-action-item label="Copy Item" kbd="Ctrl+O" sep wire:click="copyItem" :disabled="! $item" />
+                <x-action-item label="Copy Item" kbd="Ctrl+O" sep wire:click="copyItem" :disabled="! $item || $popup" />
                 <x-action-item label="Refresh" :disabled="true" sep />
                 <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
             </x-slot:menu>
@@ -1498,7 +1546,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             <div class="entity-header">
                 <div class="so-form-row so-form-row-pair entity-header-row">
                     <label class="so-form-lbl so-field-req" for="item_code">Item Code</label>
-                    <input id="item_code" wire:model="item_code" class="so-input font-mono @error('item_code') is-invalid @enderror" @disabled($item) />
+                    <input id="item_code" wire:model="item_code" class="so-input font-mono @error('item_code') is-invalid @enderror" />
                     <span class="so-form-lbl">Status</span>
                     <div class="entity-status-btns">
                         <button type="button" wire:click="$set('is_inactive', false)" @class(['desk-btn desk-btn-sm', 'is-on' => ! $is_inactive])>Active</button>
@@ -1521,7 +1569,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
             @error('item_code') <p class="so-field-error mb-2" role="alert">{{ $message }}</p> @enderror
 
-            <div class="item-tab-panel" role="tabpanel" @style(['display: none' => $activeTab !== 'general'])>
+            <div class="item-tab-panel item-tab-general" role="tabpanel" @style(['display: none' => $activeTab !== 'general'])>
                 <div class="inv-top-grid item-tab-grid">
                     <div class="inv-card">
                         <div class="inv-card-title">Item identity</div>
@@ -2348,8 +2396,18 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 @endforeach
             </div>
             <div class="entity-footer-actions">
+                @if ($popup)
+                    @if ($viewMode)
+                        <button type="button" class="desk-btn" onclick="window.parent && window.parent.postMessage({type:'item-popup-close'}, window.location.origin)">Close</button>
+                        <button type="button" wire:click="popupEdit" class="desk-btn desk-btn-primary">Edit</button>
+                    @else
+                        <button type="button" wire:click="popupCancelEdit" class="desk-btn">Cancel</button>
+                    @endif
+                @else
                 <a href="{{ route('inventory.items.index') }}" wire:navigate class="desk-btn">{{ $viewMode ? 'Close' : 'Cancel' }}</a>
-                @if ($viewMode && $item)
+                @endif
+                @if ($popup && $viewMode)
+                @elseif ($viewMode && $item)
                     <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate class="desk-btn desk-btn-primary">Edit Item</a>
                 @elseif (! $viewMode)
                     <button

@@ -30,6 +30,8 @@ class InventoryService
             $receiving->load(['lines', 'purchaseOrder.lines']);
             $siteId = $receiving->site_id;
 
+            $this->guardPurchaseOrderNotFullyReceived($receiving);
+
             foreach ($receiving->lines as $line) {
                 if (! $line->item_id || (float) $line->qty_received <= 0) {
                     continue;
@@ -105,6 +107,20 @@ class InventoryService
                     $received = (float) $po->lines->sum('qty_received');
                     $status = $received <= 0 ? 'New' : ($received + 0.0001 >= $ordered ? 'Received' : 'Partially Received');
                     $po->update(['status' => $status]);
+
+                    if ($status === 'Received') {
+                        $staleIds = InventoryReceiving::query()
+                            ->where('purchase_order_id', $po->id)
+                            ->where('id', '!=', $receiving->id)
+                            ->where('status', 'New')
+                            ->whereNull('processed_at')
+                            ->pluck('id');
+
+                        if ($staleIds->isNotEmpty()) {
+                            DB::table('inventory_receiving_lines')->whereIn('inventory_receiving_id', $staleIds)->delete();
+                            InventoryReceiving::query()->whereIn('id', $staleIds)->delete();
+                        }
+                    }
                 }
             }
 
@@ -117,6 +133,60 @@ class InventoryService
                 $receiving->lines->pluck('item_id')->filter()->all()
             );
         });
+    }
+
+    /**
+     * Chief-imported processed receipts never bumped PO line qty_received, so coverage also counts
+     * qty on other processed receivings for the same PO.
+     */
+    public function receivedQtyByPoLine(int $purchaseOrderId, ?int $excludeReceivingId = null): array
+    {
+        $fromReceivings = DB::table('inventory_receiving_lines as l')
+            ->join('inventory_receivings as r', 'r.id', '=', 'l.inventory_receiving_id')
+            ->where('r.purchase_order_id', $purchaseOrderId)
+            ->where('r.status', 'Processed')
+            ->when($excludeReceivingId, fn ($q) => $q->where('r.id', '!=', $excludeReceivingId))
+            ->whereNotNull('l.purchase_order_line_id')
+            ->groupBy('l.purchase_order_line_id')
+            ->selectRaw('l.purchase_order_line_id as po_line_id, SUM(l.qty_received) as qty')
+            ->pluck('qty', 'po_line_id');
+
+        $out = [];
+        foreach (PurchaseOrderLine::query()->where('purchase_order_id', $purchaseOrderId)->get(['id', 'qty_received']) as $line) {
+            $out[$line->id] = max((float) $line->qty_received, (float) ($fromReceivings[$line->id] ?? 0));
+        }
+
+        return $out;
+    }
+
+    private function guardPurchaseOrderNotFullyReceived(InventoryReceiving $receiving): void
+    {
+        $po = $receiving->purchaseOrder;
+        if (! $po || $po->lines->isEmpty()) {
+            return;
+        }
+
+        if ((float) $po->lines->sum('qty_ordered') <= 0) {
+            return;
+        }
+
+        $covered = $this->receivedQtyByPoLine((int) $po->id, (int) $receiving->id);
+        foreach ($po->lines as $poLine) {
+            if (($covered[$poLine->id] ?? 0) + 0.0001 < (float) $poLine->qty_ordered) {
+                return;
+            }
+        }
+
+        $done = InventoryReceiving::query()
+            ->where('purchase_order_id', $po->id)
+            ->where('id', '!=', $receiving->id)
+            ->where('status', 'Processed')
+            ->pluck('receipt_number')
+            ->implode(', ');
+
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'receiving' => 'PO '.$po->po_number.' is already fully received'.($done !== '' ? ' by '.$done : '').'. Delete this receiving instead of processing it.',
+        ]);
     }
 
     /**

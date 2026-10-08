@@ -225,6 +225,10 @@ class SalesOrder extends Model
             return false;
         }
 
+        if ($user->isWarehouse()) {
+            return true;
+        }
+
         $ownerId = (int) ($this->created_by ?: 0);
         if ($ownerId < 1) {
             $ownerId = $this->ownerUserId();

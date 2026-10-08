@@ -120,6 +120,11 @@ class User extends Authenticatable
         return $this->role?->name === 'delivery';
     }
 
+    public function isWarehouse(): bool
+    {
+        return $this->role?->name === 'warehouse';
+    }
+
     /**
      * Active users with the delivery role only (assign / generate / men / history).
      */

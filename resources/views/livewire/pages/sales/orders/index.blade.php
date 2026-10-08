@@ -70,8 +70,37 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         if ($this->dateTo === '') {
             $this->dateTo = $today;
         }
+        $this->restoreDeskDates();
         $this->bootDeskListColumns();
         $this->hydrateDeskTabSearchFromStore();
+    }
+
+    protected function deskDatesKey(): string
+    {
+        return 'desk_tab_dates.sales.orders.index.'.(int) auth()->id();
+    }
+
+    protected function rememberDeskDates(): void
+    {
+        $bag = Cache::get($this->deskDatesKey(), []);
+        $bag = is_array($bag) ? $bag : [];
+        $bag[$this->favorite] = [
+            'from' => $this->dateFrom,
+            'to' => $this->dateTo,
+            'day' => now()->toDateString(),
+        ];
+        Cache::forever($this->deskDatesKey(), $bag);
+    }
+
+    /** Dates picked today for this favorite list survive reloads; a new day starts from the defaults. */
+    protected function restoreDeskDates(): void
+    {
+        $row = (Cache::get($this->deskDatesKey(), []) ?: [])[$this->favorite] ?? null;
+        if (! is_array($row) || ($row['day'] ?? '') !== now()->toDateString()) {
+            return;
+        }
+        $this->dateFrom = (string) ($row['from'] ?? '');
+        $this->dateTo = (string) ($row['to'] ?? '');
     }
 
     public function updatedSearch(): void
@@ -110,6 +139,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             $this->dateFrom = now()->startOfMonth()->toDateString();
             $this->dateTo = $today;
         }
+        $this->restoreDeskDates();
         $this->resetDeskList();
     }
 
@@ -127,11 +157,13 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function updatedDateFrom(): void
     {
+        $this->rememberDeskDates();
         $this->resetDeskList();
     }
 
     public function updatedDateTo(): void
     {
+        $this->rememberDeskDates();
         $this->resetDeskList();
     }
 
@@ -198,6 +230,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         $today = now()->toDateString();
         $this->dateFrom = $today;
         $this->dateTo = $today;
+        $this->rememberDeskDates();
         $this->customerId = '';
         $this->createdByUserId = '';
         $this->selectedId = null;

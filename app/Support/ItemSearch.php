@@ -11,8 +11,12 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
  */
 final class ItemSearch
 {
+    /** phrase => ['ids' => list<int>, 'codes' => list<string>] for searches that fell back to fuzzy. */
+    private static array $fuzzyRanks = [];
+
     /**
      * Filter an items query (Eloquent Item or query builder on `items`).
+     * When the exact search finds nothing, falls back to typo-tolerant matches.
      */
     public static function constrain($query, ?string $search): void
     {
@@ -23,9 +27,27 @@ final class ItemSearch
 
         $eloquent = $query instanceof EloquentBuilder;
         $table = self::tableName($query);
+        $exact = self::exactConstraint($phrase, $eloquent, $table);
+
+        if (ItemFuzzyIndex::eligible($phrase) && ! (clone $query)->where($exact)->exists()) {
+            $ranked = ItemFuzzyIndex::match($phrase, self::companyId());
+            if ($ranked !== []) {
+                $ids = array_keys($ranked);
+                self::$fuzzyRanks[$phrase] = ['ids' => $ids, 'codes' => self::$fuzzyRanks[$phrase]['codes'] ?? []];
+                $query->whereIn($table.'.id', $ids);
+
+                return;
+            }
+        }
+
+        $query->where($exact);
+    }
+
+    protected static function exactConstraint(string $phrase, bool $eloquent, string $table): \Closure
+    {
         $prefix = self::escapeLike($phrase).'%';
 
-        $query->where(function ($w) use ($phrase, $prefix, $eloquent, $table) {
+        return function ($w) use ($phrase, $prefix, $eloquent, $table) {
             self::whereWordStart($w, $table.'.item_code', $phrase);
             self::whereWordStart($w, $table.'.description', $phrase, 'or');
             self::whereWordStart($w, "IFNULL({$table}.manufacturer, '')", $phrase, 'or');
@@ -41,7 +63,7 @@ final class ItemSearch
                         ->whereRaw('LOWER(item_upcs.upc) LIKE LOWER(?)', [$prefix]);
                 });
             }
-        });
+        };
     }
 
     /**
@@ -54,10 +76,33 @@ final class ItemSearch
             return;
         }
 
-        $query->where(function ($w) use ($phrase) {
+        $exact = function ($w) use ($phrase) {
             self::whereWordStart($w, 'item_code', $phrase);
             self::whereWordStart($w, 'description', $phrase, 'or');
-        });
+        };
+
+        if (ItemFuzzyIndex::eligible($phrase) && ! (clone $query)->where($exact)->exists()) {
+            $codes = ItemFuzzyIndex::matchCodes($phrase, self::companyId());
+            if ($codes !== []) {
+                self::$fuzzyRanks[$phrase] = ['ids' => self::$fuzzyRanks[$phrase]['ids'] ?? [], 'codes' => $codes];
+                $query->whereIn('item_code', $codes);
+
+                return;
+            }
+        }
+
+        $query->where($exact);
+    }
+
+    protected static function companyId(): ?int
+    {
+        try {
+            $id = auth()->user()?->company_id;
+        } catch (\Throwable) {
+            $id = null;
+        }
+
+        return $id ? (int) $id : null;
     }
 
     public static function phrase(?string $search): string
@@ -86,6 +131,25 @@ final class ItemSearch
         $phrase = self::phrase($search);
         if ($phrase === '') {
             return;
+        }
+
+        if (isset(self::$fuzzyRanks[$phrase])) {
+            $rank = self::$fuzzyRanks[$phrase];
+            if ($upcColumn !== null && $rank['ids'] !== []) {
+                $idColumn = str_contains($codeColumn, '.') ? substr($codeColumn, 0, strrpos($codeColumn, '.')).'.id' : 'id';
+                $list = implode(',', array_map('intval', $rank['ids']));
+                $query->orderByRaw("FIELD({$idColumn}, {$list})");
+
+                return;
+            }
+            if ($rank['codes'] !== []) {
+                $query->orderByRaw(
+                    'FIELD('.$codeColumn.', '.implode(',', array_fill(0, count($rank['codes']), '?')).')',
+                    $rank['codes']
+                );
+
+                return;
+            }
         }
 
         $prefix = self::escapeLike($phrase).'%';

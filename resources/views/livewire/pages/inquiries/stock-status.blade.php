@@ -21,6 +21,9 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
 
     public string $lookupError = '';
 
+    /** @var list<array{id:int, code:string, description:string}> */
+    public array $lookupSuggestions = [];
+
     public function mount(): void
     {
         if (trim($this->itemCode) !== '') {
@@ -31,6 +34,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
     public function lookupItem(?string $code = null, bool $playSound = true): void
     {
         $this->lookupError = '';
+        $this->lookupSuggestions = [];
         $this->entryHits = [];
         if ($code !== null) {
             $this->itemCode = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $code) ?? '');
@@ -61,7 +65,19 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
             if ($playSound) {
                 $this->playPosSound('error');
             }
-            $this->openItemBrowse();
+            $this->closeBrowse();
+            $this->lookupError = 'Item "'.$resolved.'" does not exist.';
+            $ranked = \App\Support\ItemFuzzyIndex::match(\App\Support\ItemSearch::phrase($resolved), (int) auth()->user()->company_id);
+            if ($ranked !== []) {
+                $ids = array_slice(array_keys($ranked), 0, 5);
+                $byId = Item::query()->whereIn('id', $ids)->where('company_id', auth()->user()->company_id)->get(['id', 'item_code', 'description'])->keyBy('id');
+                foreach ($ids as $id) {
+                    if ($row = $byId->get($id)) {
+                        $this->lookupSuggestions[] = ['id' => (int) $row->id, 'code' => $row->item_code, 'description' => (string) $row->description];
+                    }
+                }
+            }
+            $this->js('requestAnimationFrame(() => { const el = document.getElementById("ss-code"); if (el) { el.focus(); el.select(); } });');
         }
     }
 
@@ -99,7 +115,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
 
     public function clearLookup(): void
     {
-        $this->reset(['itemCode', 'itemId', 'lookupError', 'entryHits']);
+        $this->reset(['itemCode', 'itemId', 'lookupError', 'lookupSuggestions', 'entryHits']);
         $this->closeBrowse();
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("ss-code"); if (el) el.value = ""; el?.focus(); });');
     }
@@ -119,6 +135,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
         $this->itemId = $item->id;
         $this->itemCode = $item->item_code;
         $this->lookupError = '';
+        $this->lookupSuggestions = [];
         $this->entryHits = [];
         $this->closeBrowse();
         $this->playPosSound('success');
@@ -178,7 +195,8 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
                 @include('livewire.partials.item-entry-search-bar', [
                     'entryInputId' => 'ss-code',
                     'entryCommit' => 'lookupItem',
-                    'entryPlaceholder' => 'Scan to look up instantly · type name or code to search',
+                    'entrySuggest' => false,
+                    'entryPlaceholder' => 'Scan or type item code / UPC, then Enter',
                 ])
             </div>
             <div class="rpt-actions">
@@ -192,7 +210,17 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
         </div>
 
         @if ($lookupError !== '')
-            <div class="desk-flash bp-flash-error">{{ $lookupError }}</div>
+            <div class="desk-flash bp-flash-error">
+                {{ $lookupError }}
+                @if ($lookupSuggestions !== [])
+                    <span style="margin-left:.4rem">Did you mean:</span>
+                    @foreach ($lookupSuggestions as $s)
+                        <button type="button" wire:click="pickBrowseItem({{ $s['id'] }})" wire:key="ss-sug-{{ $s['id'] }}" class="desk-btn desk-btn-sm" style="margin:.15rem .25rem 0 0" title="{{ $s['description'] }}">
+                            <span class="font-mono">{{ $s['code'] }}</span> — {{ \Illuminate\Support\Str::limit($s['description'], 32) }}
+                        </button>
+                    @endforeach
+                @endif
+            </div>
         @endif
 
         <div class="desk-titlebar">

@@ -340,6 +340,31 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $po = PurchaseOrder::query()->with('lines')->findOrFail($this->createFromPo);
         abort_unless($po->company_id === auth()->user()->company_id, 403);
 
+        $open = InventoryReceiving::query()
+            ->where('purchase_order_id', $po->id)
+            ->where('status', 'New')
+            ->whereNull('processed_at')
+            ->latest('id')
+            ->first();
+
+        if ($open) {
+            session()->flash('status', 'PO '.$po->po_number.' already has open receiving '.$open->receipt_number.' — opened it instead of creating a duplicate.');
+            $this->redirect(route('purchasing.receivings.edit', $open), navigate: true);
+
+            return;
+        }
+
+        $covered = app(InventoryService::class)->receivedQtyByPoLine((int) $po->id);
+        $remainingByLine = $po->lines->mapWithKeys(fn ($line) => [
+            $line->id => max(0, (float) $line->qty_ordered - ($covered[$line->id] ?? 0)),
+        ]);
+
+        if ($remainingByLine->sum() <= 0) {
+            session()->flash('status', 'PO '.$po->po_number.' is already fully received — nothing left to receive.');
+
+            return;
+        }
+
         $receiving = InventoryReceiving::query()->create([
             'company_id' => $po->company_id,
             'receipt_number' => InventoryReceiving::numberForPurchaseOrder($po),
@@ -353,7 +378,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         ]);
 
         foreach ($po->lines as $i => $line) {
-            $remaining = max(0, (float) $line->qty_ordered - (float) $line->qty_received);
+            $remaining = $remainingByLine[$line->id] ?? 0;
             if ($remaining <= 0) {
                 continue;
             }
@@ -380,7 +405,13 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         if (! filled($receiving->received_by)) {
             $receiving->update(['received_by' => auth()->user()->name]);
         }
-        app(InventoryService::class)->processReceiving($receiving);
+        try {
+            app(InventoryService::class)->processReceiving($receiving);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first());
+
+            return;
+        }
         $this->selectedId = $id;
         session()->flash('status', 'Receiving '.$receiving->receipt_number.' processed.');
     }

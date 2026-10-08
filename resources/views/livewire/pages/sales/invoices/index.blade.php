@@ -33,12 +33,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public string $search = '';
 
     #[Url]
-    public string $statusFilter = '';
+    public string $statusFilter = 'NOT PAID';
 
     #[Url]
     public ?int $pay = null;
 
-    public string $favorite = 'all';
+    public string $favorite = 'not_paid';
 
     /** User who created the related sales order. */
     public string $createdByUserId = '';
@@ -107,7 +107,15 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     public function mount(): void
     {
         $this->bootDeskListColumns();
-        // Default: all invoices (no date clamp); scroll loads more.
+        $this->favorite = match ($this->statusFilter) {
+            'NOT PAID' => 'not_paid',
+            'PAID' => 'paid',
+            default => $this->favorite ?: 'not_paid',
+        };
+        if ($this->sortField === '') {
+            $this->sortField = 'bill_to';
+            $this->sortDir = 'asc';
+        }
         if ($this->pay) {
             $id = (int) $this->pay;
             $this->pay = null;
@@ -479,7 +487,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'invoice_date' => 'invoice_date',
             'order_number' => ['relation' => 'salesOrder', 'column' => 'order_number'],
             'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
-            'bill_to' => ['relation' => 'salesOrder', 'column' => 'bill_to_name'],
+            'bill_to' => ['raw' => 'LOWER(COALESCE((SELECT customers.company_name FROM customers WHERE customers.id = invoices.customer_id LIMIT 1), (SELECT sales_orders.bill_to_name FROM sales_orders WHERE sales_orders.id = invoices.sales_order_id LIMIT 1), \'\'))'],
             'subtotal' => 'subtotal',
             'total_discount' => 'total_discount',
             'trade_discount' => 'trade_discount',

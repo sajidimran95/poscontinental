@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>{{ $docTitle ?? 'Sales Order' }} {{ $barcodeValue ?? $order->order_number }}</title>
     <style>
-        @page { size: letter; margin: 3.05in 0.45in 0.45in; }
+        @page { size: letter; margin: 3.05in 0.45in 0.85in; }
         /* Company / Sold To / invoice box / account bar repeat on every page. */
         .page-head { position: fixed; top: -2.68in; left: 0; right: 0; }
         .pagenum:after { content: counter(page) " of {{ (int) ($pageLabel ?? 1) }}"; }
@@ -272,7 +272,7 @@
         .doc-end { page-break-inside: avoid; }
         /* Footer sits at the bottom of the last page; the spacer reserves its height in the flow. */
         .doc-foot-space { page-break-inside: avoid; }
-        .doc-foot { position: absolute; left: 0; right: 0; bottom: 0; }
+        .doc-foot { position: absolute; left: 0; right: 0; bottom: -0.4in; }
         .sign { margin-top: 8px; font-size: 9px; }
         .sign-line {
             border-bottom: 1px solid #000;
@@ -336,6 +336,7 @@
     $lineSortKey = fn ($line) => [
         mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
         (int) ($line->item?->category_id ?? PHP_INT_MAX),
+        (float) $line->qty_ordered < 0 ? 0 : 1,
         mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
         mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
         (int) ($line->line_no ?? 0),
@@ -385,8 +386,8 @@
                 <img class="logo-img" src="{{ $logoPath }}" alt="Logo">
             @endif
             <div class="co-name">{{ $companyName }}</div>
-            @if ($companyContact !== '')
-                <div class="co-line">{{ $companyContact }}</div>
+            @if ($salesRepLabel !== '')
+                <div class="co-line">{{ $salesRepLabel }}</div>
             @endif
             <div class="co-line">{{ $companyAddress }}</div>
             <div class="co-line">{{ $companyCityLine }}</div>
@@ -519,10 +520,9 @@
                 $qty = (float) $line->qty_ordered;
                 $qtyLabel = number_format($qty, 2);
                 $uomLabel = SalesOrderLinePresentation::uom($line);
-                $catId = (int) ($line->item?->category_id ?? 0);
+                $groupKey = fn ($l) => (int) ($l->item?->category_id ?? 0);
                 $next = $lines->get($i + 1);
-                $nextCatId = $next ? (int) ($next->item?->category_id ?? 0) : null;
-                $isCatEnd = $next === null || $nextCatId !== $catId;
+                $isCatEnd = $next === null || $groupKey($next) !== $groupKey($line);
             @endphp
             <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="col-qty">{{ $qtyLabel }}</td>

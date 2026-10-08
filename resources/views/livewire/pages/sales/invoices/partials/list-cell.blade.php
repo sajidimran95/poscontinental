@@ -9,7 +9,7 @@
 @elseif ($colKey === 'customer_code')
     <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
 @elseif ($colKey === 'bill_to')
-    <td title="{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
+    <td class="inv-bill-to" title="{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}">{{ $inv->customer?->company_name ?: $inv->salesOrder?->bill_to_name }}</td>
 @elseif ($colKey === 'order_source')
     <td>
         @php 

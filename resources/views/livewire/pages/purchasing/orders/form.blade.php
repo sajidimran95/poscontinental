@@ -1340,9 +1340,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
+        $this->po_number = trim($this->po_number);
+
         try {
             $this->validate([
-                'po_number' => 'required|string|max:64',
+                'po_number' => [
+                    'required', 'string', 'max:64',
+                    \Illuminate\Validation\Rule::unique('purchase_orders', 'po_number')
+                        ->where('company_id', auth()->user()->company_id)
+                        ->ignore($this->purchaseOrder?->id),
+                ],
                 'supplier_id' => 'required|integer|exists:suppliers,id',
                 'requisition_date' => 'nullable|date',
                 'required_date' => 'nullable|date',
@@ -1351,6 +1358,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 'lines.*.unit_cost' => 'nullable|numeric',
             ], [
                 'po_number.required' => 'PO number is required.',
+                'po_number.unique' => 'PO number is already used by another purchase order.',
                 'supplier_id.required' => 'Supplier is required.',
                 'supplier_id.exists' => 'Select a valid supplier.',
             ]);
@@ -1562,7 +1570,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     @if (session('pos_ai_missing_brief'))
         <div class="desk-flash" role="status" style="white-space:pre-wrap;border-color:#f59e0b;background:#fffbeb;">{{ session('pos_ai_missing_brief') }}</div>
     @endif
-    <form wire:submit="save" class="desk-main entity-form item-form po-form" @class(['item-form-readonly' => $viewMode])>
+    <form wire:submit="save" @class(['desk-main entity-form item-form po-form', 'item-form-readonly' => $viewMode])>
         <x-action-bar :title="$purchaseOrder ? 'PO '.$po_number : 'New Purchase Order'">
             <x-slot:menu>
                 <x-action-item label="Save Changes" kbd="Ctrl+S" wire:click="save" :disabled="$viewMode" />
@@ -1574,6 +1582,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 <x-action-item label="Cancel" kbd="Ctrl+Q" sep wire:click="cancelAction" />
             </x-slot:menu>
         </x-action-bar>
+        @if ($errors->any())
+            <div class="desk-flash bp-flash-error" role="alert">
+                <strong>Purchase order not saved.</strong>
+                <ul style="margin:0.35rem 0 0;padding-left:1.15rem">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
         <fieldset class="so-form-fields" @disabled($viewMode)>
 
         <div class="entity-body">
@@ -1581,7 +1599,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 @if ($activeTab === 'items')
                     <div class="po-items-head">
                         <label class="so-form-lbl" for="po_number_items">Purchase Order No</label>
-                        <input id="po_number_items" wire:model="po_number" class="so-input font-mono po-head-po" @disabled($purchaseOrder) />
+                        <input id="po_number_items" wire:model="po_number" class="so-input font-mono po-head-po" />
                         <label class="so-form-lbl" for="supplier_id_items">Supplier ID</label>
                         <select id="supplier_id_items" wire:model.live="supplier_id" class="so-input po-head-supplier">
                             <option value="">—</option>
@@ -1599,7 +1617,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                     <div class="so-form-row so-form-row-pair entity-header-row">
                         <label class="so-form-lbl so-field-req" for="po_number">PO No.</label>
                         <div class="so-form-ctl">
-                            <input id="po_number" wire:model="po_number" class="so-input font-mono @error('po_number') is-invalid @enderror" @disabled($purchaseOrder) />
+                            <input id="po_number" wire:model="po_number" class="so-input font-mono @error('po_number') is-invalid @enderror" />
                             @error('po_number') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                         </div>
                         <span class="so-form-lbl">Status</span>

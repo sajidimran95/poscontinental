@@ -227,6 +227,13 @@ class Item extends Model
         return 'EA';
     }
 
+    protected static function booted(): void
+    {
+        $flush = fn (Item $item) => \App\Support\ItemFuzzyIndex::forget($item->company_id ? (int) $item->company_id : null);
+        static::saved($flush);
+        static::deleted($flush);
+    }
+
     public function scopeNewItems(Builder $query): Builder
     {
         return $query->where('created_at', '>=', now()->subDays(self::NEW_ITEM_DAYS));

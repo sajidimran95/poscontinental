@@ -2796,6 +2796,212 @@
         margin-top: 0.35rem;
     }
 
+    .so-item-popup {
+        position: relative;
+        width: min(68rem, 96vw);
+        max-width: min(68rem, 96vw);
+        height: min(46rem, 92vh);
+        padding: 0;
+        overflow: hidden;
+        display: flex;
+    }
+
+    .so-item-popup-frame {
+        flex: 1 1 auto;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #fff;
+    }
+
+    .so-item-popup-close {
+        position: absolute;
+        top: 0.2rem;
+        right: 0.45rem;
+        z-index: 2;
+        width: 1.75rem;
+        height: 1.75rem;
+        border: 0;
+        border-radius: 0.25rem;
+        background: rgba(15, 23, 42, 0.55);
+        color: #fff;
+        font-size: 1.1rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .so-item-popup-close:hover {
+        background: #b91c1c;
+    }
+
+    .desk-page.item-popup-page {
+        padding: 0;
+        gap: 0;
+        height: 100%;
+        background: #fff;
+    }
+
+    .item-form.item-popup {
+        width: 100%;
+        max-width: none;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .item-popup .entity-body {
+        padding: 0.5rem 0.75rem 0.6rem;
+    }
+
+    .item-popup .entity-header {
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.45rem;
+        padding-right: 2rem;
+    }
+
+    .item-popup .entity-header-row {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 14rem) auto auto !important;
+        align-items: center;
+        gap: 0.5rem 0.65rem !important;
+    }
+
+    .item-popup .so-form-lbl {
+        min-width: 5.5rem;
+    }
+
+    .item-popup .item-hint {
+        display: none;
+    }
+
+    .item-popup .inv-card {
+        gap: 0.4rem;
+        padding: 0.55rem 0.7rem;
+    }
+
+    .item-popup .inv-card-title {
+        margin-bottom: 0.1rem;
+    }
+
+    .item-popup .item-tab-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 0.6rem;
+        margin-bottom: 0.6rem;
+    }
+
+    .item-popup .item-tab-general {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.6rem;
+        align-items: start;
+    }
+
+    .item-popup .item-tab-general > .inv-top-grid {
+        display: contents;
+    }
+
+    .item-popup .item-tab-general .inv-card {
+        grid-column: auto !important;
+    }
+
+    .item-popup .item-tab-general > .inv-top-grid > .inv-card:first-child {
+        grid-row: span 2;
+    }
+
+    .item-popup .item-tab-general > .entity-section {
+        grid-column: 2;
+        margin-top: 0;
+    }
+
+    .item-popup .entity-section-head {
+        padding: 0.35rem 0.6rem;
+    }
+
+    .item-popup.item-form-readonly .item-upc-entry,
+    .item-popup.item-form-readonly .entity-section-head .desk-btn {
+        display: none;
+    }
+
+    .item-popup .item-lines-wrap,
+    .item-popup .entity-ship-grid,
+    .item-popup .desk-grid {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .item-popup .item-lines-table {
+        width: 100%;
+        table-layout: fixed;
+    }
+
+    .item-popup .item-lines-table thead th,
+    .item-popup .item-lines-table tbody td {
+        padding: 0.3rem 0.35rem;
+        font-size: 12px;
+    }
+
+    .item-popup .item-lines-table .so-input,
+    .item-popup .item-lines-table .item-cell-ctl,
+    .item-popup .item-lines-table .so-cell-input {
+        min-width: 0;
+        width: 100%;
+        font-size: 12px;
+        padding-left: 0.35rem;
+        padding-right: 0.35rem;
+    }
+
+    .item-popup .item-lines-table .desk-btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 11px;
+    }
+
+    .item-popup .item-sup-table .col-default { width: 6%; }
+    .item-popup .item-sup-table .col-supplier { width: 24%; }
+    .item-popup .item-sup-table .col-scode { width: 13%; }
+    .item-popup .item-sup-table .col-lead { width: 8%; }
+    .item-popup .item-sup-table .col-cost { width: 10%; }
+    .item-popup .item-sup-table .col-recv { width: 13%; }
+    .item-popup .item-sup-table .col-action { width: 9%; }
+
+    .item-popup .item-upc-table td {
+        padding-top: 0.2rem;
+        padding-bottom: 0.2rem;
+    }
+
+    .item-popup .entity-footer {
+        flex-shrink: 0;
+        flex-wrap: nowrap;
+        align-items: center;
+        padding: 0.35rem 0.6rem;
+    }
+
+    .item-popup .entity-tabs {
+        flex: 1 1 auto;
+        min-width: 0;
+        flex-wrap: nowrap;
+        gap: 0.1rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .item-popup .entity-tab {
+        flex-shrink: 0;
+        white-space: nowrap;
+        font-size: 11.5px;
+        padding: 0.3rem 0.45rem;
+    }
+
+    .item-popup .entity-footer-actions .desk-btn {
+        padding: 0.3rem 0.7rem;
+        font-size: 12px;
+    }
+
+    .item-popup .entity-footer-actions {
+        flex-shrink: 0;
+        margin-left: auto;
+    }
+
     .so-items-grid thead th {
         text-align: left;
         font-size: 13px;
@@ -4722,6 +4928,12 @@
 
     .desk-sort-th {
         position: relative;
+    }
+
+    table[data-col-resize="invoices-list"] th[data-col="bill_to"],
+    table[data-col-resize="invoices-list"] td.inv-bill-to {
+        min-width: 18rem;
+        width: 18rem;
     }
 
     .desk-col-resizer {

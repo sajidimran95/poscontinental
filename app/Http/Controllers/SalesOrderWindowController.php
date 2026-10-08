@@ -25,7 +25,7 @@ class SalesOrderWindowController extends Controller
      * Fast leave from a heavy sales-order screen (many lines).
      * Must NOT go through Livewire — hydrating 600+ lines makes Cancel feel stuck.
      */
-    public function leave(Request $request, SalesOrderWindowManager $windows): RedirectResponse
+    public function leave(Request $request, SalesOrderWindowManager $windows): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         $companyId = (int) $request->user()->company_id;
 
@@ -40,6 +40,14 @@ class SalesOrderWindowController extends Controller
         $windowId = trim((string) $request->query('w', ''));
         if ($windowId !== '' && $windows->has($windowId)) {
             $windows->close($windowId);
+        }
+
+        if ($request->expectsJson()) {
+            if ($orderId) {
+                app(\App\Services\DocumentTabManager::class)->closeMatchingUrl(route('sales.orders.edit', $orderId));
+            }
+
+            return response()->json(['ok' => true]);
         }
 
         if ($request->boolean('to_invoices')) {

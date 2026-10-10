@@ -260,6 +260,13 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 }; ?>
 
 <div class="desk-page">
+    <style>
+        .iv-table { table-layout: fixed; width: 100%; }
+        .iv-table th.iv-l, .iv-table td.iv-l { text-align: left !important; }
+        .iv-table th.iv-r, .iv-table td.iv-r { text-align: right !important; }
+        .iv-table th, .iv-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .iv-table tr.is-empty td { white-space: normal; text-align: left; }
+    </style>
     <div class="desk-main">
         <x-action-bar title="Item Velocity">
             <x-slot:menu>
@@ -362,34 +369,43 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         </div>
 
         <div class="desk-grid">
-            <table class="desk-table">
+            <table class="desk-table iv-table">
+                <colgroup>
+                    <col style="width:8rem" />
+                    <col style="width:8rem" />
+                    <col />
+                    <col style="width:8rem" />
+                    <col style="width:8rem" />
+                    <col style="width:8rem" />
+                    <col style="width:9rem" />
+                </colgroup>
                 <thead>
                     <tr>
-                        <th>Order Date</th>
-                        <th>Order No</th>
-                        <th>Customer</th>
-                        <th class="text-right">Qty Ordered</th>
-                        <th class="text-right">Qty Shipped</th>
-                        <th class="text-right">Price</th>
-                        <th class="text-right">Line Total</th>
+                        <th class="iv-l">Order Date</th>
+                        <th class="iv-l">Order No</th>
+                        <th class="iv-l">Customer</th>
+                        <th class="iv-r">Qty Ordered</th>
+                        <th class="iv-r">Qty Shipped</th>
+                        <th class="iv-r">Price</th>
+                        <th class="iv-r">Line Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($rows as $row)
                         <tr>
-                            <td>{{ optional($row->salesOrder?->order_date)?->format('n/j/Y') }}</td>
-                            <td class="desk-num">
+                            <td class="iv-l">{{ optional($row->salesOrder?->order_date)?->format('n/j/Y') }}</td>
+                            <td class="desk-num iv-l">
                                 @if ($row->salesOrder && Route::has('sales.orders.edit'))
                                     <a href="{{ route('sales.orders.edit', $row->salesOrder) }}" wire:navigate>{{ $row->salesOrder->order_number }}</a>
                                 @else
                                     {{ $row->salesOrder?->order_number }}
                                 @endif
                             </td>
-                            <td>{{ $row->salesOrder?->customer?->company_name ?: '—' }}</td>
-                            <td class="desk-money">{{ number_format((float) $row->qty_ordered, 2) }}</td>
-                            <td class="desk-money">{{ number_format((float) $row->qty_shipped, 2) }}</td>
-                            <td class="desk-money">${{ number_format((float) $row->price, 2) }}</td>
-                            <td class="desk-money">${{ number_format((float) $row->line_total, 2) }}</td>
+                            <td class="iv-l">{{ $row->salesOrder?->customer?->company_name ?: '—' }}</td>
+                            <td class="desk-money iv-r">{{ number_format((float) $row->qty_ordered, 2) }}</td>
+                            <td class="desk-money iv-r">{{ number_format((float) $row->qty_shipped, 2) }}</td>
+                            <td class="desk-money iv-r">${{ number_format((float) $row->price, 2) }}</td>
+                            <td class="desk-money iv-r">${{ number_format((float) $row->line_total, 2) }}</td>
                         </tr>
                     @empty
                         <tr class="is-empty">

@@ -16,6 +16,7 @@ class CreditMemoLine extends Model
         'qty',
         'price',
         'line_total',
+        'non_saleable',
         'line_no',
     ];
 
@@ -25,6 +26,7 @@ class CreditMemoLine extends Model
             'qty' => 'decimal:4',
             'price' => 'decimal:4',
             'line_total' => 'decimal:4',
+            'non_saleable' => 'boolean',
         ];
     }
 

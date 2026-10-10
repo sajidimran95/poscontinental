@@ -65,6 +65,14 @@
             text-transform: uppercase;
             word-wrap: break-word;
         }
+        tr.tot td {
+            padding: 6px 2px 0;
+            border-top: 2px solid #000;
+            text-align: right;
+            font-size: 11pt;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
         .instr { margin-top: 1px; font-size: 8pt; text-transform: none; font-weight: normal; }
     </style>
 </head>
@@ -110,6 +118,8 @@
             (int) $line->line_no,
         ])
         ->groupBy(fn ($line) => $line->_grp_label);
+
+    $cigaretteQty = \App\Support\DocumentMerchandiseTotals::fromLines($order->lines)['cigarette_qty'];
 @endphp
 
 <table class="lines">
@@ -196,6 +206,9 @@
                 <td colspan="4" style="padding:12px 0;">No line items on this sales order.</td>
             </tr>
         @endforelse
+        <tr class="tot">
+            <td colspan="4">Total Cigarettes: {{ $formatQty($cigaretteQty) }}</td>
+        </tr>
     </tbody>
 </table>
 </body>

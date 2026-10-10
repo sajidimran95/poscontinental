@@ -7625,7 +7625,8 @@
         box-sizing: border-box;
     }
 
-    .rtv-form.po-form > .rtv-doc-form {
+    .rtv-form.po-form > .rtv-doc-form,
+    .cm-std-form.po-form > .cm-doc-form {
         display: flex;
         flex-direction: column;
         flex: 1 1 auto;
@@ -7634,7 +7635,8 @@
         width: 100%;
     }
 
-    .rtv-form .so-form-fields {
+    .rtv-form .so-form-fields,
+    .cm-std-form .so-form-fields {
         display: flex;
         flex-direction: column;
         flex: 1 1 auto;
@@ -7646,7 +7648,8 @@
         min-inline-size: 0;
     }
 
-    .rtv-form .entity-footer {
+    .rtv-form .entity-footer,
+    .cm-std-form .entity-footer {
         flex-shrink: 0;
         position: static;
         box-shadow: none;
@@ -7654,14 +7657,16 @@
         padding-bottom: 0.3rem;
     }
 
-    .rtv-form .rtv-expand-panel {
+    .rtv-form .rtv-expand-panel,
+    .cm-std-form .cm-expand-panel {
         flex: 1 1 auto;
         min-height: 16rem;
         width: 100%;
         max-width: none;
     }
 
-    .rtv-form .rtv-expand-panel .so-expand-main {
+    .rtv-form .rtv-expand-panel .so-expand-main,
+    .cm-std-form .cm-expand-panel .so-expand-main {
         display: flex;
         flex-direction: column;
         min-height: 0;
@@ -8351,6 +8356,70 @@
         font-weight: 600;
         flex-shrink: 0;
     }
+
+    /* Movable / resizable popup windows (see initDeskWindows in app.js) */
+    .desk-modal {
+        position: relative;
+    }
+
+    .desk-modal-head,
+    [data-desk-window-head] {
+        cursor: move;
+        user-select: none;
+    }
+
+    .desk-modal-head :is(button, input, select, a, label),
+    [data-desk-window-head] :is(button, input, select, a, label) {
+        cursor: pointer;
+    }
+
+    .desk-modal::after,
+    .so-browse-popup::after,
+    [data-desk-window]::after {
+        content: "";
+        position: absolute;
+        right: 2px;
+        bottom: 2px;
+        width: 11px;
+        height: 11px;
+        pointer-events: none;
+        z-index: 5;
+        background:
+            linear-gradient(135deg, transparent 0 45%, #94a3b8 45% 55%, transparent 55% 70%, #94a3b8 70% 80%, transparent 80%);
+        opacity: 0.85;
+    }
+
+    .desk-modal.is-desk-win,
+    .so-browse-popup.is-desk-win,
+    [data-desk-window].is-desk-win {
+        min-width: 0;
+        min-height: 0;
+    }
+
+    .desk-modal.is-desk-win > .desk-modal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    html.desk-win-busy,
+    html.desk-win-busy * {
+        user-select: none !important;
+    }
+
+    html.desk-win-dragging,
+    html.desk-win-dragging * {
+        cursor: move !important;
+    }
+
+    html.desk-win-cur-ns,
+    html.desk-win-cur-ns * { cursor: ns-resize !important; }
+    html.desk-win-cur-ew,
+    html.desk-win-cur-ew * { cursor: ew-resize !important; }
+    html.desk-win-cur-nesw,
+    html.desk-win-cur-nesw * { cursor: nesw-resize !important; }
+    html.desk-win-cur-nwse,
+    html.desk-win-cur-nwse * { cursor: nwse-resize !important; }
 
     .desk-modal-head-actions {
         display: flex;
@@ -9206,6 +9275,47 @@
         color: #1e40af;
     }
 
+    .pc-adj-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+    }
+
+    .pc-adj-row label {
+        font-size: 12px;
+        color: #334155;
+        white-space: nowrap;
+    }
+
+    .pc-adj-row label small {
+        color: #64748b;
+        font-size: 10px;
+    }
+
+    .pc-adj-ctl {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.2rem;
+        color: #475569;
+    }
+
+    .pc-adj-ctl .pc-adj-input {
+        flex: 0 0 5.25rem;
+        width: 5.25rem !important;
+        min-width: 0 !important;
+        max-width: 5.25rem !important;
+        box-sizing: border-box;
+        height: 1.6rem;
+        padding: 0.1rem 0.4rem !important;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .pc-sum-changed strong {
+        color: #1d4ed8;
+    }
+
     .pc-sum-hint {
         margin-top: 0.35rem;
         font-size: 11px;
@@ -9532,7 +9642,7 @@
     .cm-lines-table {
         table-layout: fixed;
         width: 100%;
-        min-width: 44rem;
+        min-width: 50rem;
     }
 
     .cm-lines-table col.col-code { width: 7.5rem; }
@@ -9540,9 +9650,105 @@
     .cm-lines-table col.col-desc { width: auto; }
     .cm-lines-table col.col-uom { width: 5.5rem; }
     .cm-lines-table col.col-qty { width: 5.5rem; }
+    .cm-lines-table col.col-ns { width: 6.25rem; }
+    .cm-lines-table th.col-ns,
+    .cm-lines-table td.col-ns { text-align: center; white-space: nowrap; }
+    .cm-lines-table .cm-ns-check { width: 1rem; height: 1rem; cursor: pointer; }
     .cm-lines-table col.col-price { width: 6.5rem; }
     .cm-lines-table col.col-total { width: 5.5rem; }
     .cm-lines-table col.col-action { width: 2.75rem; }
+
+    .cm-std-form .sc-general-grid { align-items: stretch; }
+
+    .po-lines-table.cm-std-lines { table-layout: fixed; width: 100%; }
+    .po-lines-table.cm-std-lines col.col-code { width: 8.5rem; }
+    .po-lines-table.cm-std-lines col.col-desc { width: auto; }
+    .po-lines-table.cm-std-lines col.col-uom { width: 6rem; }
+    .po-lines-table.cm-std-lines col.col-qty { width: 6.5rem; }
+    .po-lines-table.cm-std-lines col.col-ns { width: 6rem; }
+    .po-lines-table.cm-std-lines col.col-price { width: 7.5rem; }
+    .po-lines-table.cm-std-lines col.col-ext { width: 7.5rem; }
+    .po-lines-table.cm-std-lines col.col-action { width: 3rem; }
+
+    .po-lines-table.cm-std-lines th.col-code,
+    .po-lines-table.cm-std-lines td.col-code,
+    .po-lines-table.cm-std-lines th.col-desc,
+    .po-lines-table.cm-std-lines td.col-desc { text-align: left !important; }
+    .po-lines-table.cm-std-lines th.col-uom,
+    .po-lines-table.cm-std-lines td.col-uom,
+    .po-lines-table.cm-std-lines th.col-ns,
+    .po-lines-table.cm-std-lines td.col-ns,
+    .po-lines-table.cm-std-lines th.col-action,
+    .po-lines-table.cm-std-lines td.col-action { text-align: center !important; }
+    .po-lines-table.cm-std-lines th.col-qty,
+    .po-lines-table.cm-std-lines td.col-qty,
+    .po-lines-table.cm-std-lines th.col-price,
+    .po-lines-table.cm-std-lines td.col-price,
+    .po-lines-table.cm-std-lines th.col-ext,
+    .po-lines-table.cm-std-lines td.col-ext { text-align: right !important; }
+
+    .po-lines-table.cm-std-lines td .so-input,
+    .po-lines-table.cm-std-lines td select.so-input {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        box-sizing: border-box;
+    }
+
+    .po-lines-table.cm-std-lines th,
+    .po-lines-table.cm-std-lines td {
+        vertical-align: middle;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .po-lines-table.cm-std-lines td.col-qty .so-input,
+    .po-lines-table.cm-std-lines td.col-price .so-input,
+    .po-lines-table.cm-std-lines td.col-uom select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .po-lines-table.cm-std-lines td.col-ext { text-align: right; }
+
+    .po-lines-table.cm-std-lines th.col-ns,
+    .po-lines-table.cm-std-lines th.col-qty {
+        white-space: normal;
+        line-height: 1.15;
+    }
+
+    .po-lines-table.cm-std-lines tr.is-ns td {
+        background: #fff7ed;
+    }
+
+    .po-lines-table.cm-std-lines .cm-ns-check {
+        width: 1rem;
+        height: 1rem;
+        cursor: pointer;
+        accent-color: #c2410c;
+    }
+
+    .po-lines-table.cm-std-lines td.col-action .so-icon-btn {
+        margin: 0 auto;
+    }
+
+    .cm-cust-info {
+        font-size: 12px;
+        line-height: 1.4;
+        color: #334155;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+        background: #f8fafc;
+        min-width: 0;
+    }
+
+    .cm-cust-info .cm-cust-name {
+        font-weight: 600;
+        color: #0f172a;
+    }
 
     .cm-pick-row {
         display: flex;

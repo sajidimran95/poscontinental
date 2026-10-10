@@ -674,15 +674,16 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         if (! $exists) {
             return;
         }
+        if ($this->sales_order_id && (int) $this->customer_id !== $customerId) {
+            $this->sales_order_id = null;
+            $this->lines = [
+                $this->emptyCreditLine(),
+            ];
+        }
         $this->customer_id = $customerId;
-        $this->sales_order_id = null;
-        $this->lines = [
-            $this->emptyCreditLine(),
-        ];
         $this->showCustomerBrowse = false;
         $this->resetErrorBag('customer_id');
         $this->resetErrorBag('sales_order_id');
-        $this->openOrderBrowse();
     }
 
     public function clearCustomer(): void
@@ -776,6 +777,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 'uom' => (string) ($orderLine->uom ?? ''),
                 'qty' => rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') ?: '1',
                 'price' => ($price === '0' || $price === '0.0' || $price === '0.00') ? '0' : $price,
+                'non_saleable' => false,
             ];
         }
 
@@ -1063,7 +1065,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function emptyCreditLine(): array
     {
-        return ['item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => ''];
+        return ['item_id' => null, 'item_code' => '', 'description' => '', 'uom' => '', 'qty' => '', 'price' => '', 'non_saleable' => false];
     }
 
     public function pickOrderLine(int $lineId): void
@@ -1234,6 +1236,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                     'qty' => $qty,
                     'price' => $price,
                     'line_total' => $qty * $price,
+                    'non_saleable' => (bool) ($line['non_saleable'] ?? false),
                     'line_no' => $i + 1,
                 ]);
             }
@@ -1248,7 +1251,14 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         if ($filledLines->isEmpty()) {
             $msg .= ' Amount-only credit (no items).';
         } else {
-            $msg .= $restock ? ' Stock restocked.' : ' No stock change (price adjustment).';
+            $nonSaleable = $filledLines->filter(fn ($l) => (bool) ($l['non_saleable'] ?? false))->count();
+            if ($nonSaleable === $filledLines->count()) {
+                $msg .= ' All lines non-saleable — no stock change.';
+            } elseif ($nonSaleable > 0) {
+                $msg .= ' Stock restocked ('.$nonSaleable.' non-saleable line'.($nonSaleable === 1 ? '' : 's').' not restocked).';
+            } else {
+                $msg .= ' Stock restocked.';
+            }
         }
         $msg .= ' Apply it from an unpaid invoice.';
         session()->flash('status', $msg);
@@ -1327,10 +1337,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     }
 }; ?>
 
-<div class="desk-page relative">
-    <x-favorite-list :favorites="$favorites" :active="$favorite" />
+<div class="desk-page {{ $showForm ? 'entity-page po-page' : '' }} relative">
+    @unless ($showForm)
+        <x-favorite-list :favorites="$favorites" :active="$favorite" />
+    @endunless
 
-    <div @class(['desk-main', 'desk-main-rail-layout' => ! $showForm])>
+    <div class="desk-main {{ $showForm ? 'entity-form item-form po-form cm-std-form' : 'desk-main-rail-layout' }}">
         <x-action-bar :title="$showForm ? 'New Credit Memo' : 'Action'">
             <x-slot:menu>
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
@@ -1341,321 +1353,324 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         </x-action-bar>
 
         @if ($showForm)
-            <form wire:submit="save" class="entity-body cm-form">
-                @if (session('status'))
-                    <div class="desk-flash" role="status">{{ session('status') }}</div>
-                @endif
+            @php
+                $cmFilled = collect($lines)->filter(fn ($l) => filled($l['item_code'] ?? null));
+                $cmItems = (float) $cmFilled->sum(fn ($l) => (float) ($l['qty'] ?: 0));
+                $cmNonSale = $cmFilled->filter(fn ($l) => (bool) ($l['non_saleable'] ?? false))->count();
+                $orderLabel = '';
+                if ($selectedOrder) {
+                    $orderLabel = (string) $selectedOrder->order_number;
+                    if ($selectedOrder->invoice) {
+                        $orderLabel .= ' / Inv '.$selectedOrder->invoice->invoice_number;
+                    }
+                }
+            @endphp
+            <form wire:submit="save" class="cm-doc-form">
+                <fieldset class="so-form-fields">
+                <div class="entity-body">
+                    @if (session('status'))
+                        <div class="desk-flash" role="status">{{ session('status') }}</div>
+                    @endif
 
-                <div class="cm-steps" aria-label="Credit memo steps">
-                    <div @class(['cm-step', 'is-done' => (bool) $customer_id, 'is-active' => ! $customer_id])>
-                        <span class="cm-step-num">1</span>
-                        <span class="cm-step-label">Customer</span>
-                    </div>
-                    <div class="cm-step-line"></div>
-                    <div @class(['cm-step', 'is-done' => (bool) $sales_order_id, 'is-active' => (bool) $customer_id && ! $sales_order_id])>
-                        <span class="cm-step-num">2</span>
-                        <span class="cm-step-label">Order / Invoice</span>
-                    </div>
-                    <div class="cm-step-line"></div>
-                    <div @class(['cm-step', 'is-active' => (bool) $sales_order_id || filled($credit_amount)])>
-                        <span class="cm-step-num">3</span>
-                        <span class="cm-step-label">Credit Lines / Amount</span>
-                    </div>
-                </div>
-
-                <div class="cm-form-top">
-                    <div class="inv-card cm-card">
-                        <div class="inv-card-title">Memo</div>
-                        <div class="so-form-row so-form-row-side">
+                    <div class="entity-header">
+                        <div class="so-form-row so-form-row-pair entity-header-row">
                             <label class="so-form-lbl" for="memo_number">Memo No.</label>
-                            <input id="memo_number" wire:model="memo_number" class="so-input font-mono" readonly title="Auto-generated" />
+                            <input id="memo_number" wire:model="memo_number" class="so-input font-mono so-input-ro" readonly title="Auto-generated" />
+                            <span class="so-form-lbl">Status</span>
+                            <span class="desk-pill desk-pill-new">New</span>
                         </div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="memo_date">Date</label>
-                            <input id="memo_date" type="date" wire:model="memo_date" class="so-input" />
-                        </div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="cm_reference">Reference</label>
-                            <input id="cm_reference" wire:model="reference_no" class="so-input" placeholder="RMA / PO…" />
-                        </div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="cm_reason">Reason</label>
-                            <select id="cm_reason" wire:model="reason" class="so-input">
-                                <option value="">— Select —</option>
-                                <option value="Return">Return</option>
-                                <option value="Price Adjustment">Price Adjustment</option>
-                                <option value="Allowance">Allowance</option>
-                                <option value="Damaged">Damaged</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
+                        <div class="entity-balance">Credit: <strong>${{ number_format($creditPreview, 2) }}</strong></div>
                     </div>
 
-                    <div class="inv-card cm-card">
-                        <div class="inv-card-title">Customer &amp; Order</div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl">Customer</label>
-                            <div class="cm-pick-row">
-                                <input
-                                    type="text"
-                                    class="so-input"
-                                    readonly
-                                    value="{{ $selectedCustomer ? ($selectedCustomer->customer_id.' — '.$selectedCustomer->company_name) : '' }}"
-                                    placeholder="Find customer…"
-                                    wire:click="openCustomerBrowse"
-                                    style="cursor:pointer"
-                                />
-                                <button type="button" class="desk-btn desk-btn-sm" wire:click="openCustomerBrowse">Find</button>
-                                @if ($customer_id)
-                                    <button type="button" class="desk-btn desk-btn-sm" wire:click="clearCustomer" title="Clear">×</button>
-                                @endif
+                    <div class="sc-general-grid">
+                        <div class="inv-card">
+                            <div class="inv-card-title">Credit Memo</div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl so-field-req" for="memo_date">Date</label>
+                                <input id="memo_date" type="date" wire:model="memo_date" class="so-input sc-date" />
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="cm_reason">Reason</label>
+                                <select id="cm_reason" wire:model="reason" class="so-input">
+                                    <option value="">— Select —</option>
+                                    <option value="Return">Return</option>
+                                    <option value="Price Adjustment">Price Adjustment</option>
+                                    <option value="Allowance">Allowance</option>
+                                    <option value="Damaged">Damaged</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl" for="cm_reference">Reference No.</label>
+                                <input id="cm_reference" wire:model="reference_no" class="so-input" placeholder="RMA / PO…" />
+                            </div>
+                            <div class="so-form-row so-form-row-side so-form-row-top sc-field">
+                                <label class="so-form-lbl" for="cm_comments">Comments</label>
+                                <textarea id="cm_comments" wire:model="comments" rows="2" class="so-input so-input-area" placeholder="Optional notes…"></textarea>
                             </div>
                         </div>
-                        @error('customer_id') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
 
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl">Order / Inv</label>
-                            <div class="cm-pick-row">
+                        <div class="inv-card">
+                            <div class="inv-card-title">Customer &amp; Order</div>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl so-field-req">Customer</label>
+                                <div class="so-form-ctl">
+                                    <div class="cm-pick-row">
+                                        <input
+                                            type="text"
+                                            class="so-input @error('customer_id') is-invalid @enderror"
+                                            readonly
+                                            value="{{ $selectedCustomer ? ($selectedCustomer->customer_id.' — '.$selectedCustomer->company_name) : '' }}"
+                                            placeholder="Find customer…"
+                                            wire:click="openCustomerBrowse"
+                                            style="cursor:pointer"
+                                        />
+                                        <button type="button" class="desk-btn desk-btn-sm" wire:click="openCustomerBrowse">Find</button>
+                                        @if ($customer_id)
+                                            <button type="button" class="desk-btn desk-btn-sm" wire:click="clearCustomer" title="Clear">×</button>
+                                        @endif
+                                    </div>
+                                    @error('customer_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                </div>
+                            </div>
+                            @if ($selectedCustomer)
                                 @php
-                                    $orderLabel = '';
-                                    if ($selectedOrder) {
-                                        $orderLabel = (string) $selectedOrder->order_number;
-                                        if ($selectedOrder->invoice) {
-                                            $orderLabel .= ' / Inv '.$selectedOrder->invoice->invoice_number;
-                                        }
-                                    }
+                                    $cityLine = trim(implode(', ', array_filter([
+                                        $selectedCustomer->city,
+                                        trim(($selectedCustomer->state ?? '').' '.($selectedCustomer->zip_code ?? '')),
+                                    ])));
                                 @endphp
-                                <input
-                                    type="text"
-                                    class="so-input"
-                                    readonly
-                                    value="{{ $orderLabel }}"
-                                    placeholder="{{ $customer_id ? 'Find order / invoice…' : 'Select customer first' }}"
-                                    @if ($customer_id) wire:click="openOrderBrowse" style="cursor:pointer" @else disabled @endif
-                                />
-                                <button type="button" class="desk-btn desk-btn-sm" wire:click="openOrderBrowse" @disabled(! $customer_id)>Find</button>
-                                @if ($sales_order_id)
-                                    <button type="button" class="desk-btn desk-btn-sm" wire:click="clearOrder" title="Clear">×</button>
-                                @endif
-                            </div>
-                        </div>
-                        @error('sales_order_id') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
-
-                        <div class="so-form-row so-form-row-side" style="align-items:flex-start">
-                            <label class="so-form-lbl" for="cm_comments">Comments</label>
-                            <textarea id="cm_comments" wire:model="comments" rows="3" class="so-input so-input-area" placeholder="Optional notes…"></textarea>
-                        </div>
-                    </div>
-
-                    <div class="inv-card cm-card cm-summary-card">
-                        <div class="inv-card-title">Credit Summary</div>
-                        <div class="cm-summary-amount">
-                            <span>Credit Amount</span>
-                            <strong>${{ number_format($creditPreview, 2) }}</strong>
-                        </div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="cm_credit_amount">Flat Amount</label>
-                            <input
-                                id="cm_credit_amount"
-                                wire:model.live="credit_amount"
-                                class="so-input text-right"
-                                inputmode="decimal"
-                                placeholder="0.00"
-                                @disabled($lineTotal > 0)
-                                title="{{ $lineTotal > 0 ? 'Using line totals' : 'Required if no item lines' }}"
-                            />
-                        </div>
-                        @error('credit_amount') <p class="cm-field-error" role="alert">{{ $message }}</p> @enderror
-                        <p class="item-hint" style="margin:0.4rem 0 0.55rem">
-                            @if ($lineTotal > 0)
-                                Amount comes from credit lines below.
-                            @else
-                                Use flat amount for price adjustment / allowance (no items).
+                                <div class="so-form-row so-form-row-side so-form-row-top sc-field">
+                                    <span class="so-form-lbl">Bill To</span>
+                                    <div class="cm-cust-info">
+                                        <div class="cm-cust-name">{{ $selectedCustomer->company_name }}</div>
+                                        @if (filled($selectedCustomer->address))
+                                            <div>{{ $selectedCustomer->address }}</div>
+                                        @endif
+                                        @if ($cityLine !== '')
+                                            <div>{{ $cityLine }}</div>
+                                        @endif
+                                        @if (filled($selectedCustomer->telephone))
+                                            <div>Phone: {{ $selectedCustomer->telephone }}</div>
+                                        @endif
+                                    </div>
+                                </div>
                             @endif
-                        </p>
-                        <p class="item-hint" style="margin:0.4rem 0 0">
-                            Returned product lines are restocked automatically. Flat amount with no items does not change stock.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="entity-section cm-lines-section">
-                    <div class="entity-section-head cm-lines-head">
-                        <h3 class="entity-section-title">Credit Lines</h3>
-                        <div class="cm-lines-actions">
-                            <span class="item-hint cm-lines-hint">
-                                Scan / Browse full catalog (same as Purchase Orders).
-                                @if ($sales_order_id)
-                                    Order price used when item is on {{ $selectedOrder?->order_number }}.
-                                @endif
-                            </span>
-                            <div class="cm-lines-btns">
-                                @if ($sales_order_id)
-                                    <button type="button" wire:click="openOrderItemBrowse" class="desk-btn desk-btn-sm">From Order</button>
-                                @endif
-                                <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items (F2)</button>
-                                <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
+                            <div class="so-form-row so-form-row-side sc-field">
+                                <label class="so-form-lbl">Order / Inv</label>
+                                <div class="so-form-ctl">
+                                    <div class="cm-pick-row">
+                                        <input
+                                            type="text"
+                                            class="so-input"
+                                            readonly
+                                            value="{{ $orderLabel }}"
+                                            placeholder="{{ $customer_id ? 'Find order / invoice…' : 'Select customer first' }}"
+                                            @if ($customer_id) wire:click="openOrderBrowse" style="cursor:pointer" @else disabled @endif
+                                        />
+                                        <button type="button" class="desk-btn desk-btn-sm" wire:click="openOrderBrowse" @disabled(! $customer_id)>Find</button>
+                                        @if ($sales_order_id)
+                                            <button type="button" class="desk-btn desk-btn-sm" wire:click="clearOrder" title="Clear">×</button>
+                                        @endif
+                                    </div>
+                                    @error('sales_order_id') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="so-entry cm-entry">
-                        <span class="so-entry-label">Add item — scan or type code</span>
-                        <div class="so-scan-bar cm-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive])>
-                            <button type="button" wire:click="focusScanAndAdd" class="so-scan-btn" title="Scan: focus entry, or add code in the box">
-                                <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-                                    <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
-                                </svg>
-                                <span>Scan</span>
-                            </button>
-                            <input
-                                id="cm-item-entry"
-                                type="text"
-                                class="so-input so-entry-input font-mono"
-                                placeholder="{{ $scanModeActive ? 'Type full code… adds when exact match' : 'Scan barcode or type full code then ✓' }}"
-                                autocomplete="off"
-                                x-data="{
-                                    timer: null,
-                                    rapid: false,
-                                    // Each typed/scanned code is one 'seq'. Repeat scans of the same barcode are new seqs, so none are dropped.
-                                    seq: 0,
-                                    autoSeq: -1,
-                                    autoPending: null,
-                                    scheduleAuto() {
-                                        clearTimeout(this.timer);
-                                        const scanOn = !!$wire.scanModeActive;
-                                        if (!scanOn && !this.rapid) return;
-                                        const delay = this.rapid ? 35 : 150;
-                                        this.timer = setTimeout(() => {
-                                            const v = ($el.value || '').trim();
-                                            if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
-                                            this.autoSeq = this.seq;
-                                            this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
-                                            this.rapid = false;
-                                        }, delay);
-                                    },
-                                    onKey(e) {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            clearTimeout(this.timer);
-                                            const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                            // Empty the box now so the next scan starts clean; the server call runs in the background.
-                                            $el.value = '';
-                                            this.rapid = false;
-                                            if (v && this.autoSeq === this.seq && this.autoPending) {
-                                                const pending = this.autoPending;
-                                                this.autoPending = null;
-                                                pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
-                                                return;
+                    <div class="so-expand-panel po-expand-panel cm-expand-panel">
+                        <div class="so-expand-main">
+                            <p class="item-hint" style="border-bottom:1px solid #e2e8f0;margin:0">
+                                Returned items go back in stock. Tick <strong>Non-Saleable</strong> for damaged / expired items — credited but not restocked.
+                                @if ($sales_order_id)
+                                    Order price is used when the item is on {{ $selectedOrder?->order_number }}.
+                                @endif
+                            </p>
+                            @if ($lookupMessage !== '')
+                                <div class="desk-flash" style="margin:0" role="status">{{ $lookupMessage }}</div>
+                            @endif
+                            @error('lines') <div class="mt-1 border border-red-400 bg-red-50 px-2 py-1 text-xs text-red-900" role="alert">{{ $message }}</div> @enderror
+                            <div class="so-items-wrap so-items-wrap-tall">
+                                <div class="so-items-grid">
+                                    <table class="so-lines-table po-lines-table cm-std-lines">
+                                        <colgroup>
+                                            <col class="col-code" />
+                                            <col class="col-desc" />
+                                            <col class="col-uom" />
+                                            <col class="col-qty" />
+                                            <col class="col-ns" />
+                                            <col class="col-price" />
+                                            <col class="col-ext" />
+                                            <col class="col-action" />
+                                        </colgroup>
+                                        <thead>
+                                            <tr>
+                                                <th class="col-code">Item Code</th>
+                                                <th class="col-desc">Description</th>
+                                                <th class="col-uom">U of M</th>
+                                                <th class="col-qty">Qty Returned</th>
+                                                <th class="col-ns" title="Damaged / not resellable — credit only, not restocked">Non-Saleable</th>
+                                                <th class="col-price">Price</th>
+                                                <th class="col-ext">Total</th>
+                                                <th class="col-action"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($lines as $i => $line)
+                                                @continue(! filled($line['item_code'] ?? null))
+                                                @php $lineUoms = $this->uomOptionsForLine($i, $uomOptions); @endphp
+                                                <tr wire:key="cm-line-{{ $i }}-{{ $line['item_code'] }}" @class(['is-ns' => (bool) ($line['non_saleable'] ?? false)])>
+                                                    <td class="col-code font-mono desk-num" title="{{ $line['item_code'] }}">{{ $line['item_code'] }}</td>
+                                                    <td class="col-desc">
+                                                        <input wire:model="lines.{{ $i }}.description" class="so-input item-cell-ctl po-line-desc-input" aria-label="Description line {{ $i + 1 }}" />
+                                                    </td>
+                                                    <td class="col-uom">
+                                                        @if (count($lineUoms) <= 1)
+                                                            <span class="font-mono">{{ $line['uom'] ?: ($lineUoms[0] ?? 'EA') }}</span>
+                                                        @else
+                                                            <select wire:model.live="lines.{{ $i }}.uom" class="so-input text-center item-cell-ctl" aria-label="UOM line {{ $i + 1 }}">
+                                                                @foreach ($lineUoms as $uomOpt)
+                                                                    <option value="{{ $uomOpt }}">{{ $uomOpt }}</option>
+                                                                @endforeach
+                                                            </select>
+                                                        @endif
+                                                    </td>
+                                                    <td class="col-qty">
+                                                        <input wire:model.live.debounce.400ms="lines.{{ $i }}.qty" class="so-input text-right item-cell-qty" inputmode="decimal" placeholder="0" aria-label="Qty line {{ $i + 1 }}" />
+                                                        @error('lines.'.$i.'.qty') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                                    </td>
+                                                    <td class="col-ns">
+                                                        <input type="checkbox" wire:model.live="lines.{{ $i }}.non_saleable" class="cm-ns-check" aria-label="Non-saleable line {{ $i + 1 }}" title="Not resellable — credit only, not restocked" />
+                                                    </td>
+                                                    <td class="col-price">
+                                                        <input wire:model.live.debounce.400ms="lines.{{ $i }}.price" class="so-input text-right item-cell-qty" inputmode="decimal" placeholder="0" aria-label="Price line {{ $i + 1 }}" />
+                                                    </td>
+                                                    <td class="col-ext desk-money">${{ number_format(((float) ($line['qty'] ?: 0) * (float) ($line['price'] ?: 0)), 2) }}</td>
+                                                    <td class="col-action">
+                                                        <button type="button" wire:click="removeLine({{ $i }})" class="so-icon-btn" title="Remove line" aria-label="Remove line {{ $i + 1 }}">
+                                                            <svg viewBox="0 0 12 12" fill="none" stroke="#b91c1c" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                    @if ($cmFilled->isEmpty())
+                                        <div class="so-items-empty" role="status">Scan or type an item code, or click Browse to add returned items. Leave empty for an amount-only credit.</div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div class="so-entry">
+                                <span class="so-entry-label">Item code / barcode · Browse (F2)</span>
+                                <div class="so-scan-bar" role="search" @class(['is-scan-ready' => $scanModeActive])>
+                                    <button type="button" wire:click="focusScanAndAdd" class="so-scan-btn" title="Scan: focus entry, or add code in the box">
+                                        <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+                                            <path d="M1 1h3v14H1V1zm5 0h1.2v14H6V1zm2.5 0h2v14h-2V1zm3.5 0h1.2v14H12V1zm2.5 0h1.5v14H14.5V1zm2.8 0H19v14h-1.7V1z" fill="currentColor"/>
+                                        </svg>
+                                        <span>Scan</span>
+                                    </button>
+                                    <input
+                                        id="cm-item-entry"
+                                        type="text"
+                                        class="so-input so-entry-input"
+                                        placeholder="Scan or type full code — adds when it matches"
+                                        autocomplete="off"
+                                        x-data="{
+                                            timer: null,
+                                            rapid: false,
+                                            seq: 0,
+                                            autoSeq: -1,
+                                            autoPending: null,
+                                            scheduleAuto() {
+                                                clearTimeout(this.timer);
+                                                const scanOn = !!$wire.scanModeActive;
+                                                if (!scanOn && !this.rapid) return;
+                                                const delay = this.rapid ? 35 : 150;
+                                                this.timer = setTimeout(() => {
+                                                    const v = ($el.value || '').trim();
+                                                    if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
+                                                    this.autoSeq = this.seq;
+                                                    this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
+                                                    this.rapid = false;
+                                                }, delay);
+                                            },
+                                            onKey(e) {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    clearTimeout(this.timer);
+                                                    const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
+                                                    $el.value = '';
+                                                    this.rapid = false;
+                                                    if (v && this.autoSeq === this.seq && this.autoPending) {
+                                                        const pending = this.autoPending;
+                                                        this.autoPending = null;
+                                                        pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
+                                                        return;
+                                                    }
+                                                    $wire.addItemFromEntry(v);
+                                                    return;
+                                                }
+                                                if (e.key === 'F2') {
+                                                    e.preventDefault();
+                                                    $wire.openItemBrowse();
+                                                    return;
+                                                }
+                                                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
+                                                const now = Date.now();
+                                                if (this._last && (now - this._last) < 45) this.rapid = true;
+                                                this._last = now;
+                                                this.scheduleAuto();
                                             }
-                                            $wire.addItemFromEntry(v);
-                                            return;
-                                        }
-                                        if (e.key === 'F2') {
-                                            e.preventDefault();
-                                            $wire.openItemBrowse();
-                                            return;
-                                        }
-                                        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
-                                        const now = Date.now();
-                                        if (this._last && (now - this._last) < 45) this.rapid = true;
-                                        this._last = now;
-                                        this.scheduleAuto();
-                                    }
-                                }"
-                                x-on:keydown="onKey($event)"
-                                x-on:input="$wire.itemLookup = $el.value"
-                            />
-                            <button type="button" class="so-icon-btn so-entry-clear-btn" wire:click="clearItemLookup" title="Clear">×</button>
-                            <button type="button" class="so-icon-btn so-entry-add-btn" x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('cm-item-entry')?.value || '')" title="Add">
-                                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
-                            </button>
+                                        }"
+                                        x-on:keydown="onKey($event)"
+                                        x-on:input="$wire.itemLookup = $el.value"
+                                    />
+                                    <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear item code" aria-label="Clear item code">
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>
+                                    </button>
+                                    <button type="button" class="so-icon-btn so-entry-add-btn" x-on:click.prevent="$wire.addItemFromEntry(document.getElementById('cm-item-entry')?.value || '')" title="Add item" aria-label="Add item">
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>
+                                    </button>
+                                </div>
+                                <div class="so-entry-tools">
+                                    @if ($sales_order_id)
+                                        <button type="button" wire:click="openOrderItemBrowse" class="so-browse-btn" title="Items from the selected order">From Order</button>
+                                    @endif
+                                    <button type="button" wire:click="openItemBrowse" class="so-browse-btn" title="Item list (F2)">Browse (F2)</button>
+                                </div>
+                            </div>
+
+                            <div class="so-footer">
+                                <div class="so-counters">
+                                    <div class="so-counter-col">
+                                        <div>Total lines: <strong>{{ $cmFilled->count() }}</strong></div>
+                                        <div>Total items: <strong>{{ rtrim(rtrim(number_format($cmItems, 2, '.', ''), '0'), '.') ?: '0' }}</strong></div>
+                                        <div>Non-saleable lines: <strong>{{ $cmNonSale }}</strong></div>
+                                    </div>
+                                </div>
+                                <div class="so-totals">
+                                    <div class="so-totals-row"><span class="so-totals-lbl">Lines total:</span><span class="so-totals-amt">${{ number_format($lineTotal, 2) }}</span></div>
+                                    <div class="so-totals-row">
+                                        <span class="so-totals-lbl" title="Price adjustment / allowance with no items — no stock change">Flat amount:</span>
+                                        <label class="so-totals-amt">$<input type="text" inputmode="decimal" id="cm_credit_amount" wire:model.live.debounce.400ms="credit_amount" class="so-totals-input" placeholder="0" @disabled($lineTotal > 0) title="{{ $lineTotal > 0 ? 'Using line totals' : 'Used when there are no item lines' }}" /></label>
+                                    </div>
+                                    @error('credit_amount') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
+                                    <div class="so-totals-row so-totals-final"><span class="so-totals-lbl">Credit total:</span><strong class="so-totals-amt">${{ number_format($creditPreview, 2) }}</strong></div>
+                                </div>
+                            </div>
                         </div>
-                        <button type="button" wire:click="openItemBrowse" class="so-browse-btn cm-browse-btn" title="Item list (F2)">Browse (F2)</button>
-                        @if ($lookupMessage !== '')
-                            <span class="item-hint cm-lookup-msg">{{ $lookupMessage }}</span>
-                        @endif
                     </div>
-
-                    <div class="desk-grid cm-lines-wrap">
-                        <table class="desk-table cm-lines-table">
-                            <colgroup>
-                                <col class="col-code">
-                                <col class="col-find">
-                                <col class="col-desc">
-                                <col class="col-uom">
-                                <col class="col-qty">
-                                <col class="col-price">
-                                <col class="col-total">
-                                <col class="col-action">
-                            </colgroup>
-                            <thead>
-                                <tr>
-                                    <th class="col-code">Item Code</th>
-                                    <th class="col-find"></th>
-                                    <th class="col-desc">Description</th>
-                                    <th class="col-uom">UOM</th>
-                                    <th class="col-qty">Qty</th>
-                                    <th class="col-price">Price</th>
-                                    <th class="col-total">Total</th>
-                                    <th class="col-action"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($lines as $i => $line)
-                                    @php $lineUoms = $this->uomOptionsForLine($i, $uomOptions); @endphp
-                                    <tr wire:key="cm-line-{{ $i }}">
-                                        <td class="col-code" data-label="Item Code">
-                                            <input
-                                                id="cm-line-code-{{ $i }}"
-                                                wire:model="lines.{{ $i }}.item_code"
-                                                wire:keydown.enter.prevent="lookupOrBrowseItem({{ $i }}, $event.target.value)"
-                                                class="so-input font-mono cm-cell"
-                                                placeholder="Code"
-                                                aria-label="Item code line {{ $i + 1 }}"
-                                                autocomplete="off"
-                                            />
-                                        </td>
-                                        <td class="col-find" data-label="">
-                                            <div class="cm-find-btns">
-                                                <button type="button" class="desk-btn desk-btn-sm" wire:click="openItemBrowse({{ $i }})" title="Browse catalog">Browse</button>
-                                                @if ($sales_order_id)
-                                                    <button type="button" class="desk-btn desk-btn-sm" wire:click="openOrderItemBrowse({{ $i }})" title="Items from selected order">Order</button>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="col-desc" data-label="Description">
-                                            <input wire:model="lines.{{ $i }}.description" class="so-input cm-cell" aria-label="Description line {{ $i + 1 }}" />
-                                        </td>
-                                        <td class="col-uom" data-label="UOM">
-                                            <select wire:model.live="lines.{{ $i }}.uom" class="so-input cm-cell" aria-label="UOM line {{ $i + 1 }}">
-                                                <option value="">—</option>
-                                                @foreach ($lineUoms as $uomOpt)
-                                                    <option value="{{ $uomOpt }}">{{ $uomOpt }}</option>
-                                                @endforeach
-                                            </select>
-                                        </td>
-                                        <td class="col-qty" data-label="Qty">
-                                            <input wire:model.live="lines.{{ $i }}.qty" class="so-input text-right cm-cell" placeholder="0" aria-label="Qty line {{ $i + 1 }}" />
-                                        </td>
-                                        <td class="col-price" data-label="Price">
-                                            <input wire:model.live="lines.{{ $i }}.price" class="so-input text-right cm-cell" placeholder="0" aria-label="Price line {{ $i + 1 }}" />
-                                        </td>
-                                        <td class="col-total desk-money" data-label="Total">${{ number_format(((float) ($line['qty'] ?: 0) * (float) ($line['price'] ?: 0)), 2) }}</td>
-                                        <td class="col-action" data-label="">
-                                            <button type="button" wire:click="removeLine({{ $i }})" class="desk-btn desk-btn-sm" aria-label="Remove line">×</button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                    @error('lines') <p class="cm-field-error cm-lines-error" role="alert">{{ $message }}</p> @enderror
                 </div>
+                </fieldset>
 
-                <div class="entity-footer-actions cm-form-footer">
-                    <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
-                    <button type="submit" class="desk-btn desk-btn-primary">Save Credit Memo</button>
+                <div class="entity-footer">
+                    <div class="entity-tabs"><span class="entity-tab is-active">Credit Memo</span></div>
+                    <div class="entity-footer-actions">
+                        <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
+                        <button type="submit" class="desk-btn desk-btn-primary">Save Credit Memo</button>
+                    </div>
                 </div>
             </form>
         @else

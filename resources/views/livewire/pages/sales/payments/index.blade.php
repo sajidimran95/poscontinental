@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\ManagesInvoicePaymentsModal;
 use App\Livewire\Concerns\PaginatesDeskLists;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
@@ -16,6 +17,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 {
     use SortsDeskList;
     use PaginatesDeskLists;
+    use ManagesInvoicePaymentsModal;
 
     public ?int $customer_id = null;
 
@@ -230,7 +232,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'checkHits' => $checkHits,
             'isCheckMethod' => InvoicePayment::isCheckMethod($this->pay_method),
             'canEnterPayments' => auth()->user()?->canAccessFeature('sales.payments', 'edit') ?? false,
-        ];
+        ] + $this->paymentsModalViewData((int) $companyId);
     }
 
     protected function deskSortMap(): array
@@ -761,6 +763,22 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $this->customer_id = (int) $payment->invoice->customer_id;
         $this->selected = [];
         $this->pay_amount = '0';
+    }
+
+    /**
+     * One checked invoice opens the Payments & Credits window; several checked invoices
+     * share one payment (oldest first).
+     */
+    public function startApplyPayment(): void
+    {
+        $ids = collect($this->selected)->filter()->keys()->map(fn ($id) => (int) $id)->values()->all();
+        if (count($ids) === 1) {
+            $this->openPayments($ids[0]);
+
+            return;
+        }
+
+        $this->applyPayment();
     }
 
     public function applyPayment(): void
@@ -1333,7 +1351,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                             </thead>
                             <tbody>
                                 @forelse ($openInvoices as $inv)
-                                    <tr>
+                                    <tr @if ($canEnterPayments) wire:dblclick="openPayments({{ $inv->id }})" title="Double-click for Payments &amp; Credits" style="cursor:pointer" @endif>
                                         <td class="text-center"><input type="checkbox" wire:model.live="selected.{{ $inv->id }}" aria-label="Select invoice {{ $inv->invoice_number }}" /></td>
                                         <td class="desk-num">{{ $inv->invoice_number }}</td>
                                         <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
@@ -1465,7 +1483,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     </div>
 
                     <div class="entity-footer-actions" style="margin-top:0.85rem;justify-content:flex-end">
-                        <button type="button" wire:click="applyPayment" class="desk-btn desk-btn-primary" @disabled(! $canEnterPayments) title="{{ $canEnterPayments ? 'Apply payment' : 'No payment permission' }}">Apply Payment</button>
+                        <button type="button" wire:click="startApplyPayment" class="desk-btn desk-btn-primary" @disabled(! $canEnterPayments) title="{{ $canEnterPayments ? 'Apply payment' : 'No payment permission' }}">Apply Payment</button>
                     </div>
                 </div>
             @else
@@ -1691,4 +1709,17 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             </div>
         </div>
     @endif
+
+    @include('livewire.partials.payments-credits-modal')
 </div>
+
+@script
+<script>
+    $wire.on('open-invoice-pdf', (payload) => {
+        const url = payload?.url ?? payload?.[0]?.url;
+        if (url) {
+            window.open(url, '_blank', 'noopener');
+        }
+    });
+</script>
+@endscript

@@ -597,7 +597,7 @@ class InventoryService
         $memo->loadMissing('lines');
 
         foreach ($memo->lines as $line) {
-            if ((float) $line->qty <= 0) {
+            if ((float) $line->qty <= 0 || $line->non_saleable) {
                 continue;
             }
 

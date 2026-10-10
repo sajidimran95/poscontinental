@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function () {
     posFocusScanEntry();
     initPosTabKeepAlive();
     initDeskFastSelect();
+    initDeskWindows();
 });
 
 document.addEventListener('livewire:navigated', function () {
@@ -13,6 +14,302 @@ document.addEventListener('livewire:navigated', function () {
     bindPosScanEntry();
     posFocusScanEntry();
 });
+
+/**
+ * Popup windows (.desk-modal, item browse, [data-desk-window]): drag by the title bar,
+ * resize from any edge / corner, double-click the title bar to reset.
+ * Size and position are remembered per window for the session of the page.
+ */
+function initDeskWindows() {
+    const root = document.documentElement;
+    if (root.dataset.deskWindows === '1') {
+        return;
+    }
+    root.dataset.deskWindows = '1';
+
+    const WIN = '.desk-modal, .so-browse-popup, [data-desk-window]';
+    const HEAD = '.desk-modal-head, [data-desk-window-head]';
+    const INTERACTIVE = 'button, input, select, textarea, a, label, [contenteditable="true"]';
+    const EDGE = 7;
+    const MIN_W = 260;
+    const MIN_H = 140;
+    const CURSORS = { n: 'ns', s: 'ns', e: 'ew', w: 'ew', ne: 'nesw', sw: 'nesw', nw: 'nwse', se: 'nwse' };
+
+    const state = new WeakMap();
+    const memory = new Map();
+    let active = null;
+    let suppressClick = false;
+
+    // Windows with their own Alpine drag (item browse): resize right / bottom only, keep their move logic.
+    const ownsDrag = (el) => el.classList.contains('so-browse-popup');
+
+    const keyOf = (el) => {
+        const host = el.closest('[aria-labelledby], [aria-label]');
+        if (host) {
+            return host.getAttribute('aria-labelledby') || host.getAttribute('aria-label');
+        }
+        const title = el.querySelector(HEAD + ' > span, ' + HEAD + ' > h2, ' + HEAD + ' > h3');
+
+        return title ? title.textContent.trim().slice(0, 60) : '';
+    };
+
+    const apply = (el, s) => {
+        el.classList.add('is-desk-win');
+        if (s.width) {
+            el.style.width = s.width + 'px';
+            el.style.maxWidth = 'none';
+        }
+        if (s.height) {
+            el.style.height = s.height + 'px';
+            el.style.maxHeight = 'none';
+        }
+        if (s.left != null && ! ownsDrag(el)) {
+            el.style.position = 'fixed';
+            el.style.left = s.left + 'px';
+            el.style.top = s.top + 'px';
+            el.style.right = 'auto';
+            el.style.bottom = 'auto';
+            el.style.margin = '0';
+        }
+    };
+
+    const save = (el, s) => {
+        state.set(el, s);
+        const key = keyOf(el);
+        if (key) {
+            memory.set(key, { ...s });
+        }
+    };
+
+    const reset = (el) => {
+        state.delete(el);
+        memory.delete(keyOf(el));
+        el.classList.remove('is-desk-win');
+        ['width', 'maxWidth', 'height', 'maxHeight', 'position', 'left', 'top', 'right', 'bottom', 'margin'].forEach((p) => {
+            el.style[p] = '';
+        });
+    };
+
+    const clampToViewport = (s) => {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        if (s.width) {
+            s.width = Math.min(s.width, vw - 8);
+        }
+        if (s.height) {
+            s.height = Math.min(s.height, vh - 8);
+        }
+        if (s.left != null) {
+            s.left = Math.min(Math.max(s.left, 80 - (s.width || 300)), vw - 80);
+            s.top = Math.min(Math.max(s.top, 0), vh - 40);
+        }
+
+        return s;
+    };
+
+    const edgeAt = (el, x, y) => {
+        const r = el.getBoundingClientRect();
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) {
+            return '';
+        }
+        let edge = '';
+        if (y - r.top <= EDGE) {
+            edge += 'n';
+        } else if (r.bottom - y <= EDGE) {
+            edge += 's';
+        }
+        if (x - r.left <= EDGE) {
+            edge += 'w';
+        } else if (r.right - x <= EDGE) {
+            edge += 'e';
+        }
+        return edge;
+    };
+
+    const setCursor = (edge) => {
+        Object.values(CURSORS).forEach((c) => root.classList.remove('desk-win-cur-' + c));
+        if (edge) {
+            root.classList.add('desk-win-cur-' + CURSORS[edge]);
+        }
+    };
+
+    document.addEventListener('pointermove', (e) => {
+        if (active || e.pointerType !== 'mouse') {
+            return;
+        }
+        const win = e.target.closest && e.target.closest(WIN);
+        setCursor(win ? edgeAt(win, e.clientX, e.clientY) : '');
+    }, { passive: true });
+
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || ! e.target.closest) {
+            return;
+        }
+        const win = e.target.closest(WIN);
+        if (! win) {
+            return;
+        }
+        const edge = edgeAt(win, e.clientX, e.clientY);
+        const head = e.target.closest(HEAD);
+        const dragging = ! edge && head && win.contains(head) && ! ownsDrag(win) && ! e.target.closest(INTERACTIVE);
+        if (! edge && ! dragging) {
+            return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const r = win.getBoundingClientRect();
+        const s = { ...(state.get(win) || {}) };
+        let alpine = null;
+        if (! ownsDrag(win)) {
+            s.left = r.left;
+            s.top = r.top;
+            s.width = r.width;
+            if (edge.includes('n') || edge.includes('s') || s.height) {
+                s.height = r.height;
+            }
+        } else {
+            const data = window.Alpine && typeof window.Alpine.$data === 'function' ? window.Alpine.$data(win) : null;
+            if (data && 'x' in data) {
+                alpine = data;
+                data.x = r.left;
+                data.y = r.top;
+                window.__soBrowsePos = { x: r.left, y: r.top };
+            }
+            s.width = r.width;
+            s.height = r.height;
+        }
+        apply(win, s);
+
+        active = { win, edge, s, start: { ...s }, x: e.clientX, y: e.clientY, rect: r, moved: false, alpine };
+        root.classList.add('desk-win-busy');
+        if (dragging) {
+            setCursor('');
+            root.classList.add('desk-win-dragging');
+        }
+    }, true);
+
+    window.addEventListener('pointermove', (e) => {
+        if (! active) {
+            return;
+        }
+        const { win, edge, s, start, rect } = active;
+        const dx = e.clientX - active.x;
+        const dy = e.clientY - active.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) {
+            active.moved = true;
+        }
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        if (! edge) {
+            s.left = Math.min(Math.max(start.left + dx, 80 - rect.width), vw - 80);
+            s.top = Math.min(Math.max(start.top + dy, 0), vh - 40);
+        } else {
+            const baseW = start.width || rect.width;
+            const baseH = start.height || rect.height;
+            if (edge.includes('e')) {
+                s.width = Math.min(Math.max(baseW + dx, MIN_W), vw - rect.left - 4);
+            }
+            if (edge.includes('s')) {
+                s.height = Math.min(Math.max(baseH + dy, MIN_H), vh - rect.top - 4);
+            }
+            if (edge.includes('w')) {
+                const w = Math.min(Math.max(baseW - dx, MIN_W), rect.right - 4);
+                s.left = rect.right - w;
+                s.width = w;
+            }
+            if (edge.includes('n')) {
+                const h = Math.min(Math.max(baseH - dy, MIN_H), rect.bottom);
+                s.top = rect.bottom - h;
+                s.height = h;
+            }
+            if (active.alpine && (edge.includes('w') || edge.includes('n'))) {
+                active.alpine.x = edge.includes('w') ? s.left : rect.left;
+                active.alpine.y = edge.includes('n') ? s.top : rect.top;
+                window.__soBrowsePos = { x: active.alpine.x, y: active.alpine.y };
+                delete s.left;
+                delete s.top;
+            }
+        }
+        apply(win, s);
+    });
+
+    const finish = () => {
+        if (! active) {
+            return;
+        }
+        if (active.moved) {
+            save(active.win, active.s);
+            suppressClick = true;
+            setTimeout(() => { suppressClick = false; }, 0);
+        }
+        active = null;
+        root.classList.remove('desk-win-busy', 'desk-win-dragging');
+        setCursor('');
+    };
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+
+    // A drag that ends over the backdrop would otherwise count as a backdrop click and close the window.
+    document.addEventListener('click', (e) => {
+        if (suppressClick) {
+            suppressClick = false;
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, true);
+
+    document.addEventListener('dblclick', (e) => {
+        if (! e.target.closest || e.target.closest(INTERACTIVE)) {
+            return;
+        }
+        const head = e.target.closest(HEAD);
+        const win = head && head.closest(WIN);
+        if (win && (state.has(win) || win.classList.contains('is-desk-win'))) {
+            reset(win);
+        }
+    });
+
+    const restoreNew = (node) => {
+        if (node.nodeType !== 1) {
+            return;
+        }
+        const wins = node.matches(WIN) ? [node] : [...node.querySelectorAll(WIN)];
+        wins.forEach((win) => {
+            if (state.has(win)) {
+                apply(win, state.get(win));
+
+                return;
+            }
+            const saved = memory.get(keyOf(win));
+            if (saved) {
+                const s = clampToViewport({ ...saved });
+                state.set(win, s);
+                apply(win, s);
+            }
+        });
+    };
+
+    new MutationObserver((records) => {
+        records.forEach((rec) => {
+            if (rec.type === 'childList') {
+                rec.addedNodes.forEach(restoreNew);
+            } else if (rec.type === 'attributes' && state.has(rec.target) && ! (active && active.win === rec.target)) {
+                // Livewire morph rewrote class/style from the server HTML: put the window size back.
+                const el = rec.target;
+                const s = state.get(el);
+                const drifted = ! el.classList.contains('is-desk-win')
+                    || (s.width && el.style.width !== s.width + 'px')
+                    || (s.height && el.style.height !== s.height + 'px');
+                if (drifted) {
+                    apply(el, s);
+                }
+            }
+        });
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+}
 
 function initDeskFastSelect() {
     if (document.documentElement.dataset.deskFastSelect === '1') {

@@ -226,8 +226,19 @@ trait BrowsesItemsForInquiry
         $this->pickBrowseItem($id);
     }
 
-    public function insertBrowseChecked(): void
+    public function insertBrowseChecked($ids = null): void
     {
+        if (is_array($ids) && $ids !== []) {
+            $this->browseCheckedIds = array_values(array_unique(array_map(fn ($v) => (string) (int) $v, $ids)));
+        }
+
+        $checked = array_values(array_filter(array_map('intval', $this->browseCheckedIds)));
+        if (count($checked) > 1) {
+            $this->pickBrowseItem($checked[0]);
+
+            return;
+        }
+
         $id = $this->resolveBrowseTargetId();
         if ($id !== null) {
             $this->pickBrowseItem($id);

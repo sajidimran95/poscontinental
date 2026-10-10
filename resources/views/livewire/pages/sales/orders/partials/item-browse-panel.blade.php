@@ -303,7 +303,20 @@
                 color: #0f172a;
                 line-height: 1.35;
             }
+            .so-item-browse-table {
+                min-width: 46rem;
+            }
+            .so-item-browse-table thead th {
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
             .so-item-browse-table td.col-desc-cell {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .so-item-browse-table td.col-desc-cell .item-desc-text {
+                display: inline;
                 white-space: nowrap;
             }
             .so-item-browse-table tr.is-pickable { cursor: pointer; }
@@ -881,7 +894,7 @@
                                             />
                                         </td>
                                         <td class="font-mono" data-excel-value="{{ $bi['item_code'] }}">{{ $bi['item_code'] }}</td>
-                                        <td class="col-desc-cell">
+                                        <td class="col-desc-cell" title="{{ $bi['description'] }}">
                                             <span class="item-desc-text">{{ $bi['description'] }}</span>
                                         </td>
                                         <td>{{ $bi['unit_of_measure'] ?: '—' }}</td>

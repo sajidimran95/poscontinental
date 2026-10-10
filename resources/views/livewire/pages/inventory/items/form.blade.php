@@ -390,6 +390,43 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         }
     }
 
+    /**
+     * The first general (no price level) row in Prices by UOM is the base sell price
+     * Sales Orders use; keep it equal to List Price while the two match.
+     */
+    public function updatingListPrice($value): void
+    {
+        $row = $this->prices[0] ?? null;
+        if (! is_array($row) || filled($row['price_level_id'] ?? null)) {
+            return;
+        }
+
+        $rowPrice = trim((string) ($row['price'] ?? ''));
+        if ($rowPrice === '' || $this->sameMoney($rowPrice, $this->list_price)) {
+            $this->prices[0]['price'] = trim((string) $value);
+        }
+    }
+
+    public function updatingPrices($value, $key): void
+    {
+        if ((string) $key !== '0.price' || filled($this->prices[0]['price_level_id'] ?? null)) {
+            return;
+        }
+
+        $old = trim((string) ($this->prices[0]['price'] ?? ''));
+        if (trim($this->list_price) === '' || $this->sameMoney($old, $this->list_price)) {
+            $this->list_price = trim((string) $value);
+        }
+    }
+
+    protected function sameMoney(mixed $a, mixed $b): bool
+    {
+        $a = str_replace([',', '$'], '', trim((string) $a));
+        $b = str_replace([',', '$'], '', trim((string) $b));
+
+        return abs(round((float) $a, 2) - round((float) $b, 2)) < 0.005;
+    }
+
     public function updatedUnitOfMeasure($value): void
     {
         $this->unit_of_measure = strtoupper(trim((string) $value));
@@ -1330,6 +1367,14 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $wasCreate = ! $this->item?->exists;
         $oldListPrice = $this->item?->exists ? (float) $this->item->list_price : null;
         $oldCurrentCost = $this->item?->exists ? (float) $this->item->current_cost : null;
+
+        // List Price changed but the base UOM row still shows the old price: move it too.
+        if ($oldListPrice !== null && ! $this->sameMoney($oldListPrice, $this->list_price)) {
+            $base = $this->prices[0] ?? null;
+            if (is_array($base) && ! filled($base['price_level_id'] ?? null) && $this->sameMoney($base['price'] ?? '', $oldListPrice)) {
+                $this->prices[0]['price'] = $this->list_price;
+            }
+        }
 
         $item = DB::transaction(function () use ($data, $amount) {
             if ($this->item) {

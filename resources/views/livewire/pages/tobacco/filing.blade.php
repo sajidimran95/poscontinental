@@ -123,12 +123,6 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
         $this->syncingWeek = true;
 
         try {
-            if ($this->isMsaFileReport()) {
-                $anchor = $preferStart ? $this->period_start : $this->period_end;
-                $this->applySundayToSaturdayWeek($anchor !== '' ? $anchor : null);
-
-                return;
-            }
             $max = $this->maxAllowedDate();
 
             $start = $this->parseDateOr($this->period_start, $this->currentMonthStart());
@@ -548,7 +542,9 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
     public function downloadAllSalesFile(): RedirectResponse
     {
         $this->return_type = 'msa_report';
-        $this->applySundayToSaturdayWeek();
+        if ($this->period_start === '' || $this->period_end === '') {
+            $this->applySundayToSaturdayWeek();
+        }
 
         return redirect()->route('reports.msa.file', [
             'from' => $this->period_start,
@@ -756,8 +752,8 @@ new #[Layout('layouts.app'), Title('MSA Report')] class extends Component
                 </div>
                 <p class="msa-period-hint">
                     @if ($isFileReport)
-                        MSA sales file is one <strong>Sunday–Saturday</strong> week. Period to is always Saturday.
-                        Download includes only that week’s sales.
+                        Week buttons pick a <strong>Sunday–Saturday</strong> week.
+                        Or set <strong>Period from / Period to</strong> to any dates — the download uses exactly those dates.
                     @else
                         Default is <strong>this month, day 1 through today</strong>.
                         Change <strong>Period from / Period to</strong> to any dates you want — download uses those dates.

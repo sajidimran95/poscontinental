@@ -37,7 +37,7 @@ class MsaSalesFileController extends Controller
             $end = now()->toDateString();
         }
 
-        [$start, $end] = $files->msaSundayToSaturday($start, $end);
+        [$start, $end] = $files->msaPeriod($start, $end);
 
         $invoices = Invoice::query()
             ->with([

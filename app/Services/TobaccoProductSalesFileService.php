@@ -64,7 +64,7 @@ class TobaccoProductSalesFileService
     public function build(Company $company, string $periodStart, string $periodEnd, Collection $invoices, string $product = 'all'): string
     {
         $product = $this->normalizeProduct($product);
-        [$periodStart, $periodEnd] = $this->msaSundayToSaturday($periodStart, $periodEnd);
+        [$periodStart, $periodEnd] = $this->msaPeriod($periodStart, $periodEnd);
         $periodYmd = $this->ymd($periodEnd) ?: now()->format('Ymd');
         $fileYmd = now()->format('Ymd');
         $license = $this->licenseDigits($company, $product);
@@ -138,6 +138,28 @@ class TobaccoProductSalesFileService
         $date = $this->ymd($periodEnd) ?: now()->format('Ymd');
 
         return $slug.'_'.$tag.'_'.$license.'_'.$date.'.txt';
+    }
+
+    /**
+     * Period exactly as selected (week buttons pick Sunday–Saturday; manual dates are kept).
+     * Only fixes swapped dates and caps the end at today.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public function msaPeriod(string $periodStart, string $periodEnd): array
+    {
+        $today = Carbon::today();
+        $end = $this->parseDay($periodEnd) ?? $this->parseDay($periodStart) ?? $today->copy();
+        $start = $this->parseDay($periodStart) ?? $end->copy();
+
+        if ($end->gt($today)) {
+            $end = $today->copy();
+        }
+        if ($start->gt($end)) {
+            [$start, $end] = [$end, $start];
+        }
+
+        return [$start->toDateString(), $end->toDateString()];
     }
 
     /**

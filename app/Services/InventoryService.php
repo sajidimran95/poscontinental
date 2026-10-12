@@ -159,6 +159,53 @@ class InventoryService
         return $out;
     }
 
+    /**
+     * Receiving status per PO from line coverage (same rule as receivedQtyByPoLine).
+     *
+     * @param  list<int>  $purchaseOrderIds
+     * @return array<int, string> po id => New | Partially Received | Received
+     */
+    public function receivingStatusByPo(array $purchaseOrderIds): array
+    {
+        $purchaseOrderIds = array_values(array_unique(array_map('intval', $purchaseOrderIds)));
+        if ($purchaseOrderIds === []) {
+            return [];
+        }
+
+        $fromReceivings = DB::table('inventory_receiving_lines as l')
+            ->join('inventory_receivings as r', 'r.id', '=', 'l.inventory_receiving_id')
+            ->whereIn('r.purchase_order_id', $purchaseOrderIds)
+            ->where('r.status', 'Processed')
+            ->whereNotNull('l.purchase_order_line_id')
+            ->groupBy('l.purchase_order_line_id')
+            ->selectRaw('l.purchase_order_line_id as po_line_id, SUM(l.qty_received) as qty')
+            ->pluck('qty', 'po_line_id');
+
+        $lines = PurchaseOrderLine::query()
+            ->whereIn('purchase_order_id', $purchaseOrderIds)
+            ->get(['id', 'purchase_order_id', 'qty_ordered', 'qty_received'])
+            ->groupBy('purchase_order_id');
+
+        $out = [];
+        foreach ($purchaseOrderIds as $poId) {
+            $poLines = $lines->get($poId, collect());
+            $anyReceived = false;
+            $allCovered = $poLines->isNotEmpty() && (float) $poLines->sum('qty_ordered') > 0;
+            foreach ($poLines as $line) {
+                $covered = max((float) $line->qty_received, (float) ($fromReceivings[$line->id] ?? 0));
+                if ($covered > 0) {
+                    $anyReceived = true;
+                }
+                if ($covered + 0.0001 < (float) $line->qty_ordered) {
+                    $allCovered = false;
+                }
+            }
+            $out[$poId] = $allCovered ? 'Received' : ($anyReceived ? 'Partially Received' : 'New');
+        }
+
+        return $out;
+    }
+
     private function guardPurchaseOrderNotFullyReceived(InventoryReceiving $receiving): void
     {
         $po = $receiving->purchaseOrder;

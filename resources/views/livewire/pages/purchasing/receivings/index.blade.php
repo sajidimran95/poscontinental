@@ -107,12 +107,7 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
             'footerNote' => $footerNote,
             'listHasMore' => $listHasMore,
             'canEditSelected' => $this->selectedId && $selectedStatus && $selectedStatus !== 'Processed',
-            'openPos' => PurchaseOrder::query()
-                ->where('company_id', $companyId)
-                ->whereIn('status', ['New', 'Partially Received'])
-                ->orderByDesc('id')
-                ->limit(100)
-                ->get(),
+            'openPos' => $this->receivablePurchaseOrders((int) $companyId),
             'favorites' => [
                 'all' => 'All Receivings',
                 'new' => 'New',
@@ -333,6 +328,26 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         $this->dispatch('open-receiving-pdf', url: route('purchasing.receivings.print', $rec));
     }
 
+    /**
+     * POs still waiting on stock: status alone is not enough, imported receipts never bumped qty_received.
+     */
+    protected function receivablePurchaseOrders(int $companyId)
+    {
+        $candidates = PurchaseOrder::query()
+            ->where('company_id', $companyId)
+            ->whereIn('status', ['New', 'Partially Received'])
+            ->orderByDesc('id')
+            ->limit(400)
+            ->get();
+
+        $statuses = app(InventoryService::class)->receivingStatusByPo($candidates->pluck('id')->all());
+
+        return $candidates
+            ->reject(fn ($po) => ($statuses[$po->id] ?? 'New') === 'Received')
+            ->take(100)
+            ->values();
+    }
+
     public function createReceiving(): void
     {
         $this->validate(['createFromPo' => 'required|integer|exists:purchase_orders,id']);
@@ -360,6 +375,10 @@ new #[Layout('layouts.app'), Title('Inventory Receivings')] class extends Compon
         ]);
 
         if ($remainingByLine->sum() <= 0) {
+            if ($po->status !== 'Received') {
+                $po->update(['status' => 'Received']);
+            }
+            $this->createFromPo = null;
             session()->flash('status', 'PO '.$po->po_number.' is already fully received — nothing left to receive.');
 
             return;

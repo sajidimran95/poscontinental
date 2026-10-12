@@ -1288,5 +1288,8 @@
         @if (! $isPosEmbed && \Illuminate\Support\Facades\Route::has('team-chat.unread') && (auth()->user()?->canAccessFeature('team.chat', 'view') ?? false))
             @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('team-chat.unread')])
         @endif
+        @if (! $isPosEmbed && (auth()->user()?->canAccessFeature('sales.orders', 'view') ?? false))
+            @include('layouts.partials.web-order-notify-poller')
+        @endif
     </body>
 </html>

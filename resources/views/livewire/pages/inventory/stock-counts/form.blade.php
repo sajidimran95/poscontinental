@@ -1023,11 +1023,24 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         }
         .sc-lines-table tbody tr:hover td { background: #f8fafc; }
         .sc-lines-table tbody tr.is-selected td { background: #eff6ff; }
+        .sc-lines-table tbody tr { scroll-margin-bottom: 5rem; }
+        .sc-body-expand { display: flex; flex-direction: column; padding-bottom: 0; }
+        .sc-body-expand > * { flex-shrink: 0; }
+        .sc-body-expand > .sc-lines-section { flex: 1 0 auto; display: flex; flex-direction: column; }
+        .sc-lines-section > .item-lines-wrap { flex: 1 0 auto; }
+        .sc-lines-section { overflow: clip; }
+        .sc-entry-dock {
+            position: sticky; bottom: 0; z-index: 5;
+            padding: 0.65rem 0.75rem 0.5rem;
+            background: #f8fafc;
+            border-top: 1px solid #cbd5e1;
+            box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+        }
     </style>
     <form wire:submit="save" class="desk-main entity-form item-form">
         <x-action-bar :title="$stockCount ? 'Stock Count '.$stock_count_no : 'New Stock Count'" />
 
-        <div class="entity-body">
+        <div @class(['entity-body', 'sc-body-expand' => $activeTab === 'expand'])>
             @if (session('status'))
                 <div class="desk-flash" role="status">{{ session('status') }}</div>
             @endif
@@ -1123,7 +1136,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                     </div>
                 </div>
 
-                <div class="entity-section" style="margin-top:0">
+                <div class="entity-section sc-lines-section" style="margin-top:0">
                     <div class="entity-section-head">
                         <h3 class="entity-section-title">Count Lines</h3>
                         @unless ($isProcessed)
@@ -1134,23 +1147,6 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                         @endunless
                     </div>
 
-                    @unless ($isProcessed)
-                        <div class="so-entry po-order-entry" style="padding:0.65rem 0.75rem 0.5rem;border-bottom:1px solid #e2e8f0">
-                            <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
-                            @include('livewire.partials.item-entry-search-bar', [
-                                'entryInputId' => 'sc-item-entry',
-                                'entryCommit' => 'addItemFromEntry',
-                                'entryClear' => 'clearItemLookup',
-                                'entryFocus' => 'focusScanAndAdd',
-                                'entryPlaceholder' => 'Scan to add instantly · type name or code to search',
-                            ])
-                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)" style="margin-left:0.5rem">Browse (F3)</button>
-                        </div>
-                    @endunless
-
-                    @if ($lookupMessage)
-                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
-                    @endif
                     <div class="desk-grid item-lines-wrap">
                         <table class="desk-table item-lines-table sc-lines-table">
                             <colgroup>
@@ -1206,6 +1202,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                 <input
                                                     id="sc-line-counted-{{ $i }}"
                                                     wire:model.blur="lines.{{ $i }}.counted"
+                                                    x-on:keydown.enter.prevent.stop="scCountedNext($el)"
+                                                    x-on:focus="scSelectCountRow($el)"
                                                     class="so-input text-right item-cell-qty"
                                                     inputmode="decimal"
                                                     placeholder="0"
@@ -1229,10 +1227,27 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                         </table>
                         @if ($filledLineCount === 0)
                             <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
-                                Scan or type an item code above, or click Browse (F3)
+                                Scan or type an item code below, or click Browse (F3)
                             </div>
                         @endif
                     </div>
+
+                    @if ($lookupMessage)
+                        <div class="desk-flash" style="margin:0.5rem 0.75rem" role="status">{{ $lookupMessage }}</div>
+                    @endif
+                    @unless ($isProcessed)
+                        <div class="so-entry po-order-entry sc-entry-dock">
+                            <span class="so-entry-label">Item code / barcode (F2) · Browse (F3)</span>
+                            @include('livewire.partials.item-entry-search-bar', [
+                                'entryInputId' => 'sc-item-entry',
+                                'entryCommit' => 'addItemFromEntry',
+                                'entryClear' => 'clearItemLookup',
+                                'entryFocus' => 'focusScanAndAdd',
+                                'entryPlaceholder' => 'Scan to add instantly · type name or code to search',
+                            ])
+                            <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)" style="margin-left:0.5rem">Browse (F3)</button>
+                        </div>
+                    @endunless
                 </div>
 
             @else
@@ -1273,6 +1288,27 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
 @script
 <script>
+    window.scSelectCountRow = function (input) {
+        const row = input.closest('tr');
+        if (! row) return;
+        const index = Number(String(input.id).replace('sc-line-counted-', ''));
+        if (! Number.isNaN(index)) $wire.$set('selectedLineIndex', index, false);
+        if (row.classList.contains('is-selected')) return;
+        document.querySelectorAll('.sc-lines-table tbody tr.is-selected').forEach((r) => r.classList.remove('is-selected'));
+        row.classList.add('is-selected');
+    };
+    window.scCountedNext = function (input) {
+        const all = [...document.querySelectorAll('.sc-lines-table tbody .sc-col-counted input:not([disabled])')];
+        const next = all[all.indexOf(input) + 1];
+        if (next) window.scSelectCountRow(next);
+        const index = Number(String(input.id).replace('sc-line-counted-', ''));
+        if (! Number.isNaN(index)) $wire.$set('lines.' + index + '.counted', input.value);
+        const target = next || document.getElementById('sc-item-entry');
+        if (! target) { input.blur(); return; }
+        target.focus();
+        if (target.select) target.select();
+        if (next) next.closest('tr')?.scrollIntoView({ block: 'nearest' });
+    };
     $wire.on('open-item-record', (payload) => {
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;

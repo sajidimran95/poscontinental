@@ -121,6 +121,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     public ?int $selectedLineIndex = null;
 
+    public bool $showItemInfo = false;
+
+    public string $itemInfoUrl = '';
+
     public function mount(?PurchaseOrder $purchaseOrder = null): void
     {
         $companyId = auth()->user()->company_id;
@@ -850,6 +854,49 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
         $this->lines[] = $this->emptyLine();
+    }
+
+    public function openItemInfo(?int $index = null): void
+    {
+        $i = $index ?? $this->selectedLineIndex;
+        $itemId = $i !== null ? (int) ($this->lines[$i]['item_id'] ?? 0) : 0;
+        $exists = $itemId > 0 && Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->whereKey($itemId)
+            ->exists();
+
+        if (! $exists) {
+            $this->lineWarning = 'Select a line with an item first.';
+            $this->lineWarningKind = 'warning';
+
+            return;
+        }
+
+        $this->itemInfoUrl = route('inventory.items.show', ['item' => $itemId, 'pos_embed' => 1, 'popup' => 1], false);
+        $this->showItemInfo = true;
+    }
+
+    public function closeItemInfo(): void
+    {
+        $this->showItemInfo = false;
+        $this->itemInfoUrl = '';
+    }
+
+    /** The item popup saved: keep this PO's lines in step with the new code / description. */
+    public function itemPopupSaved(int $itemId): void
+    {
+        $item = Item::query()->where('company_id', auth()->user()->company_id)->find($itemId);
+        if (! $item) {
+            return;
+        }
+
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) !== (int) $item->id) {
+                continue;
+            }
+            $this->lines[$i]['item_code'] = $item->item_code;
+            $this->lines[$i]['description'] = $item->description;
+        }
     }
 
     public function removeSelectedLine(): void
@@ -2065,6 +2112,17 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                         </div>
                         @unless ($viewMode)
                             <div class="so-entry-tools">
+                                <button
+                                    type="button"
+                                    wire:click="openItemInfo"
+                                    class="so-icon-btn"
+                                    title="Item details for selected line"
+                                    tabindex="-1"
+                                    aria-label="Item details"
+                                    @disabled($selectedLineIndex === null || ! filled($lines[$selectedLineIndex]['item_id'] ?? null))
+                                >
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="4.6"/><path d="M6 5.4v3M6 3.6v.1"/></svg>
+                                </button>
                                 <button type="button" wire:click="printThisOrder" class="so-icon-btn" title="Print" tabindex="-1" aria-label="Print" @disabled(! $purchaseOrder)>
                                     <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4V2h6v2M3 8H2V5h8v3H9M3 7h6v3H3V7z"/></svg>
                                 </button>
@@ -2136,6 +2194,24 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     </form>
 
     @include('livewire.pages.sales.orders.partials.item-browse-panel')
+
+    @if ($showItemInfo && $itemInfoUrl)
+        <div
+            class="desk-modal-backdrop"
+            x-data
+            x-on:message.window="
+                if ($event.origin !== window.location.origin || ! $event.data) return;
+                if ($event.data.type === 'item-popup-close') $wire.closeItemInfo();
+                if ($event.data.type === 'item-popup-saved') $wire.itemPopupSaved($event.data.item_id);
+            "
+            role="dialog" aria-modal="true" aria-label="Item" style="z-index:95"
+        >
+            <div class="desk-modal so-item-popup">
+                <button type="button" wire:click="closeItemInfo" class="so-item-popup-close" aria-label="Close">×</button>
+                <iframe src="{{ $itemInfoUrl }}" title="Item" class="so-item-popup-frame"></iframe>
+            </div>
+        </div>
+    @endif
 </div>
 
 @include('livewire.partials.ai-vendor-invoice-modal')

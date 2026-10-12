@@ -335,6 +335,10 @@
             const res = await fetch(pollUrl + '?after=' + lastId(), { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
             const data = await res.json();
             (data.messages || []).forEach(appendMsg);
+            const theirs = (data.messages || []).filter(m => Number(m.sender_id) !== meId).map(m => Number(m.id));
+            if (theirs.length && window.posChatSoundKey && window.posNotifyClaim(window.posChatSoundKey, Math.max(...theirs))) {
+                window.playPosNotify('chat');
+            }
         } catch (e) {}
     }
     if (pollUrl) setInterval(poll, 2500);

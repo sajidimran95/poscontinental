@@ -37,6 +37,9 @@
 @elseif ($colKey === 'status')
     <td>
         <span @class(['desk-pill', 'desk-pill-new' => $order->status === 'New', 'desk-pill-invoiced' => $order->status === 'Invoiced', 'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true)])>{{ $order->status }}</span>
+        @if ($rowInvoice && filled($rowInvoice->status))
+            <span @class(['desk-pill', 'desk-pill-invoiced' => $rowInvoice->status === 'PAID', 'desk-pill-new' => $rowInvoice->status !== 'PAID'])>{{ $rowInvoice->status }}</span>
+        @endif
     </td>
 @elseif ($colKey === 'customer_code')
     <td class="desk-num">{{ $oc?->customer_id }}</td>
@@ -68,7 +71,7 @@
     <td class="desk-money">${{ number_format($order->total, 2) }}</td>
 @elseif ($colKey === 'invoice_action')
     <td wire:click.stop>
-        @if ($order->status !== 'Invoiced')
+        @if ($order->status !== 'Invoiced' && ! $rowInvoice)
             <button type="button" wire:click="invoiceOrder({{ $orderId }})" class="desk-btn desk-btn-sm">Invoice</button>
         @endif
     </td>

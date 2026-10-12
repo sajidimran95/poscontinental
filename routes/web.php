@@ -19,6 +19,7 @@ use App\Http\Controllers\Sale\SaleChatController;
 use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\Sale\SalePortalController;
 use App\Http\Controllers\TeamChatNavController;
+use App\Http\Controllers\WebOrderNotifyController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SpreadsheetDownloadController;
 use App\Http\Controllers\SalesOrderWindowController;
@@ -103,6 +104,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
         ->where('token', '[0-9a-fA-F\-]{36}')
         ->name('exports.xlsx');
     Route::get('team-chat/unread', [TeamChatNavController::class, 'unread'])->name('team-chat.unread');
+    Route::get('notify/web-orders', [WebOrderNotifyController::class, 'latest'])->name('notify.web-orders');
     Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
 
     Volt::route('profile', 'pages.profile')->name('profile');

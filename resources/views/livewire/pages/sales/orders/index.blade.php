@@ -65,7 +65,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     {
         $today = now()->toDateString();
         if ($this->dateFrom === '') {
-            $this->dateFrom = $today;
+            $this->dateFrom = $this->favorite === 'today' ? now()->subDay()->toDateString() : $today;
         }
         if ($this->dateTo === '') {
             $this->dateTo = $today;
@@ -420,12 +420,20 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'createdBy:id,name',
             ])
             ->where('company_id', $companyId)
-            ->whereNotIn('status', ['Invoiced', 'Cancelled', 'Void', 'Closed'])
-            ->whereNotExists(function ($q) {
-                $q->selectRaw('1')
-                    ->from('invoices')
-                    ->whereColumn('invoices.sales_order_id', 'sales_orders.id');
-            })
+            ->whereNotIn('status', ['Cancelled', 'Void', 'Closed']);
+
+        // Today & Yesterday also lists processed orders (paid / not paid invoices).
+        $includeInvoiced = $this->favorite === 'today' && $this->statusFilter !== 'not_invoiced';
+        if (! $includeInvoiced) {
+            $query->where('status', '!=', 'Invoiced')
+                ->whereNotExists(function ($q) {
+                    $q->selectRaw('1')
+                        ->from('invoices')
+                        ->whereColumn('invoices.sales_order_id', 'sales_orders.id');
+                });
+        }
+
+        $query
             ->when($this->search !== '', function ($q) {
                 $raw = trim($this->search);
                 $q->where(function ($inner) use ($raw) {
@@ -950,6 +958,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                         'desk-pill-invoiced' => $order->status === 'Invoiced',
                                         'desk-pill-muted' => ! in_array($order->status, ['New', 'Invoiced'], true),
                                     ])>{{ $order->status }}</span>
+                                    @if ($cardInvoice && filled($cardInvoice->status))
+                                        <span @class(['desk-pill', 'desk-pill-invoiced' => $cardInvoice->status === 'PAID', 'desk-pill-new' => $cardInvoice->status !== 'PAID'])>{{ $cardInvoice->status }}</span>
+                                    @endif
                                 </div>
                                 <div class="desk-list-card__meta">
                                     <span @class([

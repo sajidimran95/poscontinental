@@ -129,14 +129,21 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
         }
 
         $existing = collect($this->thread)->pluck('id')->all();
+        $newestFromOthers = 0;
         foreach ($incoming as $row) {
             if (in_array($row['id'], $existing, true)) {
                 continue;
             }
             $this->thread[] = $row;
             $this->latestMessageId = max($this->latestMessageId, (int) $row['id']);
+            if ((int) $row['sender_id'] !== (int) $user->id) {
+                $newestFromOthers = max($newestFromOthers, (int) $row['id']);
+            }
         }
         $chat->markRead($channel, $user, $this->latestMessageId);
+        if ($newestFromOthers > 0) {
+            $this->dispatch('team-chat-incoming', id: $newestFromOthers);
+        }
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("tc-thread"); if (el) el.scrollTop = el.scrollHeight; })');
     }
 

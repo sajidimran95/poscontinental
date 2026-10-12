@@ -1,7 +1,9 @@
 @php
     $teamChatUnreadUrl = $teamChatUnreadUrl ?? null;
+    $teamChatSoundKey = 'pos.notify.chat.'.substr(md5($teamChatUnreadUrl.'|'.(auth()->id() ?: auth('sale')->id())), 0, 12);
 @endphp
 @if ($teamChatUnreadUrl)
+@include('layouts.partials.notify-sounds')
 <div id="team-chat-toast" class="tc-nav-toast" hidden role="status"></div>
 <style>
     .tc-nav-link { position: relative; display: inline-flex; align-items: center; gap: .35rem; }
@@ -29,43 +31,9 @@
 <script>
 (function () {
     const url = @json($teamChatUnreadUrl);
-    let lastCount = -1;
-    let audioCtx = null;
+    const soundKey = @json($teamChatSoundKey);
+    window.posChatSoundKey = soundKey;
     const toast = document.getElementById('team-chat-toast');
-
-    function unlockAudio() {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        if (!audioCtx) audioCtx = new AC();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-    }
-    document.addEventListener('pointerdown', unlockAudio, { once: true });
-    document.addEventListener('keydown', unlockAudio, { once: true });
-
-    function playChime() {
-        try {
-            const AC = window.AudioContext || window.webkitAudioContext;
-            if (!AC) return;
-            if (!audioCtx) audioCtx = new AC();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const t = audioCtx.currentTime;
-            function tone(freq, start, dur, gain) {
-                const osc = audioCtx.createOscillator();
-                const g = audioCtx.createGain();
-                osc.type = 'sine';
-                osc.frequency.value = freq;
-                g.gain.setValueAtTime(0.0001, t + start);
-                g.gain.exponentialRampToValueAtTime(gain, t + start + 0.02);
-                g.gain.exponentialRampToValueAtTime(0.0001, t + start + dur);
-                osc.connect(g);
-                g.connect(audioCtx.destination);
-                osc.start(t + start);
-                osc.stop(t + start + dur + 0.02);
-            }
-            tone(880, 0, 0.14, 0.12);
-            tone(1174, 0.12, 0.18, 0.1);
-        } catch (e) {}
-    }
 
     async function tick() {
         try {
@@ -80,8 +48,8 @@
                 el.hidden = n < 1;
                 el.textContent = n > 9 ? '9+' : String(n);
             });
-            if (lastCount >= 0 && n > lastCount && data.preview) {
-                playChime();
+            if (window.posNotifyClaim(soundKey, data.latest_id) && data.preview) {
+                window.playPosNotify('chat');
                 if (toast) {
                     const from = data.preview.from || 'New message';
                     const body = data.preview.body || '';
@@ -92,13 +60,14 @@
                     toast._hide = setTimeout(function () { toast.hidden = true; }, 7000);
                 }
             }
-            lastCount = n;
         } catch (e) {}
     }
+    window.addEventListener('team-chat-incoming', function (e) {
+        const id = e.detail && (e.detail.id || (e.detail[0] && e.detail[0].id));
+        if (window.posNotifyClaim(soundKey, id)) window.playPosNotify('chat');
+    });
     tick();
-    setInterval(function () {
-        if (document.visibilityState === 'visible') tick();
-    }, 25000);
+    setInterval(tick, 12000);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') tick();
     });

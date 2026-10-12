@@ -1232,14 +1232,13 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
         $upcValues = collect($this->upcs)
             ->map(fn ($r) => trim((string) ($r['upc'] ?? '')))
-            ->filter()
-            ->values();
+            ->filter();
         $seenKeys = [];
         foreach ($upcValues as $i => $upc) {
             $keys = Item::scanCodeLookupKeys($upc);
             foreach ($keys as $key) {
                 if (isset($seenKeys[$key])) {
-                    $this->activeTab = 'inventory';
+                    $this->activeTab = 'general';
                     $this->addError('upcs.'.$i.'.upc', 'This UPC / barcode is already on this item. Each barcode must be unique.');
 
                     return;
@@ -1252,7 +1251,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 $this->item?->id
             );
             if ($owner) {
-                $this->activeTab = 'inventory';
+                $this->activeTab = 'general';
                 $this->addError(
                     'upcs.'.$i.'.upc',
                     'UPC '.$upc.' is already used on item '.$owner->item_code.' — '.$owner->description.'. Barcodes must be unique.'
@@ -1268,7 +1267,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                 $this->item?->id
             );
             if ($owner) {
-                $this->activeTab = 'inventory';
+                $this->activeTab = 'general';
                 $this->addError(
                     'primary_upc',
                     'UPC '.$this->primary_upc.' is already used on item '.$owner->item_code.'. Barcodes must be unique.'
@@ -1585,6 +1584,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
+        @if ($errors->any())
+            <div class="desk-flash" role="alert" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b;font-weight:600">
+                <div>Not saved — please fix:</div>
+                <ul style="margin:.25rem 0 0 1.1rem;list-style:disc;font-weight:500">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
         <fieldset class="item-form-fields" @disabled($viewMode)>
         <div class="entity-body">
@@ -1784,11 +1793,12 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                                                     type="text"
                                                     wire:model="upcs.{{ $i }}.upc"
                                                     wire:keydown.enter.prevent="applyUpcScanToRow({{ $i }}, $event.target.value)"
-                                                    class="so-input font-mono item-cell-ctl"
+                                                    class="so-input font-mono item-cell-ctl @error('upcs.'.$i.'.upc') is-invalid @enderror"
                                                     placeholder="Scan or type UPC…"
                                                     autocomplete="off"
                                                 />
                                             </div>
+                                            @error('upcs.'.$i.'.upc') <p class="so-field-error" role="alert">{{ $message }}</p> @enderror
                                         </td>
                                         <td class="text-center"><button type="button" wire:click="removeUpc({{ $i }})" class="desk-btn desk-btn-sm">Remove</button></td>
                                     </tr>

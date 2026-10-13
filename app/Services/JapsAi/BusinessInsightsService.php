@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use App\Models\Item;
 use App\Models\SalesOrder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -31,6 +32,21 @@ class BusinessInsightsService
     public function asOf(): string
     {
         return now()->timezone($this->timezone())->format('Y-m-d H:i:s').' ('.$this->timezone().')';
+    }
+
+    /**
+     * Overview shared by Insights polls and AI chat for a short window (34+ queries per build).
+     *
+     * @return array<string, mixed>
+     */
+    public function cachedOverview(bool $fresh = false, int $seconds = 45): array
+    {
+        $key = 'pos-ai-overview:'.$this->companyId;
+        if ($fresh) {
+            Cache::forget($key);
+        }
+
+        return Cache::remember($key, now()->addSeconds($seconds), fn () => $this->overview());
     }
 
     /** @return array<string, mixed> */

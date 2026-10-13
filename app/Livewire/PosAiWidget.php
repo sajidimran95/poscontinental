@@ -23,6 +23,10 @@ class PosAiWidget extends Component
 
     public string $activeQuick = '';
 
+    public string $pendingText = '';
+
+    public ?string $pendingIntent = null;
+
     /** @var mixed */
     public $chatInvoiceFile = null;
 
@@ -150,7 +154,22 @@ class PosAiWidget extends Component
 
         $this->messages[] = $this->posAiMakeMessage('user', $text);
         $this->message = '';
+        $this->pendingText = $text;
+        $this->pendingIntent = $forcedIntent;
         $this->scrollBottom();
+        $this->js('$wire.answerPending()');
+    }
+
+    public function answerPending(): void
+    {
+        abort_unless(auth()->user()?->canUsePosAiChat() ?? false, 403);
+        $text = $this->pendingText;
+        $forcedIntent = $this->pendingIntent;
+        $this->pendingText = '';
+        $this->pendingIntent = null;
+        if ($text === '') {
+            return;
+        }
 
         try {
             $company = Company::query()->findOrFail(auth()->user()->company_id);

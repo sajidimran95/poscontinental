@@ -44,7 +44,10 @@ Rules:
 - "lines" must contain one entry per product/item row printed on the invoice, in printed order. If the file has multiple pages, include line items from every page.
 - Never skip, summarise or merge rows. If the same product is printed on two rows, output both rows.
 - Include every row that has a quantity and an amount, under every section heading. Do not output subtotal / total / tax / page-total summary rows as lines.
-- Before answering, add up line_total for all lines. It must equal the invoice subtotal. If it is lower, you missed rows: go back and find them.
+- Product rows are only in the item table (rows with an item number / UPC / description). Never output rows from summary or recap tables such as "P & L information", category / department / class totals (e.g. "GROCERIES", "CONFECTIONS", "BEVERAGES/FROZEN"), "Your Cost / Your Retail / GP %", piece-count boxes, tax summaries or totals — they are not products.
+- Credit / return rows (amount printed with a minus sign like "9.01-" or "-9.01", or in parentheses) must be included with a NEGATIVE line_total and a positive quantity and unit_price.
+- "line_total" is the extended cost the buyer pays for the row (Ext. Price / Amount), never the extended retail value.
+- Before answering, add up line_total for all lines (credits count as negative). It must equal the invoice subtotal. If it is lower, you missed rows: go back and find them.
 - "quantity" and "unit_price" must be plain numbers only (no currency symbols, no thousands separators).
 - "unit_price" is the billed cost for one of the quantity units on that row (what the vendor charged), not a catalog or list price.
 - "line_total" is the extended amount printed for that row when available (quantity × unit_price). If unit_price is missing, compute unit_price = line_total / quantity.
@@ -56,7 +59,7 @@ PROMPT;
 
     protected const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-    protected const CACHE_VERSION = 'v3';
+    protected const CACHE_VERSION = 'v4';
 
     protected const MAX_PAGE_READS = 30;
 
@@ -142,10 +145,21 @@ PROMPT;
     {
         $companyId = (int) $this->company->id;
         $lines = [];
+        $credits = [];
         foreach ((array) ($data['lines'] ?? []) as $line) {
             $name = trim((string) ($line['name'] ?? ''));
             $sku = trim((string) ($line['sku'] ?? ''));
             if ($name === '' && $sku === '') {
+                continue;
+            }
+            if ((float) ($line['line_total'] ?? 0) < 0) {
+                $credits[] = [
+                    'name' => $name !== '' ? $name : $sku,
+                    'sku' => $sku !== '' ? $sku : null,
+                    'quantity' => abs((float) ($line['quantity'] ?? 1)),
+                    'line_total' => (float) $line['line_total'],
+                ];
+
                 continue;
             }
             $item = $this->matchItem($companyId, $sku !== '' ? $sku : null, $name !== '' ? $name : null);
@@ -176,6 +190,7 @@ PROMPT;
             'tax_amount' => $data['tax_amount'] ?? null,
             'total' => $data['total'] ?? null,
             'lines' => $lines,
+            'credits' => $credits,
         ];
     }
 
@@ -498,7 +513,7 @@ PROMPT;
             $pages[$p] = $results['p'.$p];
         }
 
-        $merged = $this->mergePages($pages);
+        $merged = $this->dropSummaryRows($this->mergePages($pages));
         Log::info('InvoiceExtractionService: page text read', [
             'pages' => $pageCount,
             'lines_per_page' => array_map(fn ($page) => count($page['lines']), $pages),
@@ -520,7 +535,7 @@ PROMPT;
     protected function readWholePdf(string $apiKey, string $model, array $attachment, int $pageCount, ?array $byPage): ?array
     {
         $results = $this->runParallel($apiKey, $model, ['full' => $this->fullReadText($pageCount)], $attachment);
-        $full = $results['full'] ?? null;
+        $full = isset($results['full']) ? $this->dropSummaryRows($results['full']) : null;
 
         $target = max(
             $this->extractedHeaderTarget($full ?? []),
@@ -679,7 +694,13 @@ PROMPT;
             }
 
             $before = count($data['lines']);
-            $data['lines'] = $this->mergeNewLines($data['lines'], $more['lines']);
+            $candidate = $this->dropSummaryRows(array_merge($data, [
+                'lines' => $this->mergeNewLines($data['lines'], $more['lines']),
+            ]));
+            // Extra rows that overshoot the subtotal are summary / recap rows, not missing products.
+            if (abs($target - $this->extractedLineSum($candidate)) < abs($target - $sum)) {
+                $data = $candidate;
+            }
             $added = count($data['lines']) - $before;
 
             Log::info('InvoiceExtractionService: completion pass', [
@@ -885,6 +906,40 @@ PROMPT;
     }
 
     /**
+     * When the rows overshoot the subtotal, drop category / recap rows (no item code, no digits in the name)
+     * if that brings the sum closer to the subtotal.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function dropSummaryRows(array $data): array
+    {
+        $target = $this->extractedHeaderTarget($data);
+        $sum = $this->extractedLineSum($data);
+        if ($target <= 0.05 || $sum <= $target + max(1.0, $target * 0.0002)) {
+            return $data;
+        }
+
+        $keep = array_values(array_filter(
+            (array) ($data['lines'] ?? []),
+            fn (array $line) => trim((string) ($line['sku'] ?? '')) !== ''
+                || preg_match('/\d/', (string) ($line['name'] ?? ''))
+        ));
+        $trimmed = array_merge($data, ['lines' => $keep]);
+        if ($keep !== [] && abs($target - $this->extractedLineSum($trimmed)) < abs($target - $sum)) {
+            Log::info('InvoiceExtractionService: dropped summary rows', [
+                'dropped' => count($data['lines']) - count($keep),
+                'sum' => round($this->extractedLineSum($trimmed), 2),
+                'target' => round($target, 2),
+            ]);
+
+            return $trimmed;
+        }
+
+        return $data;
+    }
+
+    /**
      * @param  array<string, mixed>  $line
      */
     protected function lineKey(array $line): string
@@ -978,12 +1033,18 @@ PROMPT;
             if (empty($line['name']) && empty($line['sku'])) {
                 continue;
             }
-            $qty = $this->toNumber($line['quantity'] ?? null) ?? 1.0;
-            $qty = $qty > 0 ? $qty : 1.0;
-            $unit = $this->toNumber($line['unit_price'] ?? null) ?? 0.0;
-            $ext = $this->toNumber($line['line_total'] ?? null) ?? 0.0;
+            $rawQty = $this->toNumber($line['quantity'] ?? null) ?? 1.0;
+            $rawUnit = $this->toNumber($line['unit_price'] ?? null) ?? 0.0;
+            $rawExt = $this->toNumber($line['line_total'] ?? null);
+            $isCredit = ($rawExt !== null && $rawExt < 0) || $rawQty < 0 || $rawUnit < 0;
+            $qty = abs($rawQty) > 0 ? abs($rawQty) : 1.0;
+            $unit = abs($rawUnit);
+            $ext = abs((float) $rawExt);
             if ($unit <= 0 && $ext > 0) {
                 $unit = $ext / $qty;
+            }
+            if ($ext <= 0) {
+                $ext = round($qty * $unit, 4);
             }
             $sku = trim((string) ($line['sku'] ?? ''));
             if ($sku !== '' && preg_match('/^0+$/', $sku)) {
@@ -993,8 +1054,8 @@ PROMPT;
                 'name' => (string) ($line['name'] ?? $line['sku'] ?? 'Item'),
                 'sku' => $sku !== '' ? $sku : null,
                 'quantity' => $qty,
-                'unit_price' => max(0, $unit),
-                'line_total' => $ext > 0 ? $ext : round($qty * max(0, $unit), 4),
+                'unit_price' => $unit,
+                'line_total' => $isCredit ? -$ext : $ext,
             ];
         }
 
@@ -1018,8 +1079,14 @@ PROMPT;
         if (! is_string($value)) {
             return null;
         }
-        $s = preg_replace('/[^0-9.\-]/', '', $value) ?? '';
+        $value = trim($value);
+        $negative = str_starts_with($value, '-') || str_ends_with($value, '-')
+            || (str_starts_with($value, '(') && str_ends_with($value, ')'));
+        $s = preg_replace('/[^0-9.]/', '', $value) ?? '';
+        if ($s === '' || ! is_numeric($s)) {
+            return null;
+        }
 
-        return $s !== '' && is_numeric($s) ? (float) $s : null;
+        return $negative ? -(float) $s : (float) $s;
     }
 }

@@ -188,6 +188,10 @@ class VendorInvoicePurchaseOrderService
                 .($skipped > 0 ? " {$skipped} item(s) not in item list"
                     .($missingSkus !== '' ? ': '.$missingSkus : '')
                     .'.' : '');
+            $creditsNote = self::creditsNote($matched);
+            if ($creditsNote !== '') {
+                $comments .= ' '.$creditsNote;
+            }
 
             $payload = [
                 'company_id' => $company->id,
@@ -449,12 +453,41 @@ class VendorInvoicePurchaseOrderService
     public static function invoiceTarget(array $matched): float
     {
         $subtotal = (float) ($matched['subtotal'] ?? 0);
-        if ($subtotal > 0) {
-            return round($subtotal, 2);
+        if ($subtotal <= 0) {
+            $total = (float) ($matched['total'] ?? 0);
+            $subtotal = $total > 0 ? max(0, $total - (float) ($matched['tax_amount'] ?? 0)) : 0.0;
         }
-        $total = (float) ($matched['total'] ?? 0);
 
-        return $total > 0 ? round(max(0, $total - (float) ($matched['tax_amount'] ?? 0)), 2) : 0.0;
+        // Credit / return rows are netted in the invoice subtotal but are not PO lines.
+        return $subtotal > 0 ? round($subtotal + self::creditsTotal($matched), 2) : 0.0;
+    }
+
+    /**
+     * Positive dollar amount of credit / return rows on the invoice.
+     *
+     * @param  array<string, mixed>  $matched
+     */
+    public static function creditsTotal(array $matched): float
+    {
+        return round((float) collect($matched['credits'] ?? [])->sum(fn ($c) => abs((float) ($c['line_total'] ?? 0))), 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $matched
+     */
+    public static function creditsNote(array $matched): string
+    {
+        $credits = collect($matched['credits'] ?? []);
+        if ($credits->isEmpty()) {
+            return '';
+        }
+
+        return 'Invoice credits / returns $'.number_format(self::creditsTotal($matched), 2).' (not PO lines): '
+            .$credits->take(8)->map(fn ($c) => trim((string) ($c['sku'] ?? '') ?: '').' '.trim((string) ($c['name'] ?? ''))
+                .' -$'.number_format(abs((float) ($c['line_total'] ?? 0)), 2))
+                ->map(fn ($s) => trim($s))
+                ->implode('; ')
+            .($credits->count() > 8 ? '; …' : '').'.';
     }
 
     /**
@@ -501,8 +534,13 @@ class VendorInvoicePurchaseOrderService
         $count = count($matched['lines'] ?? []);
         $gap = $target - $sum;
 
+        $credits = self::creditsTotal($matched);
+        $label = $credits > 0
+            ? 'Invoice subtotal $'.number_format($target - $credits, 2).' + credits $'.number_format($credits, 2).' = $'.number_format($target, 2)
+            : 'Invoice subtotal $'.number_format($target, 2);
+
         return "**Invoice amount not matched — PO not created.**\n"
-            .'Invoice subtotal $'.number_format($target, 2).' · '.$count.' line(s) read = $'.number_format($sum, 2)
+            .$label.' · '.$count.' line(s) read = $'.number_format($sum, 2)
             .' ('.($gap > 0 ? 'missing $'.number_format($gap, 2) : 'over by $'.number_format(-$gap, 2)).").\n"
             .($gap > 0
                 ? 'Some invoice rows could not be read. Upload the invoice again (a clearer PDF or photo helps).'
@@ -547,8 +585,14 @@ class VendorInvoicePurchaseOrderService
             : "Supplier is **not** in your supplier list.\n";
         $reply .= "{$matchedCount} of {$count} line(s) are in your item list.\n";
         $target = self::invoiceTarget($matched);
+        $credits = self::creditsTotal($matched);
         $reply .= 'Lines total $'.number_format(self::linesTotal($matched), 2)
-            .($target > 0 ? ' · invoice subtotal $'.number_format($target, 2) : '')."\n";
+            .($target > 0 ? ' · invoice subtotal $'.number_format($target - $credits, 2) : '')
+            .($credits > 0 ? ' + credits $'.number_format($credits, 2) : '')."\n";
+        $creditsNote = self::creditsNote($matched);
+        if ($creditsNote !== '') {
+            $reply .= $creditsNote."\n";
+        }
 
         if ($unmatchedNames->isNotEmpty()) {
             $reply .= 'Unmatched: '.$unmatchedNames->implode(', ');

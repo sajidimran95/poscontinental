@@ -431,7 +431,7 @@ class JapsAiChatService
 
     private function replyOverview(BusinessInsightsService $i, string $asOf): string
     {
-        $o = $i->overview();
+        $o = $i->cachedOverview();
         $s = $o['sales'];
         $inv = $o['inventory'];
         $ar = $o['invoices'];
@@ -854,15 +854,17 @@ class JapsAiChatService
             ."- All actions are drafts for a person to review. Never say you sent a PO or email.\n"
             ."- USD. No weather, no other companies, no general advice outside this POS data.";
 
-        $user = "Live findings JSON:\n".json_encode($payload, JSON_PRETTY_PRINT)
+        $user = "Live findings JSON:\n".json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             ."\n\nWrite the Intelligence answer for **{$label}** from this JSON only.";
 
         $response = Http::withToken($keyApi)
+            ->connectTimeout(8)
             ->timeout(45)
             ->acceptJson()
             ->post('https://api.openai.com/v1/chat/completions', [
                 'model' => $model,
                 'temperature' => 0.2,
+                'max_tokens' => 700,
                 'messages' => [
                     ['role' => 'system', 'content' => $system],
                     ['role' => 'user', 'content' => $user],
@@ -892,7 +894,7 @@ class JapsAiChatService
      */
     private function askOpenAi(string $message, array $history = []): string
     {
-        $snapshot = $this->insights->overview();
+        $snapshot = $this->insights->cachedOverview();
         $digest = '';
         try {
             $digest = PosAiIntelligenceService::forCompany((int) $this->company->id)->digestText();
@@ -915,7 +917,7 @@ class JapsAiChatService
             ."=== PROJECT GUIDE (entire product) ===\n{$guide}\n=== END GUIDE ===";
 
         $user = "Live company snapshot JSON (authoritative for this company):\n"
-            .json_encode($snapshot, JSON_PRETTY_PRINT)
+            .json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             ."\n\nIntelligence digest computed from the same live data (do not invent figures beyond this and the JSON):\n{$digest}"
             ."\n\nUser question (must relate to this wholesale POS project / company):\n{$message}";
 
@@ -933,11 +935,13 @@ class JapsAiChatService
         $messages[] = ['role' => 'user', 'content' => $user];
 
         $response = Http::withToken($key)
+            ->connectTimeout(8)
             ->timeout(45)
             ->acceptJson()
             ->post('https://api.openai.com/v1/chat/completions', [
                 'model' => $model,
                 'temperature' => 0.2,
+                'max_tokens' => 700,
                 'messages' => $messages,
             ]);
 

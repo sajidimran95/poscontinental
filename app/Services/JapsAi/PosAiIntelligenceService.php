@@ -71,7 +71,8 @@ class PosAiIntelligenceService
             return [];
         }
 
-        $built = Cache::remember($this->sectionKey($key), now()->addMinutes(10), function () use ($key) {
+        $minutes = in_array($key, ['demand', 'reorder_due', 'cross_sell'], true) ? 30 : 10;
+        $built = Cache::remember($this->sectionKey($key), now()->addMinutes($minutes), function () use ($key) {
             return $this->buildSection($key);
         });
 
@@ -1360,34 +1361,51 @@ class PosAiIntelligenceService
     private function crossSellPairs(): array
     {
         $from = now()->subDays(180)->toDateString();
-        $rows = DB::table('sales_order_lines as a')
-            ->join('sales_order_lines as b', function ($join) {
-                $join->on('b.sales_order_id', '=', 'a.sales_order_id')
-                    ->whereColumn('b.item_id', '>', 'a.item_id');
-            })
-            ->join('sales_orders as so', 'so.id', '=', 'a.sales_order_id')
-            ->join('invoices as inv', 'inv.sales_order_id', '=', 'so.id')
-            ->join('items as ia', 'ia.id', '=', 'a.item_id')
-            ->join('items as ib', 'ib.id', '=', 'b.item_id')
-            ->where('so.company_id', $this->companyId)
-            ->where('inv.invoice_date', '>=', $from)
-            ->whereRaw("UPPER(inv.status) NOT IN ('VOID', 'CANCELLED')")
-            ->whereNotNull('a.item_id')
-            ->whereNotNull('b.item_id')
-            ->groupBy('a.item_id', 'b.item_id', 'ia.item_code', 'ia.description', 'ib.item_code', 'ib.description')
-            ->havingRaw('COUNT(DISTINCT a.sales_order_id) >= 4')
-            ->orderByDesc('together')
-            ->limit(25)
-            ->selectRaw('ia.item_code as code_a, ia.description as name_a, ib.item_code as code_b, ib.description as name_b, COUNT(DISTINCT a.sales_order_id) as together')
-            ->get();
+
+        // Pair only distinct (order, item) rows for the busiest items — the raw line self-join explodes on big orders.
+        $pairs = DB::select(<<<'SQL'
+            WITH ord AS (
+                SELECT DISTINCT so.id
+                FROM sales_orders so
+                JOIN invoices inv ON inv.sales_order_id = so.id
+                WHERE so.company_id = ? AND inv.invoice_date >= ? AND UPPER(inv.status) NOT IN ('VOID', 'CANCELLED')
+            ),
+            ol AS (
+                SELECT DISTINCT sol.sales_order_id, sol.item_id
+                FROM sales_order_lines sol
+                JOIN ord ON ord.id = sol.sales_order_id
+                WHERE sol.item_id IS NOT NULL
+            ),
+            freq AS (
+                SELECT item_id FROM ol GROUP BY item_id HAVING COUNT(*) >= 4 ORDER BY COUNT(*) DESC LIMIT 400
+            ),
+            fl AS (
+                SELECT ol.sales_order_id, ol.item_id FROM ol JOIN freq ON freq.item_id = ol.item_id
+            )
+            SELECT a.item_id AS item_a, b.item_id AS item_b, COUNT(*) AS together
+            FROM fl a
+            JOIN fl b ON b.sales_order_id = a.sales_order_id AND b.item_id > a.item_id
+            GROUP BY a.item_id, b.item_id
+            HAVING COUNT(*) >= 4
+            ORDER BY together DESC
+            LIMIT 25
+            SQL, [$this->companyId, $from]);
+
+        $itemIds = collect($pairs)->flatMap(fn ($p) => [(int) $p->item_a, (int) $p->item_b])->unique()->all();
+        $items = DB::table('items')->whereIn('id', $itemIds)->get(['id', 'item_code', 'description'])->keyBy('id');
 
         $out = [];
-        foreach ($rows as $row) {
+        foreach ($pairs as $row) {
+            $a = $items->get((int) $row->item_a);
+            $b = $items->get((int) $row->item_b);
+            if (! $a || ! $b) {
+                continue;
+            }
             $out[] = [
-                'code_a' => (string) $row->code_a,
-                'name_a' => (string) $row->name_a,
-                'code_b' => (string) $row->code_b,
-                'name_b' => (string) $row->name_b,
+                'code_a' => (string) $a->item_code,
+                'name_a' => (string) $a->description,
+                'code_b' => (string) $b->item_code,
+                'name_b' => (string) $b->description,
                 'together' => (int) $row->together,
                 'basis' => 'Based on invoiced orders in the last 180 days. On a sales order this also appears as add-on hints. Nothing is added automatically.',
             ];

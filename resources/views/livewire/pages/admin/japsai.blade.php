@@ -52,8 +52,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public string $statusMessage = '';
 
-    /** @var array<string, mixed>|null */
-    public ?array $overview = null;
+    public string $pendingText = '';
+
+    public ?string $pendingIntent = null;
 
     public string $intelKey = '';
 
@@ -76,8 +77,17 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     public function mount(): void
     {
         $this->loadSettingsForm();
-        $this->refreshOverview(true);
+        $this->syncAdminAlerts((int) auth()->user()->company_id, true);
         $this->loadPersistedChat();
+    }
+
+    public function with(): array
+    {
+        return [
+            'overview' => $this->panel === 'insights'
+                ? BusinessInsightsService::forCompany((int) auth()->user()->company_id)->cachedOverview()
+                : [],
+        ];
     }
 
     public function setPanel(string $panel): void
@@ -91,7 +101,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->panel = $panel;
         $this->statusMessage = '';
         if ($panel === 'insights') {
-            $this->refreshOverview(true);
+            $this->syncAdminAlerts((int) auth()->user()->company_id, true);
         }
         if ($panel === 'intelligence') {
             $this->intelKey = '';
@@ -111,9 +121,14 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public function refreshOverview(bool $silent = false): void
     {
+        $this->syncAdminAlerts((int) auth()->user()->company_id, $silent);
+    }
+
+    public function refreshOverviewNow(): void
+    {
         $companyId = (int) auth()->user()->company_id;
-        $this->overview = BusinessInsightsService::forCompany($companyId)->overview();
-        $this->syncAdminAlerts($companyId, $silent);
+        BusinessInsightsService::forCompany($companyId)->cachedOverview(true);
+        $this->syncAdminAlerts($companyId, false);
     }
 
     /**
@@ -394,7 +409,22 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
         $this->messages[] = $this->posAiMakeMessage('user', $text);
         $this->message = '';
+        $this->pendingText = $text;
+        $this->pendingIntent = $forcedIntent;
         $this->dispatchScroll();
+        // Show the question right away; the answer comes in a second request.
+        $this->js('$wire.answerPending()');
+    }
+
+    public function answerPending(): void
+    {
+        $text = $this->pendingText;
+        $forcedIntent = $this->pendingIntent;
+        $this->pendingText = '';
+        $this->pendingIntent = null;
+        if ($text === '') {
+            return;
+        }
 
         try {
             $company = Company::query()->findOrFail(auth()->user()->company_id);
@@ -410,7 +440,6 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             );
         }
 
-        $this->refreshOverview();
         $this->persistChat();
         $this->dispatchScroll();
     }
@@ -467,7 +496,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     @endif
                 </div>
                 @if ($panel === 'insights')
-                    <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverview" wire:loading.attr="disabled" wire:target="refreshOverview">Refresh</button>
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="refreshOverviewNow" wire:loading.attr="disabled" wire:target="refreshOverviewNow">Refresh</button>
                     <div class="posai-listen-wrap">
                         <button
                             type="button"
@@ -796,10 +825,17 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                             </div>
                         </div>
                     @endforeach
-                    <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-msg posai-msg-assistant">
-                        <span class="posai-avatar ai">AI</span>
-                        <div class="posai-bubble muted">Working…</div>
-                    </div>
+                    @if ($pendingText !== '')
+                        <div class="posai-msg posai-msg-assistant">
+                            <span class="posai-avatar ai">AI</span>
+                            <div class="posai-bubble muted">Thinking…</div>
+                        </div>
+                    @else
+                        <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-msg posai-msg-assistant">
+                            <span class="posai-avatar ai">AI</span>
+                            <div class="posai-bubble muted">Working…</div>
+                        </div>
+                    @endif
                     <div id="posai-msg-end" style="height:1px;"></div>
                 </div>
 

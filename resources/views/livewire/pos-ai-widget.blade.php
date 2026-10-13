@@ -170,10 +170,17 @@
                     </div>
                 </div>
             @endforeach
-            <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-w-msg posai-w-msg-assistant">
-                <span class="posai-w-avatar ai">AI</span>
-                <div class="posai-w-bubble muted">Working…</div>
-            </div>
+            @if ($pendingText !== '')
+                <div class="posai-w-msg posai-w-msg-assistant">
+                    <span class="posai-w-avatar ai">AI</span>
+                    <div class="posai-w-bubble muted">Thinking…</div>
+                </div>
+            @else
+                <div wire:loading wire:target="send,runQuick,chatInvoiceFile,processChatVendorInvoice,addMissingInvoiceToLists,confirmAiInvoicePurchaseOrder" class="posai-w-msg posai-w-msg-assistant">
+                    <span class="posai-w-avatar ai">AI</span>
+                    <div class="posai-w-bubble muted">Working…</div>
+                </div>
+            @endif
         </div>
 
         <div class="posai-w-footer">

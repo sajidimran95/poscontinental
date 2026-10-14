@@ -558,13 +558,9 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         if ($item) {
             $this->itemLookup = '';
             $this->browseLineIndex = null;
-            if (! $this->applyScannedItem($item)) {
-                $this->clearAndFocusEntry($code);
-
-                return;
-            }
+            $this->countScannedItem($item);
             $this->scanModeActive = true;
-            $this->clearAndFocusEntry($code);
+            $this->keepEntryCode($code);
 
             return;
         }
@@ -671,6 +667,59 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         return true;
     }
 
+    /** Entry-bar Enter: add the item counted as 1, or add 1 to its counted qty when it is already on the count. */
+    protected function countScannedItem(Item $item): void
+    {
+        $index = null;
+        foreach ($this->lines as $i => $line) {
+            if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
+                $index = (int) $i;
+                break;
+            }
+        }
+
+        if ($index === null) {
+            $index = $this->resolveCountTargetIndex();
+            $this->fillLineFromItem($index, $item);
+            $current = 0.0;
+        } else {
+            $current = filled($this->lines[$index]['count_time'] ?? null) ? (float) ($this->lines[$index]['counted'] ?? 0) : 0.0;
+        }
+
+        $this->lines[$index]['counted'] = rtrim(rtrim(number_format($current + 1, 4, '.', ''), '0'), '.');
+        $this->lines[$index]['count_time'] = \App\Support\UserTimezone::now()->format('Y-m-d H:i:s');
+        $this->lookupMessage = $item->item_code.' counted: '.$this->lines[$index]['counted'];
+        $this->lineWarning = '';
+        $this->playPosSound('success');
+        $this->highlightCountLine($index, false);
+
+        $hasEmpty = false;
+        foreach ($this->lines as $line) {
+            if (! filled($line['item_code'] ?? null)) {
+                $hasEmpty = true;
+                break;
+            }
+        }
+        if (! $hasEmpty) {
+            $this->addLine();
+        }
+    }
+
+    /** Keep the code in the entry box, selected, so Enter counts again and the next scan replaces it. */
+    protected function keepEntryCode(string $code): void
+    {
+        $jsCode = json_encode($code, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $this->js(<<<JS
+            requestAnimationFrame(() => {
+                const el = document.getElementById('sc-item-entry');
+                if (!el) return;
+                if ((el.value || '').trim() === '') el.value = {$jsCode};
+                el.focus();
+                el.select();
+            });
+        JS);
+    }
+
     protected function codeIsPrefixOfLongerItemCode(string $code): bool
     {
         return Item::hasLongerCodeStartingWith((int) auth()->user()->company_id, $code, 'any');
@@ -767,9 +816,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->lines = $lines;
     }
 
-    protected function highlightCountLine(int $index): void
+    protected function highlightCountLine(int $index, bool $focusCounted = true): void
     {
         $this->selectedLineIndex = $index;
+        $focusJs = $focusCounted
+            ? 'const counted = document.getElementById("sc-line-counted-'.$index.'");
+            if (counted && !counted.disabled) { counted.focus(); counted.select(); }'
+            : '';
         // Scroll/focus only for single-line adds (scan / one browse pick) — not bulk Insert All.
         $this->js('requestAnimationFrame(() => {
             document.querySelectorAll(".sc-lines-table tbody tr.is-selected").forEach((r) => r.classList.remove("is-selected"));
@@ -778,8 +831,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 row.classList.add("is-selected");
                 row.scrollIntoView({ block: "nearest" });
             }
-            const counted = document.getElementById("sc-line-counted-'.$index.'");
-            if (counted && !counted.disabled) { counted.focus(); counted.select(); }
+            '.$focusJs.'
         });');
     }
 
@@ -1243,7 +1295,10 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                 'entryCommit' => 'addItemFromEntry',
                                 'entryClear' => 'clearItemLookup',
                                 'entryFocus' => 'focusScanAndAdd',
-                                'entryPlaceholder' => 'Scan to add instantly · type name or code to search',
+                                'entryPlaceholder' => 'Scan or type item code, press Enter — each Enter adds 1',
+                                'entrySuggest' => false,
+                                'entryEnterOnly' => true,
+                                'entryKeepValue' => true,
                             ])
                             <button type="button" wire:click="openItemBrowse" class="so-browse-btn" data-pos-browse title="Item list (F3)" style="margin-left:0.5rem">Browse (F3)</button>
                         </div>

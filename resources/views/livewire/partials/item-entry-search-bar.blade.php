@@ -6,6 +6,9 @@
     $entryDisabled = $entryDisabled ?? false;
     $entryPlaceholder = $entryPlaceholder ?? 'Scan to add instantly · type name or code to search';
     $entrySuggest = $entrySuggest ?? true;
+    // Enter-only: nothing is added or searched while typing; Enter commits. Keep: the code stays (selected) after Enter.
+    $entryEnterOnly = $entryEnterOnly ?? false;
+    $entryKeepValue = $entryKeepValue ?? false;
 @endphp
 <div class="so-scan-bar" role="search" style="max-width:28rem;min-width:16rem;height:2.15rem">
     <button
@@ -37,14 +40,18 @@
             inputId: {{ json_encode($entryInputId) }},
             commit: {{ json_encode($entryCommit) }},
             suggest: {{ $entrySuggest ? 'true' : 'false' }},
+            enterOnly: {{ $entryEnterOnly ? 'true' : 'false' }},
+            keepValue: {{ $entryKeepValue ? 'true' : 'false' }},
             // Both commit paths empty the box first, so one scan cannot commit twice and repeat scans are never dropped.
             send(box, v) {
-                if (box) box.value = '';
+                if (box && ! this.keepValue) box.value = '';
+                if (box && this.keepValue) box.select();
                 if (v) $wire[this.commit](v);
             },
             el() { return document.getElementById(this.inputId); },
             scheduleAuto() {
                 clearTimeout(this.timer);
+                if (this.enterOnly) return;
                 if (! this.suggest && ! this.rapid) return;
                 // 30ms of silence = end of a scanner burst (without it a half-read barcode can be sent).
                 const delay = this.rapid ? 30 : 400;
@@ -72,7 +79,7 @@
                     clearTimeout(this.timer);
                     const box = this.el();
                     const v = (box?.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                    if (this.rapid || this.scanLike(v) || ! this.suggest) {
+                    if (this.enterOnly || this.rapid || this.scanLike(v) || ! this.suggest) {
                         this.send(box, v);
                         this.rapid = false;
                         return;
@@ -119,7 +126,7 @@
             $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
             rapid = false;
             const v = ($el.value || '').trim();
-            if (v.length >= 2 && suggest) {
+            if (v.length >= 2 && suggest && ! enterOnly) {
                 $wire.searchEntryHits(v);
             }
         "

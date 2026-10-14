@@ -54,6 +54,42 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         }
     }
 
+    public function showRecentErrors(): void
+    {
+        $this->output = '';
+        $this->status = '';
+        $this->error = '';
+
+        try {
+            Artisan::call('migrate:status', ['--pending' => true]);
+            $pending = trim(Artisan::output());
+
+            $logs = glob(storage_path('logs/laravel*.log')) ?: [];
+            usort($logs, fn ($a, $b) => filemtime($b) <=> filemtime($a));
+            $entries = [];
+            if ($logs !== []) {
+                $size = filesize($logs[0]);
+                $fh = fopen($logs[0], 'rb');
+                fseek($fh, max(0, $size - 2_000_000));
+                $tail = (string) stream_get_contents($fh);
+                fclose($fh);
+                $parts = preg_split('/^(?=\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] \w+\.)/m', $tail) ?: [];
+                foreach ($parts as $part) {
+                    if (preg_match('/^\[[^\]]+\] \w+\.(ERROR|CRITICAL|ALERT|EMERGENCY):/', $part)) {
+                        $entries[] = mb_substr(trim($part), 0, 1800);
+                    }
+                }
+            }
+
+            $this->output = "> php artisan migrate:status --pending\n".($pending !== '' ? $pending : 'No pending migrations.')
+                ."\n\n> Last errors in ".($logs !== [] ? basename($logs[0]) : 'laravel.log')."\n"
+                .($entries !== [] ? implode("\n\n----------\n\n", array_slice($entries, -5)) : 'No errors logged.');
+            $this->status = 'Showing pending migrations and the last 5 logged errors (newest at the bottom).';
+        } catch (\Throwable $e) {
+            $this->error = $e->getMessage();
+        }
+    }
+
     public function optimizeClear(): void
     {
         $this->runCommands([
@@ -332,6 +368,15 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     class="desk-btn"
                 >
                     Optimize Clear
+                </button>
+                <button
+                    type="button"
+                    wire:click="showRecentErrors"
+                    wire:loading.attr="disabled"
+                    wire:target="showRecentErrors"
+                    class="desk-btn"
+                >
+                    Show last errors
                 </button>
                 <button
                     type="button"

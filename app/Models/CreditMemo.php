@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class CreditMemo extends Model
 {
@@ -54,8 +55,15 @@ class CreditMemo extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('memo_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 50001;
+        // Imported memos are not in id order, so use the highest numeric memo number.
+        $max = (int) static::query()
+            ->where('company_id', $companyId)
+            ->whereRaw("memo_number REGEXP '^[0-9]+$'")
+            ->max(DB::raw('CAST(memo_number AS UNSIGNED)'));
+        $n = $max > 0 ? $max + 1 : 50001;
+        while (static::query()->where('company_id', $companyId)->where('memo_number', (string) $n)->exists()) {
+            $n++;
+        }
 
         return (string) $n;
     }

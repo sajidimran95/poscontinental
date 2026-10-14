@@ -682,6 +682,80 @@ class InventoryService
     }
 
     /**
+     * Qty a credit memo put back into stock, per item id (non-saleable and no-restock memos add nothing).
+     *
+     * @return array<int, float>
+     */
+    public function creditMemoRestockQty(CreditMemo $memo): array
+    {
+        if (! $memo->restock_inventory) {
+            return [];
+        }
+
+        $memo->loadMissing('lines');
+        $out = [];
+        foreach ($memo->lines as $line) {
+            if ((float) $line->qty <= 0 || $line->non_saleable) {
+                continue;
+            }
+            $itemId = (int) ($line->item_id ?: Item::query()
+                ->where('company_id', $memo->company_id)
+                ->where('item_code', $line->item_code)
+                ->value('id'));
+            if ($itemId <= 0) {
+                continue;
+            }
+            $out[$itemId] = ($out[$itemId] ?? 0) + (float) $line->qty;
+        }
+
+        return $out;
+    }
+
+    /**
+     * After a credit memo is edited (or voided), move on-hand by the change in restocked qty per item.
+     *
+     * @param  array<int, float>  $oldRestockByItemId  from creditMemoRestockQty() before the change
+     */
+    public function applyCreditMemoRevisionStock(CreditMemo $memo, array $oldRestockByItemId, string $note = 'Credit memo edited'): void
+    {
+        $memo->unsetRelation('lines');
+        $new = $memo->exists ? $this->creditMemoRestockQty($memo) : [];
+        $itemIds = array_values(array_unique(array_merge(array_keys($oldRestockByItemId), array_keys($new))));
+
+        foreach ($itemIds as $itemId) {
+            $delta = round(($new[$itemId] ?? 0) - ($oldRestockByItemId[$itemId] ?? 0), 4);
+            if (abs($delta) < 0.00005) {
+                continue;
+            }
+            $item = Item::query()->lockForUpdate()->find($itemId);
+            if (! $item) {
+                continue;
+            }
+
+            $newQty = (float) $item->quantity_in_stock + $delta;
+            $item->update(['quantity_in_stock' => $newQty]);
+
+            InventoryJournalEntry::query()->create([
+                'company_id' => $memo->company_id,
+                'item_id' => $item->id,
+                'site_id' => null,
+                'source_type' => CreditMemo::class,
+                'source_id' => $memo->id,
+                'reference' => $memo->memo_number,
+                'qty_change' => $delta,
+                'qty_after' => $newQty,
+                'unit_cost' => $item->current_cost,
+                'user_id' => auth()->id(),
+                'notes' => $note.' '.$memo->memo_number,
+            ]);
+        }
+
+        if ($itemIds !== []) {
+            $this->syncAllocatedQty($itemIds);
+        }
+    }
+
+    /**
      * Manual stock adjustment (set new on-hand or apply a delta). Writes inventory journal.
      *
      * @param  'set'|'change'  $mode

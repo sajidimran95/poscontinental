@@ -47,6 +47,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public bool $showForm = false;
 
+    /** Credit memo being edited; null when creating a new one. */
+    public ?int $editingId = null;
+
+    /** Read-only on-screen view of a saved memo (View button / double-click). */
+    public bool $viewOnly = false;
+
+    public string $editingStatus = '';
+
+    /** Amount of the edited memo already applied to invoices. */
+    public float $editingApplied = 0;
+
     public string $memo_number = '';
 
     public string $memo_date = '';
@@ -421,7 +432,20 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             return;
         }
 
-        $this->openMemoPdf($this->selectedId);
+        $this->viewMemo($this->selectedId);
+    }
+
+    public function viewMemo(int $id): void
+    {
+        $this->editMemo($id);
+        if ($this->editingId === $id) {
+            $this->viewOnly = true;
+        }
+    }
+
+    public function enableEdit(): void
+    {
+        $this->viewOnly = false;
     }
 
     public function openMemoPdf(int $id): void
@@ -437,7 +461,14 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function printSelected(): void
     {
-        $this->viewSelected();
+        $id = $this->editingId ?: $this->selectedId;
+        if (! $id) {
+            session()->flash('status', 'Select a credit memo first.');
+
+            return;
+        }
+
+        $this->openMemoPdf($id);
     }
 
     public function emailSelected(): void
@@ -451,10 +482,65 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->openEmail($this->selectedId);
     }
 
+    public function editSelected(): void
+    {
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a credit memo first.');
+
+            return;
+        }
+
+        $this->editMemo($this->selectedId);
+    }
+
+    public function editMemo(int $id): void
+    {
+        $memo = CreditMemo::query()
+            ->with('lines')
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+        if (! $memo) {
+            session()->flash('status', 'Credit memo not found.');
+
+            return;
+        }
+
+        $this->startNew();
+        $this->selectedId = $memo->id;
+        $this->editingId = $memo->id;
+        $this->editingStatus = (string) ($memo->status ?: 'Open');
+        $this->editingApplied = round((float) $memo->applied_amount, 2);
+        $this->memo_number = (string) $memo->memo_number;
+        $this->memo_date = $memo->memo_date?->toDateString() ?? now()->toDateString();
+        $this->customer_id = $memo->customer_id ? (int) $memo->customer_id : null;
+        $this->sales_order_id = $memo->sales_order_id ? (int) $memo->sales_order_id : null;
+        $this->comments = (string) ($memo->comments ?? '');
+        $this->reference_no = (string) ($memo->reference_no ?? '');
+        $this->reason = (string) ($memo->reason ?? '');
+        $this->restock_inventory = (bool) $memo->restock_inventory;
+
+        $lines = $memo->lines->map(fn ($l) => [
+            'item_id' => $l->item_id ? (int) $l->item_id : null,
+            'item_code' => (string) $l->item_code,
+            'description' => (string) ($l->description ?? ''),
+            'uom' => (string) ($l->uom ?? ''),
+            'qty' => rtrim(rtrim(number_format((float) $l->qty, 4, '.', ''), '0'), '.') ?: '0',
+            'price' => $this->priceText($l->price),
+            'non_saleable' => (bool) $l->non_saleable,
+        ])->values()->all();
+
+        $this->lines = $lines !== [] ? $lines : [$this->emptyCreditLine()];
+        $this->credit_amount = $lines === [] ? number_format((float) $memo->amount, 2, '.', '') : '';
+    }
+
     public function startNew(): void
     {
         $this->showForm = true;
         $this->selectedId = null;
+        $this->editingId = null;
+        $this->viewOnly = false;
+        $this->editingStatus = '';
+        $this->editingApplied = 0;
         $this->resetErrorBag();
         $this->memo_number = CreditMemo::nextNumber(auth()->user()->company_id);
         $this->memo_date = now()->toDateString();
@@ -653,6 +739,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function openCustomerBrowse(): void
     {
+        if ($this->customerLocked()) {
+            return;
+        }
         $this->showCustomerBrowse = true;
         $this->customerSearch = '';
         $this->showOrderBrowse = false;
@@ -664,8 +753,25 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->showCustomerBrowse = false;
     }
 
+    /** A memo already applied to invoices must stay with the same customer. */
+    protected function customerLocked(): bool
+    {
+        if ($this->editingId && $this->editingApplied > 0) {
+            $this->addError('customer_id', 'This credit memo is applied to invoices — the customer cannot be changed.');
+
+            return true;
+        }
+
+        return false;
+    }
+
     public function pickCustomer(int $customerId): void
     {
+        if ($this->customerLocked() && (int) $this->customer_id !== $customerId) {
+            $this->showCustomerBrowse = false;
+
+            return;
+        }
         $exists = Customer::query()
             ->where('company_id', auth()->user()->company_id)
             ->whereKey($customerId)
@@ -687,6 +793,9 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function clearCustomer(): void
     {
+        if ($this->customerLocked()) {
+            return;
+        }
         $this->customer_id = null;
         $this->sales_order_id = null;
         $this->showOrderBrowse = false;
@@ -1123,6 +1232,10 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
     public function save(): void
     {
+        if ($this->viewOnly) {
+            return;
+        }
+
         $this->validate([
             'memo_number' => 'required',
             'customer_id' => 'required|exists:customers,id',
@@ -1134,7 +1247,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             'lines.*.price' => 'nullable|numeric|min:0',
         ]);
 
-        if ($this->sales_order_id) {
+        $keptOrder = $this->editingId && $this->sales_order_id && CreditMemo::query()
+            ->whereKey($this->editingId)
+            ->where('sales_order_id', $this->sales_order_id)
+            ->exists();
+
+        if ($this->sales_order_id && ! $keptOrder) {
             $orderOk = SalesOrder::query()
                 ->with('invoice')
                 ->where('company_id', auth()->user()->company_id)
@@ -1201,6 +1319,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
 
         $companyId = (int) auth()->user()->company_id;
 
+        if ($this->editingId) {
+            $this->saveEdit($companyId, round($amount, 4), $filledLines, $restock);
+
+            return;
+        }
+
         DB::transaction(function () use ($amount, $companyId, $filledLines, $restock) {
             $candidate = filled($this->memo_number) ? (string) $this->memo_number : CreditMemo::nextNumber($companyId);
             if (
@@ -1227,25 +1351,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 'restock_inventory' => $restock,
             ]);
 
-            foreach ($filledLines as $i => $line) {
-                $item = Item::query()
-                    ->where('company_id', $companyId)
-                    ->where('item_code', $line['item_code'])
-                    ->first();
-                $qty = (float) $line['qty'];
-                $price = (float) $line['price'];
-                $memo->lines()->create([
-                    'item_id' => $item?->id,
-                    'item_code' => $line['item_code'],
-                    'description' => $line['description'] ?: $item?->description,
-                    'uom' => $line['uom'] ?: $item?->unit_of_measure,
-                    'qty' => $qty,
-                    'price' => $price,
-                    'line_total' => $qty * $price,
-                    'non_saleable' => (bool) ($line['non_saleable'] ?? false),
-                    'line_no' => $i + 1,
-                ]);
-            }
+            $this->writeMemoLines($memo, $companyId, $filledLines);
 
             if ($restock) {
                 app(InventoryService::class)->applyCreditMemoStock($memo->fresh('lines'));
@@ -1268,6 +1374,97 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         }
         $msg .= ' Apply it from an unpaid invoice.';
         session()->flash('status', $msg);
+    }
+
+    protected function writeMemoLines(CreditMemo $memo, int $companyId, \Illuminate\Support\Collection $filledLines): void
+    {
+        foreach ($filledLines as $i => $line) {
+            $item = Item::query()
+                ->where('company_id', $companyId)
+                ->where('item_code', $line['item_code'])
+                ->first();
+            $qty = (float) $line['qty'];
+            $price = (float) $line['price'];
+            $memo->lines()->create([
+                'item_id' => $item?->id,
+                'item_code' => $line['item_code'],
+                'description' => ($line['description'] ?? '') ?: $item?->description,
+                'uom' => ($line['uom'] ?? '') ?: $item?->unit_of_measure,
+                'qty' => $qty,
+                'price' => $price,
+                'line_total' => $qty * $price,
+                'non_saleable' => (bool) ($line['non_saleable'] ?? false),
+                'line_no' => $i + 1,
+            ]);
+        }
+    }
+
+    protected function saveEdit(int $companyId, float $amount, \Illuminate\Support\Collection $filledLines, bool $restock): void
+    {
+        $error = null;
+
+        DB::transaction(function () use ($companyId, $amount, $filledLines, $restock, &$error) {
+            $memo = CreditMemo::query()
+                ->with(['lines', 'applications'])
+                ->where('company_id', $companyId)
+                ->lockForUpdate()
+                ->find($this->editingId);
+            if (! $memo) {
+                $error = ['credit_amount', 'Credit memo not found — it may have been voided.'];
+
+                return;
+            }
+
+            $applied = round((float) $memo->applications->sum('amount'), 2);
+            if ($applied > 0 && (int) $memo->customer_id !== (int) $this->customer_id) {
+                $error = ['customer_id', 'This credit memo is applied to invoices — the customer cannot be changed.'];
+
+                return;
+            }
+            if ($applied > 0 && round($amount, 2) < $applied - 0.004) {
+                $error = ['credit_amount', 'Total $'.number_format($amount, 2).' is less than the $'.number_format($applied, 2)
+                    .' already applied to invoices. Remove the credit from the invoice first, or keep the total at least $'.number_format($applied, 2).'.'];
+
+                return;
+            }
+
+            $inventory = app(InventoryService::class);
+            $oldRestock = $inventory->creditMemoRestockQty($memo);
+
+            $status = (string) $memo->status;
+            if (in_array($status, ['', 'Open', 'Applied'], true)) {
+                $status = $applied > 0 && round($amount - $applied, 2) <= 0.0001 ? 'Applied' : 'Open';
+            }
+
+            $memo->update([
+                'memo_date' => $this->memo_date,
+                'reference_no' => $this->reference_no ?: null,
+                'reason' => $this->reason ?: null,
+                'customer_id' => $this->customer_id,
+                'sales_order_id' => $this->sales_order_id,
+                'amount' => $amount,
+                'status' => $status,
+                'comments' => $this->comments,
+                'restock_inventory' => $restock,
+            ]);
+
+            $memo->lines()->delete();
+            $this->writeMemoLines($memo, $companyId, $filledLines);
+
+            $inventory->applyCreditMemoRevisionStock($memo, $oldRestock);
+        });
+
+        if ($error !== null) {
+            $this->addError($error[0], $error[1]);
+
+            return;
+        }
+
+        $this->showForm = false;
+        $this->selectedId = $this->editingId;
+        $this->editingId = null;
+        session()->flash('status', 'Credit memo '.$this->memo_number.' updated.'
+            .($filledLines->isNotEmpty() ? ' Stock adjusted for any qty changes.' : ''));
     }
 
     public function viewSalesOrder(): mixed
@@ -1320,15 +1517,40 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         }
 
         if ($memo->applications->isNotEmpty()) {
-            session()->flash('status', 'This credit memo is applied to an invoice and cannot be voided.');
+            session()->flash('status', 'This credit memo is applied to an invoice and cannot be deleted. Remove it from the invoice first.');
 
             return;
         }
 
-        $memo->lines()->delete();
-        $memo->delete();
+        DB::transaction(function () use ($memo) {
+            $inventory = app(InventoryService::class);
+            $oldRestock = $inventory->creditMemoRestockQty($memo);
+            $memo->lines()->delete();
+            $inventory->applyCreditMemoRevisionStock($memo, $oldRestock, 'Credit memo voided');
+            $memo->delete();
+        });
         $this->selectedId = null;
-        session()->flash('status', 'Credit memo voided and deleted.');
+        session()->flash('status', 'Credit memo '.$memo->memo_number.' deleted.'
+            .($memo->restock_inventory ? ' Returned items were taken back out of stock.' : ''));
+    }
+
+    public function deleteEditingMemo(): void
+    {
+        if (! $this->editingId) {
+            return;
+        }
+        if ($this->editingApplied > 0) {
+            $this->addError('customer_id', 'This credit memo is applied to invoices. Remove it from the invoice first, then delete.');
+
+            return;
+        }
+
+        $this->selectedId = $this->editingId;
+        $this->voidSelectedMemo();
+        if ($this->selectedId === null) {
+            $this->cancelForm();
+            $this->editingId = null;
+        }
     }
 
     public function closeDesk(): mixed
@@ -1349,11 +1571,12 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
     @endunless
 
     <div class="desk-main {{ $showForm ? 'entity-form item-form po-form cm-std-form' : 'desk-main-rail-layout' }}">
-        <x-action-bar :title="$showForm ? 'New Credit Memo' : 'Action'">
+        <x-action-bar :title="$showForm ? ($editingId ? ($viewOnly ? 'Credit Memo ' : 'Edit Credit Memo ').$memo_number : 'New Credit Memo') : 'Action'">
             <x-slot:menu>
+                <x-action-item label="Edit Credit Memo" wire:click="editSelected" :disabled="$showForm" />
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
-                <x-action-item label="Void Credit Memo" sep wire:click="voidSelectedMemo" :disabled="$showForm" />
+                <x-action-item label="Delete Credit Memo" sep wire:click="voidSelectedMemo" wire:confirm="Delete the selected credit memo? Returned items will be taken back out of stock." :disabled="$showForm" />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
         </x-action-bar>
@@ -1372,10 +1595,15 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 }
             @endphp
             <form wire:submit="save" class="cm-doc-form">
-                <fieldset class="so-form-fields">
+                <fieldset class="so-form-fields" @disabled($viewOnly)>
                 <div class="entity-body">
                     @if (session('status'))
                         <div class="desk-flash" role="status">{{ session('status') }}</div>
+                    @endif
+                    @if ($editingId && $editingApplied > 0)
+                        <div class="desk-flash" role="note">
+                            ${{ number_format($editingApplied, 2) }} of this credit is applied to invoices. The customer cannot be changed and the total cannot go below ${{ number_format($editingApplied, 2) }}.
+                        </div>
                     @endif
 
                     <div class="entity-header">
@@ -1383,7 +1611,11 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             <label class="so-form-lbl" for="memo_number">Memo No.</label>
                             <input id="memo_number" wire:model="memo_number" class="so-input font-mono so-input-ro" readonly title="Auto-generated" />
                             <span class="so-form-lbl">Status</span>
-                            <span class="desk-pill desk-pill-new">New</span>
+                            @if ($editingId)
+                                <span class="desk-pill">{{ $editingStatus }}</span>
+                            @else
+                                <span class="desk-pill desk-pill-new">New</span>
+                            @endif
                         </div>
                         <div class="entity-balance">Credit: <strong>${{ number_format($creditPreview, 2) }}</strong></div>
                     </div>
@@ -1674,8 +1906,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 <div class="entity-footer">
                     <div class="entity-tabs"><span class="entity-tab is-active">Credit Memo</span></div>
                     <div class="entity-footer-actions">
-                        <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
-                        <button type="submit" class="desk-btn desk-btn-primary">Save Credit Memo</button>
+                        @if ($editingId)
+                            <button type="button" wire:click="deleteEditingMemo" wire:confirm="Delete credit memo {{ $memo_number }}? Returned items will be taken back out of stock." class="desk-btn" style="color:#b91c1c;margin-right:auto">Delete</button>
+                        @endif
+                        @if ($viewOnly)
+                            <button type="button" wire:click="printSelected" class="desk-btn">Print / PDF</button>
+                            <button type="button" wire:click="cancelForm" class="desk-btn">Close</button>
+                            <button type="button" wire:click="enableEdit" class="desk-btn desk-btn-primary">Edit</button>
+                        @else
+                            <button type="button" wire:click="cancelForm" class="desk-btn">Cancel</button>
+                            <button type="submit" class="desk-btn desk-btn-primary">{{ $editingId ? 'Save Changes' : 'Save Credit Memo' }}</button>
+                        @endif
                     </div>
                 </div>
             </form>
@@ -1728,7 +1969,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                 @forelse ($memos as $m)
                                     <tr
                                         wire:click="selectRow({{ $m->id }})"
-                                        wire:dblclick="openMemoPdf({{ $m->id }})"
+                                        wire:dblclick="viewMemo({{ $m->id }})"
                                         class="cursor-pointer"
                                         @class(['is-selected' => $selectedId === $m->id])
                                     >
@@ -1767,7 +2008,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             <path d="M8 3v10M3 8h10"/>
                         </svg>
                     </button>
-                    <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View PDF" aria-label="View PDF" @disabled(! $selectedId)>
+                    <button type="button" wire:click="editSelected" class="desk-rail-btn" title="Edit credit memo" aria-label="Edit credit memo" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M10.5 2.5l3 3L6 13H3v-3l7.5-7.5z"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="voidSelectedMemo" wire:confirm="Delete the selected credit memo? Returned items will be taken back out of stock." class="desk-rail-btn" title="Delete credit memo" aria-label="Delete credit memo" style="color:#b91c1c" @disabled(! $selectedId)>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                            <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4"/>
+                        </svg>
+                    </button>
+                    <button type="button" wire:click="viewSelected" class="desk-rail-btn" title="View credit memo" aria-label="View credit memo" @disabled(! $selectedId)>
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                             <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                             <circle cx="8" cy="8" r="2"/>

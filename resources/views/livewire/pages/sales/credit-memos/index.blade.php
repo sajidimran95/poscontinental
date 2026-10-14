@@ -579,8 +579,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->lines[$index]['item_code'] = (string) ($orderLine->item_code ?? $resolved);
         $this->lines[$index]['description'] = (string) ($orderLine->description ?? '');
         $this->lines[$index]['uom'] = (string) ($orderLine->uom ?? '');
-        $price = (string) $orderLine->price;
-        $this->lines[$index]['price'] = ($price === '0' || $price === '0.0' || $price === '0.00') ? '' : $price;
+        $this->lines[$index]['price'] = (float) $orderLine->price > 0 ? $this->priceText($orderLine->price) : '';
         if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
             $this->lines[$index]['qty'] = '';
         }
@@ -648,7 +647,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         }
         $match = $item->prices->first(fn ($p) => strcasecmp((string) $p->uom, $uom) === 0);
         if ($match) {
-            $this->lines[$index]['price'] = (string) $match->price;
+            $this->lines[$index]['price'] = $this->priceText($match->price);
         }
     }
 
@@ -776,7 +775,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 'description' => (string) ($orderLine->description ?? ''),
                 'uom' => (string) ($orderLine->uom ?? ''),
                 'qty' => rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') ?: '1',
-                'price' => ($price === '0' || $price === '0.0' || $price === '0.00') ? '0' : $price,
+                'price' => (float) $price > 0 ? $this->priceText($price) : '0',
                 'non_saleable' => false,
             ];
         }
@@ -1022,11 +1021,19 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                 ->orderBy('line_no')
                 ->first();
             if ($orderLine && (float) $orderLine->price > 0) {
-                return number_format((float) $orderLine->price, 4, '.', '');
+                return $this->priceText($orderLine->price);
             }
         }
 
-        return number_format((float) ($item->list_price ?? 0), 4, '.', '');
+        return $this->priceText($item->list_price ?? 0);
+    }
+
+    /** 2 decimals; keeps 3rd/4th decimals only when they are not zero (e.g. 0.4167). */
+    protected function priceText(mixed $price): string
+    {
+        $text = number_format((float) $price, 4, '.', '');
+
+        return preg_replace('/(\.\d\d\d*?)0+$/', '$1', $text) ?? $text;
     }
 
     protected function resolveCreditTargetIndex(): int
@@ -1091,8 +1098,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->lines[$index]['item_code'] = (string) $orderLine->item_code;
         $this->lines[$index]['description'] = (string) ($orderLine->description ?? '');
         $this->lines[$index]['uom'] = (string) ($orderLine->uom ?? '');
-        $price = (string) $orderLine->price;
-        $this->lines[$index]['price'] = ($price === '0' || $price === '0.0' || $price === '0.00') ? '' : $price;
+        $this->lines[$index]['price'] = (float) $orderLine->price > 0 ? $this->priceText($orderLine->price) : '';
         if (($this->lines[$index]['qty'] ?? '') === '' || (float) $this->lines[$index]['qty'] <= 0) {
             $this->lines[$index]['qty'] = '1';
         }

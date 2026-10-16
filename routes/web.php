@@ -17,6 +17,7 @@ use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\Sale\SaleAuthController;
 use App\Http\Controllers\Sale\SaleChatController;
 use App\Http\Controllers\Sale\SaleParkedSaleController;
+use App\Http\Controllers\PriceAlertClaimController;
 use App\Http\Controllers\Sale\SalePortalController;
 use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\WebOrderNotifyController;
@@ -267,6 +268,7 @@ Route::prefix('customer')->name('customer.')->group(function () {
         Route::get('/api/products', [CustomerPortalController::class, 'searchProducts'])->name('api.products');
         Route::get('/api/categories', [CustomerPortalController::class, 'categoriesTree'])->name('api.categories');
         Route::get('/api/parked-sales', [CustomerPortalController::class, 'parkedSales'])->name('api.parked_sales');
+        Route::post('/api/price-alert-claim', [PriceAlertClaimController::class, 'claim'])->name('api.price_alert_claim');
     });
 });
 
@@ -314,6 +316,7 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::get('/api/last-purchases', [SalePortalController::class, 'lastPurchases'])->name('api.last_purchases');
         Route::get('/api/product-history', [SalePortalController::class, 'productOrderHistory'])->name('api.product_history');
         Route::get('/api/items', [SalePortalController::class, 'searchItems'])->name('api.items');
+        Route::post('/api/price-alert-claim', [PriceAlertClaimController::class, 'claim'])->name('api.price_alert_claim');
     });
 });
 

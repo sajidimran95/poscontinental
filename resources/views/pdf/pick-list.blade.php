@@ -105,9 +105,7 @@
             $line->_grp_sort = $code === '' && $name === ''
                 ? '9999999999'
                 : sprintf('%010d-%s', $n, strtoupper($code.'-'.$name));
-            $line->_grp_label = $code !== ''
-                ? $code.' - '.strtoupper($name !== '' ? $name : 'Other')
-                : strtoupper($name !== '' ? $name : 'Other');
+            $line->_grp_label = trim($code.($code !== '' && $name !== '' ? ' - ' : '').strtoupper($name));
 
             return $line;
         })
@@ -182,9 +180,11 @@
     </thead>
     <tbody>
         @forelse ($groups as $grpLabel => $lines)
-            <tr class="cat">
-                <td colspan="4">{{ $grpLabel }}</td>
-            </tr>
+            @if ($grpLabel !== '')
+                <tr class="cat">
+                    <td colspan="4">{{ $grpLabel }}</td>
+                </tr>
+            @endif
             @foreach ($lines as $line)
                 <tr class="item">
                     <td class="q">{{ $formatQty($line->qty_ordered) }}</td>

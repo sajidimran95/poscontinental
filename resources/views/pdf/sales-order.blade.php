@@ -375,7 +375,11 @@
     // Previous due = sum of all other open invoice balances for this customer
     $previousBalance = $previousInvoices['total'];
     $todayInvoice = $docTotal;
-    $totalDue = round($docTotal + $previousBalance, 2);
+    $openCredit = \App\Models\CreditMemo::openCreditTotal(
+        (int) $order->company_id,
+        $order->customer_id ? (int) $order->customer_id : null
+    );
+    $totalDue = round(max(0, $docTotal + $previousBalance - $openCredit), 2);
 @endphp
 
 <div class="page-head">
@@ -554,7 +558,7 @@
 </table>
 
 @php
-    $footExtraRows = collect([$returnsTotal < -0.004, $docDiscount != 0.0, $docFreight != 0.0, $docMisc != 0.0, $docTax != 0.0, $isInvoiceDoc && $thisOpen < -0.004])->filter()->count();
+    $footExtraRows = collect([$returnsTotal < -0.004, $docDiscount != 0.0, $docFreight != 0.0, $docMisc != 0.0, $docTax != 0.0, $isInvoiceDoc && $thisOpen < -0.004, $openCredit > 0.004])->filter()->count();
 @endphp
 <div class="doc-foot-space" style="height: {{ 220 + 22 * $footExtraRows }}px"></div>
 <div class="doc-foot">
@@ -618,6 +622,12 @@
                     <td class="lbl">PREVIOUS BALANCE</td>
                     <td class="amt">${{ number_format($previousBalance, 2) }}</td>
                 </tr>
+                @if ($openCredit > 0.004)
+                    <tr>
+                        <td class="lbl">OVERPAYMENT / CREDIT</td>
+                        <td class="amt">-${{ number_format($openCredit, 2) }}</td>
+                    </tr>
+                @endif
                 <tr class="due">
                     <td class="lbl">TOTAL DUE</td>
                     <td class="amt">${{ number_format($totalDue, 2) }}</td>

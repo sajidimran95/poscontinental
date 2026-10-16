@@ -61,6 +61,19 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
     /** @var array<int, array{id:int,customer_label:?string,line_count:int,total:float,updated_at:?string}> */
     public array $parkedSalesList = [];
 
+    public bool $showRepriceModal = false;
+
+    /** '' = all items, else a category id (e.g. MI Cigarettes). */
+    public string $repriceCategoryId = '';
+
+    /** @var list<array<string, mixed>> */
+    public array $repriceRows = [];
+
+    /** @var array<int, bool> order id => checked */
+    public array $repricePicked = [];
+
+    public ?int $repriceOpenId = null;
+
     public function mount(): void
     {
         $today = now()->toDateString();
@@ -659,8 +672,9 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
 
     public function invoiceOrder(int $id): void
     {
+        $repriced = [];
         try {
-            DB::transaction(function () use ($id) {
+            DB::transaction(function () use ($id, &$repriced) {
                 $order = SalesOrder::query()->with(['lines', 'customer', 'invoice'])->lockForUpdate()->findOrFail($id);
                 abort_unless((int) $order->company_id === (int) auth()->user()->company_id, 403);
                 $existingInvoice = $order->relationLoaded('invoice')
@@ -669,6 +683,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 if ($order->status === 'Invoiced' || $existingInvoice instanceof Invoice) {
                     return;
                 }
+
+                $repriced = app(\App\Services\OpenOrderRepriceService::class)->refreshForInvoice($order);
 
                 $lineDiscount = (float) $order->lines->sum('discount');
                 $invoice = Invoice::query()->create([
@@ -717,7 +733,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
-        session()->flash('status', 'Invoice created. Stock quantities updated.');
+        session()->flash('status', trim('Invoice created. Stock quantities updated. '
+            .\App\Services\OpenOrderRepriceService::changesMessage($repriced)));
     }
 
     public function createNewOrder(): mixed
@@ -776,6 +793,96 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
         return ExcelCsv::download($filename, ['Item Code', 'Description', 'UOM', 'Qty Ordered', 'Price', 'Discount', 'Line Total'], $export);
     }
 
+    public function openRepriceModal(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.orders', 'edit')) {
+            session()->flash('status', 'Your role cannot edit sales orders.');
+
+            return;
+        }
+        $this->showRepriceModal = true;
+        $this->repriceOpenId = null;
+        $this->loadRepricePreview();
+    }
+
+    public function updatedRepriceCategoryId(): void
+    {
+        $this->repriceOpenId = null;
+        $this->loadRepricePreview();
+    }
+
+    /** @return list<int> */
+    protected function repriceItemIds(): array
+    {
+        if ($this->repriceCategoryId === '') {
+            return [];
+        }
+        $ids = \App\Models\Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->where('category_id', (int) $this->repriceCategoryId)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return $ids === [] ? [0] : $ids;
+    }
+
+    protected function loadRepricePreview(): void
+    {
+        $this->repriceRows = app(\App\Services\OpenOrderRepriceService::class)
+            ->preview((int) auth()->user()->company_id, $this->repriceItemIds());
+        $this->repricePicked = [];
+        foreach ($this->repriceRows as $row) {
+            $this->repricePicked[(int) $row['id']] = $row['locked_by'] === null;
+        }
+    }
+
+    public function toggleRepriceDetails(int $orderId): void
+    {
+        $this->repriceOpenId = $this->repriceOpenId === $orderId ? null : $orderId;
+    }
+
+    public function setRepriceAll(bool $on): void
+    {
+        foreach ($this->repriceRows as $row) {
+            $this->repricePicked[(int) $row['id']] = $on && $row['locked_by'] === null;
+        }
+    }
+
+    public function applyReprice(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.orders', 'edit')) {
+            session()->flash('status', 'Your role cannot edit sales orders.');
+
+            return;
+        }
+        $ids = collect($this->repricePicked)->filter()->keys()->map(fn ($id) => (int) $id)->values()->all();
+        if ($ids === []) {
+            session()->flash('status', 'Tick at least one order to update.');
+
+            return;
+        }
+
+        $result = app(\App\Services\OpenOrderRepriceService::class)
+            ->apply((int) auth()->user()->company_id, $ids, $this->repriceItemIds());
+
+        $msg = 'Updated '.$result['orders'].' order'.($result['orders'] === 1 ? '' : 's')
+            .' ('.$result['lines'].' line'.($result['lines'] === 1 ? '' : 's').') to the current prices.';
+        if ($result['skipped'] !== []) {
+            $msg .= ' Skipped (someone has it open): '.implode(', ', $result['skipped']).'.';
+        }
+        session()->flash('status', $msg);
+        $this->closeRepriceModal();
+    }
+
+    public function closeRepriceModal(): void
+    {
+        $this->showRepriceModal = false;
+        $this->repriceRows = [];
+        $this->repricePicked = [];
+        $this->repriceOpenId = null;
+    }
+
     public function closeDesk(): mixed
     {
         return $this->redirect(route('home'), navigate: true);
@@ -794,6 +901,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 <x-action-item label="Create/Edit Invoice & Payment" kbd="Ctrl+I" sep wire:click="invoiceSelected" />
                 <x-action-item label="Delete Selected Order" sep wire:click="deleteSelected" />
                 <x-action-item label="Export Orders" sep wire:click="exportOrders" />
+                <x-action-item label="Update Not-Invoiced Orders to New Prices" sep wire:click="openRepriceModal" />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
@@ -1124,6 +1232,106 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                     @empty
                         <p style="padding:1rem; color:#64748b; margin:0;">No parked sales.</p>
                     @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+    @if ($showRepriceModal)
+        @php
+            $repriceCats = \App\Models\Category::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->orderBy('name')
+                ->get(['id', 'name']);
+            $repricePickedCount = collect($repricePicked)->filter()->count();
+        @endphp
+        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="closeRepriceModal" role="dialog" aria-modal="true" aria-labelledby="reprice-title">
+            <div class="desk-modal" style="max-width:52rem;" wire:keydown.escape.window="closeRepriceModal">
+                <div class="desk-modal-head">
+                    <span id="reprice-title">Update not-invoiced orders to new prices</span>
+                    <button type="button" wire:click="closeRepriceModal" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <div class="desk-modal-body" style="display:flex;flex-direction:column;gap:.6rem">
+                    <p style="margin:0;color:#475569;font-size:.85rem">
+                        Lines get the same price a new order would get today (customer memorized price, then price level, then list price).
+                        Invoiced orders, credits and returns are not changed.
+                    </p>
+                    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+                        <label for="reprice-cat" style="font-weight:600">Items:</label>
+                        <select id="reprice-cat" class="so-input" style="max-width:18rem" wire:model.live="repriceCategoryId">
+                            <option value="">All items</option>
+                            @foreach ($repriceCats as $cat)
+                                <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                            @endforeach
+                        </select>
+                        <span style="margin-left:auto;display:flex;gap:.35rem">
+                            <button type="button" class="desk-btn" wire:click="setRepriceAll(true)">Check all</button>
+                            <button type="button" class="desk-btn" wire:click="setRepriceAll(false)">Uncheck all</button>
+                        </span>
+                    </div>
+                    <div style="max-height:24rem;overflow:auto;border:1px solid #e2e8f0">
+                        <table class="desk-table" style="width:100%">
+                            <thead>
+                                <tr>
+                                    <th style="width:2rem"></th>
+                                    <th>Order No.</th>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th class="text-right">Lines</th>
+                                    <th class="text-right">Old Total</th>
+                                    <th class="text-right">New Total</th>
+                                    <th class="text-right">Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($repriceRows as $row)
+                                    @php $diff = round($row['new_total'] - $row['old_total'], 2); @endphp
+                                    <tr wire:key="rp-{{ $row['id'] }}" style="cursor:pointer" wire:click="toggleRepriceDetails({{ $row['id'] }})">
+                                        <td wire:click.stop>
+                                            <input type="checkbox" wire:model.live="repricePicked.{{ $row['id'] }}" @disabled($row['locked_by'] !== null) />
+                                        </td>
+                                        <td class="desk-num">{{ $row['order_number'] }}</td>
+                                        <td>{{ $row['order_date'] }}</td>
+                                        <td>
+                                            {{ $row['customer'] }}
+                                            @if ($row['locked_by'])
+                                                <span style="color:#b45309;font-size:.75rem"> · open by {{ $row['locked_by'] }}</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-right">{{ $row['lines_changed'] }}</td>
+                                        <td class="text-right">${{ number_format($row['old_total'], 2) }}</td>
+                                        <td class="text-right">${{ number_format($row['new_total'], 2) }}</td>
+                                        <td class="text-right" style="color:{{ $diff >= 0 ? '#15803d' : '#b91c1c' }}">{{ $diff >= 0 ? '+' : '−' }}${{ number_format(abs($diff), 2) }}</td>
+                                    </tr>
+                                    @if ($repriceOpenId === $row['id'])
+                                        <tr wire:key="rp-d-{{ $row['id'] }}">
+                                            <td></td>
+                                            <td colspan="7" style="background:#f8fafc">
+                                                @foreach ($row['changes'] as $c)
+                                                    <div style="display:flex;gap:.75rem;font-size:.8rem">
+                                                        <span class="desk-num" style="min-width:6rem">{{ $c['item_code'] }}</span>
+                                                        <span style="flex:1">{{ $c['description'] }}</span>
+                                                        <span>${{ number_format($c['old_price'], 2) }} → <strong>${{ number_format($c['new_price'], 2) }}</strong></span>
+                                                    </div>
+                                                @endforeach
+                                            </td>
+                                        </tr>
+                                    @endif
+                                @empty
+                                    <tr><td colspan="8" style="padding:1rem;color:#64748b">All not-invoiced orders already have the current prices.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:.5rem">
+                        <button type="button" class="desk-btn" wire:click="closeRepriceModal">Cancel</button>
+                        <button
+                            type="button"
+                            class="desk-btn desk-btn-primary"
+                            wire:click="applyReprice"
+                            wire:confirm="Update {{ $repricePickedCount }} order(s) to the current prices?"
+                            @disabled($repricePickedCount === 0)
+                        >Update {{ $repricePickedCount }} order{{ $repricePickedCount === 1 ? '' : 's' }}</button>
+                    </div>
                 </div>
             </div>
         </div>

@@ -108,12 +108,18 @@ class DocumentPdfService
         )['total'];
         $buckets = \App\Support\DocumentMerchandiseTotals::fromLines($order->lines);
         $qty = static fn (float $v): string => rtrim(rtrim(number_format($v, 2), '0'), '.') ?: '0';
+        $openCredit = CreditMemo::openCreditTotal(
+            (int) $order->company_id,
+            $order->customer_id ? (int) $order->customer_id : null
+        );
+        // Same figure as TOTAL DUE in the last-page totals.
+        $totalDue = round(max(0, (float) $invoice->invoice_total + (float) $previous - $openCredit), 2);
 
         return [
             'PREVIOUS BALANCE' => '$'.number_format((float) $previous, 2),
             '# ITEMS' => $qty((float) $order->lines->sum('qty_ordered')),
             '# CIG' => $qty((float) $buckets['cigarette_qty']),
-            'INVOICE TOTAL' => '$'.number_format((float) $invoice->invoice_total, 2),
+            'TOTAL DUE' => '$'.number_format($totalDue, 2),
         ];
     }
 

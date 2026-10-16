@@ -6,6 +6,7 @@ use App\Models\Item;
 use App\Models\ItemPriceHistory;
 use App\Models\ItemSupplier;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ItemPriceHistoryService
 {
@@ -230,6 +231,7 @@ class ItemPriceHistoryService
                 'current_cost' => null,
                 'list_price' => $curr,
                 'price_updated_at' => optional($sales->created_at)->toIso8601String(),
+                'price_history_id' => (int) $sales->id,
                 'price_update_message' => sprintf(
                     'Sales price updated %s: $%s → $%s',
                     $when ?: 'recently',
@@ -262,6 +264,7 @@ class ItemPriceHistoryService
             'current_cost' => $curr,
             'list_price' => $list,
             'price_updated_at' => optional($cost->created_at)->toIso8601String(),
+            'price_history_id' => (int) $cost->id,
             'price_update_message' => sprintf(
                 'PO/cost %s %s: $%s → $%s. Sales price is $%s — update List Price if needed.',
                 $direction,
@@ -271,6 +274,38 @@ class ItemPriceHistoryService
                 number_format($list, 2)
             ),
         ];
+    }
+
+    /** Viewer key for "seen" tracking: staff share one key across desk and sale app. */
+    public static function viewerKey(): string
+    {
+        if (auth('customer')->check()) {
+            return 'c:'.auth('customer')->id();
+        }
+        $userId = auth()->id() ?? auth('sale')->id();
+
+        return $userId ? 'u:'.$userId : '';
+    }
+
+    /**
+     * True only the first time this viewer is shown this price change (records it as seen).
+     */
+    public function claimAlert(string $viewer, int $historyId): bool
+    {
+        if ($viewer === '' || $historyId <= 0) {
+            return false;
+        }
+
+        try {
+            return DB::table('item_price_alert_views')->insertOrIgnore([
+                'viewer' => $viewer,
+                'item_price_history_id' => $historyId,
+                'created_at' => now(),
+            ]) > 0;
+        } catch (\Throwable) {
+            // Table not migrated yet: keep the old always-show behaviour.
+            return true;
+        }
     }
 
     /**
@@ -335,6 +370,7 @@ class ItemPriceHistoryService
                 'current_cost' => null,
                 'list_price' => $curr,
                 'price_updated_at' => optional($row->created_at)->toIso8601String(),
+                'price_history_id' => (int) $row->id,
                 'price_update_message' => sprintf(
                     'Sales price updated %s: $%s → $%s',
                     $when ?: 'recently',
@@ -372,6 +408,7 @@ class ItemPriceHistoryService
                 'current_cost' => $curr,
                 'list_price' => $list,
                 'price_updated_at' => optional($row->created_at)->toIso8601String(),
+                'price_history_id' => (int) $row->id,
                 'price_update_message' => sprintf(
                     'PO/cost %s %s: $%s → $%s. Sales price is $%s — update List Price if needed.',
                     $direction,

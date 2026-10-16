@@ -1555,8 +1555,18 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
         }
     }
 
-    function showPriceUpdateAlert(r) {
+    async function showPriceUpdateAlert(r) {
         if (!r || !r.price_updated) return;
+        if (r.price_history_id) {
+            try {
+                const res = await fetch(@json(route('sale.api.price_alert_claim')), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+                    body: JSON.stringify({ price_history_id: r.price_history_id }),
+                });
+                if (res.ok && !(await res.json()).show) return;
+            } catch (e) { /* offline: show it */ }
+        }
         const isCost = r.alert_type === 'cost';
         const msg = r.price_update_message
             || (isCost

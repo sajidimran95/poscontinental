@@ -53,6 +53,26 @@ class CreditMemo extends Model
         return max(0, (float) $this->amount - $this->applied_amount);
     }
 
+    /** Unused credit (open memos, e.g. overpayments) the customer still has on account. */
+    public static function openCreditTotal(int $companyId, ?int $customerId): float
+    {
+        if (! $customerId) {
+            return 0.0;
+        }
+
+        $applied = DB::table('invoice_credits')
+            ->selectRaw('credit_memo_id, SUM(amount) as applied')
+            ->groupBy('credit_memo_id');
+
+        return round((float) DB::table('credit_memos as cm')
+            ->leftJoinSub($applied, 'ap', 'ap.credit_memo_id', '=', 'cm.id')
+            ->where('cm.company_id', $companyId)
+            ->where('cm.customer_id', $customerId)
+            ->where('cm.status', 'Open')
+            ->selectRaw('SUM(GREATEST(cm.amount - COALESCE(ap.applied, 0), 0)) as t')
+            ->value('t'), 2);
+    }
+
     public static function nextNumber(int $companyId): string
     {
         // Imported memos are not in id order, so use the highest numeric memo number.

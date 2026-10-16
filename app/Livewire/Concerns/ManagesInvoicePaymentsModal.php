@@ -127,9 +127,43 @@ trait ManagesInvoicePaymentsModal
 
         $this->loadPcAdjustments($invoice);
 
-        // Same as before: open with normal Cash payment row.
+        // Like Sales → Payments: open credit memos pay first, cash row only for what is left.
         if ($invoice && $invoice->invoice_balance > 0.0001) {
-            $this->addPaymentRow();
+            $this->fillOpenCreditDrafts($invoice);
+            if ($this->remainingDraftDue() > 0.0001) {
+                $this->addPaymentRow();
+            }
+        }
+    }
+
+    protected function fillOpenCreditDrafts(Invoice $invoice): void
+    {
+        $left = round((float) $invoice->invoice_balance, 2);
+        if (! $invoice->customer_id) {
+            return;
+        }
+        $memos = CreditMemo::query()
+            ->where('company_id', $invoice->company_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->where('status', 'Open')
+            ->orderBy('memo_date')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($memos as $memo) {
+            if ($left <= 0.0001) {
+                break;
+            }
+            $apply = round(min((float) $memo->remaining_amount, $left), 2);
+            if ($apply <= 0.0001) {
+                continue;
+            }
+            $this->draftCredits[] = [
+                'key' => uniqid('cr_', true),
+                'credit_memo_id' => (string) $memo->id,
+                'amount' => number_format($apply, 2, '.', ''),
+            ];
+            $left = round($left - $apply, 2);
         }
     }
 

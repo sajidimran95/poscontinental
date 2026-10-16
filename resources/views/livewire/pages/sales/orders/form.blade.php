@@ -58,6 +58,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public bool $skipWindowDraftPersist = false;
 
+    protected string $invoiceRepriceNote = '';
+
     public bool $showPrintDialog = false;
 
     public bool $optCreateInvoicePayment = false;
@@ -5011,8 +5013,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->refreshCreditWarning();
             $this->suggestTax();
             $this->refreshAiAddOns($item);
-            $priceAlert = app(ItemPriceHistoryService::class)->salesAlertPayload($item);
-            if ($priceAlert) {
+            $priceHistory = app(ItemPriceHistoryService::class);
+            $priceAlert = $priceHistory->salesAlertPayload($item);
+            if ($priceAlert && $priceHistory->claimAlert(ItemPriceHistoryService::viewerKey(), (int) ($priceAlert['price_history_id'] ?? 0))) {
                 $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
                 $this->lineWarning = $priceAlert['price_update_message'];
                 $this->lineWarningKind = 'info';
@@ -5326,6 +5329,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $oldQtyByItem = [];
             $oldInvoiceTotal = 0.0;
             $linkedInvoice = null;
+            // Unchanged prices keep their original timestamp so invoicing can tell they predate a price change.
+            $priceSetAt = [];
 
             if ($this->salesOrder) {
                 $this->salesOrder->load(['lines', 'invoice']);
@@ -5339,6 +5344,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     if (! $oldLine->item_id) {
                         continue;
                     }
+                    $priceKey = (int) $oldLine->item_id.'|'.strtoupper((string) $oldLine->uom).'|'.number_format((float) $oldLine->price, 4, '.', '');
+                    $priceSetAt[$priceKey] ??= $oldLine->updated_at ?? $oldLine->created_at;
                     $qty = (float) $oldLine->qty_ordered;
                     $shipped = (float) ($oldLine->qty_shipped ?? 0);
                     if (abs($shipped) >= 0.0001) {
@@ -5383,6 +5390,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $discount = isset($line['unit_discount'])
                     ? round($qty * $unitDiscount, 4)
                     : (float) ($line['discount'] ?? 0);
+                $setAt = $priceSetAt[(int) $line['item_id'].'|'.strtoupper((string) ($line['uom'] ?? '')).'|'.number_format($price, 4, '.', '')] ?? $now;
                 $lineRows[] = [
                     'sales_order_id' => $order->id,
                     'item_id' => (int) $line['item_id'],
@@ -5397,8 +5405,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     'instructions' => filled($line['instructions'] ?? null) ? $line['instructions'] : null,
                     'line_total' => ($qty * $price) - $discount,
                     'line_no' => $i + 1,
-                    'created_at' => $now,
-                    'updated_at' => $now,
+                    'created_at' => $setAt,
+                    'updated_at' => $setAt,
                 ];
             }
             foreach (array_chunk($lineRows, 250) as $chunk) {
@@ -5559,14 +5567,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         if ($this->optCreateInvoicePayment && $invoice) {
-            session()->flash('status', 'Invoice '.$invoice->invoice_number.' created. Open Payments to collect.');
+            session()->flash('status', $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created. Open Payments to collect.'));
             $this->finishCreateWindowAndRedirect();
 
             return;
         }
 
         if ($this->optCreatePrintInvoice && $invoice) {
-            session()->flash('status', 'Invoice '.$invoice->invoice_number.' created.');
+            session()->flash('status', $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created.'));
         } else {
             session()->flash('status', 'Order '.$order->order_number.' saved.');
         }
@@ -5587,6 +5595,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
      * - Several create tabs: close the finished one; remaining renumber 1,2,3…
      * - Only one create tab: keep it active and clear for the next sale (manual × closes it).
      */
+    protected function withRepriceNote(string $message): string
+    {
+        return trim($message.' '.$this->invoiceRepriceNote);
+    }
+
     protected function finishSaveStayOnOrder(): void
     {
         if ($this->shouldReturnToInvoiceList() && ! $this->createWindowId) {
@@ -5598,7 +5611,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 ?: $this->salesOrder?->order_number;
             $this->returnToDeskList(
                 'sales.invoices.index',
-                $number ? 'Invoice '.$number.' saved.' : 'Invoice saved.'
+                $this->withRepriceNote($number ? 'Invoice '.$number.' saved.' : 'Invoice saved.')
             );
 
             return;
@@ -5660,7 +5673,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     ?: $this->salesOrder->order_number;
                 $this->returnToDeskList(
                     'sales.invoices.index',
-                    $number ? 'Invoice '.$number.' saved.' : 'Invoice saved.'
+                    $this->withRepriceNote($number ? 'Invoice '.$number.' saved.' : 'Invoice saved.')
                 );
 
                 return;
@@ -5668,7 +5681,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $number = $this->salesOrder->order_number;
             $this->returnToDeskList(
                 'sales.orders.index',
-                $number ? 'Order '.$number.' saved.' : 'Order saved.'
+                $this->withRepriceNote($number ? 'Order '.$number.' saved.' : 'Order saved.')
             );
 
             return;
@@ -5686,6 +5699,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             if ($order->invoice instanceof Invoice) {
                 return $order->invoice;
             }
+
+            $this->invoiceRepriceNote = \App\Services\OpenOrderRepriceService::changesMessage(
+                app(\App\Services\OpenOrderRepriceService::class)->refreshForInvoice($order)
+            );
 
             $lineDiscount = (float) $order->lines->sum('discount');
             $invoice = Invoice::query()->create([
@@ -6255,9 +6272,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                     <input
                                                         type="text"
                                                         wire:model.blur="lines.{{ $i }}.qty_ordered"
-                                                        wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'qty_ordered', 1)"
-                                                        wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'qty_ordered', -1)"
-                                                        wire:keydown.enter.prevent="$wire.selectLine({{ $i + 1 }}).then(() => requestAnimationFrame(() => document.querySelector('#so-line-row-{{ $i + 1 }} .so-cell-input')?.focus()))"
+                                                        data-so-col="qty_ordered"
                                                         class="so-cell-input text-right"
                                                         placeholder="0"
                                                         size="4"
@@ -6278,9 +6293,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                     wire:model.blur="lines.{{ $i }}.price"
                                                     wire:blur="considerPriceChange({{ $i }})"
                                                     wire:click.stop
-                                                    wire:keydown.enter.prevent="considerPriceChange({{ $i }})"
-                                                    wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'price', 1)"
-                                                    wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'price', -1)"
+                                                    data-so-col="price"
                                                     class="so-cell-input text-right"
                                                     placeholder="0"
                                                     aria-label="Line price"
@@ -6296,8 +6309,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                                                 <input
                                                     wire:model.blur="lines.{{ $i }}.unit_discount"
                                                     wire:click.stop
-                                                    wire:keydown.up.prevent="nudgeLineField({{ $i }}, 'unit_discount', 1)"
-                                                    wire:keydown.down.prevent="nudgeLineField({{ $i }}, 'unit_discount', -1)"
+                                                    data-so-col="unit_discount"
                                                     class="so-cell-input text-right"
                                                     placeholder="0"
                                                     title="{{ $lineDisc > 0 ? 'Line discount: $'.number_format($lineDisc, 2).' (per unit × qty)' : 'Discount per unit' }}"
@@ -7431,6 +7443,114 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
     });
+
+    // Line grid like Excel: listen on the document so Alpine / Livewire morph cannot drop the keys.
+    // Enter / ↓ next line, ↑ previous, ← → Qty / Price / Discount. Shift+↑ / Shift+↓ still add or take 1.
+    (function () {
+        const modalOpen = () => !!(
+            $wire.showPriceBelowLimitModal || $wire.showMemorizePriceModal || $wire.showCustomerConfirmModal
+            || $wire.showUnknownScanModal || $wire.showPriceUpdateAlertModal
+        );
+        const focusCol = (n, col, tries) => {
+            if (modalOpen()) return;
+            const el = document.querySelector('#so-line-row-' + n + ' [data-so-col="' + col + '"]')
+                || document.querySelector('#so-line-row-' + n + ' [data-so-col]');
+            if (el) {
+                el.focus();
+                el.select();
+                return;
+            }
+            if ((tries || 0) < 50) setTimeout(() => focusCol(n, col, (tries || 0) + 1), 40);
+        };
+        const lineRows = () => Array.from($wire.$el.querySelectorAll('tr[id^="so-line-row-"]'));
+        const rowIndex = (tr) => Number(tr.id.replace('so-line-row-', ''));
+        const openLine = (tr, col) => {
+            if (! tr) return;
+            const n = rowIndex(tr);
+            $wire.selectLine(n).then(() => focusCol(n, col || 'qty_ordered', 0));
+        };
+
+        // Clicking a line puts the cursor in its Qty so you can type straight away.
+        $wire.$el.addEventListener('click', function (e) {
+            const tr = e.target.closest && e.target.closest('tr[id^="so-line-row-"]');
+            if (! tr || e.target.closest('input, button, a, select, textarea')) return;
+            focusCol(rowIndex(tr), 'qty_ordered', 0);
+        });
+
+        // Not inside a line box: ↑ / ↓ / Enter still move through the lines.
+        // From an empty item-code box, ↑ goes to the last line.
+        document.addEventListener('keydown', function (e) {
+            if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || modalOpen()) return;
+            if (! $wire.$el.isConnected || $wire.$el.offsetParent === null) return;
+            const k = e.key;
+            if (k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'Enter') return;
+            const a = document.activeElement;
+            if (a && a.getAttribute && a.getAttribute('data-so-col')) return;
+            const rows = lineRows();
+            if (! rows.length) return;
+            const inEntry = a && a.hasAttribute && a.hasAttribute('data-pos-item-entry');
+            if (inEntry) {
+                if (k !== 'ArrowUp' || (a.value || '').trim() !== '') return;
+                e.preventDefault();
+                openLine(rows[rows.length - 1]);
+                return;
+            }
+            if (a && a !== document.body && a.matches && a.matches('input, textarea, select, button, a, [contenteditable="true"]')) return;
+            const cur = rows.findIndex(tr => tr.classList.contains('is-selected'));
+            let next;
+            if (k === 'Enter') next = rows[cur >= 0 ? cur : 0];
+            else if (k === 'ArrowDown') next = rows[cur < 0 ? 0 : Math.min(cur + 1, rows.length - 1)];
+            else next = rows[cur < 0 ? rows.length - 1 : Math.max(cur - 1, 0)];
+            e.preventDefault();
+            openLine(next);
+        });
+
+        $wire.$el.addEventListener('keydown', function (e) {
+            const input = e.target;
+            if (! input || ! input.getAttribute || ! input.getAttribute('data-so-col')) return;
+            const col = input.getAttribute('data-so-col');
+            const row = input.closest('tr');
+            if (! row || ! row.id) return;
+            const i = Number((/^so-line-row-(\d+)$/.exec(row.id) || [])[1]);
+            if (Number.isNaN(i)) return;
+            const k = e.key;
+            if ((k === 'ArrowUp' || k === 'ArrowDown') && e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                $wire.nudgeLineField(i, col, k === 'ArrowUp' ? 1 : -1);
+                return;
+            }
+            if (k === 'ArrowLeft' || k === 'ArrowRight') {
+                const cells = Array.from(row.querySelectorAll('[data-so-col]'));
+                const at = cells.indexOf(input);
+                const atStart = input.selectionStart === 0;
+                const atEnd = input.selectionEnd === input.value.length;
+                const next = k === 'ArrowLeft' ? (atStart ? cells[at - 1] : null) : (atEnd ? cells[at + 1] : null);
+                if (next) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    next.focus();
+                    next.select();
+                }
+                return;
+            }
+            if (k !== 'Enter' && k !== 'ArrowUp' && k !== 'ArrowDown') return;
+            e.preventDefault();
+            e.stopPropagation();
+            const target = k === 'ArrowUp' ? row.previousElementSibling : row.nextElementSibling;
+            const m = target && /^so-line-row-(\d+)$/.exec(target.id || '');
+            const dirty = String($wire.lines?.[i]?.[col] ?? '') !== input.value;
+            if (dirty) {
+                $wire.$set('lines.' + i + '.' + col, input.value, ! m && col !== 'price');
+            }
+            if (col === 'price' && dirty) $wire.considerPriceChange(i);
+            if (! m) {
+                if (k !== 'ArrowUp') document.querySelector('[data-pos-item-entry]')?.focus();
+                return;
+            }
+            $wire.selectLine(Number(m[1])).then(() => focusCol(Number(m[1]), col, 0));
+        });
+    })();
 
     (function () {
         let buf = '';

@@ -310,8 +310,18 @@
         return cart.reduce((s, l) => s + (l.quantity * l.unit_price), 0);
     }
 
-    function showPriceUpdateAlert(r) {
+    async function showPriceUpdateAlert(r) {
         if (!r || !r.price_updated) return;
+        if (r.price_history_id) {
+            try {
+                const res = await fetch(@json(route('customer.api.price_alert_claim')), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '' },
+                    body: JSON.stringify({ price_history_id: r.price_history_id }),
+                });
+                if (res.ok && !(await res.json()).show) return;
+            } catch (e) { /* offline: show it */ }
+        }
         const isCost = r.alert_type === 'cost';
         const msg = r.price_update_message
             || (isCost

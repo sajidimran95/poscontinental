@@ -51,11 +51,14 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public string $itemLookup = '';
 
+    /** Filter Count Lines by item code, UPC, or name (view finished counts / large counts). */
+    public string $lineSearch = '';
+
     public bool $scanModeActive = false;
 
     public ?int $selectedLineIndex = null;
 
-    /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
+    /** @var array<int, array{item_id:?int,item_code:string,description:string,upc:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:?string}> */
     public array $lines = [];
 
     public function mount(?StockCount $stockCount = null): void
@@ -64,7 +67,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
         if ($stockCount?->exists) {
             abort_unless($stockCount->company_id === $companyId, 403);
-            $this->stockCount = $stockCount->load(['lines', 'processedByUser']);
+            $this->stockCount = $stockCount->load(['lines.item.upcs', 'processedByUser']);
             $this->fill($stockCount->only([
                 'stock_count_no', 'status', 'site_id', 'description', 'shared_count', 'comments', 'processed_by',
             ]));
@@ -76,12 +79,16 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 'item_id' => $l->item_id,
                 'item_code' => $l->item_code ?? '',
                 'description' => $l->description ?? '',
+                'upc' => $this->lineUpcSearchText($l->item),
                 'uom' => $l->uom ?? '',
                 'in_stock' => (string) $l->in_stock,
                 'allocated' => (string) $l->allocated,
                 'counted' => $l->counted !== null ? (string) $l->counted : '',
                 'count_time' => optional($l->count_time)?->format('Y-m-d H:i:s'),
             ])->all();
+            if ($this->status === 'Processed') {
+                $this->activeTab = 'expand';
+            }
         } else {
             $this->stock_count_no = StockCount::nextNumber($companyId);
             $this->date_created = $this->toDateTimeLocal(\App\Support\UserTimezone::now());
@@ -120,7 +127,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
 
     public function rendered(): void
     {
-        if ($this->showBrowse || $this->activeTab !== 'expand') {
+        if ($this->showBrowse || $this->activeTab !== 'expand' || $this->status === 'Processed') {
             return;
         }
 
@@ -129,6 +136,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 const el = document.getElementById('sc-item-entry');
                 if (!el) return;
                 const a = document.activeElement;
+                if (a && a.id === 'sc-line-search') return;
                 if (a && a.closest && a.closest('.sc-lines-table, .item-browse, [data-item-browse], .entity-header')) return;
                 if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') && a !== el) return;
                 el.focus();
@@ -142,12 +150,59 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             'item_id' => null,
             'item_code' => '',
             'description' => '',
+            'upc' => '',
             'uom' => '',
             'in_stock' => '0',
             'allocated' => '0',
             'counted' => '',
             'count_time' => null,
         ];
+    }
+
+    protected function lineUpcSearchText(?Item $item): string
+    {
+        if (! $item) {
+            return '';
+        }
+
+        $parts = array_filter([
+            trim((string) ($item->primary_upc ?? '')),
+            ...$item->upcs->pluck('upc')->map(fn ($u) => trim((string) $u))->all(),
+        ]);
+
+        return implode(' ', array_unique($parts));
+    }
+
+    /** @return list<int> Original line indexes that match the current line search. */
+    protected function matchingLineIndexes(): array
+    {
+        $term = mb_strtolower(trim($this->lineSearch));
+        $indexes = [];
+        foreach ($this->lines as $i => $line) {
+            $hasItem = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
+            if (! $hasItem) {
+                continue;
+            }
+            if ($term === '') {
+                $indexes[] = $i;
+                continue;
+            }
+            $haystack = mb_strtolower(trim(implode(' ', [
+                (string) ($line['item_code'] ?? ''),
+                (string) ($line['description'] ?? ''),
+                (string) ($line['upc'] ?? ''),
+            ])));
+            if (str_contains($haystack, $term)) {
+                $indexes[] = $i;
+            }
+        }
+
+        return $indexes;
+    }
+
+    public function clearLineSearch(): void
+    {
+        $this->lineSearch = '';
     }
 
     protected function toDateTimeLocal(mixed $value): string
@@ -198,6 +253,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 ->get(['id', 'name']);
         }
 
+        $matchingLineIndexes = $this->matchingLineIndexes();
+
         return array_merge($this->documentBrowseViewData(), [
             'sites' => $sites,
             'users' => $users,
@@ -209,6 +266,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
             'totalItemsCounted' => $totalItemsCounted,
             'totalQtyCounted' => $totalQtyCounted,
             'filledLineCount' => $filledLineCount,
+            'matchingLineIndexes' => $matchingLineIndexes,
+            'matchingLineCount' => count($matchingLineIndexes),
             'isProcessed' => $this->status === 'Processed',
         ]);
     }
@@ -506,7 +565,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     }
 
     /**
-     * @return array{item_id:int,item_code:string,description:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:null}
+     * @return array{item_id:int,item_code:string,description:string,upc:string,uom:string,in_stock:string,allocated:string,counted:string,count_time:null}
      */
     protected function linePayloadFromItem(Item $item, ?string $uom = null): array
     {
@@ -514,11 +573,13 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         if ($resolvedUom === '') {
             $resolvedUom = $item->displayUom();
         }
+        $item->loadMissing('upcs');
 
         return [
             'item_id' => (int) $item->id,
             'item_code' => (string) $item->item_code,
             'description' => (string) ($item->description ?? ''),
+            'upc' => $this->lineUpcSearchText($item),
             'uom' => $resolvedUom,
             // System on-hand qty (may be negative if oversold) — show truthfully.
             'in_stock' => number_format((float) $item->quantity_in_stock, 4, '.', ''),
@@ -1189,14 +1250,30 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                 </div>
 
                 <div class="entity-section sc-lines-section" style="margin-top:0">
-                    <div class="entity-section-head">
+                    <div class="entity-section-head" style="flex-wrap:wrap;gap:0.5rem">
                         <h3 class="entity-section-title">Count Lines</h3>
-                        @unless ($isProcessed)
-                            <div class="flex gap-2">
+                        <div class="flex gap-2 items-center" style="margin-left:auto;flex-wrap:wrap">
+                            <label class="desk-toolbar-label" for="sc-line-search" style="margin:0">Item search:</label>
+                            <input
+                                id="sc-line-search"
+                                type="search"
+                                wire:model.live.debounce.250ms="lineSearch"
+                                class="desk-search orders-search-input"
+                                placeholder="UPC, item code, or name…"
+                                aria-label="Search counted items by UPC, code, or name"
+                                style="min-width:14rem;max-width:20rem"
+                            />
+                            @if (filled($lineSearch))
+                                <button type="button" wire:click="clearLineSearch" class="desk-btn desk-btn-sm" title="Clear item search">Clear</button>
+                                <span class="desk-muted" style="font-size:0.8rem;white-space:nowrap">
+                                    {{ $matchingLineCount }} of {{ $filledLineCount }}
+                                </span>
+                            @endif
+                            @unless ($isProcessed)
                                 <button type="button" wire:click="openItemBrowse" class="desk-btn desk-btn-sm">Browse Items</button>
                                 <button type="button" wire:click="addLine" class="desk-btn desk-btn-sm">Add Line</button>
-                            </div>
-                        @endunless
+                            @endunless
+                        </div>
                     </div>
 
                     <div class="desk-grid item-lines-wrap">
@@ -1226,15 +1303,14 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach ($lines as $i => $line)
+                                @forelse ($matchingLineIndexes as $i)
                                     @php
-                                        $filled = filled($line['item_code'] ?? null) || (int) ($line['item_id'] ?? 0) > 0;
+                                        $line = $lines[$i];
                                         // Variance only after a real count entry (count_time), so empty/0 placeholder does not show −In Stock.
                                         $variance = filled($line['count_time'] ?? null) && $line['counted'] !== '' && $line['counted'] !== null
                                             ? (float) $line['counted'] - (float) $line['in_stock']
                                             : null;
                                     @endphp
-                                    @if ($filled)
                                         <tr
                                             id="sc-line-row-{{ $i }}"
                                             wire:key="sc-line-{{ $i }}-{{ $line['item_id'] ?? 'new' }}"
@@ -1273,15 +1349,19 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
                                                 @endunless
                                             </td>
                                         </tr>
-                                    @endif
-                                @endforeach
+                                @empty
+                                    <tr>
+                                        <td colspan="9" style="padding:1rem;color:#64748b;text-align:center">
+                                            @if ($filledLineCount === 0)
+                                                Scan or type an item code below, or click Browse (F3)
+                                            @else
+                                                No items match “{{ $lineSearch }}”.
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforelse
                             </tbody>
                         </table>
-                        @if ($filledLineCount === 0)
-                            <div class="so-items-empty" role="status" style="padding:1rem;color:#64748b">
-                                Scan or type an item code below, or click Browse (F3)
-                            </div>
-                        @endif
                     </div>
 
                     @if ($lookupMessage)

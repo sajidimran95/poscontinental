@@ -51,13 +51,29 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
             ->with(['site:id,code,name', 'processedByUser:id,name'])
             ->where('company_id', $companyId)
             ->when($hasSearch, function ($q) {
-                $term = '%'.$this->search.'%';
-                $q->where(function ($inner) use ($term) {
+                $raw = trim($this->search);
+                $term = '%'.$raw.'%';
+                $q->where(function ($inner) use ($term, $raw) {
                     $inner->where('stock_count_no', 'like', $term)
                         ->orWhere('description', 'like', $term)
                         ->orWhere('status', 'like', $term)
                         ->orWhereHas('site', fn ($s) => $s->where('code', 'like', $term)->orWhere('name', 'like', $term))
-                        ->orWhereHas('processedByUser', fn ($u) => $u->where('name', 'like', $term));
+                        ->orWhereHas('processedByUser', fn ($u) => $u->where('name', 'like', $term))
+                        // Find counts that include an item (code / name / UPC).
+                        ->orWhereHas('lines', function ($line) use ($term, $raw) {
+                            $line->where('item_code', 'like', $term)
+                                ->orWhere('description', 'like', $term)
+                                ->orWhereHas('item', function ($item) use ($term, $raw) {
+                                    $item->where('item_code', 'like', $term)
+                                        ->orWhere('description', 'like', $term)
+                                        ->orWhere('primary_upc', 'like', $term)
+                                        ->orWhereHas('upcs', fn ($u) => $u->where('upc', 'like', $term));
+                                    if ($raw !== '') {
+                                        $item->orWhere('primary_upc', $raw)
+                                            ->orWhereHas('upcs', fn ($u) => $u->where('upc', $raw));
+                                    }
+                                });
+                        });
                 });
             })
             ->when($this->favorite === 'new', fn ($q) => $q->where('status', 'New'))
@@ -358,7 +374,7 @@ new #[Layout('layouts.app'), Title('Stock Counts')] class extends Component
                         id="stock-counts-search" data-pos-search
                         type="search"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Count #, site, description, processed by…"
+                        placeholder="Count #, item code, UPC, name, site…"
                         class="desk-search orders-search-input"
                         aria-label="Search Stock Counts"
                     />

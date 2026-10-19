@@ -515,7 +515,10 @@ class TobaccoProductSalesFileService
     protected function promoDetails(Item $item): array
     {
         $desc = $this->upperAscii(trim((string) ($item->manu_promotion_description ?? '')));
-        $flag = filled($item->manu_promotion_item)
+        $promoItem = strtolower(trim((string) ($item->manu_promotion_item ?? '')));
+        $promoItemOn = $promoItem !== ''
+            && ! in_array($promoItem, ['false', 'n', 'no', '0', 'off'], true);
+        $flag = $promoItemOn
             || filled($item->promotion_schedule_id)
             || filled($item->manu_promotion_code)
             || $desc !== '';

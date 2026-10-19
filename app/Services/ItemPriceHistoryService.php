@@ -222,7 +222,7 @@ class ItemPriceHistoryService
             $curr = (float) $sales->list_price_after;
             $when = optional($sales->created_at)->format('M j, Y');
 
-            return [
+            return $this->filterSeenAlert([
                 'price_updated' => true,
                 'alert_type' => 'sales',
                 'previous_price' => $prev,
@@ -238,7 +238,7 @@ class ItemPriceHistoryService
                     number_format($prev, 2),
                     number_format($curr, 2)
                 ),
-            ];
+            ]);
         }
 
         $cost = $this->latestCostChange($item);
@@ -255,7 +255,7 @@ class ItemPriceHistoryService
         $list = (float) $item->list_price;
         $direction = $curr > $prev ? 'increased' : ($curr < $prev ? 'decreased' : 'changed');
 
-        return [
+        return $this->filterSeenAlert([
             'price_updated' => true,
             'alert_type' => 'cost',
             'previous_price' => $prev,
@@ -273,18 +273,31 @@ class ItemPriceHistoryService
                 number_format($curr, 2),
                 number_format($list, 2)
             ),
-        ];
+        ]);
     }
 
     /** Viewer key for "seen" tracking: staff share one key across desk and sale app. */
     public static function viewerKey(): string
     {
         if (auth('customer')->check()) {
-            return 'c:'.auth('customer')->id();
+            return 'c:'.(int) auth('customer')->id();
         }
-        $userId = auth()->id() ?? auth('sale')->id();
+        // Sale portal uses the sale guard; desk uses web/default.
+        $userId = auth('sale')->id() ?? auth()->id();
 
-        return $userId ? 'u:'.$userId : '';
+        return $userId ? 'u:'.(int) $userId : '';
+    }
+
+    public function hasSeenAlert(string $viewer, int $historyId): bool
+    {
+        if ($viewer === '' || $historyId <= 0 || ! $this->alertViewsReady()) {
+            return false;
+        }
+
+        return DB::table('item_price_alert_views')
+            ->where('viewer', $viewer)
+            ->where('item_price_history_id', $historyId)
+            ->exists();
     }
 
     /**
@@ -296,6 +309,15 @@ class ItemPriceHistoryService
             return false;
         }
 
+        if (! $this->alertViewsReady()) {
+            // Without the table we cannot remember — do not spam every sale.
+            return false;
+        }
+
+        if ($this->hasSeenAlert($viewer, $historyId)) {
+            return false;
+        }
+
         try {
             return DB::table('item_price_alert_views')->insertOrIgnore([
                 'viewer' => $viewer,
@@ -303,9 +325,42 @@ class ItemPriceHistoryService
                 'created_at' => now(),
             ]) > 0;
         } catch (\Throwable) {
-            // Table not migrated yet: keep the old always-show behaviour.
-            return true;
+            return false;
         }
+    }
+
+    protected function alertViewsReady(): bool
+    {
+        static $ready = null;
+        if ($ready === null) {
+            try {
+                $ready = \Illuminate\Support\Facades\Schema::hasTable('item_price_alert_views');
+            } catch (\Throwable) {
+                $ready = false;
+            }
+        }
+
+        return $ready;
+    }
+
+    /**
+     * Drop alerts this viewer already acknowledged (so APIs never re-flag them).
+     *
+     * @param  array<string, mixed>|null  $alert
+     * @return array<string, mixed>|null
+     */
+    public function filterSeenAlert(?array $alert, ?string $viewer = null): ?array
+    {
+        if (! $alert) {
+            return null;
+        }
+        $viewer ??= static::viewerKey();
+        $historyId = (int) ($alert['price_history_id'] ?? 0);
+        if ($historyId > 0 && $viewer !== '' && $this->hasSeenAlert($viewer, $historyId)) {
+            return null;
+        }
+
+        return $alert;
     }
 
     /**
@@ -316,6 +371,7 @@ class ItemPriceHistoryService
      */
     public function mergeIntoProductPayload(array $payload, Item $item): array
     {
+        // salesAlertPayload already drops alerts this viewer has seen.
         $alert = $this->salesAlertPayload($item);
         if (! $alert) {
             $payload['price_updated'] = false;
@@ -418,6 +474,15 @@ class ItemPriceHistoryService
                     number_format($list, 2)
                 ),
             ];
+        }
+
+        $viewer = static::viewerKey();
+        if ($viewer !== '') {
+            foreach ($out as $itemId => $alert) {
+                if (! $this->filterSeenAlert($alert, $viewer)) {
+                    unset($out[$itemId]);
+                }
+            }
         }
 
         return $out;

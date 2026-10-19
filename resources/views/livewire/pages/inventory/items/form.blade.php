@@ -143,7 +143,8 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
 
     public string $manu_product_id = '';
 
-    public string $manu_promotion_item = '';
+    /** True | False — default False; users may switch to True. */
+    public string $manu_promotion_item = 'False';
 
     public string $manu_promotion_description = '';
 
@@ -228,6 +229,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             }
 
             $this->fill($data);
+            $this->manu_promotion_item = $this->normalizePromoItemFlag($this->manu_promotion_item);
 
             $this->formatPricingDisplay();
 
@@ -436,6 +438,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
     /**
      * Create starts with blank money fields. Edit must not dump DB scale (.0000).
      */
+    protected function normalizePromoItemFlag(mixed $value): string
+    {
+        $v = strtolower(trim((string) $value));
+        if (in_array($v, ['true', 'y', 'yes', '1', 'on'], true)) {
+            return 'True';
+        }
+
+        return 'False';
+    }
+
     protected function formatPricingDisplay(): void
     {
         $this->list_price = $this->formatMoneyTwo($this->list_price);
@@ -446,6 +458,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
         $this->average_cost = $this->formatMoneyTwo($this->average_cost);
         $this->reorder_point = $this->formatMoneyTwo($this->reorder_point);
         $this->restock_level = $this->formatMoneyTwo($this->restock_level);
+        $this->manu_base_count = $this->formatMoneyTwo($this->manu_base_count);
 
         $prices = $this->prices;
         foreach ($prices as $i => $row) {
@@ -1356,7 +1369,7 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
             'item_line_message' => $this->item_line_message,
             'comments' => $this->comments,
             'manu_product_id' => $this->manu_product_id,
-            'manu_promotion_item' => $this->manu_promotion_item,
+            'manu_promotion_item' => $this->normalizePromoItemFlag($this->manu_promotion_item),
             'manu_promotion_description' => $this->manu_promotion_description,
             'manu_promotion_code' => $this->manu_promotion_code,
             'manu_base_count' => $amount($this->manu_base_count),
@@ -2427,10 +2440,16 @@ new #[Layout('layouts.app'), Title('Item')] class extends Component
                     <div class="entity-body-pad">
                         <div class="inv-top-grid" style="margin:0">
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_product_id">Product ID</label><input id="manu_product_id" wire:model="manu_product_id" class="so-input" /></div>
-                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_item">Promo Item</label><input id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input" /></div>
+                            <div class="so-form-row so-form-row-side">
+                                <label class="so-form-lbl" for="manu_promotion_item">Promo Item</label>
+                                <select id="manu_promotion_item" wire:model="manu_promotion_item" class="so-input">
+                                    <option value="False">False</option>
+                                    <option value="True">True</option>
+                                </select>
+                            </div>
                             <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_promotion_code">Promo Code</label><input id="manu_promotion_code" wire:model="manu_promotion_code" class="so-input" /></div>
                             <div class="so-form-row so-form-row-side" style="grid-column:span 2"><label class="so-form-lbl" for="manu_promotion_description">Promo Desc</label><input id="manu_promotion_description" wire:model="manu_promotion_description" class="so-input" /></div>
-                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_base_count">Base Count</label><input id="manu_base_count" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" placeholder="0" /></div>
+                            <div class="so-form-row so-form-row-side"><label class="so-form-lbl" for="manu_base_count">Base Count</label><input id="manu_base_count" type="text" inputmode="decimal" wire:model="manu_base_count" class="so-input text-right" style="max-width:8rem" placeholder="0.00" /></div>
                         </div>
                     </div>
                 </div>

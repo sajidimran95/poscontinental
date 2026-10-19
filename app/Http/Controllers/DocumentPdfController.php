@@ -101,7 +101,8 @@ class DocumentPdfController extends Controller
     {
         abort_unless($memo->company_id === auth()->user()->company_id, 403);
 
-        return $pdfs->downloadCreditMemo($memo);
+        return $pdfs->creditMemoPdf($memo, auth()->user())
+            ->stream('credit-memo-'.$memo->memo_number.'.pdf');
     }
 
     public function emailInvoice(Request $request, Invoice $invoice, DocumentPdfService $pdfs): RedirectResponse

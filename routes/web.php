@@ -19,6 +19,7 @@ use App\Http\Controllers\Sale\SaleChatController;
 use App\Http\Controllers\Sale\SaleParkedSaleController;
 use App\Http\Controllers\PriceAlertClaimController;
 use App\Http\Controllers\Sale\SalePortalController;
+use App\Http\Controllers\TeamChatAttachmentController;
 use App\Http\Controllers\TeamChatNavController;
 use App\Http\Controllers\WebOrderNotifyController;
 use App\Http\Controllers\Sale\SalePwaController;
@@ -105,6 +106,9 @@ Route::middleware(['auth', 'feature'])->group(function () {
         ->where('token', '[0-9a-fA-F\-]{36}')
         ->name('exports.xlsx');
     Route::get('team-chat/unread', [TeamChatNavController::class, 'unread'])->name('team-chat.unread');
+    Route::get('team-chat/attachments/{attachment}', [TeamChatAttachmentController::class, 'show'])
+        ->whereNumber('attachment')
+        ->name('team-chat.attachment');
     Route::get('notify/web-orders', [WebOrderNotifyController::class, 'latest'])->name('notify.web-orders');
     Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
 
@@ -295,6 +299,9 @@ Route::prefix('sale')->name('sale.')->group(function () {
         Route::post('/account/location', [SalePortalController::class, 'updateLocation'])->name('account.location');
         Route::post('/account/password', [SalePortalController::class, 'updatePassword'])->name('account.password');
         Route::get('/chat/unread', [SaleChatController::class, 'unread'])->name('chat.unread');
+        Route::get('/chat/attachments/{attachment}', [TeamChatAttachmentController::class, 'show'])
+            ->whereNumber('attachment')
+            ->name('chat.attachment');
         Route::post('/chat/dm', [SaleChatController::class, 'dm'])->name('chat.dm');
         Route::post('/chat/{channel}/messages', [SaleChatController::class, 'send'])->name('chat.send')->whereNumber('channel');
         Route::get('/chat/{channel}/poll', [SaleChatController::class, 'poll'])->name('chat.poll')->whereNumber('channel');

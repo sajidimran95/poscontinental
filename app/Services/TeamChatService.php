@@ -5,10 +5,14 @@ namespace App\Services;
 use App\Models\ChatChannel;
 use App\Models\ChatChannelMember;
 use App\Models\ChatMessage;
+use App\Models\ChatMessageAttachment;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class TeamChatService
 {
@@ -216,9 +220,18 @@ class TeamChatService
                 $channelLabel = 'Direct message';
             }
 
+            $previewBody = trim(preg_replace('/\s+/', ' ', (string) $latest->body) ?? '');
+            if ($previewBody === '') {
+                $latest->loadMissing('attachments');
+                $first = $latest->attachments->first();
+                $previewBody = $first
+                    ? ($first->isImage() ? '📷 Photo' : '📎 '.$first->original_name)
+                    : 'New message';
+            }
+
             $preview = [
                 'from' => (string) ($latest->sender?->name ?: 'Someone'),
-                'body' => Str::limit(trim(preg_replace('/\s+/', ' ', (string) $latest->body) ?? ''), 90),
+                'body' => Str::limit($previewBody, 90),
                 'channel' => $channelLabel,
             ];
         }
@@ -319,7 +332,7 @@ class TeamChatService
         $limit = max(1, min(100, $limit));
 
         $q = ChatMessage::query()
-            ->with('sender:id,name')
+            ->with(['sender:id,name', 'attachments'])
             ->where('channel_id', $channel->id)
             ->orderByDesc('id')
             ->limit($limit + 1);
@@ -335,7 +348,8 @@ class TeamChatService
         }
 
         $ordered = $rows->reverse()->values();
-        $messages = $ordered->map(fn (ChatMessage $m) => $this->serializeMessage($m))->all();
+        $ctx = $this->detectAttachmentContext();
+        $messages = $ordered->map(fn (ChatMessage $m) => $this->serializeMessage($m, $ctx))->all();
 
         return [
             'messages' => $messages,
@@ -350,37 +364,89 @@ class TeamChatService
     public function messagesAfter(ChatChannel $channel, User $user, int $afterId): array
     {
         $this->assertMember($channel, $user);
+        $ctx = $this->detectAttachmentContext();
 
         return ChatMessage::query()
-            ->with('sender:id,name')
+            ->with(['sender:id,name', 'attachments'])
             ->where('channel_id', $channel->id)
             ->where('id', '>', $afterId)
             ->orderBy('id')
             ->limit(80)
             ->get()
-            ->map(fn (ChatMessage $m) => $this->serializeMessage($m))
+            ->map(fn (ChatMessage $m) => $this->serializeMessage($m, $ctx))
             ->all();
     }
 
-    public function send(ChatChannel $channel, User $user, string $body): ChatMessage
+    /**
+     * @param  list<UploadedFile|TemporaryUploadedFile>  $files
+     */
+    public function send(ChatChannel $channel, User $user, string $body = '', array $files = []): ChatMessage
     {
         $this->assertMember($channel, $user);
         $body = trim($body);
-        abort_if($body === '', 422, 'Message cannot be empty.');
+        $files = array_values(array_filter($files));
+        abort_if($body === '' && $files === [], 422, 'Message cannot be empty.');
         abort_if(mb_strlen($body) > 8000, 422, 'Message is too long.');
+        abort_if(count($files) > 5, 422, 'You can attach up to 5 files.');
 
-        $message = ChatMessage::query()->create([
-            'channel_id' => $channel->id,
-            'sender_id' => $user->id,
-            'body' => $body,
+        foreach ($files as $file) {
+            $this->assertAllowedUpload($file);
+        }
+
+        $message = DB::transaction(function () use ($channel, $user, $body, $files) {
+            $message = ChatMessage::query()->create([
+                'channel_id' => $channel->id,
+                'sender_id' => $user->id,
+                'body' => $body,
+            ]);
+
+            foreach ($files as $file) {
+                $this->storeAttachment($message, $channel, $file);
+            }
+
+            ChatChannelMember::query()
+                ->where('channel_id', $channel->id)
+                ->where('user_id', $user->id)
+                ->update(['last_read_message_id' => $message->id]);
+
+            return $message;
+        });
+
+        return $message->load(['sender:id,name', 'attachments']);
+    }
+
+    /**
+     * @param  UploadedFile|TemporaryUploadedFile  $file
+     */
+    protected function assertAllowedUpload(UploadedFile|TemporaryUploadedFile $file): void
+    {
+        $maxBytes = 10 * 1024 * 1024;
+        abort_if($file->getSize() > $maxBytes, 422, 'Each file must be 10 MB or smaller.');
+
+        $ext = strtolower((string) $file->getClientOriginalExtension());
+        $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip'];
+        abort_unless(in_array($ext, $allowed, true), 422, 'File type not allowed: '.$ext);
+    }
+
+    /**
+     * @param  UploadedFile|TemporaryUploadedFile  $file
+     */
+    protected function storeAttachment(ChatMessage $message, ChatChannel $channel, UploadedFile|TemporaryUploadedFile $file): ChatMessageAttachment
+    {
+        $ext = strtolower((string) $file->getClientOriginalExtension());
+        $safeExt = preg_replace('/[^a-z0-9]/', '', $ext) ?: 'bin';
+        $dir = sprintf('chat/%d/%d', (int) $channel->company_id, (int) $channel->id);
+        $filename = Str::uuid()->toString().'.'.$safeExt;
+        $path = $file->storeAs($dir, $filename, 'local');
+
+        return ChatMessageAttachment::query()->create([
+            'message_id' => $message->id,
+            'disk' => 'local',
+            'path' => $path,
+            'original_name' => Str::limit((string) $file->getClientOriginalName(), 180, ''),
+            'mime' => $file->getMimeType() ?: null,
+            'size' => (int) $file->getSize(),
         ]);
-
-        ChatChannelMember::query()
-            ->where('channel_id', $channel->id)
-            ->where('user_id', $user->id)
-            ->update(['last_read_message_id' => $message->id]);
-
-        return $message->load('sender:id,name');
     }
 
     public function edit(ChatMessage $message, User $user, string $body): ChatMessage
@@ -394,7 +460,7 @@ class TeamChatService
         $message->edited_at = now();
         $message->save();
 
-        return $message->load('sender:id,name');
+        return $message->load(['sender:id,name', 'attachments']);
     }
 
     public function deleteOwn(ChatMessage $message, User $user): void
@@ -402,6 +468,35 @@ class TeamChatService
         abort_unless((int) $message->sender_id === (int) $user->id, 403);
         abort_unless($message->channel?->company_id === $user->company_id, 403);
         $message->delete();
+    }
+
+    /**
+     * Absolute URL for an attachment (web or sale portal).
+     */
+    public function attachmentUrl(ChatMessageAttachment $attachment, string $context = 'web'): string
+    {
+        if ($context === 'sale') {
+            return route('sale.chat.attachment', $attachment);
+        }
+
+        if ($context === 'api') {
+            return url('/api/chat/attachments/'.$attachment->id);
+        }
+
+        return route('team-chat.attachment', $attachment);
+    }
+
+    protected function detectAttachmentContext(): string
+    {
+        if (request()->routeIs('sale.*') || (auth('sale')->check() && ! auth()->guard('web')->check())) {
+            return 'sale';
+        }
+
+        if (request()->is('api/*') || request()->is('api')) {
+            return 'api';
+        }
+
+        return 'web';
     }
 
     public function markRead(ChatChannel $channel, User $user, ?int $messageId = null): void
@@ -512,8 +607,10 @@ class TeamChatService
     /**
      * @return array<string, mixed>
      */
-    public function serializeMessage(ChatMessage $message): array
+    public function serializeMessage(ChatMessage $message, string $attachmentContext = 'web'): array
     {
+        $message->loadMissing(['sender:id,name', 'attachments']);
+
         $name = (string) ($message->sender?->name ?? 'User');
         $initials = collect(preg_split('/\s+/', $name) ?: [])
             ->filter()
@@ -521,19 +618,42 @@ class TeamChatService
             ->take(2)
             ->implode('');
 
+        $body = (string) ($message->body ?? '');
+
         return [
             'id' => $message->id,
             'channel_id' => $message->channel_id,
             'sender_id' => $message->sender_id,
             'sender_name' => $name,
             'sender_initials' => $initials !== '' ? $initials : 'U',
-            'body' => $message->body,
-            'body_html' => $this->highlightMentions((string) $message->body),
+            'body' => $body,
+            'body_html' => $body !== '' ? $this->highlightMentions($body) : '',
+            'attachments' => $message->attachments->map(fn (ChatMessageAttachment $a) => [
+                'id' => $a->id,
+                'name' => $a->original_name,
+                'mime' => $a->mime,
+                'size' => $a->size,
+                'is_image' => $a->isImage(),
+                'url' => $this->attachmentUrl($a, $attachmentContext),
+                'size_label' => $this->formatBytes((int) $a->size),
+            ])->values()->all(),
             'edited_at' => optional($message->edited_at)?->toIso8601String(),
             'created_at' => optional($message->created_at)?->toIso8601String(),
             'created_label' => optional($message->created_at)?->timezone(config('app.timezone'))->format('g:i a'),
             'deleted' => $message->trashed(),
         ];
+    }
+
+    protected function formatBytes(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes.' B';
+        }
+        if ($bytes < 1024 * 1024) {
+            return round($bytes / 1024, 1).' KB';
+        }
+
+        return round($bytes / (1024 * 1024), 1).' MB';
     }
 
     public function highlightMentions(string $body): string

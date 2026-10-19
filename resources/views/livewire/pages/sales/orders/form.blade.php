@@ -1242,7 +1242,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $url = $this->cancelLeaveUrl();
             $this->skipWindowDraftPersist = true;
             $this->lines = [];
-            $this->js('window.__posSoLeave('.json_encode($url).')');
+            $this->js('window.__posSoLeave('.json_encode($url, JSON_UNESCAPED_SLASHES).')');
             $this->skipRender();
 
             return null;
@@ -5749,13 +5749,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
      */
     public function cancelLeaveUrl(): string
     {
-        return route('sales.orders.leave', array_filter([
-            'order' => ($this->salesOrder instanceof SalesOrder && $this->salesOrder->exists)
-                ? $this->salesOrder->id
-                : null,
-            'w' => $this->createWindowId ?: null,
-            'to_invoices' => $this->shouldReturnToInvoiceList() ? 1 : null,
-        ]));
+        try {
+            return route('sales.orders.leave', array_filter([
+                'order' => ($this->salesOrder instanceof SalesOrder && $this->salesOrder->exists)
+                    ? $this->salesOrder->id
+                    : null,
+                'w' => filled($this->createWindowId) ? (string) $this->createWindowId : null,
+                'to_invoices' => $this->shouldReturnToInvoiceList() ? 1 : null,
+            ], fn ($v) => $v !== null && $v !== ''));
+        } catch (\Throwable $e) {
+            return $this->shouldReturnToInvoiceList()
+                ? route('sales.invoices.index')
+                : route('sales.orders.index');
+        }
     }
 
     public function cancelAction(): mixed
@@ -5767,7 +5773,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->boxes = [];
         $this->browseCheckedIds = [];
         $this->entryHits = [];
-        $this->js('window.__posSoLeave('.json_encode($url).')');
+        $this->js('window.__posSoLeave('.json_encode($url, JSON_UNESCAPED_SLASHES).')');
         $this->skipRender();
 
         return null;
@@ -5787,7 +5793,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 label="Cancel"
                 kbd="Ctrl+Z"
                 sep
-                x-on:click.prevent="window.__posSoLeave(@js($this->cancelLeaveUrl()))"
+                wire:click="cancelAction"
             />
         </x-slot:menu>
     </x-action-bar>

@@ -129,6 +129,9 @@ class DocumentPdfService
             'customer.paymentTerm',
             'salesOrder.paymentTerm',
             'salesOrder.route',
+            'salesOrder.salesRep',
+            'salesOrder.invoice',
+            'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
             'lines',
         ]);
 
@@ -488,12 +491,10 @@ class DocumentPdfService
         return $this->rtvPdf($rtv, $user)->stream('rtv-'.$rtv->rtv_number.'.pdf');
     }
 
-    public function streamCreditMemo(CreditMemo $memo): StreamedResponse
+    public function streamCreditMemo(CreditMemo $memo, ?User $user = null): Response
     {
-        return $this->streamDownload(
-            $this->creditMemoPdf($memo),
-            'credit-memo-'.$memo->memo_number.'.pdf'
-        );
+        return $this->creditMemoPdf($memo, $user)
+            ->stream('credit-memo-'.$memo->memo_number.'.pdf');
     }
 
     public function emailInvoice(Invoice $invoice, string $recipient, User $user, ?string $subject = null): void

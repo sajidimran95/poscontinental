@@ -1312,7 +1312,15 @@ function posIsTabsOpen(href) {
 }
 
 window.__posSoLeave = function (url) {
-    window.location.replace(url);
+    if (! url || typeof url !== 'string') {
+        window.location.replace('/sales/orders');
+        return;
+    }
+    try {
+        window.location.replace(url);
+    } catch (e) {
+        window.location.href = url;
+    }
 };
 
 function initPosTabKeepAlive() {
@@ -1349,7 +1357,16 @@ function initPosTabKeepAlive() {
         }
 
         window.__posSoLeave = function (url) {
-            const u = new URL(url, window.location.origin);
+            if (! url || typeof url !== 'string') {
+                url = '/sales/orders/leave';
+            }
+            let u;
+            try {
+                u = new URL(url, window.location.origin);
+            } catch (err) {
+                window.location.replace('/sales/orders');
+                return;
+            }
             if (selfDeskKey.indexOf('so:') === 0) {
                 window.location.replace(u.href);
                 return;

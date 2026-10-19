@@ -68,8 +68,18 @@
     .sc-empty__ico { width:72px; height:72px; margin:0 auto 12px; border-radius:24px; background:#fff; color:var(--sc-teal); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(15,118,110,.12); }
     .sc-empty h2 { margin:0 0 6px; font-size:18px; color:var(--sc-ink); }
     .sc-composer { display:flex; gap:8px; align-items:center; padding:8px 10px; background:#fff; border-top:1px solid var(--sc-line); flex-shrink:0; }
-    .sc-composer input { flex:1; min-width:0; border:1px solid #e2e8f0; background:#f8fafc; border-radius:22px; padding:10px 14px; font-size:16px; outline:none; }
-    .sc-composer input:focus { border-color:#99f6e4; background:#fff; box-shadow:0 0 0 3px rgba(15,118,110,.12); }
+    .sc-composer input[type="text"] { flex:1; min-width:0; border:1px solid #e2e8f0; background:#f8fafc; border-radius:22px; padding:10px 14px; font-size:16px; outline:none; }
+    .sc-composer input[type="text"]:focus { border-color:#99f6e4; background:#fff; box-shadow:0 0 0 3px rgba(15,118,110,.12); }
+    .sc-attach { width:44px; height:44px; border:1px solid #e2e8f0; border-radius:14px; background:#f8fafc; color:#64748b; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; position:relative; }
+    .sc-attach input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+    .sc-pending { display:flex; flex-wrap:wrap; gap:6px; padding:6px 10px 0; background:#fff; border-top:1px solid var(--sc-line); }
+    .sc-pending span { display:inline-flex; align-items:center; gap:6px; max-width:180px; padding:4px 8px; border-radius:999px; background:#ecfdf5; color:#0f766e; font-size:12px; font-weight:700; }
+    .sc-pending button { border:0; background:transparent; color:inherit; cursor:pointer; font-size:14px; line-height:1; padding:0; }
+    .sc-attach-list { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .sc-attach-img { display:block; max-width:200px; border-radius:10px; overflow:hidden; border:1px solid rgba(15,23,42,.08); }
+    .sc-attach-img img { display:block; max-width:100%; max-height:160px; object-fit:cover; }
+    .sc-attach-file { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border-radius:10px; background:rgba(15,23,42,.04); color:inherit; text-decoration:none; font-size:12px; font-weight:700; max-width:220px; }
+    .sc-row.is-me .sc-attach-file { background:rgba(255,255,255,.14); }
     .sc-send { width:44px; height:44px; border:0; border-radius:14px; background:var(--sc-teal); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
     .sc-send:disabled { opacity:.4; }
     .sc-older { text-align:center; margin-bottom:12px; }
@@ -225,7 +235,22 @@
                         @endunless
                         <div class="sc-bubble">
                             <div class="sc-who">{{ $m['sender_name'] }}</div>
-                            <div class="sc-text">{!! $m['body_html'] !!}</div>
+                            @if (! empty($m['body_html']))
+                                <div class="sc-text">{!! $m['body_html'] !!}</div>
+                            @endif
+                            @if (! empty($m['attachments']))
+                                <div class="sc-attach-list">
+                                    @foreach ($m['attachments'] as $att)
+                                        @if (! empty($att['is_image']))
+                                            <a class="sc-attach-img" href="{{ $att['url'] }}" target="_blank" rel="noopener">
+                                                <img src="{{ $att['url'] }}" alt="{{ $att['name'] }}" loading="lazy">
+                                            </a>
+                                        @else
+                                            <a class="sc-attach-file" href="{{ $att['url'] }}" target="_blank" rel="noopener">📎 {{ $att['name'] }}</a>
+                                        @endif
+                                    @endforeach
+                                </div>
+                            @endif
                             <div class="sc-time">{{ $m['created_label'] }}</div>
                         </div>
                     </article>
@@ -241,9 +266,14 @@
             </div>
         </div>
 
-        <form class="sc-composer" method="POST" action="{{ $activeId ? route('sale.chat.send', $activeId) : '#' }}" id="saleChatForm">
+        <div class="sc-pending" id="saleChatPending" hidden></div>
+        <form class="sc-composer" method="POST" action="{{ $activeId ? route('sale.chat.send', $activeId) : '#' }}" id="saleChatForm" enctype="multipart/form-data">
             @csrf
-            <input type="text" name="body" id="saleChatInput" placeholder="{{ $isChannel ? 'Message #'.$title : 'Message '.$title }}" autocomplete="off" maxlength="8000" @disabled(! $canSend || ! $activeId) required>
+            <label class="sc-attach" title="Attach pictures or files" @class(['is-disabled' => ! $canSend || ! $activeId])>
+                <input type="file" name="files[]" id="saleChatFiles" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*" @disabled(! $canSend || ! $activeId)>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </label>
+            <input type="text" name="body" id="saleChatInput" placeholder="{{ $isChannel ? 'Message #'.$title : 'Message '.$title }}" autocomplete="off" maxlength="8000" @disabled(! $canSend || ! $activeId)>
             <button type="submit" class="sc-send" @disabled(! $canSend || ! $activeId) aria-label="Send">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             </button>
@@ -261,6 +291,8 @@
     const msgs = document.getElementById('saleChatMsgs');
     const form = document.getElementById('saleChatForm');
     const input = document.getElementById('saleChatInput');
+    const fileInput = document.getElementById('saleChatFiles');
+    const pendingBox = document.getElementById('saleChatPending');
     const olderBtn = document.getElementById('saleChatOlder');
     const filter = document.getElementById('scFilter');
     const channelId = @json($activeId);
@@ -268,6 +300,30 @@
     const olderUrl = @json($activeId ? route('sale.chat.older', $activeId) : '');
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     if (thread) thread.scrollTop = thread.scrollHeight;
+
+    function renderPending() {
+        if (!pendingBox || !fileInput) return;
+        const files = [...(fileInput.files || [])];
+        if (!files.length) {
+            pendingBox.hidden = true;
+            pendingBox.innerHTML = '';
+            return;
+        }
+        pendingBox.hidden = false;
+        pendingBox.innerHTML = files.map((f, i) => `<span>${f.name}<button type="button" data-i="${i}" aria-label="Remove">&times;</button></span>`).join('');
+    }
+    if (fileInput) fileInput.addEventListener('change', renderPending);
+    if (pendingBox) {
+        pendingBox.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-i]');
+            if (!btn || !fileInput) return;
+            const removeAt = Number(btn.dataset.i);
+            const dt = new DataTransfer();
+            [...fileInput.files].forEach((f, i) => { if (i !== removeAt) dt.items.add(f); });
+            fileInput.files = dt.files;
+            renderPending();
+        });
+    }
 
     if (filter) {
         filter.addEventListener('input', () => {
@@ -314,11 +370,23 @@
         return nodes.length ? Number(nodes[nodes.length - 1].dataset.id) : @json((int) $latestId);
     }
 
+    function attachmentsHtml(atts) {
+        if (!atts || !atts.length) return '';
+        const parts = atts.map(a => {
+            if (a.is_image) {
+                return `<a class="sc-attach-img" href="${a.url}" target="_blank" rel="noopener"><img src="${a.url}" alt="${a.name || ''}" loading="lazy"></a>`;
+            }
+            return `<a class="sc-attach-file" href="${a.url}" target="_blank" rel="noopener">📎 ${a.name || 'File'}</a>`;
+        });
+        return `<div class="sc-attach-list">${parts.join('')}</div>`;
+    }
+
     function bubbleHtml(m) {
         const mine = Number(m.sender_id) === meId;
         const tone = tones[Number(m.sender_id) % tones.length];
         const av = mine ? '' : `<span class="sc-av sc-av--sm" style="background:${tone}">${m.sender_initials || 'U'}</span>`;
-        return `<article class="sc-row ${mine ? 'is-me' : ''}" data-id="${m.id}" data-sender="${m.sender_id}">${av}<div class="sc-bubble"><div class="sc-who">${m.sender_name || ''}</div><div class="sc-text">${m.body_html || ''}</div><div class="sc-time">${m.created_label || ''}</div></div></article>`;
+        const text = m.body_html ? `<div class="sc-text">${m.body_html}</div>` : '';
+        return `<article class="sc-row ${mine ? 'is-me' : ''}" data-id="${m.id}" data-sender="${m.sender_id}">${av}<div class="sc-bubble"><div class="sc-who">${m.sender_name || ''}</div>${text}${attachmentsHtml(m.attachments)}<div class="sc-time">${m.created_label || ''}</div></div></article>`;
     }
 
     function appendMsg(m) {
@@ -360,9 +428,12 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const body = (input.value || '').trim();
-            if (!body) return;
+            const hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
+            if (!body && !hasFiles) return;
             const fd = new FormData(form);
             input.value = '';
+            if (fileInput) fileInput.value = '';
+            renderPending();
             const res = await fetch(form.action, {
                 method: 'POST',
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf },
@@ -370,7 +441,7 @@
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => null);
-                alert((err && (err.message || err.msg)) || 'Could not send');
+                alert((err && (err.message || err.msg || (err.errors && Object.values(err.errors).flat()[0]))) || 'Could not send');
                 return;
             }
             const data = await res.json().catch(() => ({}));

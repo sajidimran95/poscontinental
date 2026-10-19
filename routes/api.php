@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\TeamChatController;
+use App\Http\Controllers\TeamChatAttachmentController;
 use App\Http\Controllers\Api\Rep\AuthController;
 use App\Http\Controllers\Api\Rep\CatalogController;
 use App\Http\Controllers\Api\Rep\CustomerController;
@@ -261,6 +262,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/channels', [TeamChatController::class, 'store']);
     Route::get('/channels/{channel}/messages', [TeamChatController::class, 'messages']);
     Route::post('/channels/{channel}/messages', [TeamChatController::class, 'send']);
+    Route::get('/chat/attachments/{attachment}', [TeamChatAttachmentController::class, 'show'])
+        ->whereNumber('attachment');
     Route::patch('/messages/{message}', [TeamChatController::class, 'updateMessage']);
     Route::delete('/messages/{message}', [TeamChatController::class, 'destroyMessage']);
     Route::post('/channels/{channel}/members', [TeamChatController::class, 'addMember']);

@@ -6,12 +6,18 @@ use App\Services\TeamChatService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
 {
+    use WithFileUploads;
+
     public ?int $activeChannelId = null;
 
     public string $draft = '';
+
+    /** @var list<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
+    public $pendingFiles = [];
 
     public string $newChannelName = '';
 
@@ -101,8 +107,16 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
         $this->hasOlder = $payload['next_cursor'] !== null;
         $this->errorMessage = '';
         $this->showAddMember = false;
+        $this->pendingFiles = [];
         $chat->markRead($channel, $user, $this->latestMessageId ?: null);
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("tc-thread"); if (el) el.scrollTop = el.scrollHeight; })');
+    }
+
+    public function removePendingFile(int $index): void
+    {
+        $files = is_array($this->pendingFiles) ? $this->pendingFiles : [];
+        unset($files[$index]);
+        $this->pendingFiles = array_values($files);
     }
 
     /**
@@ -185,7 +199,8 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
             return;
         }
         $body = trim($this->draft);
-        if ($body === '') {
+        $files = is_array($this->pendingFiles) ? array_values($this->pendingFiles) : [];
+        if ($body === '' && $files === []) {
             return;
         }
 
@@ -198,13 +213,24 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
         }
 
         try {
-            $message = app(TeamChatService::class)->send($channel, $user, $body);
+            $this->validate([
+                'draft' => 'nullable|string|max:8000',
+                'pendingFiles' => 'nullable|array|max:5',
+                'pendingFiles.*' => 'file|max:10240|mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,csv,txt,zip',
+            ], [], [
+                'pendingFiles.*' => 'attachment',
+            ]);
+
+            $message = app(TeamChatService::class)->send($channel, $user, $body, $files);
             $row = app(TeamChatService::class)->serializeMessage($message);
             $this->thread[] = $row;
             $this->latestMessageId = max($this->latestMessageId, (int) $row['id']);
             $this->draft = '';
+            $this->pendingFiles = [];
             $this->errorMessage = '';
             $this->js('requestAnimationFrame(() => { const el = document.getElementById("tc-thread"); if (el) el.scrollTop = el.scrollHeight; document.getElementById("tc-composer")?.focus(); })');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->errorMessage = collect($e->validator->errors()->all())->first() ?: 'Invalid attachment.';
         } catch (\Throwable $e) {
             $this->errorMessage = $e->getMessage();
         }
@@ -452,7 +478,28 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
                                     <button type="button" class="tc-msg-del" wire:click="deleteMessage({{ $m['id'] }})" wire:confirm="Delete this message?">Delete</button>
                                 @endif
                             </div>
-                            <p class="tc-msg-text">{!! $m['body_html'] !!}</p>
+                            @if (! empty($m['body_html']))
+                                <p class="tc-msg-text">{!! $m['body_html'] !!}</p>
+                            @endif
+                            @if (! empty($m['attachments']))
+                                <div class="tc-attach-list">
+                                    @foreach ($m['attachments'] as $att)
+                                        @if (! empty($att['is_image']))
+                                            <a class="tc-attach-img" href="{{ $att['url'] }}" target="_blank" rel="noopener">
+                                                <img src="{{ $att['url'] }}" alt="{{ $att['name'] }}" loading="lazy">
+                                            </a>
+                                        @else
+                                            <a class="tc-attach-file" href="{{ $att['url'] }}" target="_blank" rel="noopener">
+                                                <span class="tc-attach-ico" aria-hidden="true">📎</span>
+                                                <span class="tc-attach-meta">
+                                                    <strong>{{ $att['name'] }}</strong>
+                                                    <small>{{ $att['size_label'] ?? '' }}</small>
+                                                </span>
+                                            </a>
+                                        @endif
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                     </article>
                 @empty
@@ -460,7 +507,28 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
                 @endforelse
             </div>
 
+            @if (is_array($pendingFiles) && count($pendingFiles) > 0)
+                <div class="tc-pending">
+                    @foreach ($pendingFiles as $i => $file)
+                        <span class="tc-pending-chip">
+                            {{ method_exists($file, 'getClientOriginalName') ? $file->getClientOriginalName() : 'File' }}
+                            <button type="button" wire:click="removePendingFile({{ $i }})" aria-label="Remove file">&times;</button>
+                        </span>
+                    @endforeach
+                </div>
+            @endif
+
             <form class="tc-composer" wire:submit="send">
+                <label class="tc-attach-btn" title="Attach pictures or files" @class(['is-disabled' => ! $canEdit || ! $activeChannelId])>
+                    <input
+                        type="file"
+                        wire:model="pendingFiles"
+                        multiple
+                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                        @disabled(! $canEdit || ! $activeChannelId)
+                    >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                </label>
                 <input
                     id="tc-composer"
                     type="text"
@@ -471,10 +539,11 @@ new #[Layout('layouts.app'), Title('Team Chat')] class extends Component
                     maxlength="8000"
                     @disabled(! $canEdit || ! $activeChannelId)
                 />
-                <button type="submit" class="tc-send" aria-label="Send message" @disabled(! $canEdit || ! $activeChannelId)>
+                <button type="submit" class="tc-send" aria-label="Send message" wire:loading.attr="disabled" @disabled(! $canEdit || ! $activeChannelId)>
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                 </button>
             </form>
+            <div class="tc-upload-hint" wire:loading wire:target="pendingFiles">Uploading…</div>
         </section>
     </div>
 </div>

@@ -73,11 +73,24 @@ class SaleChatController extends Controller
         $user = $this->user();
         abort_unless($user->canAccessFeature('team.chat', 'edit') || $user->isSalesRep(), 403);
         abort_unless((int) $channel->company_id === (int) $user->company_id, 403);
-        $data = $request->validate(['body' => 'required|string|max:8000']);
-        $message = $this->chat->send($channel, $user, $data['body']);
+        $data = $request->validate([
+            'body' => 'nullable|string|max:8000',
+            'files' => 'nullable|array|max:5',
+            'files.*' => 'file|max:10240|mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,csv,txt,zip',
+        ]);
+        $files = $request->file('files', []) ?: [];
+        if (! is_array($files)) {
+            $files = [$files];
+        }
+        $message = $this->chat->send(
+            $channel,
+            $user,
+            (string) ($data['body'] ?? ''),
+            array_values($files)
+        );
 
         if ($request->wantsJson() || $request->expectsJson()) {
-            return response()->json(['message' => $this->chat->serializeMessage($message)]);
+            return response()->json(['message' => $this->chat->serializeMessage($message, 'sale')]);
         }
 
         return redirect()->route('sale.chat', ['channel' => $channel->id]);

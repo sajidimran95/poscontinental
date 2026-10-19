@@ -1741,12 +1741,12 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 @php $itemId = (int) $item->id; @endphp
                                 <tr
                                     wire:key="item-row-{{ $itemId }}"
-                                    x-on:click="$wire.selectedId = {{ $itemId }}; $wire.selectRow({{ $itemId }})"
+                                    x-on:click="$wire.selectRow({{ $itemId }})"
                                     wire:dblclick="openItem({{ $itemId }})"
                                     class="cursor-pointer"
                                     :class="{ 'is-selected': Number($wire.selectedId) === {{ $itemId }} }"
                                 >
-                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $itemId }}; $wire.selectRow({{ $itemId }})">
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectRow({{ $itemId }})">
                                         <input
                                             type="radio"
                                             name="item_select"

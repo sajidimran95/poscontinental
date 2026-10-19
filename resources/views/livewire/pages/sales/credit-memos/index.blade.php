@@ -1863,7 +1863,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                                             }
                                         }"
                                         x-on:keydown="onKey($event)"
-                                        x-on:input="$wire.itemLookup = $el.value"
+                                        x-on:input="$wire.set('itemLookup', $el.value)"
                                     />
                                     <button type="button" wire:click="clearItemLookup" class="so-icon-btn" title="Clear item code" aria-label="Clear item code">
                                         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9"/></svg>

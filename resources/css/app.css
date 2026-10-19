@@ -4718,6 +4718,11 @@
         margin-left: auto;
     }
 
+    .desk-flash-error {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #991b1b;
+    }
     .desk-flash {
         margin: 0.55rem 0.85rem 0;
         border: 1px solid #7dd3fc;

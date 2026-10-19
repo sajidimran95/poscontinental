@@ -1008,12 +1008,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 @php $orderId = (int) $order->getKey(); @endphp
                                 <tr
                                     wire:key="so-row-{{ $orderId }}"
-                                    x-on:click="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})"
+                                    x-on:click="$wire.selectRow({{ $orderId }})"
                                     wire:dblclick="openOrder({{ $orderId }})"
                                     class="cursor-pointer"
                                     :class="{ 'is-selected': Number($wire.selectedId) === {{ $orderId }} }"
                                 >
-                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})">
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectRow({{ $orderId }})">
                                         <input
                                             type="radio"
                                             name="order_select"
@@ -1051,7 +1051,7 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                                 wire:key="so-card-{{ $orderId }}"
                                 class="desk-list-card"
                                 :class="{ 'is-selected': Number($wire.selectedId) === {{ $orderId }} }"
-                                x-on:click="$wire.selectedId = {{ $orderId }}; $wire.selectRow({{ $orderId }})"
+                                x-on:click="$wire.selectRow({{ $orderId }})"
                                 wire:dblclick="openOrder({{ $orderId }})"
                             >
                                 <div class="desk-list-card__top">

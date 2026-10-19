@@ -1130,8 +1130,15 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
                 }
                 $qty = (float) $line['qty'];
                 $cost = (float) $line['unit_cost'];
+                $itemId = (int) ($line['item_id'] ?? 0) ?: null;
+                if (! $itemId) {
+                    $itemId = Item::query()
+                        ->where('company_id', $data['company_id'])
+                        ->where('item_code', $line['item_code'])
+                        ->value('id');
+                }
                 $rtv->lines()->create([
-                    'item_id' => $line['item_id'] ?: null,
+                    'item_id' => $itemId,
                     'item_code' => $line['item_code'],
                     'description' => $line['description'] ?: null,
                     'uom' => $line['uom'] ?: null,
@@ -1153,55 +1160,89 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
 
     public function process(int $id): void
     {
-        $rtv = ReturnToVendor::query()->findOrFail($id);
-        abort_unless($rtv->company_id === auth()->user()->company_id, 403);
-        app(InventoryService::class)->processRtv($rtv);
-        session()->flash('status', 'RTV processed — stock decremented.');
+        $this->runProcess($id);
     }
 
     /** Process the RTV on the form. Save alone does not change stock. */
     public function processCurrent(): void
     {
-        abort_if($this->viewMode || $this->status === 'Returned', 403);
+        if ($this->viewMode || $this->status === 'Returned') {
+            session()->flash('status', 'This RTV is already processed or read-only.');
 
+            return;
+        }
+
+        $this->resetErrorBag();
         $this->save(closeForm: false);
-        if ($this->getErrorBag()->isNotEmpty() || ! $this->rtv?->id) {
+        if ($this->getErrorBag()->isNotEmpty()) {
             return;
         }
-
-        $rtv = ReturnToVendor::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->findOrFail((int) $this->rtv->id);
-
-        if ($rtv->status === 'Returned') {
-            session()->flash('status', 'RTV already processed.');
-            $this->showForm = false;
+        if (! $this->rtv?->id) {
+            $this->addError('rtv', 'Save the RTV first, then click Process.');
 
             return;
         }
 
-        app(InventoryService::class)->processRtv($rtv);
-        $this->showForm = false;
-        session()->flash('status', 'RTV '.$rtv->rtv_number.' processed — stock reduced.');
+        $this->runProcess((int) $this->rtv->id, closeForm: true);
     }
 
     public function processSelected(): void
     {
         if (! $this->selectedId) {
+            session()->flash('status', 'Select an RTV first.');
+
             return;
         }
+
+        $this->runProcess((int) $this->selectedId);
+    }
+
+    protected function runProcess(int $id, bool $closeForm = false): void
+    {
+        $this->resetErrorBag('rtv');
 
         $rtv = ReturnToVendor::query()
             ->where('company_id', auth()->user()->company_id)
-            ->findOrFail((int) $this->selectedId);
+            ->find($id);
 
-        if ($rtv->status === 'Returned') {
-            session()->flash('status', 'That RTV is already processed.');
+        if (! $rtv) {
+            session()->flash('status', 'RTV not found.');
 
             return;
         }
 
-        app(InventoryService::class)->processRtv($rtv);
+        if ($rtv->status === 'Returned') {
+            session()->flash('status', 'RTV '.$rtv->rtv_number.' is already processed.');
+            if ($closeForm) {
+                $this->showForm = false;
+                $this->status = 'Returned';
+            }
+
+            return;
+        }
+
+        try {
+            app(InventoryService::class)->processRtv($rtv->fresh('lines'));
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $msg = collect($e->errors())->flatten()->first() ?: 'Could not process RTV.';
+            $this->addError('rtv', $msg);
+            session()->flash('status', $msg);
+
+            return;
+        } catch (\Throwable $e) {
+            $this->addError('rtv', $e->getMessage());
+            session()->flash('status', 'Process failed: '.$e->getMessage());
+
+            return;
+        }
+
+        $rtv->refresh();
+        $this->status = (string) $rtv->status;
+        $this->selectedId = (int) $rtv->id;
+        if ($closeForm) {
+            $this->showForm = false;
+            $this->viewMode = false;
+        }
         session()->flash('status', 'RTV '.$rtv->rtv_number.' processed — stock reduced.');
     }
 
@@ -1271,6 +1312,9 @@ new #[Layout('layouts.app'), Title('Return to Vendor')] class extends Component
         @if (session('status'))
             <div class="desk-flash" role="status">{{ session('status') }}</div>
         @endif
+        @error('rtv')
+            <div class="desk-flash desk-flash-error" role="alert">{{ $message }}</div>
+        @enderror
 
         @if ($showForm)
             <form wire:submit="save" class="rtv-doc-form">

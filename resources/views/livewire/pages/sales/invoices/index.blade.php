@@ -1107,12 +1107,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             @forelse ($invoices as $inv)
                                 <tr
                                     wire:key="inv-row-{{ $inv->id }}"
-                                    x-on:click="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})"
+                                    x-on:click="$wire.selectRow({{ $inv->id }})"
                                     wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                                     class="cursor-pointer"
                                     :class="{ 'is-selected': Number($wire.selectedId) === {{ $inv->id }} || {{ $modalInvoiceId === $inv->id ? 'true' : 'false' }} }"
                                 >
-                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})">
+                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectRow({{ $inv->id }})">
                                         <input
                                             type="radio"
                                             name="invoice_select"
@@ -1138,7 +1138,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <article
                                 class="desk-list-card"
                                 :class="{ 'is-selected': Number($wire.selectedId) === {{ $inv->id }} || {{ $modalInvoiceId === $inv->id ? 'true' : 'false' }} }"
-                                x-on:click="$wire.selectedId = {{ $inv->id }}; $wire.selectRow({{ $inv->id }})"
+                                x-on:click="$wire.selectRow({{ $inv->id }})"
                                 wire:dblclick="openInvoiceEdit({{ $inv->id }})"
                             >
                                 <div class="desk-list-card__top">

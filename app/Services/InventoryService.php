@@ -325,22 +325,46 @@ class InventoryService
             }
 
             $rtv->load('lines');
+            if ($rtv->lines->isEmpty()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'rtv' => 'RTV '.$rtv->rtv_number.' has no lines to process.',
+                ]);
+            }
 
+            $moved = 0;
             foreach ($rtv->lines as $line) {
-                if (! $line->item_id || (float) $line->qty <= 0) {
-                    continue;
-                }
-
-                $item = Item::query()->lockForUpdate()->find($line->item_id);
-                if (! $item) {
-                    continue;
-                }
-
                 $qty = (float) $line->qty;
+                if ($qty <= 0) {
+                    continue;
+                }
+
+                $item = null;
+                if ($line->item_id) {
+                    $item = Item::query()->lockForUpdate()->find($line->item_id);
+                }
+                // Saved lines sometimes lack item_id — resolve from item code.
+                if (! $item && filled($line->item_code)) {
+                    $item = Item::query()
+                        ->where('company_id', $rtv->company_id)
+                        ->where('item_code', $line->item_code)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($item && (int) $line->item_id !== (int) $item->id) {
+                        $line->item_id = $item->id;
+                        $line->save();
+                    }
+                }
+
+                if (! $item) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'rtv' => 'Cannot process RTV: item "'.($line->item_code ?: '#').'" was not found.',
+                    ]);
+                }
+
                 $onHand = (float) $item->quantity_in_stock;
                 if ($qty > $onHand + 0.0001) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        'rtv' => $item->item_code.' RTV qty exceeds on-hand stock ('.number_format($onHand, 2).').',
+                        'rtv' => $item->item_code.' RTV qty ('.number_format($qty, 2).') exceeds on-hand stock ('.number_format($onHand, 2).').',
                     ]);
                 }
                 $newQty = $onHand - $qty;
@@ -358,6 +382,13 @@ class InventoryService
                     'unit_cost' => $line->unit_cost,
                     'user_id' => auth()->id(),
                     'notes' => 'Return to Vendor',
+                ]);
+                $moved++;
+            }
+
+            if ($moved < 1) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'rtv' => 'RTV '.$rtv->rtv_number.' has no quantities to process.',
                 ]);
             }
 

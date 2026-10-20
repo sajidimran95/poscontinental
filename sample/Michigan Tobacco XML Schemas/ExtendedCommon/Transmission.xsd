@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com) -->
+<xsd:schema xmlns="http://www.irs.gov/efile" xmlns:xsd="http://www.w3.org/2001/XMLSchema" targetNamespace="http://www.irs.gov/efile" elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.0">
+    <xsd:include schemaLocation="..\ExtendedCommon\TransmissionHeader.xsd"/>
+    <xsd:include schemaLocation="..\TobCigSchema\MI_TobCigFiling.xsd"/>
+    <!--Tobacco and Cigarette Schema-->
+    <xsd:element name="Transmission">
+        <xsd:annotation>
+            <xsd:documentation>Integrated Transmission schema for inclusion in SOAP body</xsd:documentation>
+        </xsd:annotation>
+        <xsd:complexType>
+            <xsd:sequence>
+                <xsd:element ref="TransmissionHeader"/>
+                <xsd:element ref="TobCigFiling"/>
+            </xsd:sequence>
+        </xsd:complexType>
+    </xsd:element>
+</xsd:schema>

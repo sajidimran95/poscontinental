@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com) -->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.irs.gov/efile" targetNamespace="http://www.irs.gov/efile" elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.0">
+    <xsd:include schemaLocation="MI_TobCigeFileTypes.xsd"/>
+    <xsd:element name="TobaccoWholesalerReturn" type="TobWholeReturnType"/>
+    <xsd:complexType name="TobWholeReturnType">
+        <xsd:complexContent>
+            <xsd:extension base="TobCigReturnType">
+                <xsd:sequence>
+                    <xsd:element name="StateLicenseNumber" type="FilerIDType" minOccurs="1" maxOccurs="1"/>
+                    <xsd:element name="TobWholeSchedule" type="TobSchedule" minOccurs="0" maxOccurs="unbounded"/>
+                    <xsd:element name="BeginningInventoryOTP" type="TobCigQuantityType" minOccurs="0" maxOccurs="1"/>
+                    <xsd:element name="BeginningInventoryPC1" type="TobCigQuantityType" minOccurs="0" maxOccurs="1"/>
+                </xsd:sequence>
+            </xsd:extension>
+        </xsd:complexContent>
+    </xsd:complexType>
+</xsd:schema>

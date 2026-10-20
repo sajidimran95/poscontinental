@@ -72,7 +72,8 @@ class TobaccoXmlService
         $header->addChild('ProcessType', $processType);
 
         $filing = $xml->addChild('TobCigFiling');
-        $filing->addChild('SubmissionId', substr(preg_replace('/\D+/', '', $transmissionId) ?: '1', 0, 20));
+        // SubmissionId is max 20 chars: keep the trailing 20 digits so the full YmdHis timestamp stays in it.
+        $filing->addChild('SubmissionId', substr($transmissionId, -20));
 
         $returnHeader = $filing->addChild('TobaccoCigaretteHeader');
         $returnHeader->addChild('Jurisdiction', 'MI');
@@ -137,13 +138,13 @@ class TobaccoXmlService
         $licenseLabel = $company?->msaLicenseLabel($product) ?? ($product === 'otp' ? 'Secondary Tob Number' : 'Secondary Cig Number');
         $transmitter = preg_replace('/\D+/', '', (string) ($company?->transmitter_account_number ?? ''));
 
-        if (strlen($fein) < 9) {
-            $issues[] = 'Company FEIN is required (File → Company Settings).';
+        if (strlen($fein) !== 9) {
+            $issues[] = 'Company FEIN must be 9 digits (File → Company Settings).';
         }
         if ($license === '') {
             $issues[] = $licenseLabel.' is required (File → Company Settings) for this MSA report.';
         }
-        if ($transmitter === '' && strlen($fein) < 9) {
+        if ($transmitter === '' && strlen($fein) !== 9) {
             $issues[] = 'Transmitter (State Employer Account Number) is required.';
         }
         if ($filerType === 'unclassified_acquirer' && $product === 'cigarettes' && ! $stamps) {
@@ -534,7 +535,7 @@ class TobaccoXmlService
         $dateReceivedOrSold = $dateReceivedOrSold ?: ($invoiceDate ?: now()->toDateString());
         $invoiceDate = $invoiceDate ?: $dateReceivedOrSold;
         $partyFein = preg_replace('/\D+/', '', (string) $fein);
-        if (strlen($partyFein) < 9) {
+        if (strlen($partyFein) !== 9) {
             if ($strictFein) {
                 $missingFeinNames[] = trim((string) ($name ?: 'UNKNOWN')) ?: 'UNKNOWN';
             }
@@ -542,14 +543,14 @@ class TobaccoXmlService
             return null;
         }
 
-        $brand = strtoupper(trim((string) ($item?->tobacco_brand_code ?: ($product === 'cigarettes' ? 'CIG' : 'OTP'))));
+        $brand = $this->brandCode($item, $product);
         $partyName = mb_substr((string) ($name ?: 'UNKNOWN'), 0, 50);
         $invoiceNo = mb_substr($invoiceNumber, 0, 30);
         $addr = [
-            'AddressLine1' => mb_substr((string) ($address ?: 'UNKNOWN'), 0, 255),
-            'City' => mb_substr((string) ($city ?: 'UNKNOWN'), 0, 22),
-            'State' => strtoupper(mb_substr((string) ($state ?: 'MI'), 0, 2)),
-            'ZIPCode' => preg_replace('/\D+/', '', (string) $zip) ?: '00000',
+            'AddressLine1' => $this->streetAddress($address),
+            'City' => $this->city($city),
+            'State' => strtoupper(mb_substr(trim((string) ($state ?: 'MI')), 0, 2)),
+            'ZIPCode' => $this->zipCode($zip),
         ];
 
         if ($product === 'cigarettes') {
@@ -588,6 +589,58 @@ class TobaccoXmlService
         $row['Address'] = $addr;
 
         return $row;
+    }
+
+    /**
+     * BrandCode is a closed list in MI_TobCigEnumerations.xsd (TobCigBrandCode); anything else rejects the whole file,
+     * so unknown codes fall back to the generic CIG / OTP code.
+     */
+    protected function brandCode(?Item $item, string $product): string
+    {
+        $default = $product === 'cigarettes' ? 'CIG' : 'OTP';
+        $code = strtoupper(trim((string) ($item?->tobacco_brand_code ?? '')));
+        if (preg_match('/^\d{1,2}$/', $code)) {
+            $code = str_pad($code, 3, '0', STR_PAD_LEFT);
+        }
+
+        return preg_match('/^(034|058|075|092|093|095|096|097|098|100|101|102|106|CIG|OTP|PC1)(M1|M2)?$/', $code) ? $code : $default;
+    }
+
+    /**
+     * TobCigStreetAddressType only allows letters, digits, "-", "/" and single spaces (no commas, leading/trailing spaces),
+     * so "1234 W. 8 Mile Rd., Suite #5" becomes "1234 W 8 Mile Rd Suite 5".
+     */
+    protected function streetAddress(?string $address): string
+    {
+        $clean = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9\-\/ ]+/', ' ', (string) $address)));
+        $clean = trim((string) preg_replace('/^[^A-Za-z0-9]+/', '', mb_substr($clean, 0, 255)));
+
+        return $clean !== '' ? $clean : 'UNKNOWN';
+    }
+
+    /**
+     * TobCigCityType: letters with single spaces, max 22 chars, must end in a letter ("St. Clair Shores" is kept as "St Clair Shores").
+     */
+    protected function city(?string $city): string
+    {
+        $clean = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z ]+/', ' ', (string) $city)));
+        $clean = trim(mb_substr($clean, 0, 22));
+
+        return $clean !== '' ? $clean : 'UNKNOWN';
+    }
+
+    /**
+     * ZIPCodeType: 5 or 9 digits ("48080-1234" → "480801234").
+     */
+    protected function zipCode(?string $zip): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $zip) ?: '';
+
+        return match (true) {
+            strlen($digits) >= 9 => substr($digits, 0, 9),
+            strlen($digits) >= 5 => substr($digits, 0, 5),
+            default => '00000',
+        };
     }
 
     protected function cigarettePackSize(?Item $item): int

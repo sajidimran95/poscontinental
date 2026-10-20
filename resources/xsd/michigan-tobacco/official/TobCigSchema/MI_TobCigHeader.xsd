@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!--Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com)-->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.irs.gov/efile" targetNamespace="http://www.irs.gov/efile" elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.0">
+  <xsd:include schemaLocation="../ExtendedCommon/ReturnHeaderSO.xsd"/>
+  <xsd:include schemaLocation="MI_TobCigeFileTypes.xsd"/>
+  <xsd:element name="TobaccoCigaretteHeader" type ="TobCigHeaderType">
+    <xsd:annotation>
+      <xsd:documentation>Information about Filer and Filing</xsd:documentation>
+    </xsd:annotation>
+  </xsd:element>
+  <xsd:complexType name="TobCigHeaderType">
+    <xsd:complexContent>
+      <xsd:extension base="ReturnHeaderType">
+        <xsd:sequence>
+          <!-- Filer -->
+          <xsd:element name="TypeOfFiling" type="TobCigFilingType"/>
+          <xsd:element name="Filer" type="TobCigFilerType"/>
+          <xsd:element name="Contact" type="TobCigContactType" minOccurs="0" maxOccurs="unbounded"/>
+          <xsd:element name="Address" type="TobCigAddressType" minOccurs="0" maxOccurs="unbounded"/>
+        </xsd:sequence>
+      </xsd:extension>
+    </xsd:complexContent>
+  </xsd:complexType>
+</xsd:schema>

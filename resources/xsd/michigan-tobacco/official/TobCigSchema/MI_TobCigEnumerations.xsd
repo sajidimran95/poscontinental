@@ -1,0 +1,1005 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!--Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com)-->
+<xsd:schema elementFormDefault="unqualified" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <xsd:simpleType name="TobCigFilingType">
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="Original" />
+            <xsd:enumeration value="Replace" />
+            <xsd:enumeration value="Resubmit" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigTypeOfContactType">
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="General" />
+            <xsd:enumeration value="Technical" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="StateOnlyType">
+        <xsd:annotation>
+            <xsd:documentation>2 position State code</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="AL">
+                <xsd:annotation>
+                    <xsd:documentation>Alabama</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AK">
+                <xsd:annotation>
+                    <xsd:documentation>Alaska</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AZ">
+                <xsd:annotation>
+                    <xsd:documentation>Arizona</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AR">
+                <xsd:annotation>
+                    <xsd:documentation>Arkansas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CA">
+                <xsd:annotation>
+                    <xsd:documentation>California</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CO">
+                <xsd:annotation>
+                    <xsd:documentation>Colorado</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CT">
+                <xsd:annotation>
+                    <xsd:documentation>Connecticut</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="DE">
+                <xsd:annotation>
+                    <xsd:documentation>Delaware</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="DC">
+                <xsd:annotation>
+                    <xsd:documentation>District of Columbia</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="FL">
+                <xsd:annotation>
+                    <xsd:documentation>Florida</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="GA">
+                <xsd:annotation>
+                    <xsd:documentation>Georgia</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="GU">
+                <xsd:annotation>
+                    <xsd:documentation>Guam</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="HI">
+                <xsd:annotation>
+                    <xsd:documentation>Hawaii</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="ID">
+                <xsd:annotation>
+                    <xsd:documentation>Idaho</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="IL">
+                <xsd:annotation>
+                    <xsd:documentation>Illinois</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="IN">
+                <xsd:annotation>
+                    <xsd:documentation>Indiana</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="IA">
+                <xsd:annotation>
+                    <xsd:documentation>Iowa</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="KS">
+                <xsd:annotation>
+                    <xsd:documentation>Kansas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="KY">
+                <xsd:annotation>
+                    <xsd:documentation>Kentucky</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="LA">
+                <xsd:annotation>
+                    <xsd:documentation>Louisiana</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="ME">
+                <xsd:annotation>
+                    <xsd:documentation>Maine</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MD">
+                <xsd:annotation>
+                    <xsd:documentation>Maryland</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MA">
+                <xsd:annotation>
+                    <xsd:documentation>Massachusetts</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MI">
+                <xsd:annotation>
+                    <xsd:documentation>Michigan</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MN">
+                <xsd:annotation>
+                    <xsd:documentation>Minnesota</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MS">
+                <xsd:annotation>
+                    <xsd:documentation>Mississippi</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MO">
+                <xsd:annotation>
+                    <xsd:documentation>Missouri</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MT">
+                <xsd:annotation>
+                    <xsd:documentation>Montana</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NE">
+                <xsd:annotation>
+                    <xsd:documentation>Nebraska</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NV">
+                <xsd:annotation>
+                    <xsd:documentation>Nevada</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NH">
+                <xsd:annotation>
+                    <xsd:documentation>New Hampshire</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NJ">
+                <xsd:annotation>
+                    <xsd:documentation>New Jersey</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NM">
+                <xsd:annotation>
+                    <xsd:documentation>New Mexico</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NY">
+                <xsd:annotation>
+                    <xsd:documentation>New York</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NC">
+                <xsd:annotation>
+                    <xsd:documentation>North Carolina</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="ND">
+                <xsd:annotation>
+                    <xsd:documentation>North Dakota</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OH">
+                <xsd:annotation>
+                    <xsd:documentation>Ohio</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OK">
+                <xsd:annotation>
+                    <xsd:documentation>Oklahoma</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OR">
+                <xsd:annotation>
+                    <xsd:documentation>Oregon</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PA">
+                <xsd:annotation>
+                    <xsd:documentation>Pennsylvania</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PR">
+                <xsd:annotation>
+                    <xsd:documentation>Puerto Rico</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="RI">
+                <xsd:annotation>
+                    <xsd:documentation>Rhode Island</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SC">
+                <xsd:annotation>
+                    <xsd:documentation>South Carolina</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SD">
+                <xsd:annotation>
+                    <xsd:documentation>South Dakota</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="TN">
+                <xsd:annotation>
+                    <xsd:documentation>Tennessee</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="TX">
+                <xsd:annotation>
+                    <xsd:documentation>Texas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="UT">
+                <xsd:annotation>
+                    <xsd:documentation>Utah</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="VT">
+                <xsd:annotation>
+                    <xsd:documentation>Vermont</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="VI">
+                <xsd:annotation>
+                    <xsd:documentation>Virgin Islands</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="VA">
+                <xsd:annotation>
+                    <xsd:documentation>Virginia</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="WA">
+                <xsd:annotation>
+                    <xsd:documentation>Washington</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="WV">
+                <xsd:annotation>
+                    <xsd:documentation>West Virginia</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="WI">
+                <xsd:annotation>
+                    <xsd:documentation>Wisconsin</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="WY">
+                <xsd:annotation>
+                    <xsd:documentation>Wyoming</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AS">
+                <xsd:annotation>
+                    <xsd:documentation>American Samoa</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MH">
+                <xsd:annotation>
+                    <xsd:documentation>Marshall Islands</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MP">
+                <xsd:annotation>
+                    <xsd:documentation>Northern Mariana Islands</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AA">
+                <xsd:annotation>
+                    <xsd:documentation>APO/FPO Americas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AE">
+                <xsd:annotation>
+                    <xsd:documentation>APO/FPO Europe</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="AP">
+                <xsd:annotation>
+                    <xsd:documentation>APO/FPO Pacific</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="ProvinceType">
+        <xsd:annotation>
+            <xsd:documentation>2 position Canadian Province code</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="AB">
+                <xsd:annotation>
+                    <xsd:documentation>Alberta</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="BC">
+                <xsd:annotation>
+                    <xsd:documentation>BC</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MB">
+                <xsd:annotation>
+                    <xsd:documentation>Manitoba</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NB">
+                <xsd:annotation>
+                    <xsd:documentation>New Brunswick</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NL">
+                <xsd:annotation>
+                    <xsd:documentation>Newfoundland</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NT">
+                <xsd:annotation>
+                    <xsd:documentation>Northwest Territory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NS">
+                <xsd:annotation>
+                    <xsd:documentation>Nova Scotia</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NU">
+                <xsd:annotation>
+                    <xsd:documentation>Nunavut</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="ON">
+                <xsd:annotation>
+                    <xsd:documentation>Ontario</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PE">
+                <xsd:annotation>
+                    <xsd:documentation>Prince Edward Island</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="QC">
+                <xsd:annotation>
+                    <xsd:documentation>Quebec</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SK">
+                <xsd:annotation>
+                    <xsd:documentation>Saskatchewan</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="YT">
+                <xsd:annotation>
+                    <xsd:documentation>Yukon Territory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="MexicanStateType">
+        <xsd:annotation>
+            <xsd:documentation>2 position Mexican State code</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="AG">
+                <xsd:annotation>
+                    <xsd:documentation>Aguascalientes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="BC">
+                <xsd:annotation>
+                    <xsd:documentation>Baja California</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="BS">
+                <xsd:annotation>
+                    <xsd:documentation>Baja California Sur</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CM">
+                <xsd:annotation>
+                    <xsd:documentation>Campeche</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CS">
+                <xsd:annotation>
+                    <xsd:documentation>Chiapas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CH">
+                <xsd:annotation>
+                    <xsd:documentation>Chihuahua</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CO">
+                <xsd:annotation>
+                    <xsd:documentation>Coahuila</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CL">
+                <xsd:annotation>
+                    <xsd:documentation>Colima</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="DF">
+                <xsd:annotation>
+                    <xsd:documentation>Distrito Federal</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="DG">
+                <xsd:annotation>
+                    <xsd:documentation>Durango</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="GT">
+                <xsd:annotation>
+                    <xsd:documentation>Guanajuato</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="GR">
+                <xsd:annotation>
+                    <xsd:documentation>Guerrero</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="HG">
+                <xsd:annotation>
+                    <xsd:documentation>Hidalgo</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="JA">
+                <xsd:annotation>
+                    <xsd:documentation>Jalisco</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MX">
+                <xsd:annotation>
+                    <xsd:documentation>México</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MI">
+                <xsd:annotation>
+                    <xsd:documentation>Michoacán</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="MO">
+                <xsd:annotation>
+                    <xsd:documentation>Morelos</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NA">
+                <xsd:annotation>
+                    <xsd:documentation>Nayarit</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="NL">
+                <xsd:annotation>
+                    <xsd:documentation>Nuevo León</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OA">
+                <xsd:annotation>
+                    <xsd:documentation>Oaxaca</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PU">
+                <xsd:annotation>
+                    <xsd:documentation>Puebla</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="QT">
+                <xsd:annotation>
+                    <xsd:documentation>Querétaro</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="QR">
+                <xsd:annotation>
+                    <xsd:documentation>Quintana Roo</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SL">
+                <xsd:annotation>
+                    <xsd:documentation>San Luis Potosí</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SI">
+                <xsd:annotation>
+                    <xsd:documentation>Sinaloa</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="SO">
+                <xsd:annotation>
+                    <xsd:documentation>Sonora</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="TB">
+                <xsd:annotation>
+                    <xsd:documentation>Tabasco</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="TM">
+                <xsd:annotation>
+                    <xsd:documentation>Tamaulipas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="TL">
+                <xsd:annotation>
+                    <xsd:documentation>Tlaxcala</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="VE">
+                <xsd:annotation>
+                    <xsd:documentation>Veracruz</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="YU">
+                <xsd:annotation>
+                    <xsd:documentation>Yucatán</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="ZA">
+                <xsd:annotation>
+                    <xsd:documentation>Zacatecas</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigTypeOfAddressType">
+        <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="Business" />
+            <xsd:enumeration value="Mailing" />
+            <xsd:enumeration value="Both" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigCurrencyType">
+        <xsd:restriction base="xsd:token">
+            <xsd:enumeration value="USD" />
+            <xsd:enumeration value="CAD" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="CigPackSize">
+        <xsd:restriction base="xsd:integer">
+            <xsd:enumeration value="20" />
+            <xsd:enumeration value="25" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobScheduleCode">
+        <xsd:annotation>
+            <xsd:documentation>All Schedule codes</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:NMTOKEN">
+            <xsd:enumeration value="T101A">
+                <xsd:annotation>
+                    <xsd:documentation>T-101a: Schedule of Tax-Unpaid Other Tobacco Product Purchases for Michigan (Michigan based licensees only)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T101B">
+                <xsd:annotation>
+                    <xsd:documentation>T-101b: Tax Paid OTP Purchases</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T101C">
+                <xsd:annotation>
+                    <xsd:documentation>T-101c: Schedule of Returned Tax Paid Other Tobacco Product from Michigan customers</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T103">
+                <xsd:annotation>
+                    <xsd:documentation>T-103: Schedule of Out-of-State Other Tobacco Product Shipments (Michigan Based Licensees Exports Only)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T106">
+                <xsd:annotation>
+                    <xsd:documentation>T-106: Tax Unpaid Return</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T108A">
+                <xsd:annotation>
+                    <xsd:documentation>T-108a: Schedule of Untaxed Other Tobacco Product Sales in Michigan to Licensed Wholesalers</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T108B">
+                <xsd:annotation>
+                    <xsd:documentation>T-108b: Schedule of Other Tobacco Product Sales in Michigan from tax-unpaid inventory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T108C">
+                <xsd:annotation>
+                    <xsd:documentation>T-108c: Schedule of Other Tobacco Product Sales from Tax Paid Inventory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T108D">
+                <xsd:annotation>
+                    <xsd:documentation>T-108d: Schedule of Other Tobacco Product Sales in Michigan to U.S. Agencies</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T108M">
+                <xsd:annotation>
+                    <xsd:documentation>T-108M: Manufacturer Schedule of Other Tobacco Products Sales (Disbursements)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T115A">
+                <xsd:annotation>
+                    <xsd:documentation>T-115a: Schedule of Tax-Unpaid Other Tobacco Products Sold to Michigan tribes (must be authorized by the State of Michigan)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="T115B">
+                <xsd:annotation>
+                    <xsd:documentation>T-115b: Schedule of Tax-Paid Other Tobacco Products Sold to Michigan Tribes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="CigScheduleCode">
+        <xsd:annotation>
+            <xsd:documentation>All Schedule codes</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:NMTOKEN">
+            <xsd:enumeration value="C101A">
+                <xsd:annotation>
+                    <xsd:documentation>C-101a: Schedule of Unstamped Cigarette Purchases (receipts) in Michigan</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C101B">
+                <xsd:annotation>
+                    <xsd:documentation>C-101b: Schedule of Michigan Stamped Tax Paid Cigarette Purchases</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C101C">
+                <xsd:annotation>
+                    <xsd:documentation>C-101c: Schedule of Returned Stamped (tax-paid) Cigarettes from Michigan Customers</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C101D">
+                <xsd:annotation>
+                    <xsd:documentation>C-101d: Schedule of Other State Stamped Purchases</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C103">
+                <xsd:annotation>
+                    <xsd:documentation>C-103: Schedule of Out-of-State Cigarette Shipments (Michigan Based Licensees Exports Only)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C106">
+                <xsd:annotation>
+                    <xsd:documentation>C-106: Tax Unpaid Return (Cigarettes)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C108A">
+                <xsd:annotation>
+                    <xsd:documentation>C-108a: Schedule of Untaxed Cigarette Sales in Michigan to Licensed Wholesalers</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C108B">
+                <xsd:annotation>
+                    <xsd:documentation>C-108b: Schedule of Cigarette Sales in Michigan from Tax-Unpaid Inventory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C108C">
+                <xsd:annotation>
+                    <xsd:documentation>C-108c: Schedule of Cigarette Sales from Tax Paid Inventory</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C108D">
+                <xsd:annotation>
+                    <xsd:documentation>C-108d: Schedule of Cigarette Sales in Michigan to U.S. Agencies</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C108M">
+                <xsd:annotation>
+                    <xsd:documentation>C-108M: Manufacturer Schedule of Cigarette Sales (Disbursements)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C115A">
+                <xsd:annotation>
+                    <xsd:documentation>C-115a: Schedule of Tax-Unpaid Cigarettes Sold to Michigan Tribes (Must be authorized by the State of Michigan)</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="C115B">
+                <xsd:annotation>
+                    <xsd:documentation>C-115b: Schedule of Tax-Paid Cigarettes Sold to Michigan Tribes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigBrandCode">
+        <xsd:annotation>
+            <xsd:documentation>All Product codes</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:NMTOKEN">
+            <xsd:enumeration value="034">
+                <xsd:annotation>
+                    <xsd:documentation>Market Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="058">
+                <xsd:annotation>
+                    <xsd:documentation>Smokin Joes RYO</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="075">
+                <xsd:annotation>
+                    <xsd:documentation>Zig Zag RYO</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="092">
+                <xsd:annotation>
+                    <xsd:documentation>Carnival Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="093">
+                <xsd:annotation>
+                    <xsd:documentation>Timeless Time Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="095">
+                <xsd:annotation>
+                    <xsd:documentation>Seneca Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="096">
+                <xsd:annotation>
+                    <xsd:documentation>Opal Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="097">
+                <xsd:annotation>
+                    <xsd:documentation>Couture/Couture Slim Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="098">
+                <xsd:annotation>
+                    <xsd:documentation>Echo Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="100">
+                <xsd:annotation>
+                    <xsd:documentation>Edgefield Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="101">
+                <xsd:annotation>
+                    <xsd:documentation>24/7 Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="102">
+                <xsd:annotation>
+                    <xsd:documentation>Berley Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="106">
+                <xsd:annotation>
+                    <xsd:documentation>THIS Cigarettes</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CIG">
+                <xsd:annotation>
+                    <xsd:documentation>Cigarette</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OTP">
+                <xsd:annotation>
+                    <xsd:documentation>Other Tobacco Products</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PC1">
+                <xsd:annotation>
+                    <xsd:documentation>Premium Cigar</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+			<xsd:enumeration value="034M1">
+                <xsd:annotation>
+                    <xsd:documentation>Market Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="058M1">
+                <xsd:annotation>
+                    <xsd:documentation>Smokin Joes RYO - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="075M1">
+                <xsd:annotation>
+                    <xsd:documentation>Zig Zag RYO - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="092M1">
+                <xsd:annotation>
+                    <xsd:documentation>Carnival Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="093M1">
+                <xsd:annotation>
+                    <xsd:documentation>Timeless Time Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="095M1">
+                <xsd:annotation>
+                    <xsd:documentation>Seneca Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="096M1">
+                <xsd:annotation>
+                    <xsd:documentation>Opal Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="097M1">
+                <xsd:annotation>
+                    <xsd:documentation>Couture/Couture Slim Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="098M1">
+                <xsd:annotation>
+                    <xsd:documentation>Echo Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="100M1">
+                <xsd:annotation>
+                    <xsd:documentation>Edgefield Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="101M1">
+                <xsd:annotation>
+                    <xsd:documentation>24/7 Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="102M1">
+                <xsd:annotation>
+                    <xsd:documentation>Berley Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="106M1">
+                <xsd:annotation>
+                    <xsd:documentation>THIS Cigarettes - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CIGM1">
+                <xsd:annotation>
+                    <xsd:documentation>Cigarette - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OTPM1">
+                <xsd:annotation>
+                    <xsd:documentation>Other Tobacco Products - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PC1M1">
+                <xsd:annotation>
+                    <xsd:documentation>Premium Cigar - Mod. Risk 1</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+			<xsd:enumeration value="034M2">
+                <xsd:annotation>
+                    <xsd:documentation>Market Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="058M2">
+                <xsd:annotation>
+                    <xsd:documentation>Smokin Joes RYO - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="075M2">
+                <xsd:annotation>
+                    <xsd:documentation>Zig Zag RYO - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="092M2">
+                <xsd:annotation>
+                    <xsd:documentation>Carnival Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="093M2">
+                <xsd:annotation>
+                    <xsd:documentation>Timeless Time Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="095M2">
+                <xsd:annotation>
+                    <xsd:documentation>Seneca Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="096M2">
+                <xsd:annotation>
+                    <xsd:documentation>Opal Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="097M2">
+                <xsd:annotation>
+                    <xsd:documentation>Couture/Couture Slim Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="098M2">
+                <xsd:annotation>
+                    <xsd:documentation>Echo Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="100M2">
+                <xsd:annotation>
+                    <xsd:documentation>Edgefield Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="101M2">
+                <xsd:annotation>
+                    <xsd:documentation>24/7 Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="102M2">
+                <xsd:annotation>
+                    <xsd:documentation>Berley Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="106M2">
+                <xsd:annotation>
+                    <xsd:documentation>THIS Cigarettes - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="CIGM2">
+                <xsd:annotation>
+                    <xsd:documentation>Cigarette - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="OTPM2">
+                <xsd:annotation>
+                    <xsd:documentation>Other Tobacco Products - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="PC1M2">
+                <xsd:annotation>
+                    <xsd:documentation>Premium Cigar - Mod. Risk 2</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="CigStampTypes">
+        <xsd:annotation>
+            <xsd:documentation>Stamp Inventory Stamp Types</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:NMTOKEN">
+            <xsd:enumeration value="R1">
+                <xsd:annotation>
+                    <xsd:documentation>R1 - Pressure - Standard20 - 30,000</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="R2">
+                <xsd:annotation>
+                    <xsd:documentation>R2 - Pressure - Standard20 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="R3">
+                <xsd:annotation>
+                    <xsd:documentation>R3 - Pressure - Standard25 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="R4">
+                <xsd:annotation>
+                    <xsd:documentation>R4 - Pressure - Tribal20 - 30,000</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="R5">
+                <xsd:annotation>
+                    <xsd:documentation>R5 - Pressure - Tribal20 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="R6">
+                <xsd:annotation>
+                    <xsd:documentation>R6 - Pressure - Tribal25 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:enumeration>
+        </xsd:restriction>
+    </xsd:simpleType>
+</xsd:schema>

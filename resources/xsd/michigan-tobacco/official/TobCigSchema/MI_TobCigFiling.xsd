@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!--Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com)-->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.irs.gov/efile" targetNamespace="http://www.irs.gov/efile" elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.0">
+  <xsd:include schemaLocation="MI_TobCigEnumerations.xsd"/>
+  <xsd:include schemaLocation="MI_TobCigHeader.xsd"/>
+  <xsd:include schemaLocation="../Common/FinancialTransaction.xsd"/>
+  <xsd:include schemaLocation="MI_TobSecondaryWholesalerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_CigWholesalerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_TobWholesalerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_CigSecondaryWholesalerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_TobUnclassifiedAcquirerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_CigUnclassifiedAcquirerReturn.xsd"/>
+  <xsd:include schemaLocation="MI_TobCigManufacturerReturn.xsd"/>
+  <!--Tobacco/Cigarette Schema-->
+  <xsd:element name="TobCigFiling">
+    <xsd:annotation>
+      <xsd:documentation/>
+    </xsd:annotation>
+    <xsd:complexType>
+      <xsd:sequence>
+        <xsd:element name="SubmissionId" type="String20Type"/>
+        <xsd:element ref="TobaccoCigaretteHeader"/>
+        <xsd:element ref="TobaccoWholesalerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="CigaretteWholesalerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="TobaccoSecondaryWholesalerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="CigaretteSecondaryWholesalerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="TobaccoUnclassifiedAcquirerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="CigaretteUnclassifiedAcquirerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="ManufacturerReturn" minOccurs="0" maxOccurs="1"/>
+        <xsd:element ref="FinancialTransaction" minOccurs="0" maxOccurs="1"/>
+      </xsd:sequence>
+      <xsd:attribute name="stateSchemaVersion" type="String50Type"/>
+    </xsd:complexType>
+  </xsd:element>
+</xsd:schema>

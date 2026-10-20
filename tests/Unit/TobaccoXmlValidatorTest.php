@@ -22,7 +22,7 @@ class TobaccoXmlValidatorTest extends TestCase
     <ProcessType>T</ProcessType>
   </TransmissionHeader>
   <TobCigFiling>
-    <SubmissionId>12345678920260730120000</SubmissionId>
+    <SubmissionId>78920260730120000</SubmissionId>
     <TobaccoCigaretteHeader>
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>
@@ -79,7 +79,7 @@ XML;
     <ProcessType>T</ProcessType>
   </TransmissionHeader>
   <TobCigFiling>
-    <SubmissionId>12345678920260730120000</SubmissionId>
+    <SubmissionId>78920260730120000</SubmissionId>
     <TobaccoCigaretteHeader>
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>

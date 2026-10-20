@@ -1,0 +1,419 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!--Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com)-->
+<xsd:schema xmlns="http://www.irs.gov/efile" attributeFormDefault="unqualified" elementFormDefault="qualified" targetNamespace="http://www.irs.gov/efile" version="1.0" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <xsd:include schemaLocation="../Common/efileTypes.xsd" />
+    <xsd:include schemaLocation="../Common/StateeFileTypes.xsd" />
+    <xsd:include schemaLocation="MI_TobCigEnumerations.xsd" />
+    <xsd:complexType name="TobCigFilerType">
+        <xsd:annotation>
+            <xsd:documentation>The Taxpayer or Filer for the Filing</xsd:documentation>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:choice>
+                <xsd:element name="FEIN" type="EINType" />
+                <xsd:element name="SSN" type="SSNType" />
+                <xsd:element name="CBN" type="CanadianBusinessNumber" />
+                <xsd:element name="ME" type="METype" />
+                <xsd:element name="TR" type="TRType" />
+            </xsd:choice>
+            <xsd:element name="Name" type="PersonNameType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>Name of taxpayer or information filer.</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="NameControl" type="BusinessNameControlType" minOccurs="0" />
+            <xsd:element name="DBA" type="BusinessNameLine1Type" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>Name the taxpayer or information filer is doing business as if different.</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="Signature" type="TobCigSignatureType" minOccurs="0" />
+        </xsd:sequence>
+    </xsd:complexType>
+    <xsd:simpleType name="CanadianBusinessNumber">
+        <xsd:restriction base="String9Type" />
+    </xsd:simpleType>
+    <xsd:simpleType name="String9Type">
+        <xsd:restriction base="xsd:string">
+            <xsd:length value="9" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:complexType name="TobCigSignatureType">
+        <xsd:annotation>
+            <xsd:documentation>Electronic Signature and security.</xsd:documentation>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="AuthorCode">
+                <xsd:simpleType>
+                    <xsd:restriction base="xsd:string" />
+                </xsd:simpleType>
+            </xsd:element>
+            <xsd:element name="SecurityCode">
+                <xsd:simpleType>
+                    <xsd:restriction base="xsd:string" />
+                </xsd:simpleType>
+            </xsd:element>
+        </xsd:sequence>
+    </xsd:complexType>
+    <xsd:complexType name="TobCigContactType">
+        <xsd:annotation>
+            <xsd:documentation>Contact Information with type attribute</xsd:documentation>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="Name" type="PersonNameType">
+                <xsd:annotation>
+                    <xsd:documentation>Name of the contact.</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="Title" type="PersonTitleType" minOccurs="0" />
+            <xsd:element name="Department" type="DepartmentType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>Department where the contact works.</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="Phone" type="PhoneNumberType" minOccurs="0" />
+            <xsd:element name="Fax" type="PhoneNumberType" minOccurs="0" />
+            <xsd:element name="Email" type="EmailAddressType" minOccurs="0" />
+        </xsd:sequence>
+        <xsd:attribute name="typeOfContact" type="TobCigTypeOfContactType" />
+    </xsd:complexType>
+    <xsd:simpleType name="DepartmentType">
+        <xsd:restriction base="String20Type" />
+    </xsd:simpleType>
+    <xsd:complexType name="TobCigAddressType">
+        <xsd:annotation>
+            <xsd:documentation>Schedule Address</xsd:documentation>
+        </xsd:annotation>
+        <xsd:choice>
+            <xsd:element name="USAddress">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="AddressLine1" type="TobCigStreetAddressType">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 1</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="AddressLine2" type="TobCigStreetAddressType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 2</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="City" type="TobCigCityType">
+                            <xsd:annotation>
+                                <xsd:documentation>City</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="County" type="CountyType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>County</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="State" type="StateOnlyType">
+                            <xsd:annotation>
+                                <xsd:documentation>State</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="ZIPCode" type="ZIPCodeType">
+                            <xsd:annotation>
+                                <xsd:documentation>ZIP code</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="InCareOfName" type="String50Type" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>InCareOfName</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="CanadianAddress">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="AddressLine1" type="TobCigStreetAddressType">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 1</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="AddressLine2" type="TobCigStreetAddressType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 2</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="City" type="TobCigCityType">
+                            <xsd:annotation>
+                                <xsd:documentation>City</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="Province" type="ProvinceType">
+                            <xsd:annotation>
+                                <xsd:documentation>Canadian Province</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="PostalCode">
+                            <xsd:annotation>
+                                <xsd:documentation>Canadian Postal Code</xsd:documentation>
+                            </xsd:annotation>
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:length value="6" />
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="InCareOfName" type="String50Type" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>InCareOfName</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="MexicanAddress">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="AddressLine1" type="TobCigStreetAddressType">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 1</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="AddressLine2" type="TobCigStreetAddressType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 2</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="City" type="TobCigCityType">
+                            <xsd:annotation>
+                                <xsd:documentation>City</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="MexicanState" type="MexicanStateType">
+                            <xsd:annotation>
+                                <xsd:documentation>MexicanState</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="MexicanPostalCode" type="MexicanPostalCodeType">
+                            <xsd:annotation>
+                                <xsd:documentation>Mexican Postal Code</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="InCareOfName" type="String50Type" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>InCareOfName</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="OtherForeignAddress">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="AddressLine1" type="TobCigStreetAddressType">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 1</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="AddressLine2" type="TobCigStreetAddressType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Address line 2</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="City">
+                            <xsd:annotation>
+                                <xsd:documentation>
+                                    <Description>City</Description>
+                                </xsd:documentation>
+                            </xsd:annotation>
+                            <xsd:simpleType>
+                                <xsd:restriction base="TextType">
+                                    <xsd:maxLength value="50" />
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="ProvinceOrState" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>
+                                    <Description>Province or state</Description>
+                                </xsd:documentation>
+                            </xsd:annotation>
+                            <xsd:simpleType>
+                                <xsd:restriction base="TextType">
+                                    <xsd:maxLength value="50" />
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="Country" type="CountryType">
+                            <xsd:annotation>
+                                <xsd:documentation>
+                                    <Description>Country</Description>
+                                </xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="OtherPostalCode" type="OtherPostalCodeType" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>
+                                    <Description>Postal code</Description>
+                                </xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="InCareOfName" type="String50Type" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>InCareOfName</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+        </xsd:choice>
+    </xsd:complexType>
+    <xsd:simpleType name="CountyType">
+        <xsd:restriction base="String20Type" />
+    </xsd:simpleType>
+    <xsd:simpleType name="MexicanPostalCodeType">
+        <xsd:annotation>
+            <xsd:documentation>Mexican Postal Code</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:length value="5" />
+            <xsd:pattern value="[0-9]{5}" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="OtherPostalCodeType">
+        <xsd:restriction base="String20Type" />
+    </xsd:simpleType>
+    <xsd:complexType name="TobCigReturnType">
+        <xsd:sequence>
+            <xsd:element name="ReportID" type="TobCigReportIdType" minOccurs="0" />
+            <xsd:element name="NoActivity" type="CheckboxType" minOccurs="0" />
+            <xsd:element name="AmendedReason" type="TobCigAmendedReasonType" minOccurs="0" />
+            <xsd:element name="ReportContact" type="TobCigContactType" minOccurs="0" maxOccurs="unbounded" />
+        </xsd:sequence>
+        <xsd:attribute name="reportCurrency" type="TobCigCurrencyType" use="required" />
+    </xsd:complexType>
+    <xsd:simpleType name="TobCigReportIdType">
+        <xsd:restriction base="xsd:string">
+            <xsd:pattern value="" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigAmendedReasonType">
+        <xsd:restriction base="String20Type">
+            <xsd:enumeration value="Resubmission" />
+            <xsd:enumeration value="Supplemental" />
+            <xsd:enumeration value="Corrected" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="FilerIDType">
+        <xsd:restriction base="String20Type" />
+    </xsd:simpleType>
+    <xsd:complexType name="TobSchedule">
+        <xsd:annotation>
+            <xsd:documentation>Structure for all Other Tobacco Product Schedules</xsd:documentation>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="ScheduleCode" type="TobScheduleCode" />
+            <xsd:element name="DateReceivedOrSold" type="DateType" />
+            <xsd:element name="InvoiceDate" type="DateType" />
+            <xsd:element name="InvoiceNumber" type="TobCigInvoice" />
+            <xsd:element name="PurchaserSellerFEIN" type="TobCigPurSellerIdType" />
+            <xsd:element name="PurchaserSellerName" type="String50Type" />
+            <xsd:element name="BrandCode" type="TobCigBrandCode" />
+            <xsd:element name="WholesalePrice" type="USDecimalAmountNNType" />
+            <xsd:element name="TotalOz" type="DecimalNNType" minOccurs="0" maxOccurs="1" />
+            <xsd:element name="StickCount" type="TobCigQuantityType" minOccurs="0" maxOccurs="1" />
+            <xsd:element name="Address" type="TobCigAddressType" />
+        </xsd:sequence>
+    </xsd:complexType>
+    <xsd:complexType name="CigSchedule">
+        <xsd:annotation>
+            <xsd:documentation>Structure for all Cigarette Schedules</xsd:documentation>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="ScheduleCode" type="CigScheduleCode" />
+            <xsd:element name="DateReceived" type="DateType" />
+            <xsd:element name="InvoiceDate" type="DateType" />
+            <xsd:element name="InvoiceNumber" type="StringType" />
+            <xsd:element name="PurchaserSellerFEIN" type="TobCigPurSellerIdType" />
+            <xsd:element name="PurchaserSellerName" type="StringType" />
+            <xsd:element name="BrandCode" type="TobCigBrandCode" />
+            <xsd:element name="CigPackSize" type="CigPackSize" />
+            <xsd:element name="PackCount" type="TobCigQuantityType" />
+            <xsd:element name="Address" type="TobCigAddressType" />
+        </xsd:sequence>
+    </xsd:complexType>
+    <xsd:simpleType name="TobCigQuantityType">
+        <xsd:restriction base="Integer18Type" />
+    </xsd:simpleType>
+    <xsd:simpleType name="METype">
+        <xsd:restriction base="xsd:string">
+            <xsd:pattern value="ME[0-9]{7}" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TRType">
+        <xsd:restriction base="xsd:string">
+            <xsd:pattern value="TR[0-9]{7}" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:complexType name="CigSummaryValues">
+        <xsd:sequence>
+            <xsd:element name="R1" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R1 - Pressure - Standard20 - 30,000</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="R2" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R2 - Pressure - Standard20 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="R3" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R3 - Pressure - Standard25 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="R4" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R4 - Pressure - Tribal20 - 30,000</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="R5" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R5 - Pressure - Tribal20 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="R6" type="TobCigQuantityType">
+                <xsd:annotation>
+                    <xsd:documentation>R6 - Pressure - Tribal25 - 1,500</xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+    </xsd:complexType>
+    <xsd:simpleType name="TobCigInvoice">
+        <xsd:restriction base="xsd:string">
+            <xsd:maxLength value="30" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigPurSellerIdType">
+        <xsd:annotation>
+            <xsd:documentation>Id for the Purchaser or Seller ID</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:pattern value="(ME|TR|[0-9]{2})[0-9]{7}" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigStreetAddressType">
+        <xsd:annotation>
+            <xsd:documentation>Used for a street address. Legal Characters: A-Z, a-z, 0-9, hyphen, slash and single space. Illegal Character: leading space, trailing space, adjacent spaces, and other symbols.</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:maxLength value="255" />
+            <xsd:pattern value="[A-Za-z0-9]\.?( ?#?[A-Za-z0-9\-/]\.?)*" />
+        </xsd:restriction>
+    </xsd:simpleType>
+    <xsd:simpleType name="TobCigCityType">
+        <xsd:annotation>
+            <xsd:documentation>Used for a city. Legal Characters: A-Z, a-z, and single space. Illegal Character: leading space, trailing space, and adjacent spaces.</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xsd:string">
+            <xsd:maxLength value="22" />
+            <xsd:pattern value="([A-Za-z]\-?\.?,? ?'?)*[A-Za-z]\.?" />
+        </xsd:restriction>
+    </xsd:simpleType>
+</xsd:schema>

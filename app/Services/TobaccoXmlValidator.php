@@ -12,7 +12,7 @@ class TobaccoXmlValidator
      */
     public function validate(string $xml, ?string $schemaPath = null): array
     {
-        $schemaPath ??= resource_path('xsd/michigan-tobacco/MichiganTobaccoReturn.xsd');
+        $schemaPath ??= resource_path('xsd/michigan-tobacco/official/ExtendedCommon/Transmission.xsd');
 
         if (! is_file($schemaPath)) {
             return [

@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!--Created with Liquid Studio 2017 - XML Editor Edition 15.1.8.7566 (https://www.liquid-technologies.com)-->
+<xsd:schema xmlns="http://www.irs.gov/efile" attributeFormDefault="unqualified" elementFormDefault="qualified" targetNamespace="http://www.irs.gov/efile" version="1.0" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <xsd:include schemaLocation="MI_TobCigeFileTypes.xsd" />
+    <xsd:element name="CigaretteWholesalerReturn" type="CigWholeReturnType" />
+    <xsd:complexType name="CigWholeReturnType">
+        <xsd:complexContent>
+            <xsd:extension base="TobCigReturnType">
+                <xsd:sequence>
+                    <xsd:element name="StateLicenseNumber" type="FilerIDType" minOccurs="1" maxOccurs="1" />
+                    <xsd:element name="CigWholeSchedule" type="CigSchedule" minOccurs="0" maxOccurs="unbounded" />
+                    <xsd:element name="BeginningInventory" type="TobCigQuantityType" minOccurs="0" maxOccurs="1" />
+                    <xsd:element name="BeginningUnaffixedInventory" type="CigSummaryValues" minOccurs="1" maxOccurs="1" />
+                    <xsd:element name="EndingUnaffixedInventory" type="CigSummaryValues" minOccurs="1" maxOccurs="1" />
+                    <xsd:element name="BeginningAffixedInventory" type="CigSummaryValues" minOccurs="1" maxOccurs="1" />
+                    <xsd:element name="EndingAffixedInventory" type="CigSummaryValues" minOccurs="1" maxOccurs="1" />
+                </xsd:sequence>
+            </xsd:extension>
+        </xsd:complexContent>
+    </xsd:complexType>
+</xsd:schema>

@@ -19,7 +19,7 @@
             <xs:element name="Jurisdiction" type="xs:string"/>
             <xs:element name="TransmissionId" type="xs:string"/>
             <xs:element name="Timestamp" type="xs:dateTime"/>
-            <xs:element name="Transmitter" type="xs:string"/>
+            <xs:element name="Transmitter" type="t:TransmitterType"/>
             <xs:element name="ProcessType">
                 <xs:simpleType>
                     <xs:restriction base="xs:string">
@@ -34,6 +34,14 @@
                 <xs:restriction base="xs:positiveInteger"/>
             </xs:simpleType>
         </xs:attribute>
+    </xs:complexType>
+
+    <xs:complexType name="TransmitterType">
+        <xs:choice>
+            <xs:element name="ETIN" type="xs:string"/>
+            <xs:element name="EFIN" type="xs:string"/>
+            <xs:element name="StateEIN" type="xs:string"/>
+        </xs:choice>
     </xs:complexType>
 
     <xs:complexType name="TobCigFilingType">
@@ -54,6 +62,7 @@
             <xs:element name="Jurisdiction" type="xs:string"/>
             <xs:element name="Timestamp" type="xs:dateTime"/>
             <xs:element name="TaxPeriodEndDate" type="xs:date"/>
+            <xs:element name="AmendedReturnIndicator" type="xs:string" minOccurs="0"/>
             <xs:element name="TypeOfFiling" type="xs:string"/>
             <xs:element name="Filer" type="t:FilerType"/>
         </xs:sequence>
@@ -73,8 +82,8 @@
             <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
             <xs:choice>
-                <xs:element name="CigSndWholeSchedule" type="t:CigaretteScheduleListType"/>
-                <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType"/>
+                <xs:element name="CigSndWholeSchedule" type="t:CigaretteScheduleType" minOccurs="0" maxOccurs="unbounded"/>
+                <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleType" minOccurs="0" maxOccurs="unbounded"/>
             </xs:choice>
         </xs:sequence>
         <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
@@ -87,7 +96,7 @@
             <xs:element name="AmendedReason" type="xs:string" minOccurs="0"/>
             <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
-            <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType" minOccurs="0"/>
+            <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleType" minOccurs="0" maxOccurs="unbounded"/>
             <xs:element name="BeginningUnaffixedInventory" type="t:StampCountsType"/>
             <xs:element name="EndingUnaffixedInventory" type="t:StampCountsType"/>
             <xs:element name="BeginningAffixedInventory" type="t:StampCountsType"/>
@@ -110,23 +119,11 @@
             <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
             <xs:choice>
-                <xs:element name="TobSndWholeSchedule" type="t:OtpScheduleListType"/>
-                <xs:element name="TobUnAcqSchedule" type="t:OtpScheduleListType"/>
+                <xs:element name="TobSndWholeSchedule" type="t:OtpScheduleType" minOccurs="0" maxOccurs="unbounded"/>
+                <xs:element name="TobUnAcqSchedule" type="t:OtpScheduleType" minOccurs="0" maxOccurs="unbounded"/>
             </xs:choice>
         </xs:sequence>
         <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
-    </xs:complexType>
-
-    <xs:complexType name="CigaretteScheduleListType">
-        <xs:sequence>
-            <xs:element name="Schedule" type="t:CigaretteScheduleType" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="OtpScheduleListType">
-        <xs:sequence>
-            <xs:element name="Schedule" type="t:OtpScheduleType" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
     </xs:complexType>
 
     <xs:complexType name="CigaretteScheduleType">

@@ -67,7 +67,8 @@ class TobaccoXmlService
         $header->addChild('Jurisdiction', 'MI');
         $header->addChild('TransmissionId', $transmissionId);
         $header->addChild('Timestamp', $timestamp);
-        $header->addChild('Transmitter', $transmitter);
+        // Transmitter is a complex element: the portal expects <StateEIN> (or ETIN/EFIN) inside it, not text.
+        $header->addChild('Transmitter')->addChild('StateEIN', $transmitter);
         $header->addChild('ProcessType', $processType);
 
         $filing = $xml->addChild('TobCigFiling');
@@ -77,6 +78,7 @@ class TobaccoXmlService
         $returnHeader->addChild('Jurisdiction', 'MI');
         $returnHeader->addChild('Timestamp', $timestamp);
         $returnHeader->addChild('TaxPeriodEndDate', $periodEnd);
+        $returnHeader->addChild('AmendedReturnIndicator', '');
         $returnHeader->addChild('TypeOfFiling', 'Original');
         $filer = $returnHeader->addChild('Filer');
         $filer->addChild('FEIN', $fein);
@@ -87,9 +89,10 @@ class TobaccoXmlService
         $returnNode->addAttribute('reportCurrency', 'USD');
         $returnNode->addChild('StateLicenseNumber', $license);
 
-        $scheduleParent = $returnNode->addChild($this->scheduleParentName($filerType, $product));
+        // Each schedule row is its own <CigSndWholeSchedule>/<TobSndWholeSchedule>/... element (no <Schedule> wrapper).
+        $scheduleName = $this->scheduleParentName($filerType, $product);
         foreach ($schedules as $row) {
-            $node = $scheduleParent->addChild('Schedule');
+            $node = $returnNode->addChild($scheduleName);
             foreach ($row as $key => $value) {
                 if ($key === 'Address') {
                     $addr = $node->addChild('Address');
@@ -109,17 +112,13 @@ class TobaccoXmlService
             $this->appendStampInventory($returnNode, $stamps);
         }
 
-        $payload = $xml->asXML() ?: '';
+        // Pretty-print like the accepted Michigan sample so portal errors point at a real line number.
+        $dom = new \DOMDocument('1.0', 'utf-8');
+        $dom->preserveWhiteSpace = false;
+        $dom->formatOutput = true;
+        $dom->loadXML($xml->asXML() ?: '');
 
-        // Michigan e-file uploader requires this exact Transmission opening tag (attribute order + schemaLocation).
-        return (string) preg_replace(
-            '/<Transmission\b[^>]*>/',
-            '<Transmission xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'."\n"
-            .'xmlns="http://www.irs.gov/efile" xsi:schemaLocation="http://www.irs.gov/efile'."\n"
-            .'./ExtendedCommon/Transmission.xsd">',
-            $payload,
-            1
-        );
+        return $dom->saveXML() ?: '';
     }
 
     /**

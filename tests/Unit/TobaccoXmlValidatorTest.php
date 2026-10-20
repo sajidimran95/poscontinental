@@ -12,11 +12,13 @@ class TobaccoXmlValidatorTest extends TestCase
         $xml = <<<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <Transmission xmlns="http://www.irs.gov/efile">
-  <TransmissionHeader>
+  <TransmissionHeader recordCount="1">
     <Jurisdiction>MI</Jurisdiction>
-    <TransmissionID>12345678920260730120000</TransmissionID>
+    <TransmissionId>12345678920260730120000</TransmissionId>
     <Timestamp>2026-07-30T12:00:00Z</Timestamp>
-    <Transmitter>123456789</Transmitter>
+    <Transmitter>
+      <StateEIN>123456789</StateEIN>
+    </Transmitter>
     <ProcessType>T</ProcessType>
   </TransmissionHeader>
   <TobCigFiling>
@@ -25,34 +27,32 @@ class TobaccoXmlValidatorTest extends TestCase
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>
       <TaxPeriodEndDate>2026-07-31</TaxPeriodEndDate>
+      <AmendedReturnIndicator></AmendedReturnIndicator>
       <TypeOfFiling>Original</TypeOfFiling>
       <Filer>
         <FEIN>123456789</FEIN>
       </Filer>
     </TobaccoCigaretteHeader>
-    <CigaretteSecondaryWholesalerReturn>
-      <reportCurrency>USD</reportCurrency>
+    <CigaretteSecondaryWholesalerReturn reportCurrency="USD">
       <StateLicenseNumber>1001</StateLicenseNumber>
       <CigSndWholeSchedule>
-        <Schedule>
-          <ScheduleCode>C108C</ScheduleCode>
-          <DateReceived>2026-07-15</DateReceived>
-          <InvoiceDate>2026-07-15</InvoiceDate>
-          <InvoiceNumber>INV-1001</InvoiceNumber>
-          <PurchaserSellerFEIN>112233445</PurchaserSellerFEIN>
-          <PurchaserSellerName>Retail Customer</PurchaserSellerName>
-          <BrandCode>CIG</BrandCode>
-          <CigPackSize>20</CigPackSize>
-          <PackCount>10</PackCount>
-          <Address>
-            <USAddress>
-              <AddressLine1>200 Oak Ave</AddressLine1>
-              <City>Ann Arbor</City>
-              <State>MI</State>
-              <ZIPCode>48104</ZIPCode>
-            </USAddress>
-          </Address>
-        </Schedule>
+        <ScheduleCode>C108C</ScheduleCode>
+        <DateReceived>2026-07-15</DateReceived>
+        <InvoiceDate>2026-07-15</InvoiceDate>
+        <InvoiceNumber>INV-1001</InvoiceNumber>
+        <PurchaserSellerFEIN>112233445</PurchaserSellerFEIN>
+        <PurchaserSellerName>Retail Customer</PurchaserSellerName>
+        <BrandCode>CIG</BrandCode>
+        <CigPackSize>20</CigPackSize>
+        <PackCount>10</PackCount>
+        <Address>
+          <USAddress>
+            <AddressLine1>200 Oak Ave</AddressLine1>
+            <City>Ann Arbor</City>
+            <State>MI</State>
+            <ZIPCode>48104</ZIPCode>
+          </USAddress>
+        </Address>
       </CigSndWholeSchedule>
     </CigaretteSecondaryWholesalerReturn>
   </TobCigFiling>
@@ -70,11 +70,13 @@ XML;
         $xml = <<<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <Transmission xmlns="http://www.irs.gov/efile">
-  <TransmissionHeader>
+  <TransmissionHeader recordCount="1">
     <Jurisdiction>MI</Jurisdiction>
-    <TransmissionID>12345678920260730120000</TransmissionID>
+    <TransmissionId>12345678920260730120000</TransmissionId>
     <Timestamp>2026-07-30T12:00:00Z</Timestamp>
-    <Transmitter>123456789</Transmitter>
+    <Transmitter>
+      <StateEIN>123456789</StateEIN>
+    </Transmitter>
     <ProcessType>T</ProcessType>
   </TransmissionHeader>
   <TobCigFiling>
@@ -83,33 +85,31 @@ XML;
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>
       <TaxPeriodEndDate>2026-07-31</TaxPeriodEndDate>
+      <AmendedReturnIndicator></AmendedReturnIndicator>
       <TypeOfFiling>Original</TypeOfFiling>
       <Filer>
         <FEIN>123456789</FEIN>
       </Filer>
     </TobaccoCigaretteHeader>
-    <TobaccoSecondaryWholesalerReturn>
-      <reportCurrency>USD</reportCurrency>
+    <TobaccoSecondaryWholesalerReturn reportCurrency="USD">
       <StateLicenseNumber>1001</StateLicenseNumber>
       <TobSndWholeSchedule>
-        <Schedule>
-          <ScheduleCode>T108C</ScheduleCode>
-          <DateReceivedOrSold>2026-07-15</DateReceivedOrSold>
-          <InvoiceDate>2026-07-15</InvoiceDate>
-          <InvoiceNumber>INV-2001</InvoiceNumber>
-          <PurchaserSellerFEIN>112233445</PurchaserSellerFEIN>
-          <PurchaserSellerName>Retail Customer</PurchaserSellerName>
-          <BrandCode>OTP</BrandCode>
-          <WholesalePrice>90.00</WholesalePrice>
-          <Address>
-            <USAddress>
-              <AddressLine1>200 Oak Ave</AddressLine1>
-              <City>Ann Arbor</City>
-              <State>MI</State>
-              <ZIPCode>48104</ZIPCode>
-            </USAddress>
-          </Address>
-        </Schedule>
+        <ScheduleCode>T108C</ScheduleCode>
+        <DateReceivedOrSold>2026-07-15</DateReceivedOrSold>
+        <InvoiceDate>2026-07-15</InvoiceDate>
+        <InvoiceNumber>INV-2001</InvoiceNumber>
+        <PurchaserSellerFEIN>112233445</PurchaserSellerFEIN>
+        <PurchaserSellerName>Retail Customer</PurchaserSellerName>
+        <BrandCode>OTP</BrandCode>
+        <WholesalePrice>90.00</WholesalePrice>
+        <Address>
+          <USAddress>
+            <AddressLine1>200 Oak Ave</AddressLine1>
+            <City>Ann Arbor</City>
+            <State>MI</State>
+            <ZIPCode>48104</ZIPCode>
+          </USAddress>
+        </Address>
       </TobSndWholeSchedule>
     </TobaccoSecondaryWholesalerReturn>
   </TobCigFiling>

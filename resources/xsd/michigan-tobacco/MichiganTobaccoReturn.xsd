@@ -62,7 +62,7 @@
             <xs:element name="Jurisdiction" type="xs:string"/>
             <xs:element name="Timestamp" type="xs:dateTime"/>
             <xs:element name="TaxPeriodEndDate" type="xs:date"/>
-            <xs:element name="AmendedReturnIndicator" type="xs:string" minOccurs="0"/>
+            <xs:element name="AmendedReturnIndicator" type="t:CheckboxType" minOccurs="0"/>
             <xs:element name="TypeOfFiling" type="xs:string"/>
             <xs:element name="Filer" type="t:FilerType"/>
         </xs:sequence>
@@ -104,6 +104,13 @@
         </xs:sequence>
         <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
     </xs:complexType>
+
+    <!-- IRS efile CheckboxType: only "X" is allowed, so an empty element is rejected by the portal. -->
+    <xs:simpleType name="CheckboxType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="X"/>
+        </xs:restriction>
+    </xs:simpleType>
 
     <xs:simpleType name="ReportCurrencyType">
         <xs:restriction base="xs:string">

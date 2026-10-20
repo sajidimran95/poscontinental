@@ -27,7 +27,6 @@ class TobaccoXmlValidatorTest extends TestCase
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>
       <TaxPeriodEndDate>2026-07-31</TaxPeriodEndDate>
-      <AmendedReturnIndicator></AmendedReturnIndicator>
       <TypeOfFiling>Original</TypeOfFiling>
       <Filer>
         <FEIN>123456789</FEIN>
@@ -85,7 +84,6 @@ XML;
       <Jurisdiction>MI</Jurisdiction>
       <Timestamp>2026-07-30T12:00:00Z</Timestamp>
       <TaxPeriodEndDate>2026-07-31</TaxPeriodEndDate>
-      <AmendedReturnIndicator></AmendedReturnIndicator>
       <TypeOfFiling>Original</TypeOfFiling>
       <Filer>
         <FEIN>123456789</FEIN>

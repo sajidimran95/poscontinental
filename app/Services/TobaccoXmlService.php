@@ -78,7 +78,7 @@ class TobaccoXmlService
         $returnHeader->addChild('Jurisdiction', 'MI');
         $returnHeader->addChild('Timestamp', $timestamp);
         $returnHeader->addChild('TaxPeriodEndDate', $periodEnd);
-        $returnHeader->addChild('AmendedReturnIndicator', '');
+        // AmendedReturnIndicator is an IRS CheckboxType (only "X" allowed); omit it on original returns.
         $returnHeader->addChild('TypeOfFiling', 'Original');
         $filer = $returnHeader->addChild('Filer');
         $filer->addChild('FEIN', $fein);

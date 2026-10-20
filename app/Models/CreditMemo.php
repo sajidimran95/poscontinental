@@ -58,14 +58,32 @@ class CreditMemo extends Model
         return $query->whereDate('memo_date', '>=', self::INVOICE_CREDIT_FROM);
     }
 
+    public function scopeWithAppliedSum($query)
+    {
+        return $query->withSum('applications as applied_sum', 'amount');
+    }
+
+    public function appliedTotal(): float
+    {
+        if (array_key_exists('applied_sum', $this->attributes)) {
+            return (float) $this->attributes['applied_sum'];
+        }
+
+        if ($this->relationLoaded('applications')) {
+            return (float) $this->applications->sum('amount');
+        }
+
+        return (float) $this->applications()->sum('amount');
+    }
+
     public function getAppliedAmountAttribute(): float
     {
-        return (float) $this->applications()->sum('amount');
+        return $this->appliedTotal();
     }
 
     public function getRemainingAmountAttribute(): float
     {
-        return max(0, (float) $this->amount - $this->applied_amount);
+        return max(0, (float) $this->amount - $this->appliedTotal());
     }
 
     /** Unused credit (open memos, e.g. overpayments) the customer still has on account. */

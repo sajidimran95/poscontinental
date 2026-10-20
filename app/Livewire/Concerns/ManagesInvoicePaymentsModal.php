@@ -81,7 +81,8 @@ trait ManagesInvoicePaymentsModal
             'modalInvoice' => $modalInvoice,
             'pcOpenCredits' => $modalInvoice
                 ? CreditMemo::query()
-                    ->with(['salesOrder'])
+                    ->with(['salesOrder:id,order_number'])
+                    ->withAppliedSum()
                     ->where('company_id', $companyId)
                     ->where('customer_id', $modalInvoice->customer_id)
                     ->where('status', 'Open')
@@ -144,6 +145,7 @@ trait ManagesInvoicePaymentsModal
             return;
         }
         $memos = CreditMemo::query()
+            ->withAppliedSum()
             ->where('company_id', $invoice->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')
@@ -420,6 +422,7 @@ trait ManagesInvoicePaymentsModal
         }
 
         $openMemos = CreditMemo::query()
+            ->withAppliedSum()
             ->where('company_id', auth()->user()->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')

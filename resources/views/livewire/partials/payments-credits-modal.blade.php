@@ -146,7 +146,7 @@
                                             @class(['is-selected' => $selectedPaymentIndex === $i])
                                         >
                                             <td>
-                                                <input type="date" class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.payment_date" />
+                                                <input type="date" class="so-input pc-cell-input" wire:model.blur="draftPayments.{{ $i }}.payment_date" />
                                             </td>
                                             <td>
                                                 <select class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.payment_method">
@@ -161,17 +161,17 @@
                                                 <input
                                                     type="text"
                                                     class="so-input pc-cell-input"
-                                                    wire:model.live="draftPayments.{{ $i }}.check_number"
+                                                    wire:model="draftPayments.{{ $i }}.check_number"
                                                     placeholder="{{ $rowIsCheck ? 'Check number' : 'Select Check' }}"
                                                     autocomplete="off"
                                                     @disabled(! $rowIsCheck)
                                                 />
                                             </td>
                                             <td>
-                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0" />
+                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.blur="draftPayments.{{ $i }}.amount" placeholder="0" />
                                             </td>
                                             <td>
-                                                <input type="text" class="so-input pc-cell-input" wire:model.live="draftPayments.{{ $i }}.comments" placeholder="Optional" />
+                                                <input type="text" class="so-input pc-cell-input" wire:model="draftPayments.{{ $i }}.comments" placeholder="Optional" />
                                             </td>
                                         </tr>
                                     @empty
@@ -254,7 +254,7 @@
                                                     <td class="desk-num">{{ $selectedMemo?->salesOrder?->order_number ?: '—' }}</td>
                                                 @endif
                                                 <td>
-                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftCredits.{{ $i }}.amount" placeholder="0" />
+                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.blur="draftCredits.{{ $i }}.amount" placeholder="0" />
                                                 </td>
                                             </tr>
                                         @empty

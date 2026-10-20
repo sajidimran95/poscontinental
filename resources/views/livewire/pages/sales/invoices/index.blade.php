@@ -113,16 +113,16 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         $query = Invoice::query()
             ->select([
-                'id', 'company_id', 'invoice_number', 'invoice_date', 'customer_id', 'sales_order_id',
-                'status', 'invoice_total', 'subtotal', 'tax', 'freight', 'trade_discount', 'miscellaneous',
-                'driver',
+                'invoices.id', 'invoices.company_id', 'invoices.invoice_number', 'invoices.invoice_date', 'invoices.customer_id', 'invoices.sales_order_id',
+                'invoices.status', 'invoices.invoice_total', 'invoices.subtotal', 'invoices.tax', 'invoices.freight', 'invoices.trade_discount', 'invoices.miscellaneous',
+                'invoices.driver',
             ])
             ->with([
                 'customer:id,customer_id,company_name,portal_email',
                 'salesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source,sales_rep_id',
                 'salesOrder.createdBy:id,name',
             ])
-            ->where('company_id', $companyId)
+            ->where('invoices.company_id', $companyId)
             ->when($this->search !== '', function ($q) {
                 $raw = trim($this->search);
                 $q->where(function ($inner) use ($raw) {
@@ -144,14 +144,19 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             });
 
         if (in_array($this->statusFilter, ['NOT PAID', 'PAID'], true)) {
-            $query->where('status', $this->statusFilter);
+            $query->where('invoices.status', $this->statusFilter);
         } elseif ($this->favorite === 'not_paid') {
-            $query->where('status', 'NOT PAID');
+            $query->where('invoices.status', 'NOT PAID');
         } elseif ($this->favorite === 'paid') {
-            $query->where('status', 'PAID');
+            $query->where('invoices.status', 'PAID');
         }
 
-        $this->constrainDeskDateColumn($query, 'invoice_date', $this->dateFrom, $this->dateTo);
+        $this->constrainDeskDateColumn($query, 'invoices.invoice_date', $this->dateFrom, $this->dateTo);
+
+        if ($this->sortField === '' || $this->sortField === 'bill_to') {
+            $query->leftJoin('customers as inv_cust', 'inv_cust.id', '=', 'invoices.customer_id')
+                ->leftJoin('sales_orders as inv_so', 'inv_so.id', '=', 'invoices.sales_order_id');
+        }
 
         if ($this->createdByUserId !== '' && ctype_digit((string) $this->createdByUserId)) {
             $uid = (int) $this->createdByUserId;
@@ -423,7 +428,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'invoice_date' => 'invoice_date',
             'order_number' => ['relation' => 'salesOrder', 'column' => 'order_number'],
             'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
-            'bill_to' => ['raw' => 'LOWER(COALESCE((SELECT customers.company_name FROM customers WHERE customers.id = invoices.customer_id LIMIT 1), (SELECT sales_orders.bill_to_name FROM sales_orders WHERE sales_orders.id = invoices.sales_order_id LIMIT 1), \'\'))'],
+            'bill_to' => ['raw' => 'LOWER(COALESCE(inv_cust.company_name, inv_so.bill_to_name, \'\'))'],
             'subtotal' => 'subtotal',
             'total_discount' => 'total_discount',
             'trade_discount' => 'trade_discount',

@@ -17,7 +17,7 @@
     <xs:complexType name="TransmissionHeaderType">
         <xs:sequence>
             <xs:element name="Jurisdiction" type="xs:string"/>
-            <xs:element name="TransmissionID" type="xs:string"/>
+            <xs:element name="TransmissionId" type="xs:string"/>
             <xs:element name="Timestamp" type="xs:dateTime"/>
             <xs:element name="Transmitter" type="xs:string"/>
             <xs:element name="ProcessType">
@@ -29,6 +29,11 @@
                 </xs:simpleType>
             </xs:element>
         </xs:sequence>
+        <xs:attribute name="recordCount" use="required">
+            <xs:simpleType>
+                <xs:restriction base="xs:positiveInteger"/>
+            </xs:simpleType>
+        </xs:attribute>
     </xs:complexType>
 
     <xs:complexType name="TobCigFilingType">
@@ -62,18 +67,25 @@
 
     <xs:complexType name="CigaretteReturnType">
         <xs:sequence>
-            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="ReportID" type="xs:string" minOccurs="0"/>
+            <xs:element name="NoActivity" type="xs:string" minOccurs="0"/>
+            <xs:element name="AmendedReason" type="xs:string" minOccurs="0"/>
+            <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
             <xs:choice>
                 <xs:element name="CigSndWholeSchedule" type="t:CigaretteScheduleListType"/>
                 <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType"/>
             </xs:choice>
         </xs:sequence>
+        <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
     </xs:complexType>
 
     <xs:complexType name="CigaretteUaReturnType">
         <xs:sequence>
-            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="ReportID" type="xs:string" minOccurs="0"/>
+            <xs:element name="NoActivity" type="xs:string" minOccurs="0"/>
+            <xs:element name="AmendedReason" type="xs:string" minOccurs="0"/>
+            <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
             <xs:element name="CigUnAcqSchedule" type="t:CigaretteScheduleListType" minOccurs="0"/>
             <xs:element name="BeginningUnaffixedInventory" type="t:StampCountsType"/>
@@ -81,17 +93,28 @@
             <xs:element name="BeginningAffixedInventory" type="t:StampCountsType"/>
             <xs:element name="EndingAffixedInventory" type="t:StampCountsType"/>
         </xs:sequence>
+        <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
     </xs:complexType>
+
+    <xs:simpleType name="ReportCurrencyType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="USD"/>
+        </xs:restriction>
+    </xs:simpleType>
 
     <xs:complexType name="OtpReturnType">
         <xs:sequence>
-            <xs:element name="reportCurrency" type="xs:string"/>
+            <xs:element name="ReportID" type="xs:string" minOccurs="0"/>
+            <xs:element name="NoActivity" type="xs:string" minOccurs="0"/>
+            <xs:element name="AmendedReason" type="xs:string" minOccurs="0"/>
+            <xs:element name="ReportContact" type="xs:string" minOccurs="0"/>
             <xs:element name="StateLicenseNumber" type="xs:string"/>
             <xs:choice>
                 <xs:element name="TobSndWholeSchedule" type="t:OtpScheduleListType"/>
                 <xs:element name="TobUnAcqSchedule" type="t:OtpScheduleListType"/>
             </xs:choice>
         </xs:sequence>
+        <xs:attribute name="reportCurrency" use="required" type="t:ReportCurrencyType"/>
     </xs:complexType>
 
     <xs:complexType name="CigaretteScheduleListType">

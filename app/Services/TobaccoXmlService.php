@@ -62,8 +62,10 @@ class TobaccoXmlService
         $xml = new SimpleXMLElement($rootXml);
 
         $header = $xml->addChild('TransmissionHeader');
+        // Portal schema (http://www.irs.gov/efile) requires this attribute on the header.
+        $header->addAttribute('recordCount', '1');
         $header->addChild('Jurisdiction', 'MI');
-        $header->addChild('TransmissionID', $transmissionId);
+        $header->addChild('TransmissionId', $transmissionId);
         $header->addChild('Timestamp', $timestamp);
         $header->addChild('Transmitter', $transmitter);
         $header->addChild('ProcessType', $processType);
@@ -81,7 +83,8 @@ class TobaccoXmlService
 
         $schedules = $this->buildScheduleRows($filerType, $product, $receivings, $invoices, $creditMemos);
         $returnNode = $filing->addChild($this->returnElementName($filerType, $product));
-        $returnNode->addChild('reportCurrency', 'USD');
+        // reportCurrency is a required attribute on the return, not a child element.
+        $returnNode->addAttribute('reportCurrency', 'USD');
         $returnNode->addChild('StateLicenseNumber', $license);
 
         $scheduleParent = $returnNode->addChild($this->scheduleParentName($filerType, $product));

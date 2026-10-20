@@ -89,11 +89,12 @@ class TobaccoProductSalesFileService
         $totalQty = 0;
         $totalAmountCents = 0;
         $sidCount = 0;
+        $usedSid = [];
 
-        foreach ($customers as $bucket) {
+        foreach ($this->sidOrder($customers) as $bucket) {
             $sidCount++;
-            $custKey = $this->customerKey($bucket['customer'], $sidCount);
-            $lines[] = $this->sid($custKey, $bucket['customer'], $company, $sidCount);
+            [$custNo, $shipNo, $extNo] = $this->uniqueSidKeys($bucket['customer'], $sidCount, $usedSid);
+            $lines[] = $this->sid($custNo, $shipNo, $extNo, $bucket['customer'], $company);
 
             foreach ($bucket['lines'] as $sale) {
                 /** @var Item $item */
@@ -103,7 +104,7 @@ class TobaccoProductSalesFileService
                 $amount = (float) $sale['amount'];
                 $qtyInt = max(0, (int) round($qty));
                 $cents = max(0, (int) round($amount * 100));
-                $lines[] = $this->pur($custKey, $code14, $sale['date'], $qtyInt, $cents);
+                $lines[] = $this->pur($custNo, $shipNo, $extNo, $code14, $sale['date'], $qtyInt, $cents);
                 $purCount++;
                 $totalQty += $qtyInt;
                 $totalAmountCents += $cents;
@@ -468,14 +469,60 @@ class TobaccoProductSalesFileService
     }
 
     /**
-     * Customer account key (8 digits) — matches SID/PUR keys in the approved file.
+     * Real account numbers are written first so a walk-in cannot claim account 68
+     * just because it is the 68th store in the file (MSA error 6032).
+     *
+     * @param  array<int, array{customer: ?Customer, lines: list<array{item: Item, qty: float, amount: float, date: string}>}>  $customers
+     * @return list<array{customer: ?Customer, lines: list<array{item: Item, qty: float, amount: float, date: string}>}>
      */
-    protected function customerKey(?Customer $customer, int $fallbackSeq): string
+    protected function sidOrder(array $customers): array
     {
-        $acctSource = (string) ($customer?->customer_id ?: $customer?->id ?: $fallbackSeq);
-        $acctDigits = preg_replace('/\D+/', '', $acctSource) ?: (string) $fallbackSeq;
+        $buckets = array_values($customers);
+        usort($buckets, function (array $a, array $b): int {
+            $aAccount = preg_replace('/\D+/', '', (string) ($a['customer']?->customer_id ?? '')) !== '';
+            $bAccount = preg_replace('/\D+/', '', (string) ($b['customer']?->customer_id ?? '')) !== '';
+            if ($aAccount !== $bAccount) {
+                return $aAccount ? -1 : 1;
+            }
 
-        return $this->numDigits($acctDigits, 8);
+            return ((int) ($a['customer']?->id ?? 0)) <=> ((int) ($b['customer']?->id ?? 0));
+        });
+
+        return $buckets;
+    }
+
+    /**
+     * Customer # + Shipping # + Extension must be unique on every SID (MSA 6032).
+     * One account keeps that number in all three fields. A later store that would
+     * repeat it gets a different extension. Walk-in has no account digits, so it
+     * uses its customer id instead of the file sequence.
+     *
+     * @param  array<string, true>  $used
+     * @return array{0: string, 1: string, 2: string}
+     */
+    protected function uniqueSidKeys(?Customer $customer, int $fallbackSeq, array &$used): array
+    {
+        $accountDigits = preg_replace('/\D+/', '', (string) ($customer?->customer_id ?? '')) ?: '';
+        $idDigits = (string) ($customer?->id ?: $fallbackSeq);
+        $hasAccount = $accountDigits !== '';
+
+        $custNo = $this->numDigits($hasAccount ? $accountDigits : $idDigits, 8);
+        $shipNo = $custNo;
+        $extNo = $custNo;
+
+        $combo = $custNo.$shipNo.$extNo;
+        if (isset($used[$combo])) {
+            $n = max(1, (int) $idDigits);
+            do {
+                $extNo = $this->numDigits((string) $n, 8);
+                $combo = $custNo.$shipNo.$extNo;
+                $n++;
+            } while (isset($used[$combo]));
+        }
+
+        $used[$combo] = true;
+
+        return [$custNo, $shipNo, $extNo];
     }
 
     /**
@@ -659,7 +706,7 @@ class TobaccoProductSalesFileService
     /**
      * SID — 551 chars (customer + location bill-to / ship-to).
      */
-    protected function sid(string $custKey, ?Customer $customer, Company $company, int $seq): string
+    protected function sid(string $custNo, string $shipNo, string $extNo, ?Customer $customer, Company $company): string
     {
         $co = $this->companyLocation($company);
         $ship = $this->customerShipTo($customer);
@@ -746,11 +793,11 @@ class TobaccoProductSalesFileService
 
         return $this->fields([
             ['SID', 3],
-            [$custKey, 8, '0', STR_PAD_LEFT],
-            [$custKey, 8, '0', STR_PAD_LEFT],
-            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custNo, 8, '0', STR_PAD_LEFT],
+            [$shipNo, 8, '0', STR_PAD_LEFT],
+            [$extNo, 8, '0', STR_PAD_LEFT],
             [$name, self::NAME_LEN],
-            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$shipNo, 8, '0', STR_PAD_LEFT],
             [$addr, self::ADDR_LEN],
             [$city, 25],
             [$state, 2],
@@ -854,7 +901,9 @@ class TobaccoProductSalesFileService
      * PUR — 158 chars. 001 qty, 002 dollars, 004 saleable returns, 005 filler.
      */
     protected function pur(
-        string $custKey,
+        string $custNo,
+        string $shipNo,
+        string $extNo,
         string $productKey,
         string $saleDateYmd,
         int $qty,
@@ -862,9 +911,9 @@ class TobaccoProductSalesFileService
     ): string {
         return $this->fields([
             ['PUR', 3],
-            [$custKey, 8, '0', STR_PAD_LEFT],
-            [$custKey, 8, '0', STR_PAD_LEFT],
-            [$custKey, 8, '0', STR_PAD_LEFT],
+            [$custNo, 8, '0', STR_PAD_LEFT],
+            [$shipNo, 8, '0', STR_PAD_LEFT],
+            [$extNo, 8, '0', STR_PAD_LEFT],
             [$productKey, 14, '0', STR_PAD_LEFT],
             ['', 33],
             [$saleDateYmd, 8],

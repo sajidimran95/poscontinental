@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\DB;
 
 class CreditMemo extends Model
 {
+    /** Open memos dated before this day are not subtracted on an invoice. */
+    public const INVOICE_CREDIT_FROM = '2026-11-01';
+
     protected $fillable = [
         'company_id', 'memo_number', 'memo_date', 'reference_no', 'reason', 'customer_id', 'sales_order_id',
         'amount', 'status', 'comments', 'restock_inventory',
@@ -43,6 +46,18 @@ class CreditMemo extends Model
         return $this->hasMany(InvoiceCredit::class);
     }
 
+    public function countsOnInvoice(): bool
+    {
+        $date = $this->memo_date;
+
+        return $date !== null && $date->toDateString() >= self::INVOICE_CREDIT_FROM;
+    }
+
+    public function scopeCountsOnInvoice($query)
+    {
+        return $query->whereDate('memo_date', '>=', self::INVOICE_CREDIT_FROM);
+    }
+
     public function getAppliedAmountAttribute(): float
     {
         return (float) $this->applications()->sum('amount');
@@ -69,6 +84,7 @@ class CreditMemo extends Model
             ->where('cm.company_id', $companyId)
             ->where('cm.customer_id', $customerId)
             ->where('cm.status', 'Open')
+            ->whereDate('cm.memo_date', '>=', self::INVOICE_CREDIT_FROM)
             ->selectRaw('SUM(GREATEST(cm.amount - COALESCE(ap.applied, 0), 0)) as t')
             ->value('t'), 2);
     }

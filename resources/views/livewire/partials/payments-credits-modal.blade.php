@@ -158,17 +158,14 @@
                                                 </select>
                                             </td>
                                             <td>
-                                                @if ($rowIsCheck)
-                                                    <input
-                                                        type="text"
-                                                        class="so-input pc-cell-input"
-                                                        wire:model.live="draftPayments.{{ $i }}.check_number"
-                                                        placeholder="Check number"
-                                                        autocomplete="off"
-                                                    />
-                                                @else
-                                                    <span class="text-slate-400">—</span>
-                                                @endif
+                                                <input
+                                                    type="text"
+                                                    class="so-input pc-cell-input"
+                                                    wire:model.live="draftPayments.{{ $i }}.check_number"
+                                                    placeholder="{{ $rowIsCheck ? 'Check number' : 'Select Check' }}"
+                                                    autocomplete="off"
+                                                    @disabled(! $rowIsCheck)
+                                                />
                                             </td>
                                             <td>
                                                 <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live="draftPayments.{{ $i }}.amount" placeholder="0" />

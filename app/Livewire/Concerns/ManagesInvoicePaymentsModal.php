@@ -85,6 +85,7 @@ trait ManagesInvoicePaymentsModal
                     ->where('company_id', $companyId)
                     ->where('customer_id', $modalInvoice->customer_id)
                     ->where('status', 'Open')
+                    ->countsOnInvoice()
                     ->orderByDesc('id')
                     ->get()
                     ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
@@ -146,6 +147,7 @@ trait ManagesInvoicePaymentsModal
             ->where('company_id', $invoice->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')
+            ->countsOnInvoice()
             ->orderBy('memo_date')
             ->orderBy('id')
             ->get();
@@ -421,6 +423,7 @@ trait ManagesInvoicePaymentsModal
             ->where('company_id', auth()->user()->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')
+            ->countsOnInvoice()
             ->orderBy('memo_date')
             ->orderBy('id')
             ->get()
@@ -797,7 +800,8 @@ trait ManagesInvoicePaymentsModal
                     abort_unless(
                         $memo->company_id === $invoice->company_id
                         && (int) $memo->customer_id === (int) $invoice->customer_id
-                        && $memo->status === 'Open',
+                        && $memo->status === 'Open'
+                        && $memo->countsOnInvoice(),
                         403
                     );
 

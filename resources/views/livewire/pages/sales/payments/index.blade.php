@@ -89,6 +89,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
+                ->countsOnInvoice()
                 ->orderByDesc('memo_date')
                 ->orderByDesc('id')
                 ->get()
@@ -708,6 +709,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
+                ->countsOnInvoice()
                 ->get()
                 ->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
@@ -861,6 +863,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         ->where('company_id', $companyId)
                         ->where('customer_id', $this->customer_id)
                         ->where('status', 'Open')
+                        ->countsOnInvoice()
                         ->orderBy('memo_date')
                         ->orderBy('id')
                         ->lockForUpdate()

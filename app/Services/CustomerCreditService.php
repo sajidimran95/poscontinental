@@ -33,6 +33,7 @@ class CustomerCreditService
                 ->where('company_id', $invoice->company_id)
                 ->where('customer_id', $invoice->customer_id)
                 ->where('status', 'Open')
+                ->countsOnInvoice()
                 ->orderBy('memo_date')
                 ->orderBy('id')
                 ->lockForUpdate()

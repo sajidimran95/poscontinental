@@ -441,7 +441,68 @@ class TobaccoXmlService
             );
         }
 
-        return $rows;
+        return $this->mergeDuplicateRows($rows);
+    }
+
+    /**
+     * Michigan rejects a return when two schedule rows share Invoice + Brand Code + FEIN (+ Pack Size for cigarettes)
+     * ("combination matches prior schedule"), so lines of one invoice with the same brand are summed into one row.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    protected function mergeDuplicateRows(array $rows): array
+    {
+        $merged = [];
+
+        foreach ($rows as $row) {
+            $key = implode('|', [
+                $row['ScheduleCode'] ?? '',
+                strtoupper((string) ($row['InvoiceNumber'] ?? '')),
+                $row['BrandCode'] ?? '',
+                $row['PurchaserSellerFEIN'] ?? '',
+                $row['CigPackSize'] ?? '',
+            ]);
+
+            if (! isset($merged[$key])) {
+                $merged[$key] = $row;
+
+                continue;
+            }
+
+            $existing = $merged[$key];
+            $address = $existing['Address'] ?? null;
+            unset($existing['Address']);
+
+            if (isset($row['PackCount'])) {
+                $existing['PackCount'] = (string) ((int) ($existing['PackCount'] ?? 0) + (int) $row['PackCount']);
+            }
+            if (isset($row['WholesalePrice'])) {
+                $existing['WholesalePrice'] = number_format((float) ($existing['WholesalePrice'] ?? 0) + (float) $row['WholesalePrice'], 2, '.', '');
+            }
+            if (isset($row['TotalOz']) || isset($existing['TotalOz'])) {
+                $existing['TotalOz'] = number_format((float) ($existing['TotalOz'] ?? 0) + (float) ($row['TotalOz'] ?? 0), 2, '.', '');
+            }
+            if (isset($row['StickCount']) || isset($existing['StickCount'])) {
+                $existing['StickCount'] = (string) ((int) ($existing['StickCount'] ?? 0) + (int) ($row['StickCount'] ?? 0));
+            }
+
+            // Keep XSD element order: TotalOz before StickCount, Address last.
+            foreach (['TotalOz', 'StickCount'] as $field) {
+                if (isset($existing[$field])) {
+                    $value = $existing[$field];
+                    unset($existing[$field]);
+                    $existing[$field] = $value;
+                }
+            }
+            if ($address !== null) {
+                $existing['Address'] = $address;
+            }
+
+            $merged[$key] = $existing;
+        }
+
+        return array_values($merged);
     }
 
     protected function itemMatchesProduct(?Item $item, string $product): bool

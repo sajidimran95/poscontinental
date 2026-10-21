@@ -91,6 +91,123 @@ class InvoicePaymentReversalService
     }
 
     /**
+     * Change a saved payment. A higher or lower amount updates the invoice status
+     * and the customer balance by the difference.
+     */
+    public function updatePayment(int $paymentId, int $companyId, array $data): void
+    {
+        DB::transaction(function () use ($paymentId, $companyId, $data) {
+            $payment = InvoicePayment::query()
+                ->whereHas('invoice', fn ($q) => $q->where('company_id', $companyId))
+                ->lockForUpdate()
+                ->findOrFail($paymentId);
+
+            if (InvoicePayment::isReturnedCheckMethod($payment->payment_method)) {
+                throw new \RuntimeException('Returned-check lines cannot be edited. Void that row instead.');
+            }
+
+            $old = round((float) $payment->amount, 2);
+            $new = round((float) ($data['amount'] ?? 0), 2);
+            if ($new < 0.01) {
+                throw new \RuntimeException('Amount must be at least 0.01. Void the payment to remove it.');
+            }
+
+            $method = trim((string) ($data['payment_method'] ?? ''));
+            if ($method === '' || InvoicePayment::isReturnedCheckMethod($method)) {
+                throw new \RuntimeException('Choose Cash, Credit Card, or Check.');
+            }
+
+            $check = InvoicePayment::isCheckMethod($method)
+                ? trim((string) ($data['check_number'] ?? ''))
+                : '';
+            if (InvoicePayment::isCheckMethod($method) && $check === '') {
+                throw new \RuntimeException('Enter the check number.');
+            }
+
+            if ($this->returnLinesFor($payment)->isNotEmpty() && abs($new - $old) > 0.009) {
+                throw new \RuntimeException('This check was returned. Void the return before changing the amount.');
+            }
+
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($payment->invoice_id);
+            $invoice->unsetRelation('payments');
+            $invoice->unsetRelation('credits');
+            $room = round($old + max(0, (float) $invoice->invoice_balance), 2);
+            if ($new - $room > 0.009) {
+                throw new \RuntimeException('Amount cannot be more than $'.number_format($room, 2).' (this payment plus what the invoice still owes).');
+            }
+
+            $payment->update([
+                'payment_date' => $data['payment_date'] ?? $payment->payment_date,
+                'payment_method' => $method,
+                'check_number' => $check !== '' ? $check : null,
+                'amount' => $new,
+                'comments' => trim((string) ($data['comments'] ?? '')) ?: null,
+            ]);
+
+            $owedDelta = round($old - $new, 2);
+            if (abs($owedDelta) > 0.0001) {
+                $this->restoreInvoice((int) $payment->invoice_id, $owedDelta);
+            }
+        });
+    }
+
+    /**
+     * Change how much of a credit memo is applied. The invoice balance and the
+     * memo's open amount both follow the new figure.
+     */
+    public function updateCredit(int $invoiceCreditId, int $companyId, float $amount): void
+    {
+        DB::transaction(function () use ($invoiceCreditId, $companyId, $amount) {
+            $credit = InvoiceCredit::query()
+                ->whereHas('invoice', fn ($q) => $q->where('company_id', $companyId))
+                ->lockForUpdate()
+                ->findOrFail($invoiceCreditId);
+
+            $old = round((float) $credit->amount, 2);
+            $new = round($amount, 2);
+            if ($new < 0.01) {
+                throw new \RuntimeException('Amount must be at least 0.01. Void the credit to remove it.');
+            }
+
+            $memo = $credit->credit_memo_id
+                ? CreditMemo::query()->lockForUpdate()->find($credit->credit_memo_id)
+                : null;
+            if ($memo) {
+                $otherApplied = round((float) InvoiceCredit::query()
+                    ->where('credit_memo_id', $memo->id)
+                    ->where('id', '!=', $credit->id)
+                    ->sum('amount'), 2);
+                $cap = round((float) $memo->amount - $otherApplied, 2);
+                if ($new - $cap > 0.009) {
+                    throw new \RuntimeException('Amount cannot be more than $'.number_format(max(0, $cap), 2).' available on credit memo '.$memo->memo_number.'.');
+                }
+            }
+
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($credit->invoice_id);
+            $invoice->unsetRelation('payments');
+            $invoice->unsetRelation('credits');
+            $room = round($old + max(0, (float) $invoice->invoice_balance), 2);
+            if ($new - $room > 0.009) {
+                throw new \RuntimeException('Amount cannot be more than $'.number_format($room, 2).' (this credit plus what the invoice still owes).');
+            }
+
+            $credit->update(['amount' => $new]);
+
+            if ($memo) {
+                $memo->unsetRelation('applications');
+                $memo->update([
+                    'status' => round((float) $memo->remaining_amount, 2) <= 0.0001 ? 'Applied' : 'Open',
+                ]);
+            }
+
+            $owedDelta = round($old - $new, 2);
+            if (abs($owedDelta) > 0.0001) {
+                $this->restoreInvoice((int) $credit->invoice_id, $owedDelta);
+            }
+        });
+    }
+
+    /**
      * Remove an applied credit: the credit memo becomes Open again and the invoice owes the amount.
      * Returns the reversed amount.
      */

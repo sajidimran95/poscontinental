@@ -36,6 +36,31 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     public bool $plOpen = false;
 
+    public bool $plEditOpen = false;
+
+    /** payment | credit */
+    public string $plEditKind = '';
+
+    public ?int $plEditId = null;
+
+    public string $plEditDate = '';
+
+    public string $plEditMethod = 'Cash';
+
+    public string $plEditCheck = '';
+
+    public string $plEditAmount = '';
+
+    public string $plEditComments = '';
+
+    public string $plEditLabel = '';
+
+    public float $plEditOldAmount = 0;
+
+    public float $plEditInvoiceBalance = 0;
+
+    public float $plEditRoom = 0;
+
     public string $customerSearch = '';
 
     public bool $showCustomerBrowse = false;
@@ -587,6 +612,163 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             : null;
     }
 
+    public function plOpenEdit(?string $key = null): void
+    {
+        if (! $this->plCanEdit()) {
+            return;
+        }
+
+        if ($key === null) {
+            $sel = $this->plSelection();
+            if (! $sel) {
+                session()->flash('status', 'Select exactly one payment or credit to edit.');
+
+                return;
+            }
+            [$kind, $id] = $sel;
+        } elseif (preg_match('/^(payment|credit):(\d+)$/', $key, $m)) {
+            $kind = $m[1];
+            $id = (int) $m[2];
+        } else {
+            return;
+        }
+
+        $companyId = (int) auth()->user()->company_id;
+        $this->resetValidation();
+
+        if ($kind === 'payment') {
+            $payment = InvoicePayment::query()
+                ->with('invoice')
+                ->whereHas('invoice', fn ($q) => $q->where('company_id', $companyId))
+                ->find($id);
+            if (! $payment?->invoice) {
+                session()->flash('status', 'Payment not found.');
+
+                return;
+            }
+            if (InvoicePayment::isReturnedCheckMethod($payment->payment_method)) {
+                session()->flash('status', 'Returned-check lines cannot be edited. Void that row instead.');
+
+                return;
+            }
+
+            $invoice = $payment->invoice;
+            $invoice->unsetRelation('payments');
+            $invoice->unsetRelation('credits');
+            $old = round((float) $payment->amount, 2);
+            $balance = round((float) $invoice->invoice_balance, 2);
+
+            $this->plEditKind = 'payment';
+            $this->plEditId = (int) $payment->id;
+            $this->plEditDate = optional($payment->payment_date)?->toDateString() ?? now()->toDateString();
+            $this->plEditMethod = (string) ($payment->payment_method ?: 'Cash');
+            $this->plEditCheck = (string) ($payment->check_number ?? '');
+            $this->plEditAmount = number_format($old, 2, '.', '');
+            $this->plEditComments = (string) ($payment->comments ?? '');
+            $this->plEditOldAmount = $old;
+            $this->plEditInvoiceBalance = $balance;
+            $this->plEditRoom = round($old + max(0, $balance), 2);
+            $this->plEditLabel = 'Invoice '.$invoice->invoice_number;
+            $this->plEditOpen = true;
+
+            return;
+        }
+
+        $credit = InvoiceCredit::query()
+            ->with(['invoice', 'creditMemo'])
+            ->whereHas('invoice', fn ($q) => $q->where('company_id', $companyId))
+            ->find($id);
+        if (! $credit?->invoice) {
+            session()->flash('status', 'Credit not found.');
+
+            return;
+        }
+
+        $invoice = $credit->invoice;
+        $invoice->unsetRelation('payments');
+        $invoice->unsetRelation('credits');
+        $old = round((float) $credit->amount, 2);
+        $balance = round((float) $invoice->invoice_balance, 2);
+        $memo = $credit->creditMemo;
+        $memoRoom = $old;
+        if ($memo) {
+            $otherApplied = round((float) InvoiceCredit::query()
+                ->where('credit_memo_id', $memo->id)
+                ->where('id', '!=', $credit->id)
+                ->sum('amount'), 2);
+            $memoRoom = round(max(0, (float) $memo->amount - $otherApplied), 2);
+        }
+
+        $this->plEditKind = 'credit';
+        $this->plEditId = (int) $credit->id;
+        $this->plEditDate = optional($memo?->memo_date)?->toDateString() ?? '';
+        $this->plEditMethod = 'Credit Memo';
+        $this->plEditCheck = (string) ($memo?->memo_number ?? '');
+        $this->plEditAmount = number_format($old, 2, '.', '');
+        $this->plEditComments = (string) ($memo?->reason ?? '');
+        $this->plEditOldAmount = $old;
+        $this->plEditInvoiceBalance = $balance;
+        $this->plEditRoom = round(min($old + max(0, $balance), $memoRoom), 2);
+        $this->plEditLabel = 'Invoice '.$invoice->invoice_number.($memo?->memo_number ? ' · Memo '.$memo->memo_number : '');
+        $this->plEditOpen = true;
+    }
+
+    public function plSaveEdit(): void
+    {
+        if (! $this->plEditOpen || ! $this->plEditId || ! $this->plCanEdit()) {
+            return;
+        }
+
+        $isPayment = $this->plEditKind === 'payment';
+        $rules = [
+            'plEditAmount' => 'required|numeric|min:0.01',
+        ];
+        if ($isPayment) {
+            $rules['plEditDate'] = 'required|date';
+            $rules['plEditMethod'] = 'required|string|max:32';
+            $rules['plEditCheck'] = InvoicePayment::isCheckMethod($this->plEditMethod)
+                ? 'required|string|max:64'
+                : 'nullable|string|max:64';
+            $rules['plEditComments'] = 'nullable|string|max:255';
+        }
+        $this->validate($rules, [
+            'plEditCheck.required' => 'Enter the check number.',
+            'plEditAmount.min' => 'Amount must be at least 0.01. Use Void to remove the row.',
+        ]);
+
+        $companyId = (int) auth()->user()->company_id;
+        $svc = app(\App\Services\InvoicePaymentReversalService::class);
+
+        try {
+            if ($isPayment) {
+                $svc->updatePayment($this->plEditId, $companyId, [
+                    'payment_date' => $this->plEditDate,
+                    'payment_method' => $this->plEditMethod,
+                    'check_number' => $this->plEditCheck,
+                    'amount' => $this->plEditAmount,
+                    'comments' => $this->plEditComments,
+                ]);
+            } else {
+                $svc->updateCredit($this->plEditId, $companyId, (float) $this->plEditAmount);
+            }
+        } catch (\Throwable $e) {
+            $this->addError('plEditAmount', $e->getMessage());
+
+            return;
+        }
+
+        $this->plCloseEdit();
+        session()->flash('status', 'Saved. Invoice balance and customer balance were recalculated.');
+    }
+
+    public function plCloseEdit(): void
+    {
+        $this->plEditOpen = false;
+        $this->plEditKind = '';
+        $this->plEditId = null;
+        $this->resetValidation();
+    }
+
     public function plPrintReceipt(): void
     {
         $sel = $this->plSelection();
@@ -798,6 +980,9 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
+        $this->pay_date = now()->toDateString();
+        $this->pay_method = 'Cash';
+        $this->syncPayAmountToCashNeeded();
         $payTotal = round((float) $this->pay_amount, 2);
         if ($payTotal < 0) {
             session()->flash('status', 'Payment amount cannot be negative.');
@@ -1172,6 +1357,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             <x-slot:menu>
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
                 <x-action-item label="Open Invoice Payments & Credits" sep wire:click="plOpenInvoice" />
+                <x-action-item label="Edit Selected Payment / Credit" wire:click="plOpenEdit" />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelectedPayment" />
                 <x-action-item label="Print Receipt" wire:click="plPrintReceipt" />
                 <x-action-item
@@ -1412,42 +1598,6 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     @unless ($canEnterPayments)
                         <p class="item-hint" style="padding:0 0 0.5rem">Payments are disabled for your role. Enable <strong>Payments &amp; Credits → Edit</strong> to apply.</p>
                     @endunless
-                    <div class="entity-grid-2" style="grid-template-columns:{{ $isCheckMethod ? 'minmax(12rem,1fr) minmax(10rem,1fr) minmax(16rem,1.4fr) minmax(12rem,1fr)' : 'minmax(12rem,1fr) minmax(10rem,1fr) minmax(12rem,1fr)' }};gap:0.75rem 1rem">
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="pay_date_cf">Date</label>
-                            <input id="pay_date_cf" type="date" wire:model="pay_date" class="so-input" style="flex:1 1 auto;width:100%;min-width:8.5rem" @disabled(! $canEnterPayments) />
-                        </div>
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="pay_method_cf">Method</label>
-                            <select id="pay_method_cf" wire:model.live="pay_method" class="so-input" @disabled(! $canEnterPayments)>
-                                <option>Cash</option>
-                                <option>Credit Card</option>
-                                <option>Check</option>
-                            </select>
-                        </div>
-                        @if ($isCheckMethod)
-                            <div class="so-form-row so-form-row-side">
-                                <label class="so-form-lbl so-field-req" for="pay_check_number_cf">Check #</label>
-                                <input
-                                    id="pay_check_number_cf"
-                                    type="text"
-                                    wire:model="pay_check_number"
-                                    class="so-input @error('pay_check_number') is-invalid @enderror"
-                                    style="flex:1 1 auto;width:100%;min-width:11rem"
-                                    placeholder="Check number"
-                                    autocomplete="off"
-                                    @disabled(! $canEnterPayments)
-                                />
-                                @error('pay_check_number')
-                                    <span class="so-field-error">{{ $message }}</span>
-                                @enderror
-                            </div>
-                        @endif
-                        <div class="so-form-row so-form-row-side">
-                            <label class="so-form-lbl" for="pay_amount_cf">Cash / check</label>
-                            <input id="pay_amount_cf" wire:model.live="pay_amount" class="so-input text-right" style="flex:1 1 auto;width:100%;min-width:7rem" @disabled(! $canEnterPayments) />
-                        </div>
-                    </div>
 
                     <div style="margin-top:0.75rem;padding:0.65rem 0.75rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:0.25rem">
                         <div class="entity-value">Checked invoice total: <strong>${{ number_format($checkedTotal, 2) }}</strong></div>
@@ -1551,6 +1701,12 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     </span>
                     <button
                         type="button"
+                        class="desk-btn desk-btn-sm desk-btn-primary"
+                        wire:click="plOpenEdit"
+                        @disabled($plSelCount !== 1 || ! $canEnterPayments)
+                    >Edit</button>
+                    <button
+                        type="button"
                         class="desk-btn desk-btn-sm pl-btn-danger"
                         wire:click="plVoidSelected"
                         wire:confirm="Void {{ $plSelCount }} selected row{{ $plSelCount === 1 ? '' : 's' }} (${{ number_format($plSelTotal, 2) }})? The invoices will owe these amounts again."
@@ -1598,6 +1754,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                 <x-desk-sort-th field="pl_ref" label="Check / Memo #" />
                                 <x-desk-sort-th field="pl_amount" label="Amount" align="right" />
                                 <th>Comments</th>
+                                <th style="width:4.5rem"></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1640,10 +1797,20 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                     <td class="desk-num">{{ $row->ref ?: '—' }}</td>
                                     <td class="desk-money">${{ number_format((float) $row->amount, 2) }}</td>
                                     <td class="pl-comments">{{ $row->comments }}</td>
+                                    <td>
+                                        @unless ($rowIsReturn)
+                                            <button
+                                                type="button"
+                                                class="desk-btn desk-btn-sm"
+                                                wire:click.stop="plOpenEdit('{{ $rowKey }}')"
+                                                @disabled(! $canEnterPayments)
+                                            >Edit</button>
+                                        @endunless
+                                    </td>
                                 </tr>
                             @empty
                                 <tr class="is-empty">
-                                    <td colspan="9">No payments or credits found.</td>
+                                    <td colspan="10">No payments or credits found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -1654,6 +1821,90 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             @endif
         </div>
     </div>
+
+    @if ($plEditOpen)
+        @php
+            $plEditNew = round((float) $plEditAmount, 2);
+            $plEditDelta = round($plEditOldAmount - $plEditNew, 2);
+            $plEditNewBalance = round($plEditInvoiceBalance + $plEditDelta, 2);
+            $plEditIsCheck = \App\Models\InvoicePayment::isCheckMethod($plEditMethod);
+        @endphp
+        <div
+            class="desk-modal-backdrop desk-modal-top"
+            wire:click.self="plCloseEdit"
+            wire:keydown.escape.window="plCloseEdit"
+            role="presentation"
+        >
+            <div class="desk-modal" role="dialog" aria-modal="true" aria-labelledby="pl-edit-title" wire:click.stop style="max-width:36rem">
+                <div class="desk-modal-head">
+                    <span id="pl-edit-title">Edit {{ $plEditKind === 'credit' ? 'Credit' : 'Payment' }} — {{ $plEditLabel }}</span>
+                    <button type="button" wire:click="plCloseEdit" class="desk-modal-close" aria-label="Close">×</button>
+                </div>
+                <form wire:submit="plSaveEdit" class="desk-modal-body" style="display:grid;gap:0.75rem">
+                    @if ($plEditKind === 'payment')
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="pl_edit_date">Date</label>
+                            <input id="pl_edit_date" type="date" wire:model="plEditDate" class="so-input" />
+                            @error('plEditDate') <span class="so-field-error">{{ $message }}</span> @enderror
+                        </div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="pl_edit_method">Method</label>
+                            <select id="pl_edit_method" wire:model.live="plEditMethod" class="so-input">
+                                @if (! in_array($plEditMethod, ['Cash', 'Credit Card', 'Check'], true))
+                                    <option value="{{ $plEditMethod }}">{{ $plEditMethod }}</option>
+                                @endif
+                                <option>Cash</option>
+                                <option>Credit Card</option>
+                                <option>Check</option>
+                            </select>
+                            @error('plEditMethod') <span class="so-field-error">{{ $message }}</span> @enderror
+                        </div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl {{ $plEditIsCheck ? 'so-field-req' : '' }}" for="pl_edit_check">Check #</label>
+                            <input
+                                id="pl_edit_check"
+                                type="text"
+                                wire:model="plEditCheck"
+                                class="so-input @error('plEditCheck') is-invalid @enderror"
+                                placeholder="{{ $plEditIsCheck ? 'Check number' : 'Select Check to enter a number' }}"
+                                autocomplete="off"
+                                @disabled(! $plEditIsCheck)
+                            />
+                            @error('plEditCheck') <span class="so-field-error">{{ $message }}</span> @enderror
+                        </div>
+                        <div class="so-form-row">
+                            <label class="so-form-lbl" for="pl_edit_comments">Comments</label>
+                            <input id="pl_edit_comments" type="text" wire:model="plEditComments" class="so-input" maxlength="255" />
+                            @error('plEditComments') <span class="so-field-error">{{ $message }}</span> @enderror
+                        </div>
+                    @else
+                        <p class="item-hint" style="margin:0">Memo {{ $plEditCheck ?: '—' }}{{ $plEditDate ? ' · '.$plEditDate : '' }}{{ $plEditComments ? ' · '.$plEditComments : '' }}</p>
+                    @endif
+                    <div class="so-form-row">
+                        <label class="so-form-lbl so-field-req" for="pl_edit_amount">Amount</label>
+                        <input id="pl_edit_amount" type="number" step="0.01" min="0.01" wire:model.blur="plEditAmount" class="so-input text-right @error('plEditAmount') is-invalid @enderror" />
+                        @error('plEditAmount') <span class="so-field-error">{{ $message }}</span> @enderror
+                    </div>
+                    <div style="padding:0.65rem 0.75rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:0.25rem;font-size:13px">
+                        <div>Was <strong>${{ number_format($plEditOldAmount, 2) }}</strong>. Maximum for this invoice is <strong>${{ number_format($plEditRoom, 2) }}</strong>.</div>
+                        @if ($plEditNewBalance < -0.009)
+                            <div style="margin-top:0.35rem;color:#b91c1c">That amount is higher than the invoice owes. Lower it to ${{ number_format($plEditRoom, 2) }} or less.</div>
+                        @elseif (abs($plEditDelta) < 0.009)
+                            <div style="margin-top:0.35rem">Invoice balance stays <strong>${{ number_format(max(0, $plEditInvoiceBalance), 2) }}</strong>.</div>
+                        @elseif ($plEditDelta > 0)
+                            <div style="margin-top:0.35rem">Amount down ${{ number_format($plEditDelta, 2) }}. Invoice balance becomes <strong>${{ number_format(max(0, $plEditNewBalance), 2) }}</strong>.</div>
+                        @else
+                            <div style="margin-top:0.35rem">Amount up ${{ number_format(abs($plEditDelta), 2) }}. Invoice balance becomes <strong>${{ number_format(max(0, $plEditNewBalance), 2) }}</strong>.</div>
+                        @endif
+                    </div>
+                    <div class="entity-footer-actions" style="justify-content:flex-end">
+                        <button type="button" class="desk-btn" wire:click="plCloseEdit">Cancel</button>
+                        <button type="submit" class="desk-btn desk-btn-primary" @disabled($plEditNewBalance < -0.009)>Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
 
     @if ($showCustomerBrowse)
         <div

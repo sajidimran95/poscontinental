@@ -19,6 +19,9 @@ trait ManagesInvoicePaymentsModal
 {
     public ?int $modalInvoiceId = null;
 
+    /** Invoices covered by the open Payments & Credits window. One id, or several paid together. */
+    public array $modalInvoiceIds = [];
+
     public string $driver = '';
 
     public string $driverSavedAt = '';
@@ -65,14 +68,21 @@ trait ManagesInvoicePaymentsModal
                 ->find($this->modalInvoiceId)
             : null;
 
+        $isGroupPay = $this->isGroupPay();
+        $modalInvoices = $isGroupPay
+            ? $this->groupInvoices()
+            : collect($modalInvoice ? [$modalInvoice] : []);
+
         $draftPayTotal = collect($this->draftPayments)->sum(
             fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
         );
         $draftCreditTotal = collect($this->draftCredits)->sum(
             fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
         );
-        $savedBalance = $modalInvoice ? round((float) $modalInvoice->invoice_balance, 2) : 0;
-        $pcDelta = $modalInvoice ? $this->pcAdjustDelta($modalInvoice) : 0.0;
+        $savedBalance = $isGroupPay
+            ? round((float) $modalInvoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2)
+            : ($modalInvoice ? round((float) $modalInvoice->invoice_balance, 2) : 0);
+        $pcDelta = $isGroupPay || ! $modalInvoice ? 0.0 : $this->pcAdjustDelta($modalInvoice);
         $previewBalance = $modalInvoice
             ? max(0, round($savedBalance + $pcDelta - $draftPayTotal - $draftCreditTotal, 2))
             : 0;
@@ -98,10 +108,101 @@ trait ManagesInvoicePaymentsModal
             'previewBalance' => $previewBalance,
             'savedBalance' => $savedBalance,
             'pcDelta' => $pcDelta,
-            'pcNewTotal' => $modalInvoice ? round((float) $modalInvoice->invoice_total + $pcDelta, 2) : 0,
-            'previewPayments' => $modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0,
-            'previewCredits' => $modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0,
+            'pcNewTotal' => $isGroupPay
+                ? round((float) $modalInvoices->sum(fn (Invoice $i) => (float) $i->invoice_total), 2)
+                : ($modalInvoice ? round((float) $modalInvoice->invoice_total + $pcDelta, 2) : 0),
+            'previewPayments' => $isGroupPay
+                ? round((float) $modalInvoices->sum(fn (Invoice $i) => (float) $i->total_payments) + $draftPayTotal, 2)
+                : ($modalInvoice ? round((float) $modalInvoice->total_payments + $draftPayTotal, 2) : 0),
+            'previewCredits' => $isGroupPay
+                ? round((float) $modalInvoices->sum(fn (Invoice $i) => (float) $i->total_credits) + $draftCreditTotal, 2)
+                : ($modalInvoice ? round((float) $modalInvoice->total_credits + $draftCreditTotal, 2) : 0),
+            'isGroupPay' => $isGroupPay,
+            'modalInvoices' => $modalInvoices,
+            'payAllocation' => $isGroupPay
+                ? $this->allocationPreview($modalInvoices, $draftPayTotal, $draftCreditTotal)
+                : [],
         ];
+    }
+
+    /** @return list<int> */
+    protected function modalGroupIds(): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $this->modalInvoiceIds))));
+        if ($ids === [] && $this->modalInvoiceId) {
+            return [(int) $this->modalInvoiceId];
+        }
+
+        return $ids;
+    }
+
+    protected function isGroupPay(): bool
+    {
+        return count($this->modalGroupIds()) > 1;
+    }
+
+    protected function groupInvoices()
+    {
+        return Invoice::query()
+            ->with([
+                'customer',
+                'salesOrder.salesRep',
+                'salesOrder.paymentTerm',
+                'salesOrder.lines',
+                'payments',
+                'credits.creditMemo.salesOrder',
+            ])
+            ->where('company_id', auth()->user()->company_id)
+            ->whereIn('id', $this->modalGroupIds())
+            ->orderBy('invoice_date')
+            ->orderBy('id')
+            ->get();
+    }
+
+    protected function modalBalance(): float
+    {
+        if ($this->isGroupPay()) {
+            return round((float) $this->groupInvoices()->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2);
+        }
+
+        $invoice = Invoice::query()->find($this->modalInvoiceId);
+        if (! $invoice) {
+            return 0.0;
+        }
+
+        return round((float) $invoice->invoice_balance + $this->pcAdjustDelta($invoice), 2);
+    }
+
+    /**
+     * Oldest invoices are paid in full. Whatever is left is only subtracted from the next invoice.
+     *
+     * @return list<array{invoice_number: string, due: float, applied: float, left: float, paid: bool}>
+     */
+    protected function allocationPreview($invoices, float $payTotal, float $creditTotal): array
+    {
+        $cashLeft = round(max(0, $payTotal), 2);
+        $creditLeft = round(max(0, $creditTotal), 2);
+        $rows = [];
+        foreach ($invoices as $invoice) {
+            $due = round((float) $invoice->invoice_balance, 2);
+            if ($due <= 0.0001) {
+                continue;
+            }
+            $fromCredit = round(min($due, $creditLeft), 2);
+            $creditLeft = round($creditLeft - $fromCredit, 2);
+            $fromCash = round(min(max(0, $due - $fromCredit), $cashLeft), 2);
+            $cashLeft = round($cashLeft - $fromCash, 2);
+            $left = round(max(0, $due - $fromCredit - $fromCash), 2);
+            $rows[] = [
+                'invoice_number' => (string) $invoice->invoice_number,
+                'due' => $due,
+                'applied' => round($fromCredit + $fromCash, 2),
+                'left' => $left,
+                'paid' => $left <= 0.0001,
+            ];
+        }
+
+        return $rows;
     }
 
     public function openPayments(int $id): void
@@ -116,6 +217,7 @@ trait ManagesInvoicePaymentsModal
             $this->selectedId = $id;
         }
         $this->modalInvoiceId = $id;
+        $this->modalInvoiceIds = [$id];
         $invoice = Invoice::query()->find($id);
         $this->driver = $invoice?->driver ?? '';
         $this->driverSavedAt = '';
@@ -138,9 +240,68 @@ trait ManagesInvoicePaymentsModal
         }
     }
 
-    protected function fillOpenCreditDrafts(Invoice $invoice): void
+    /** Same Payments & Credits window, for every checked invoice. */
+    public function openPaymentsGroup(array $ids): void
     {
-        $left = round((float) $invoice->invoice_balance, 2);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (count($ids) <= 1) {
+            if ($ids !== []) {
+                $this->openPayments($ids[0]);
+            }
+
+            return;
+        }
+
+        if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
+            session()->flash('status', 'Your role cannot enter payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        $invoices = Invoice::query()
+            ->with('customer')
+            ->where('company_id', auth()->user()->company_id)
+            ->whereIn('id', $ids)
+            ->orderBy('invoice_date')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
+            ->values();
+
+        if ($invoices->count() <= 1) {
+            if ($invoices->isNotEmpty()) {
+                $this->openPayments((int) $invoices->first()->id);
+            }
+
+            return;
+        }
+
+        $first = $invoices->first();
+        $this->modalInvoiceIds = $invoices->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $this->modalInvoiceId = (int) $first->id;
+        $this->driver = '';
+        $this->driverSavedAt = '';
+        $this->draftPayments = [];
+        $this->draftCredits = [];
+        $this->selectedPaymentIndex = -1;
+        $this->selectedCreditIndex = -1;
+        $this->showEmailForm = false;
+        $this->emailTo = $first->customer?->email ?? '';
+        $this->emailSubject = 'Invoices '.$invoices->pluck('invoice_number')->implode(', ');
+        $this->pc_trade_discount = number_format((float) $invoices->sum('trade_discount'), 2, '.', '');
+        $this->pc_freight = number_format((float) $invoices->sum('freight'), 2, '.', '');
+        $this->pc_miscellaneous = number_format((float) $invoices->sum('miscellaneous'), 2, '.', '');
+
+        $due = round((float) $invoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2);
+        $this->fillOpenCreditDrafts($first, $due);
+        if ($this->remainingDraftDue() > 0.0001) {
+            $this->addPaymentRow();
+        }
+    }
+
+    protected function fillOpenCreditDrafts(Invoice $invoice, ?float $left = null): void
+    {
+        $left = round($left ?? (float) $invoice->invoice_balance, 2);
         if (! $invoice->customer_id) {
             return;
         }
@@ -258,6 +419,7 @@ trait ManagesInvoicePaymentsModal
     public function closeModal(): void
     {
         $this->modalInvoiceId = null;
+        $this->modalInvoiceIds = [];
         $this->pc_trade_discount = '';
         $this->pc_freight = '';
         $this->pc_miscellaneous = '';
@@ -338,11 +500,6 @@ trait ManagesInvoicePaymentsModal
 
     protected function remainingDraftDue(): float
     {
-        $invoice = Invoice::query()->find($this->modalInvoiceId);
-        if (! $invoice) {
-            return 0;
-        }
-
         $draftPay = collect($this->draftPayments)->sum(
             fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
         );
@@ -350,7 +507,7 @@ trait ManagesInvoicePaymentsModal
             fn ($r) => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2)
         );
 
-        return max(0, round((float) $invoice->invoice_balance + $this->pcAdjustDelta($invoice) - $draftPay - $draftCredit, 2));
+        return max(0, round($this->modalBalance() - $draftPay - $draftCredit, 2));
     }
 
     /**
@@ -366,7 +523,9 @@ trait ManagesInvoicePaymentsModal
         $creditTotal = round((float) collect($this->draftCredits)->sum(
             fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))
         ), 2);
-        $invoiceDue = round((float) $invoice->invoice_balance + $this->pcAdjustDelta($invoice), 2);
+        $invoiceDue = $this->isGroupPay()
+            ? $this->modalBalance()
+            : round((float) $invoice->invoice_balance + $this->pcAdjustDelta($invoice), 2);
         $cashAllowed = round(max(0, $invoiceDue - $creditTotal), 2);
 
         if ($cashAllowed <= 0.0001) {
@@ -456,11 +615,10 @@ trait ManagesInvoicePaymentsModal
 
         $memoLeft = max(0, round((float) $memo->remaining_amount - $usedOfMemo, 2));
         // Amount against invoice due ignoring cash (credit pays first).
-        $invoiceLeft = max(0, round(
-            (float) $invoice->invoice_balance
-            - collect($this->draftCredits)->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))),
-            2
-        ));
+        $covered = collect($this->draftCredits)->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0)));
+        $invoiceLeft = $this->isGroupPay()
+            ? max(0, round($this->modalBalance() - $covered, 2))
+            : max(0, round((float) $invoice->invoice_balance - $covered, 2));
         $apply = round(min($memoLeft, $invoiceLeft), 2);
 
         if ($apply <= 0.0001) {
@@ -511,7 +669,7 @@ trait ManagesInvoicePaymentsModal
 
         $ok = InvoicePayment::query()
             ->whereKey($paymentId)
-            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->whereIn('invoice_id', $this->modalGroupIds())
             ->exists();
         if (! $ok) {
             session()->flash('status', 'Payment not found on this invoice.');
@@ -548,7 +706,7 @@ trait ManagesInvoicePaymentsModal
 
         $ok = InvoicePayment::query()
             ->whereKey($paymentId)
-            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->whereIn('invoice_id', $this->modalGroupIds())
             ->exists();
         if (! $ok) {
             session()->flash('status', 'Check payment not found on this invoice.');
@@ -580,7 +738,7 @@ trait ManagesInvoicePaymentsModal
 
         $ok = InvoiceCredit::query()
             ->whereKey($invoiceCreditId)
-            ->where('invoice_id', (int) $this->modalInvoiceId)
+            ->whereIn('invoice_id', $this->modalGroupIds())
             ->exists();
         if (! $ok) {
             session()->flash('status', 'Credit not found on this invoice.');
@@ -629,10 +787,12 @@ trait ManagesInvoicePaymentsModal
                 ->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0)));
 
             $remaining = max(0, (float) $memo->remaining_amount - $usedElsewhere);
-            $balance = max(0, (float) $invoice->invoice_balance
-                - collect($this->draftCredits)->filter(fn ($r, $i) => $i !== $index)->sum(
-                    fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))
-                ));
+            $otherCredits = collect($this->draftCredits)->filter(fn ($r, $i) => $i !== $index)->sum(
+                fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0))
+            );
+            $balance = $this->isGroupPay()
+                ? max(0, round($this->modalBalance() - $otherCredits, 2))
+                : max(0, (float) $invoice->invoice_balance - $otherCredits);
 
             $this->draftCredits[$index]['amount'] = number_format(min($remaining, $balance), 2, '.', '');
             $this->syncCashDraftsAfterCredits();
@@ -649,6 +809,12 @@ trait ManagesInvoicePaymentsModal
     {
         if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
             session()->flash('status', 'Your role cannot save payments. Enable Payments & Credits permission.');
+
+            return;
+        }
+
+        if ($this->isGroupPay()) {
+            $this->saveGroup($print);
 
             return;
         }
@@ -885,6 +1051,201 @@ trait ManagesInvoicePaymentsModal
             } else {
                 $this->openPdfInBrowser(route('sales.invoices.pdf', $invoice));
             }
+        }
+
+        $this->closeModal();
+    }
+
+    /**
+     * One payment amount across the checked invoices. Oldest invoices are paid in full.
+     * Any shortfall is only subtracted from the next invoice, which stays open for that remainder.
+     */
+    protected function saveGroup(bool $print): void
+    {
+        $invoices = $this->groupInvoices();
+        if ($invoices->count() < 2) {
+            session()->flash('status', 'Select at least two invoices.');
+
+            return;
+        }
+
+        $customerId = (int) $invoices->first()->customer_id;
+        if ($invoices->contains(fn (Invoice $i) => (int) $i->customer_id !== $customerId)) {
+            session()->flash('status', 'Selected invoices must be for the same customer.');
+
+            return;
+        }
+
+        $payments = collect($this->draftPayments)
+            ->map(fn ($r) => [
+                'payment_date' => trim((string) ($r['payment_date'] ?? '')),
+                'payment_method' => trim((string) ($r['payment_method'] ?? '')),
+                'check_number' => trim((string) ($r['check_number'] ?? '')),
+                'amount' => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2),
+                'comments' => trim((string) ($r['comments'] ?? '')),
+            ])
+            ->filter(fn ($r) => $r['amount'] > 0.0001)
+            ->values();
+
+        $credits = collect($this->draftCredits)
+            ->map(fn ($r) => [
+                'credit_memo_id' => (int) ($r['credit_memo_id'] ?? 0),
+                'amount' => round((float) str_replace(',', '', (string) ($r['amount'] ?? 0)), 2),
+            ])
+            ->filter(fn ($r) => $r['credit_memo_id'] > 0 && $r['amount'] > 0.0001)
+            ->values();
+
+        if ($payments->isEmpty() && $credits->isEmpty()) {
+            session()->flash('status', 'Add at least one payment or credit before saving.');
+
+            return;
+        }
+
+        foreach ($payments as $i => $row) {
+            if ($row['payment_date'] === '' || $row['payment_method'] === '') {
+                session()->flash('status', 'Payment row '.($i + 1).' needs a date and method.');
+
+                return;
+            }
+            if (InvoicePayment::isCheckMethod($row['payment_method']) && $row['check_number'] === '') {
+                session()->flash('status', 'Payment row '.($i + 1).' needs a check number.');
+
+                return;
+            }
+        }
+
+        $balance = round((float) $invoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2);
+        $combined = round((float) $payments->sum('amount') + (float) $credits->sum('amount'), 2);
+        if ($combined > $balance + 0.0001) {
+            session()->flash('status', 'Total payments and credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
+
+            return;
+        }
+
+        $lastPayment = null;
+        $results = [];
+
+        try {
+            DB::transaction(function () use ($invoices, $payments, $credits, $customerId, &$lastPayment, &$results) {
+                $locked = Invoice::query()
+                    ->whereIn('id', $invoices->pluck('id'))
+                    ->orderBy('invoice_date')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                $creditPool = $credits->map(fn ($r) => $r)->all();
+                $applied = 0.0;
+
+                foreach ($locked as $invoice) {
+                    $invoice->unsetRelation('payments');
+                    $invoice->unsetRelation('credits');
+                    $invoice->load(['payments', 'credits']);
+                    $due = round((float) $invoice->invoice_balance, 2);
+
+                    foreach ($creditPool as $k => $row) {
+                        if ($due <= 0.0001 || $row['amount'] <= 0.0001) {
+                            continue;
+                        }
+                        $memo = CreditMemo::query()->lockForUpdate()->findOrFail($row['credit_memo_id']);
+                        abort_unless(
+                            $memo->company_id === $invoice->company_id
+                            && (int) $memo->customer_id === (int) $invoice->customer_id
+                            && $memo->status === 'Open'
+                            && $memo->countsOnInvoice(),
+                            403
+                        );
+                        $apply = round(min($due, $row['amount'], (float) $memo->remaining_amount), 2);
+                        if ($apply <= 0.0001) {
+                            continue;
+                        }
+                        InvoiceCredit::query()->create([
+                            'invoice_id' => $invoice->id,
+                            'credit_memo_id' => $memo->id,
+                            'amount' => $apply,
+                        ]);
+                        $memo->unsetRelation('applications');
+                        $memo->refresh();
+                        $memo->update([
+                            'status' => $memo->remaining_amount <= 0.0001 ? 'Applied' : 'Open',
+                        ]);
+                        $creditPool[$k]['amount'] = round($row['amount'] - $apply, 2);
+                        $due = round($due - $apply, 2);
+                        $applied += $apply;
+                    }
+                }
+
+                $cashPool = $payments->map(fn ($r) => $r)->all();
+                foreach ($locked as $invoice) {
+                    $invoice->unsetRelation('payments');
+                    $invoice->unsetRelation('credits');
+                    $invoice->refresh();
+                    $invoice->load(['payments', 'credits']);
+                    $due = round((float) $invoice->invoice_balance, 2);
+
+                    foreach ($cashPool as $k => $row) {
+                        if ($due <= 0.0001 || $row['amount'] <= 0.0001) {
+                            continue;
+                        }
+                        $apply = round(min($due, $row['amount']), 2);
+                        $lastPayment = InvoicePayment::query()->create([
+                            'invoice_id' => $invoice->id,
+                            'payment_date' => $row['payment_date'],
+                            'payment_method' => $row['payment_method'],
+                            'check_number' => InvoicePayment::isCheckMethod($row['payment_method'])
+                                ? $row['check_number']
+                                : null,
+                            'amount' => $apply,
+                            'comments' => $row['comments'] !== '' ? $row['comments'] : null,
+                            'user_id' => auth()->id(),
+                        ]);
+                        $cashPool[$k]['amount'] = round($row['amount'] - $apply, 2);
+                        $due = round($due - $apply, 2);
+                        $applied += $apply;
+                    }
+
+                    $invoice->unsetRelation('payments');
+                    $invoice->unsetRelation('credits');
+                    $invoice->refresh();
+                    $invoice->load(['payments', 'credits']);
+                    $left = round(max(0, (float) $invoice->invoice_balance), 2);
+                    $invoice->update([
+                        'status' => $left <= 0.0001 ? 'PAID' : 'NOT PAID',
+                    ]);
+                    $results[] = [
+                        'number' => (string) $invoice->invoice_number,
+                        'left' => $left,
+                    ];
+                }
+
+                if ($applied > 0.0001 && $customerId) {
+                    $customer = Customer::query()->lockForUpdate()->find($customerId);
+                    $customer?->update([
+                        'balance' => max(0, round((float) $customer->balance - $applied, 2)),
+                    ]);
+                }
+            });
+        } catch (\Throwable $e) {
+            session()->flash('status', $e->getMessage());
+
+            return;
+        }
+
+        $this->lastPaymentId = $lastPayment?->id;
+        $lines = [];
+        foreach ($results as $row) {
+            $lines[] = $row['left'] <= 0.0001
+                ? 'Invoice '.$row['number'].' paid in full'
+                : 'Invoice '.$row['number'].' still due $'.number_format($row['left'], 2);
+        }
+        session()->flash('status', implode('. ', $lines).'.');
+
+        if ($print && $lastPayment) {
+            $this->openPdfInBrowser(route('sales.invoices.receipt', [$lastPayment->invoice_id, $lastPayment->id]));
+        }
+
+        if (property_exists($this, 'selected')) {
+            $this->selected = [];
         }
 
         $this->closeModal();

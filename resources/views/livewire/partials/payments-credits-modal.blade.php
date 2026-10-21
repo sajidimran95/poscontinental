@@ -18,13 +18,19 @@
                 </div>
 
                 <div class="desk-modal-body pc-modal-body">
+                    @php
+                        $pcShown = ($isGroupPay ?? false) && $modalInvoices->isNotEmpty() ? $modalInvoices : collect([$modalInvoice]);
+                        $pcOrderNos = $pcShown->map(fn ($i) => $i->salesOrder?->order_number)->filter()->unique()->implode(', ');
+                        $pcInvoiceNos = $pcShown->pluck('invoice_number')->filter()->implode(', ');
+                        $pcQty = $pcShown->sum(fn ($i) => (float) ($i->salesOrder?->lines?->sum('qty_ordered') ?? 0));
+                    @endphp
                     <div class="pc-top">
                         <div class="pc-top-left">
-                            <div class="pc-kv"><label>Order No.</label><div class="pc-val desk-num">{{ $modalInvoice->salesOrder?->order_number ?: '—' }}</div></div>
+                            <div class="pc-kv"><label>Order No.</label><div class="pc-val desk-num">{{ $pcOrderNos !== '' ? $pcOrderNos : '—' }}</div></div>
                             <div class="pc-kv"><label>Order Date</label><div class="pc-val">{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</div></div>
                             <div class="pc-kv"><label>Sales Rep.</label><div class="pc-val">{{ $modalInvoice->salesOrder?->salesRep?->name ?: '' }}</div></div>
                             <div class="pc-kv"><label>Status</label><div class="pc-val">{{ $modalInvoice->salesOrder?->status ?: 'Invoiced' }}{{ $modalInvoice->salesOrder?->delivery_status ? ' · '.ucfirst(str_replace('_', ' ', $modalInvoice->salesOrder->delivery_status)) : '' }}</div></div>
-                            <div class="pc-kv"><label>Invoice No.</label><div class="pc-val desk-num">{{ $modalInvoice->invoice_number }}</div></div>
+                            <div class="pc-kv"><label>Invoice No.</label><div class="pc-val desk-num">{{ $pcInvoiceNos }}</div></div>
                             <div class="pc-kv"><label>Invoice Date</label><div class="pc-val">{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</div></div>
                         </div>
 
@@ -47,12 +53,12 @@
                         </div>
 
                         <div class="pc-top-right">
-                            <div class="pc-sum-row"><span>Subtotal</span><strong>${{ number_format((float) $modalInvoice->subtotal, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Total Qty</span><strong>{{ number_format((float) ($modalInvoice->salesOrder?->lines?->sum('qty_ordered') ?? 0), 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Trade Discount</span><strong>${{ number_format((float) $modalInvoice->trade_discount, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Freight</span><strong>${{ number_format((float) $modalInvoice->freight, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Miscellaneous</span><strong>${{ number_format((float) $modalInvoice->miscellaneous, 2) }}</strong></div>
-                            <div class="pc-sum-row pc-sum-total"><span>Total</span><strong>${{ number_format((float) $modalInvoice->invoice_total, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Subtotal</span><strong>${{ number_format((float) $pcShown->sum('subtotal'), 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Qty</span><strong>{{ number_format($pcQty, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Trade Discount</span><strong>${{ number_format((float) $pcShown->sum('trade_discount'), 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Freight</span><strong>${{ number_format((float) $pcShown->sum('freight'), 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Miscellaneous</span><strong>${{ number_format((float) $pcShown->sum('miscellaneous'), 2) }}</strong></div>
+                            <div class="pc-sum-row pc-sum-total"><span>Total</span><strong>${{ number_format((float) $pcShown->sum('invoice_total'), 2) }}</strong></div>
                         </div>
                     </div>
 
@@ -76,6 +82,23 @@
                                 </div>
                             @endif
                         </div>
+                        @if ($isGroupPay && $payAllocation !== [])
+                            <div class="pc-sum-hint" style="margin:0.35rem 0 0.5rem">
+                                Oldest invoice is paid first. A short payment pays that invoice in full and only reduces the next one.
+                                @foreach ($payAllocation as $alloc)
+                                    <div>
+                                        Invoice {{ $alloc['invoice_number'] }}:
+                                        @if ($alloc['applied'] <= 0.0001)
+                                            still due ${{ number_format($alloc['due'], 2) }}
+                                        @elseif ($alloc['paid'])
+                                            <strong>paid in full</strong>
+                                        @else
+                                            <strong>still due ${{ number_format($alloc['left'], 2) }}</strong>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
                         <div class="pc-grid-wrap">
                             <table class="desk-table pc-table">
                                 <thead>
@@ -89,14 +112,15 @@
                                 </thead>
                                 <tbody>
                                     @php
-                                        $returnedCheckIds = $modalInvoice->payments
+                                        $pcPayments = $pcShown->flatMap(fn ($i) => $i->payments);
+                                        $returnedCheckIds = $pcPayments
                                             ->filter(fn ($rp) => \App\Models\InvoicePayment::isReturnedCheckMethod($rp->payment_method))
                                             ->map(fn ($rp) => preg_match('/#(\d+)/', (string) $rp->comments, $m) ? (int) $m[1] : 0)
                                             ->filter()
                                             ->values()
                                             ->all();
                                     @endphp
-                                    @foreach ($modalInvoice->payments as $p)
+                                    @foreach ($pcPayments as $p)
                                         @php
                                             $pIsCheck = \App\Models\InvoicePayment::isCheckMethod($p->payment_method);
                                             $pIsReturnLine = \App\Models\InvoicePayment::isReturnedCheckMethod($p->payment_method);
@@ -175,7 +199,7 @@
                                             </td>
                                         </tr>
                                     @empty
-                                        @if ($modalInvoice->payments->isEmpty())
+                                        @if ($pcPayments->isEmpty())
                                             <tr class="is-empty"><td colspan="5">Use + or Add Payment to enter amount. Split any amount, then Add 2nd Due for the rest.</td></tr>
                                         @endif
                                     @endforelse
@@ -212,7 +236,8 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach ($modalInvoice->credits as $c)
+                                        @php $pcCredits = $pcShown->flatMap(fn ($i) => $i->credits); @endphp
+                                        @foreach ($pcCredits as $c)
                                             <tr class="pc-row-saved">
                                                 <td class="desk-num">{{ $c->creditMemo?->memo_number }}</td>
                                                 <td>{{ optional($c->creditMemo?->memo_date)?->format('n/j/Y') }}</td>
@@ -258,7 +283,7 @@
                                                 </td>
                                             </tr>
                                         @empty
-                                            @if ($modalInvoice->credits->isEmpty())
+                                            @if ($pcCredits->isEmpty())
                                                 <tr class="is-empty"><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}">Use + to select from outstanding credit memos.</td></tr>
                                             @endif
                                         @endforelse

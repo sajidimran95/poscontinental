@@ -950,19 +950,25 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
     }
 
     /**
-     * One checked invoice opens the Payments & Credits window; several checked invoices
-     * share one payment (oldest first).
+     * One checked invoice opens that invoice's Payments & Credits window.
+     * Several checked invoices open the same window for the whole group.
      */
     public function startApplyPayment(): void
     {
         $ids = collect($this->selected)->filter()->keys()->map(fn ($id) => (int) $id)->values()->all();
+        if ($ids === []) {
+            session()->flash('status', 'Select at least one unpaid invoice.');
+
+            return;
+        }
+
         if (count($ids) === 1) {
             $this->openPayments($ids[0]);
 
             return;
         }
 
-        $this->applyPayment();
+        $this->openPaymentsGroup($ids);
     }
 
     public function applyPayment(): void
@@ -980,9 +986,9 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             return;
         }
 
-        $this->pay_date = now()->toDateString();
-        $this->pay_method = 'Cash';
-        $this->syncPayAmountToCashNeeded();
+        if ($this->pay_date === '') {
+            $this->pay_date = now()->toDateString();
+        }
         $payTotal = round((float) $this->pay_amount, 2);
         if ($payTotal < 0) {
             session()->flash('status', 'Payment amount cannot be negative.');
@@ -1209,7 +1215,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         }
 
         if ($appliedCash <= 0.0001 && $appliedCredit <= 0.0001 && $creditAmount <= 0.0001) {
-            session()->flash('status', 'Nothing applied. Select invoices with a balance, or enter a payment amount.');
+            $this->addError('pay_amount', 'Nothing applied. Select invoices with a balance, or enter a payment amount.');
 
             return;
         }

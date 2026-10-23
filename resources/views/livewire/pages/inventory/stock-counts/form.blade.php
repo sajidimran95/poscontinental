@@ -1450,7 +1450,8 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         window.open(url, '_blank');
     });
     $wire.on('pos-alert', (e) => {
-        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+        const kind = window.posAlertFromEvent ? window.posAlertFromEvent(e) : ((e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error');
+        if (! kind) return;
         window.playPosAlert && window.playPosAlert(kind);
     });
     $wire.$watch('showBrowse', (open) => {

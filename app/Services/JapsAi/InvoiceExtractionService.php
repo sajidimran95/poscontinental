@@ -35,6 +35,8 @@ Extract the data and return ONLY a single valid JSON object (no markdown, no com
     { "name": string, "sku": string|null, "quantity": number, "unit_price": number, "line_total": number|null }
   ],
   "subtotal": number|null,
+  "freight": number|null,
+  "other_fees": number|null,
   "tax_amount": number|null,
   "total": number|null
 }
@@ -47,7 +49,11 @@ Rules:
 - Product rows are only in the item table (rows with an item number / UPC / description). Never output rows from summary or recap tables such as "P & L information", category / department / class totals (e.g. "GROCERIES", "CONFECTIONS", "BEVERAGES/FROZEN"), "Your Cost / Your Retail / GP %", piece-count boxes, tax summaries or totals — they are not products.
 - Credit / return rows (amount printed with a minus sign like "9.01-" or "-9.01", or in parentheses) must be included with a NEGATIVE line_total and a positive quantity and unit_price.
 - "line_total" is the extended cost the buyer pays for the row (Ext. Price / Amount), never the extended retail value.
-- Before answering, add up line_total for all lines (credits count as negative). It must equal the invoice subtotal. If it is lower, you missed rows: go back and find them.
+- "subtotal" is the merchandise amount only: the sum of the product rows. It is not the invoice total.
+- Delivery, freight, shipping, fuel surcharge, handling, service charges and any other fee are NOT product rows. Do not put them in "lines" and do not add them into "subtotal".
+- "freight" is the delivery / freight / shipping charge. "other_fees" is every other non-tax fee (fuel, handling, service, miscellaneous). Use 0 when that charge is not printed.
+- "total" is the invoice grand total (subtotal + freight + other_fees + tax). Never make the product lines add up to "total".
+- Before answering, add up line_total for all product lines (credits count as negative). It must equal the invoice subtotal, not the invoice total. If it is lower, you missed product rows: go back and find them.
 - "quantity" and "unit_price" must be plain numbers only (no currency symbols, no thousands separators).
 - "unit_price" is the billed cost for one of the quantity units on that row (what the vendor charged), not a catalog or list price.
 - "line_total" is the extended amount printed for that row when available (quantity × unit_price). If unit_price is missing, compute unit_price = line_total / quantity.
@@ -59,7 +65,7 @@ PROMPT;
 
     protected const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-    protected const CACHE_VERSION = 'v4';
+    protected const CACHE_VERSION = 'v5';
 
     protected const MAX_PAGE_READS = 30;
 
@@ -187,6 +193,8 @@ PROMPT;
             'invoice_date' => $data['invoice_date'] ?? null,
             'currency' => $data['currency'] ?? null,
             'subtotal' => $data['subtotal'] ?? null,
+            'freight' => $data['freight'] ?? null,
+            'other_fees' => $data['other_fees'] ?? null,
             'tax_amount' => $data['tax_amount'] ?? null,
             'total' => $data['total'] ?? null,
             'lines' => $lines,
@@ -564,7 +572,7 @@ PROMPT;
             return null;
         }
 
-        foreach (['subtotal', 'tax_amount', 'total', 'supplier_name', 'ref_no', 'invoice_date', 'currency'] as $field) {
+        foreach (['subtotal', 'freight', 'other_fees', 'tax_amount', 'total', 'supplier_name', 'ref_no', 'invoice_date', 'currency'] as $field) {
             if (empty($best[$field])) {
                 $best[$field] = $full[$field] ?? $byPage[$field] ?? null;
             }
@@ -607,6 +615,8 @@ PROMPT;
             'currency' => null,
             'lines' => [],
             'subtotal' => null,
+            'freight' => null,
+            'other_fees' => null,
             'tax_amount' => null,
             'total' => null,
         ];
@@ -624,7 +634,14 @@ PROMPT;
                     $merged[$field] = (float) $page[$field];
                     if ($field === 'total') {
                         $merged['tax_amount'] = $page['tax_amount'] ?? $merged['tax_amount'];
+                        $merged['freight'] = $page['freight'] ?? $merged['freight'];
+                        $merged['other_fees'] = $page['other_fees'] ?? $merged['other_fees'];
                     }
+                }
+            }
+            foreach (['freight', 'other_fees'] as $field) {
+                if ($merged[$field] === null && ($page[$field] ?? null) !== null) {
+                    $merged[$field] = (float) $page[$field];
                 }
             }
             if ($merged['tax_amount'] === null && ($page['tax_amount'] ?? null) !== null) {
@@ -824,7 +841,7 @@ PROMPT;
             : '';
 
         return 'Extract the invoice data as instructed and return the JSON object. '.$pages
-            .'Every product row on every page must be in "lines". The sum of line_total must equal the invoice subtotal.';
+            .'Every product row on every page must be in "lines". The sum of line_total must equal the invoice subtotal (merchandise only), not the invoice total. Put delivery in freight and other charges in other_fees.';
     }
 
     protected function pageTextPrompt(int $page, int $pageCount, string $text): string
@@ -832,7 +849,7 @@ PROMPT;
         return 'Below is the exact text of page '.$page.' of '.$pageCount.' of a vendor invoice PDF (table columns are separated by tabs or spaces).'
             .' Return every product row in this text, in order, none skipped — from the first row to the last.'
             .' Fill supplier_name, ref_no and invoice_date only if they appear in this text.'
-            .' Fill subtotal, tax_amount and total only if the invoice grand totals appear in this text, otherwise null.'
+            .' Fill subtotal, freight, other_fees, tax_amount and total only if those figures appear in this text, otherwise null. Subtotal is merchandise only. Do not put delivery or other fees in lines.'
             .' Return the JSON object.'
             ."\n\n----- PAGE ".$page." TEXT -----\n".$text."\n----- END OF PAGE ".$page.' -----';
     }
@@ -967,9 +984,16 @@ PROMPT;
         if ($subtotal > 0) {
             return $subtotal;
         }
+        // Invoice total includes delivery and other fees. Use it only to back out those charges.
+        $fees = (float) ($data['freight'] ?? 0)
+            + (float) ($data['other_fees'] ?? 0)
+            + (float) ($data['tax_amount'] ?? 0);
         $total = (float) ($data['total'] ?? 0);
+        if ($total > 0 && $fees > 0.0001) {
+            return max(0, $total - $fees);
+        }
 
-        return $total > 0 ? max(0, $total - (float) ($data['tax_amount'] ?? 0)) : 0.0;
+        return 0.0;
     }
 
     /**
@@ -1059,16 +1083,66 @@ PROMPT;
             ];
         }
 
+        $freight = max(0, (float) ($this->toNumber($parsed['freight'] ?? null) ?? 0));
+        $otherFees = max(0, (float) ($this->toNumber($parsed['other_fees'] ?? null) ?? 0));
+        $productLines = [];
+        foreach ($lines as $line) {
+            $fee = $this->feeKind($line);
+            if ($fee === 'freight') {
+                if ($freight <= 0) {
+                    $freight += abs((float) $line['line_total']);
+                }
+
+                continue;
+            }
+            if ($fee === 'other') {
+                if ($otherFees <= 0) {
+                    $otherFees += abs((float) $line['line_total']);
+                }
+
+                continue;
+            }
+            $productLines[] = $line;
+        }
+
         return [
             'supplier_name' => ! empty($parsed['supplier_name']) ? (string) $parsed['supplier_name'] : null,
             'ref_no' => ! empty($parsed['ref_no']) ? (string) $parsed['ref_no'] : null,
             'invoice_date' => ! empty($parsed['invoice_date']) ? (string) $parsed['invoice_date'] : null,
             'currency' => ! empty($parsed['currency']) ? (string) $parsed['currency'] : null,
-            'lines' => $lines,
+            'lines' => $productLines,
             'subtotal' => $this->toNumber($parsed['subtotal'] ?? null),
+            'freight' => round($freight, 2),
+            'other_fees' => round($otherFees, 2),
             'tax_amount' => $this->toNumber($parsed['tax_amount'] ?? null),
             'total' => $this->toNumber($parsed['total'] ?? null),
         ];
+    }
+
+    /**
+     * Delivery and other charges are not merchandise. A real item code stays a product.
+     *
+     * @param  array<string, mixed>  $line
+     * @return 'freight'|'other'|null
+     */
+    protected function feeKind(array $line): ?string
+    {
+        $sku = trim((string) ($line['sku'] ?? ''));
+        if ($sku !== '' && ! preg_match('/fee|frt|ship|deliv|fuel|handl/i', $sku) && preg_match('/\d/', $sku)) {
+            return null;
+        }
+        $name = mb_strtolower(trim((string) ($line['name'] ?? '')));
+        if ($name === '') {
+            return null;
+        }
+        if (preg_match('/\b(delivery|freight|shipping|ship(?:ping)? charge)\b/', $name)) {
+            return 'freight';
+        }
+        if (preg_match('/\b(fuel|handling|service fee|other fee|miscellaneous|surcharge)\b/', $name)) {
+            return 'other';
+        }
+
+        return null;
     }
 
     protected function toNumber(mixed $value): ?float

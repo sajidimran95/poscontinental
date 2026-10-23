@@ -71,6 +71,11 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     /** @var list<array{at: string, po_number: string, text: string}> */
     public array $adminAlerts = [];
 
+    /** Full item-cost list (same Insights screen, dashboard stays as it is). */
+    public bool $showAlertList = false;
+
+    public string $alertSearch = '';
+
     /** Fingerprint of newest admin alert — used to auto-speak only on new ones. */
     public string $adminAlertFingerprint = '';
 
@@ -83,9 +88,14 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     public function with(): array
     {
+        $companyId = (int) auth()->user()->company_id;
+
         return [
             'overview' => $this->panel === 'insights'
-                ? BusinessInsightsService::forCompany((int) auth()->user()->company_id)->cachedOverview()
+                ? BusinessInsightsService::forCompany($companyId)->cachedOverview()
+                : [],
+            'alertGroups' => $this->panel === 'insights'
+                ? VendorInvoicePurchaseOrderService::alertFeed($companyId, $this->adminAlerts)
                 : [],
         ];
     }
@@ -99,6 +109,8 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             return;
         }
         $this->panel = $panel;
+        $this->showAlertList = false;
+        $this->alertSearch = '';
         $this->statusMessage = '';
         if ($panel === 'insights') {
             $this->syncAdminAlerts((int) auth()->user()->company_id, true);
@@ -134,6 +146,17 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
     /**
      * Faster poll while Insights is open — picks up new invoice→PO admin alerts.
      */
+    public function openAlertList(): void
+    {
+        $this->showAlertList = true;
+    }
+
+    public function closeAlertList(): void
+    {
+        $this->showAlertList = false;
+        $this->alertSearch = '';
+    }
+
     public function pollAdminAlerts(): void
     {
         if ($this->panel !== 'insights') {
@@ -144,19 +167,9 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
 
     private function syncAdminAlerts(int $companyId, bool $silent): void
     {
-        $prev = $this->adminAlertFingerprint;
         $alerts = VendorInvoicePurchaseOrderService::adminAlerts($companyId);
         $this->adminAlerts = $alerts;
-        $fp = $this->adminAlertFingerprintOf($alerts);
-
-        if (! $silent && $fp !== '' && $prev !== '' && $fp !== $prev) {
-            $script = BusinessInsightsService::forCompany($companyId)->speakNewAdminAlerts($alerts, 3);
-            if ($script !== '') {
-                $this->dispatch('pos-ai-speak-alert', text: $script);
-            }
-        }
-
-        $this->adminAlertFingerprint = $fp;
+        $this->adminAlertFingerprint = $this->adminAlertFingerprintOf($alerts);
     }
 
     /**
@@ -164,16 +177,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
      */
     private function adminAlertFingerprintOf(array $alerts): string
     {
-        if ($alerts === []) {
-            return '';
-        }
-        $top = $alerts[0];
-
-        return sha1(
-            trim((string) ($top['at'] ?? '')).'|'
-            .trim((string) ($top['po_number'] ?? '')).'|'
-            .trim((string) ($top['text'] ?? ''))
-        );
+        return VendorInvoicePurchaseOrderService::adminAlertFingerprint($alerts);
     }
 
     public function openIntel(string $key): void
@@ -635,14 +639,130 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             >
                 <h2 id="posai-insights-heading" class="sr-only">POS AI Insights</h2>
                 <p id="posai-insights-speak-text" class="sr-only" aria-live="polite">{{ $insightsSpeak }}</p>
-                @if ($adminAlerts !== [])
+                @php
+                    $alertLines = [];
+                    foreach ($alertGroups as $group) {
+                        if (($group['items'] ?? []) !== []) {
+                            foreach ($group['items'] as $item) {
+                                $alertLines[] = ['headline' => $group['headline'], 'item' => $item, 'note' => null];
+                            }
+                        } else {
+                            foreach ($group['notes'] ?? [] as $note) {
+                                $alertLines[] = ['headline' => $group['headline'], 'item' => null, 'note' => $note];
+                            }
+                        }
+                    }
+                    $alertPreview = array_slice($alertLines, 0, 4);
+                    $alertMore = max(0, count($alertLines) - count($alertPreview));
+                    $previewGroups = [];
+                    $previewSeen = 0;
+                    foreach ($alertGroups as $group) {
+                        if ($previewSeen >= 4) {
+                            break;
+                        }
+                        $previewItems = [];
+                        $previewNotes = [];
+                        if (($group['items'] ?? []) !== []) {
+                            foreach ($group['items'] as $item) {
+                                if ($previewSeen >= 4) {
+                                    break;
+                                }
+                                $previewItems[] = $item;
+                                $previewSeen++;
+                            }
+                        } else {
+                            foreach ($group['notes'] ?? [] as $note) {
+                                if ($previewSeen >= 4) {
+                                    break;
+                                }
+                                $previewNotes[] = $note;
+                                $previewSeen++;
+                            }
+                        }
+                        if ($previewItems !== [] || $previewNotes !== []) {
+                            $previewGroups[] = [
+                                'headline' => $group['headline'],
+                                'items' => $previewItems,
+                                'notes' => $previewNotes,
+                            ];
+                        }
+                    }
+                    $alertQuery = mb_strtolower(trim($alertSearch));
+                    $alertShown = $alertGroups;
+                    if ($alertQuery !== '') {
+                        $alertShown = [];
+                        foreach ($alertGroups as $group) {
+                            $poHit = str_contains(mb_strtolower($group['po_number'].' '.$group['headline']), $alertQuery);
+                            $items = $poHit ? $group['items'] : array_values(array_filter($group['items'], function ($item) use ($alertQuery) {
+                                $hay = mb_strtolower($item['code'].' '.$item['name'].' '.$item['from'].' '.$item['to'].' '.$item['note']);
+
+                                return str_contains($hay, $alertQuery);
+                            }));
+                            $notes = $poHit ? $group['notes'] : array_values(array_filter($group['notes'], fn ($note) => str_contains(mb_strtolower($note), $alertQuery)));
+                            if ($items === [] && $notes === []) {
+                                continue;
+                            }
+                            $group['items'] = $items;
+                            $group['notes'] = $notes;
+                            $alertShown[] = $group;
+                        }
+                    }
+                @endphp
+                @if ($showAlertList)
+                    <div class="posai-live" style="border:1px solid #f59e0b;background:#fffbeb;color:#92400e;margin-bottom:0.75rem;padding:0.65rem 0.8rem;border-radius:8px;" role="region" aria-label="All item cost updates">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                            <strong>Admin alerts (invoice → PO cost)</strong>
+                            <button type="button" class="desk-btn desk-btn-sm" wire:click="closeAlertList">Back</button>
+                        </div>
+                        <label style="display:block;margin-top:0.65rem;">
+                            <span class="sr-only">Search updated items</span>
+                            <input type="search" wire:model.live.debounce.200ms="alertSearch" class="desk-input" placeholder="Search item code, name, or amount…" aria-label="Search updated items" style="max-width:24rem;background:#fff;" />
+                        </label>
+                        @forelse ($alertShown as $group)
+                            <div style="margin-top:0.75rem;font-size:13px;font-weight:700;">{{ $group['headline'] }}</div>
+                            <ul class="posai-alert-list">
+                                @foreach ($group['items'] as $item)
+                                    <li>
+                                        <strong>{{ $item['code'] }}</strong>@if ($item['name'] !== '') — {{ $item['name'] }}@endif
+                                        @if ($item['from'] !== '' && $item['to'] !== '') — cost ${{ $item['from'] }} → ${{ $item['to'] }}@endif.
+                                        @if ($item['note'] !== '') {{ $item['note'] }}.@endif
+                                    </li>
+                                @endforeach
+                                @foreach ($group['notes'] as $note)
+                                    <li>{{ $note }}</li>
+                                @endforeach
+                            </ul>
+                        @empty
+                            <p style="margin:0.65rem 0 0;font-size:13px;">No matching item updates.</p>
+                        @endforelse
+                    </div>
+                @else
+                @if ($alertLines !== [])
                     <div class="posai-live" style="border:1px solid #f59e0b;background:#fffbeb;color:#92400e;margin-bottom:0.75rem;padding:0.65rem 0.8rem;border-radius:8px;" role="status" aria-label="Admin alerts">
-                        <strong>Admin alerts (invoice → PO cost)</strong>
-                        <ul style="margin:0.4rem 0 0;padding-left:1.1rem;font-size:13px;line-height:1.45;">
-                            @foreach (array_slice($adminAlerts, 0, 6) as $alert)
-                                <li><strong>{{ $alert['po_number'] ?? '' }}</strong> {{ $alert['text'] ?? '' }}</li>
-                            @endforeach
-                        </ul>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                            <strong>Admin alerts (invoice → PO cost)</strong>
+                            <button type="button" class="desk-btn desk-btn-sm" wire:click="openAlertList">
+                                View more
+                                @if ($alertMore > 0)
+                                    ({{ $alertMore }})
+                                @endif
+                            </button>
+                        </div>
+                        @foreach ($previewGroups as $group)
+                            <div style="margin-top:0.45rem;font-size:13px;font-weight:700;">{{ $group['headline'] }}</div>
+                            <ul class="posai-alert-list">
+                                @foreach ($group['items'] as $item)
+                                    <li>
+                                        <strong>{{ $item['code'] }}</strong>@if ($item['name'] !== '') — {{ $item['name'] }}@endif
+                                        @if ($item['from'] !== '' && $item['to'] !== '') — cost ${{ $item['from'] }} → ${{ $item['to'] }}@endif.
+                                        @if ($item['note'] !== '') {{ $item['note'] }}.@endif
+                                    </li>
+                                @endforeach
+                                @foreach ($group['notes'] as $note)
+                                    <li>{{ $note }}</li>
+                                @endforeach
+                            </ul>
+                        @endforeach
                     </div>
                 @endif
                 <div class="posai-live" role="status" aria-live="polite">
@@ -743,6 +863,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                         @endforeach
                     </div>
                 </div>
+                @endif
             </div>
         @elseif ($panel === 'intelligence')
             <div class="posai-panel posai-intel-page">
@@ -989,6 +1110,18 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             font-size: .72rem;
             color: #64748b;
             margin: 0 0 .7rem;
+        }
+        .posai-alert-list {
+            margin: 0.35rem 0 0;
+            padding-left: 1.25rem;
+            list-style: disc;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .posai-alert-list li {
+            display: list-item;
+            list-style: disc;
+            margin: 0.12rem 0;
         }
         .posai-tab {
             border: 0;
@@ -1653,25 +1786,6 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
                     window.speechSynthesis.getVoices();
                 };
             }
-
-            function bindAlertSpeak() {
-                if (! window.Livewire || ! Livewire.on || window.__posAiAlertSpeakBound) {
-                    return;
-                }
-                window.__posAiAlertSpeakBound = true;
-                Livewire.on('pos-ai-speak-alert', function (payload) {
-                    const text = (payload && (payload.text || (payload[0] && payload[0].text))) || '';
-                    if (! text) {
-                        return;
-                    }
-                    // Auto-announce new admin alerts (British voice when available).
-                    window.posAiSpeakText(text, document.getElementById('posai-insights-speak-btn'));
-                });
-            }
-
-            document.addEventListener('livewire:init', bindAlertSpeak);
-            document.addEventListener('livewire:navigated', bindAlertSpeak);
-            bindAlertSpeak();
 
             document.addEventListener('livewire:navigating', function () {
                 window.posAiSpeakStop();

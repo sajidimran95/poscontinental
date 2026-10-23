@@ -21,6 +21,7 @@ use App\Http\Controllers\PriceAlertClaimController;
 use App\Http\Controllers\Sale\SalePortalController;
 use App\Http\Controllers\TeamChatAttachmentController;
 use App\Http\Controllers\TeamChatNavController;
+use App\Http\Controllers\PosUserSoundController;
 use App\Http\Controllers\WebOrderNotifyController;
 use App\Http\Controllers\Sale\SalePwaController;
 use App\Http\Controllers\SpreadsheetDownloadController;
@@ -110,6 +111,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
         ->whereNumber('attachment')
         ->name('team-chat.attachment');
     Route::get('notify/web-orders', [WebOrderNotifyController::class, 'latest'])->name('notify.web-orders');
+    Route::get('notify/my-sound', [PosUserSoundController::class, 'mine'])->name('notify.my-sound');
     Volt::route('team-chat', 'pages.team-chat.index')->name('team-chat.index');
 
     Volt::route('profile', 'pages.profile')->name('profile');

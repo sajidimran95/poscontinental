@@ -326,7 +326,7 @@ trait BrowsesItemsForInquiry
 
     protected function playPosSound(string $kind = 'error'): void
     {
-        $this->dispatch('pos-alert', kind: $kind);
+        $this->dispatch('pos-alert', kind: $kind, userId: (int) auth()->id());
         $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 

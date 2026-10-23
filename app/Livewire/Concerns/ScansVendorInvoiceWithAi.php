@@ -88,6 +88,10 @@ trait ScansVendorInvoiceWithAi
             'supplier_id' => $matched['supplier_id'] ?? null,
             'ref_no' => $matched['ref_no'] ?? null,
             'invoice_date' => $matched['invoice_date'] ?? null,
+            'subtotal' => $matched['subtotal'] ?? null,
+            'freight' => $matched['freight'] ?? null,
+            'other_fees' => $matched['other_fees'] ?? null,
+            'tax_amount' => $matched['tax_amount'] ?? null,
             'total' => $matched['total'] ?? null,
         ];
         $this->aiInvoiceLines = $matched['lines'] ?? [];
@@ -148,6 +152,9 @@ trait ScansVendorInvoiceWithAi
                 $this->requisition_date = (string) $header['invoice_date'];
             }
         }
+        $this->fillInvoiceFee($header, 'freight', 'freight');
+        $this->fillInvoiceFee($header, 'other_fees', 'miscellaneous');
+        $this->fillInvoiceFee($header, 'tax_amount', 'tax');
 
         $companyId = (int) auth()->user()->company_id;
         $inserted = 0;
@@ -166,7 +173,8 @@ trait ScansVendorInvoiceWithAi
             }
 
             $qty = max(0.01, (float) ($row['quantity'] ?? 1));
-            $cost = (float) ($row['unit_price'] ?? 0);
+            $ext = (float) ($row['line_total'] ?? 0);
+            $cost = $ext > 0 ? $ext / $qty : (float) ($row['unit_price'] ?? 0);
 
             if (method_exists($this, 'applyAiMatchedItem')) {
                 $this->applyAiMatchedItem($item, $qty, $cost);
@@ -190,6 +198,26 @@ trait ScansVendorInvoiceWithAi
 
         $this->closeAiInvoiceModal();
         session()->flash('status', "POS AI inserted {$inserted} line(s) from the vendor invoice. Review costs, then save the PO. Receiving still updates stock as usual.");
+    }
+
+    /**
+     * Put a printed invoice fee on the matching PO field. Item lines stay the merchandise subtotal.
+     *
+     * @param  array<string, mixed>  $header
+     */
+    protected function fillInvoiceFee(array $header, string $from, string $property): void
+    {
+        if (! property_exists($this, $property)) {
+            return;
+        }
+        if (trim((string) $this->{$property}) !== '') {
+            return;
+        }
+        $amount = (float) ($header[$from] ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+        $this->{$property} = number_format($amount, 2, '.', '');
     }
 
     protected function patchLastAiLine(int $itemId, float $qty, float $cost): void

@@ -4,10 +4,12 @@ namespace App\Services\JapsAi;
 
 use App\Models\Company;
 use App\Models\Item;
+use App\Models\ItemPriceHistory;
 use App\Models\ItemSupplier;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use App\Services\CompanyMailConfig;
 use App\Services\InventoryService;
 use App\Services\ItemPriceHistoryService;
@@ -180,8 +182,10 @@ class VendorInvoicePurchaseOrderService
                 ->take(12)
                 ->implode(', ');
             $tax = max(0, (float) ($matched['tax_amount'] ?? 0));
+            $freight = max(0, (float) ($matched['freight'] ?? 0));
+            $otherFees = max(0, (float) ($matched['other_fees'] ?? 0));
             $invoiceTotal = isset($matched['total']) && is_numeric($matched['total']) ? (float) $matched['total'] : null;
-            $poTotal = round($subtotal + $tax, 4);
+            $poTotal = round($subtotal + $freight + $otherFees + $tax, 4);
 
             $comments = 'Created from POS AI vendor invoice for '.$supplierName
                 .'. Line costs are the invoice billed amounts. Status is New — not emailed to the vendor.'
@@ -205,8 +209,8 @@ class VendorInvoicePurchaseOrderService
                 'comments' => $comments,
                 'subtotal' => round($subtotal, 4),
                 'trade_discount' => 0,
-                'freight' => 0,
-                'miscellaneous' => 0,
+                'freight' => round($freight, 4),
+                'miscellaneous' => round($otherFees, 4),
                 'tax' => $tax,
                 'total' => $poTotal,
             ];
@@ -249,7 +253,12 @@ class VendorInvoicePurchaseOrderService
             }
 
             if ($invoiceTotal !== null && $invoiceTotal > 0 && abs($invoiceTotal - $poTotal) > max(0.05, $poTotal * 0.02)) {
-                $alerts[] = 'Invoice total $'.number_format($invoiceTotal, 2).' vs PO total $'.number_format($poTotal, 2).'.';
+                $alerts[] = 'Invoice total $'.number_format($invoiceTotal, 2)
+                    .' vs PO total $'.number_format($poTotal, 2)
+                    .' (items $'.number_format($subtotal, 2)
+                    .($freight > 0 ? ' + delivery $'.number_format($freight, 2) : '')
+                    .($otherFees > 0 ? ' + other fees $'.number_format($otherFees, 2) : '')
+                    .'). Item lines follow the invoice subtotal, not the invoice total.';
             }
             if ($skipped > 0) {
                 $alerts[] = $skipped.' invoice line(s) were not added because they are not in the item list.';
@@ -446,20 +455,28 @@ class VendorInvoicePurchaseOrderService
     }
 
     /**
-     * Invoice goods amount the PO lines must add up to (subtotal, else total minus tax).
+     * Merchandise amount the PO item lines must add up to.
+     * Delivery, other fees and tax stay off this figure. The invoice grand total is not used.
      *
      * @param  array<string, mixed>  $matched
      */
     public static function invoiceTarget(array $matched): float
     {
         $subtotal = (float) ($matched['subtotal'] ?? 0);
-        if ($subtotal <= 0) {
-            $total = (float) ($matched['total'] ?? 0);
-            $subtotal = $total > 0 ? max(0, $total - (float) ($matched['tax_amount'] ?? 0)) : 0.0;
+        if ($subtotal > 0) {
+            // Credit / return rows are netted in the invoice subtotal but are not PO lines.
+            return round($subtotal + self::creditsTotal($matched), 2);
         }
 
-        // Credit / return rows are netted in the invoice subtotal but are not PO lines.
-        return $subtotal > 0 ? round($subtotal + self::creditsTotal($matched), 2) : 0.0;
+        $fees = (float) ($matched['freight'] ?? 0)
+            + (float) ($matched['other_fees'] ?? 0)
+            + (float) ($matched['tax_amount'] ?? 0);
+        $total = (float) ($matched['total'] ?? 0);
+        if ($total > 0 && $fees > 0.0001) {
+            return round(max(0, $total - $fees), 2);
+        }
+
+        return 0.0;
     }
 
     /**
@@ -498,13 +515,13 @@ class VendorInvoicePurchaseOrderService
     public static function linesTotal(array $matched): float
     {
         return round((float) collect($matched['lines'] ?? [])->sum(function ($row) {
-            $qty = max(0.01, (float) ($row['quantity'] ?? 1));
-            $unit = (float) ($row['unit_price'] ?? 0);
-            if ($unit <= 0 && (float) ($row['line_total'] ?? 0) > 0) {
-                $unit = (float) $row['line_total'] / $qty;
+            $ext = (float) ($row['line_total'] ?? 0);
+            if ($ext > 0) {
+                return $ext;
             }
+            $qty = max(0.01, (float) ($row['quantity'] ?? 1));
 
-            return $qty * max(0, $unit);
+            return $qty * max(0, (float) ($row['unit_price'] ?? 0));
         }), 2);
     }
 
@@ -559,15 +576,23 @@ class VendorInvoicePurchaseOrderService
         $matchedCount = collect($lines)->where('item_id', '>', 0)->count();
         $supplier = trim((string) ($matched['supplier_name'] ?? '')) ?: 'Unknown supplier';
         $ref = trim((string) ($matched['ref_no'] ?? ''));
-        $total = $matched['total'] ?? null;
         $supplierOk = (int) ($matched['supplier_id'] ?? 0) > 0;
 
         $head = "Read **{$count}** item(s) from **{$supplier}**";
         if ($ref !== '') {
             $head .= ", ref {$ref}";
         }
-        if (is_numeric($total)) {
-            $head .= ', total '.number_format((float) $total, 2);
+        $goods = (float) ($matched['subtotal'] ?? 0);
+        if ($goods > 0) {
+            $head .= ', subtotal '.number_format($goods, 2);
+        }
+        $delivery = (float) ($matched['freight'] ?? 0);
+        $otherFees = (float) ($matched['other_fees'] ?? 0);
+        if ($delivery > 0) {
+            $head .= ', delivery '.number_format($delivery, 2);
+        }
+        if ($otherFees > 0) {
+            $head .= ', other fees '.number_format($otherFees, 2);
         }
         $head .= ' for **'.$company->name.'**.';
 
@@ -586,9 +611,21 @@ class VendorInvoicePurchaseOrderService
         $reply .= "{$matchedCount} of {$count} line(s) are in your item list.\n";
         $target = self::invoiceTarget($matched);
         $credits = self::creditsTotal($matched);
-        $reply .= 'Lines total $'.number_format(self::linesTotal($matched), 2)
+        $reply .= 'Item lines $'.number_format(self::linesTotal($matched), 2)
             .($target > 0 ? ' · invoice subtotal $'.number_format($target - $credits, 2) : '')
             .($credits > 0 ? ' + credits $'.number_format($credits, 2) : '')."\n";
+        $delivery = (float) ($matched['freight'] ?? 0);
+        $otherFees = (float) ($matched['other_fees'] ?? 0);
+        if ($delivery > 0 || $otherFees > 0) {
+            $reply .= 'Not in the item total:';
+            if ($delivery > 0) {
+                $reply .= ' delivery $'.number_format($delivery, 2);
+            }
+            if ($otherFees > 0) {
+                $reply .= ' other fees $'.number_format($otherFees, 2);
+            }
+            $reply .= ".\n";
+        }
         $creditsNote = self::creditsNote($matched);
         if ($creditsNote !== '') {
             $reply .= $creditsNote."\n";
@@ -803,6 +840,238 @@ class VendorInvoicePurchaseOrderService
         return $rows;
     }
 
+    /**
+     * @param  list<array<string, mixed>>  $alerts
+     */
+    public static function adminAlertFingerprint(array $alerts): string
+    {
+        if ($alerts === []) {
+            return '';
+        }
+        $top = $alerts[0];
+
+        return sha1(
+            trim((string) ($top['at'] ?? '')).'|'
+            .trim((string) ($top['po_number'] ?? '')).'|'
+            .trim((string) ($top['text'] ?? '')).'|'
+            .(int) ($top['user_id'] ?? 0)
+        );
+    }
+
+    /**
+     * Spoken text for the user who did the work. Empty for everyone else.
+     *
+     * @param  list<array<string, mixed>>  $alerts
+     */
+    public static function speakTextForUser(int $companyId, int $userId, array $alerts): string
+    {
+        $owner = (int) ($alerts[0]['user_id'] ?? 0);
+        if ($owner < 1 || $owner !== $userId) {
+            return '';
+        }
+
+        return BusinessInsightsService::forCompany($companyId)->speakNewAdminAlerts($alerts, 3);
+    }
+
+    /**
+     * One row per purchase order, with every cost change as its own line.
+     * Price history is used when it has the full set; older alerts only kept
+     * the first few sentences in the summary text.
+     *
+     * @param  list<array<string, mixed>>  $alerts
+     * @return list<array{po_number: string, po_id: ?int, at: string, headline: string, items: list<array{code: string, name: string, from: string, to: string, note: string}>, notes: list<string>}>
+     */
+    public static function alertFeed(int $companyId, array $alerts): array
+    {
+        $groups = [];
+        foreach ($alerts as $alert) {
+            if (! is_array($alert)) {
+                continue;
+            }
+            $groups[] = self::splitAlert($alert);
+        }
+        if ($groups === []) {
+            return [];
+        }
+
+        $numbers = collect($groups)->pluck('po_number')->filter(fn ($n) => $n !== '' && $n !== '—')->unique()->values();
+        $orders = $numbers->isEmpty()
+            ? collect()
+            : PurchaseOrder::query()
+                ->where('company_id', $companyId)
+                ->whereIn('po_number', $numbers->all())
+                ->get(['id', 'po_number'])
+                ->keyBy('po_number');
+
+        $history = $numbers->isEmpty()
+            ? collect()
+            : ItemPriceHistory::query()
+                ->where('company_id', $companyId)
+                ->where('source', ItemPriceHistory::SOURCE_PO)
+                ->where('change_type', ItemPriceHistory::TYPE_COST)
+                ->whereIn('reference', $numbers->all())
+                ->with('item:id,item_code,description')
+                ->orderBy('id')
+                ->get()
+                ->groupBy(fn (ItemPriceHistory $row) => (string) $row->reference);
+
+        foreach ($groups as $i => $group) {
+            $poNumber = $group['po_number'];
+            $order = $orders->get($poNumber);
+            $groups[$i]['po_id'] = $order ? (int) $order->id : null;
+
+            $rows = $history->get($poNumber, collect());
+            $at = self::alertMoment($group['at']);
+            if ($at && $rows->isNotEmpty()) {
+                $near = $rows->filter(function (ItemPriceHistory $row) use ($at) {
+                    return $row->created_at
+                        && $row->created_at->between($at->copy()->subMinutes(10), $at->copy()->addMinute());
+                });
+                if ($near->isNotEmpty()) {
+                    $rows = $near;
+                } else {
+                    $rows = collect();
+                }
+            } elseif (! $at) {
+                $rows = collect();
+            }
+
+            if ($rows->isEmpty()) {
+                continue;
+            }
+
+            $groups[$i]['items'] = $rows
+                ->sortByDesc('id')
+                ->unique('item_id')
+                ->map(function (ItemPriceHistory $row) {
+                    $code = trim((string) ($row->item?->item_code ?? ''));
+                    $name = trim((string) ($row->item?->description ?? ''));
+
+                    return [
+                        'code' => $code !== '' ? $code : 'Item',
+                        'name' => $name,
+                        'from' => number_format((float) $row->cost_before, 2),
+                        'to' => number_format((float) $row->cost_after, 2),
+                        'note' => 'Sales price was not changed',
+                    ];
+                })
+                ->sortBy(fn (array $item) => $item['code'])
+                ->values()
+                ->all();
+            $count = count($groups[$i]['items']);
+            $groups[$i]['headline'] = ($poNumber !== '' && $poNumber !== '—' ? 'PO '.$poNumber : 'Alert')
+                .' · '.$count.' item cost'.($count === 1 ? '' : 's').' updated';
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param  array<string, mixed>  $alert
+     * @return array{po_number: string, po_id: ?int, at: string, headline: string, items: list<array{code: string, name: string, from: string, to: string, note: string}>, notes: list<string>}
+     */
+    public static function splitAlert(array $alert): array
+    {
+        $po = trim((string) ($alert['po_number'] ?? ''));
+        $at = trim((string) ($alert['at'] ?? ''));
+        $text = self::displayMoneyTwoDecimals(trim((string) ($alert['text'] ?? '')));
+        $items = [];
+        $notes = [];
+
+        foreach ((array) ($alert['items'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $code = trim((string) ($item['code'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $items[] = [
+                'code' => $code,
+                'name' => trim((string) ($item['name'] ?? '')),
+                'from' => trim((string) ($item['from'] ?? '')),
+                'to' => trim((string) ($item['to'] ?? '')),
+                'note' => trim((string) ($item['note'] ?? 'Sales price was not changed')),
+            ];
+        }
+        foreach ((array) ($alert['notes'] ?? []) as $note) {
+            $note = trim(self::displayMoneyTwoDecimals((string) $note));
+            if ($note !== '') {
+                $notes[] = $note;
+            }
+        }
+
+        if ($items === [] && $text !== '') {
+            $costPattern = '/([A-Za-z0-9][A-Za-z0-9._\/-]{0,48}):\s*item cost updated from \$([0-9,]+\.\d{2}) to invoice \$([0-9,]+\.\d{2})\.\s*Sales price was not changed\./';
+            if (preg_match_all($costPattern, $text, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $hit) {
+                    $items[] = [
+                        'code' => $hit[1],
+                        'name' => '',
+                        'from' => $hit[2],
+                        'to' => $hit[3],
+                        'note' => 'Sales price was not changed',
+                    ];
+                }
+                $text = trim(preg_replace($costPattern, ' ', $text) ?? $text);
+            }
+
+            $noPrice = '/([A-Za-z0-9][A-Za-z0-9._\/-]{0,48}):\s*invoice had no unit price;\s*PO used last cost \$([0-9,]+\.\d{2})\./';
+            if (preg_match_all($noPrice, $text, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $hit) {
+                    $items[] = [
+                        'code' => $hit[1],
+                        'name' => '',
+                        'from' => '',
+                        'to' => $hit[2],
+                        'note' => 'Invoice had no unit price. PO used last cost',
+                    ];
+                }
+                $text = trim(preg_replace($noPrice, ' ', $text) ?? $text);
+            }
+
+            $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+            $text = preg_replace('/^POS AI PO\s+\S+\s+from vendor invoice\.\s*/i', '', $text) ?? $text;
+            $text = preg_replace('/\d+\s+item cost\(s\) updated from invoice amounts\.\s*/i', '', $text) ?? $text;
+            $text = trim($text, " \t\n\r\0\x0B.");
+            if ($notes === [] && $text !== '') {
+                foreach (preg_split('/(?<=\.)\s+/', $text) ?: [] as $sentence) {
+                    $sentence = trim($sentence);
+                    if ($sentence !== '') {
+                        $notes[] = $sentence;
+                    }
+                }
+            }
+        }
+
+        $count = count($items);
+        $headline = $po !== '' && $po !== '—' ? 'PO '.$po : 'Alert';
+        if ($count > 0) {
+            $headline .= ' · '.$count.' item cost'.($count === 1 ? '' : 's').' updated';
+        }
+
+        return [
+            'po_number' => $po,
+            'po_id' => null,
+            'at' => $at,
+            'headline' => $headline,
+            'items' => $items,
+            'notes' => $notes,
+        ];
+    }
+
+    private static function alertMoment(string $at): ?Carbon
+    {
+        if ($at === '') {
+            return null;
+        }
+        try {
+            return Carbon::parse($at);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     public static function displayMoneyTwoDecimals(string $text): string
     {
         $text = preg_replace_callback(
@@ -833,13 +1102,12 @@ class VendorInvoicePurchaseOrderService
      */
     private function invoiceUnitCost(array $row, float $qty): float
     {
-        $unit = (float) ($row['unit_price'] ?? 0);
         $ext = (float) ($row['line_total'] ?? 0);
-        if ($unit <= 0 && $ext > 0 && $qty > 0) {
-            $unit = $ext / $qty;
+        if ($ext > 0 && $qty > 0) {
+            return round($ext / $qty, 4);
         }
 
-        return round(max(0, $unit), 4);
+        return round(max(0, (float) ($row['unit_price'] ?? 0)), 4);
     }
 
     /**
@@ -851,18 +1119,47 @@ class VendorInvoicePurchaseOrderService
             return;
         }
 
+        $itemRows = [];
+        $noteRows = [];
+        foreach ($alerts as $line) {
+            $line = trim((string) $line);
+            if (preg_match('/^(.+?): item cost updated from \$([0-9,]+\.\d+) to invoice \$([0-9,]+\.\d+)/', $line, $m)) {
+                $itemRows[] = [
+                    'code' => trim($m[1]),
+                    'name' => '',
+                    'from' => number_format((float) str_replace(',', '', $m[2]), 2),
+                    'to' => number_format((float) str_replace(',', '', $m[3]), 2),
+                    'note' => 'Sales price was not changed',
+                ];
+
+                continue;
+            }
+            if ($line !== '') {
+                $noteRows[] = $line;
+            }
+        }
+
         $summary = 'POS AI PO '.$po->po_number.' from vendor invoice. '
             .$costUpdated.' item cost(s) updated from invoice amounts.'
             .($unmatchedCount > 0 ? ' '.$unmatchedCount.' line(s) not added (no catalog match).' : '');
-        if ($alerts !== []) {
-            $summary .= ' '.implode(' ', array_slice($alerts, 0, 8));
+        foreach (array_slice($itemRows, 0, 12) as $item) {
+            $summary .= ' '.$item['code'].': item cost updated from $'.$item['from'].' to invoice $'.$item['to'].'. Sales price was not changed.';
+        }
+        if (count($itemRows) > 12) {
+            $summary .= ' '.(count($itemRows) - 12).' more item(s) updated.';
+        }
+        if ($noteRows !== []) {
+            $summary .= ' '.implode(' ', array_slice($noteRows, 0, 4));
         }
 
         $stored = self::adminAlerts((int) $company->id);
         array_unshift($stored, [
             'at' => now()->toDateTimeString(),
+            'user_id' => (int) (auth()->id() ?? 0),
             'po_number' => (string) $po->po_number,
             'text' => self::displayMoneyTwoDecimals($summary),
+            'items' => $itemRows,
+            'notes' => $noteRows,
         ]);
         Cache::put(self::ADMIN_ALERT_CACHE.$company->id, array_slice($stored, 0, 25), now()->addDays(14));
 
@@ -908,6 +1205,7 @@ class VendorInvoicePurchaseOrderService
         $stored = self::adminAlerts((int) $company->id);
         array_unshift($stored, [
             'at' => now()->toDateTimeString(),
+            'user_id' => (int) (auth()->id() ?? 0),
             'po_number' => $po?->po_number ? (string) $po->po_number : '—',
             'text' => self::displayMoneyTwoDecimals(mb_substr($plain, 0, 400)),
         ]);

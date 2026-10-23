@@ -1181,7 +1181,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     protected function playPosSound(string $kind = 'error'): void
     {
-        $this->dispatch('pos-alert', kind: $kind);
+        $this->dispatch('pos-alert', kind: $kind, userId: (int) auth()->id());
         $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 
@@ -2224,7 +2224,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         window.open(url, '_blank');
     });
     $wire.on('pos-alert', (e) => {
-        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+        const kind = window.posAlertFromEvent ? window.posAlertFromEvent(e) : ((e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error');
+        if (! kind) return;
         window.playPosAlert && window.playPosAlert(kind);
     });
     $wire.$watch('showBrowse', (open) => {

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\SalesOrder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class WebOrderNotifyController extends Controller
 {
@@ -30,10 +31,20 @@ class WebOrderNotifyController extends Controller
         }
 
         $after = max(0, (int) $request->query('after', 0));
+        $latestId = (int) $latest->id;
         $newCount = $after > 0 ? (int) (clone $base)->where('id', '>', $after)->count() : 0;
+        $playSound = false;
+        if ($after > 0 && $latestId > $after) {
+            $playSound = Cache::add(
+                'pos-sound-web-order:'.$user->company_id.':'.$latestId,
+                (int) $user->id,
+                now()->addHours(12)
+            );
+        }
 
         return response()->json([
-            'latest_id' => (int) $latest->id,
+            'latest_id' => $latestId,
+            'play_sound' => $playSound,
             'new_count' => $newCount,
             'preview' => [
                 'order_number' => (string) $latest->order_number,

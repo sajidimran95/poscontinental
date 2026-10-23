@@ -2254,7 +2254,8 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         window.open(url, '_blank');
     });
     $wire.on('pos-alert', (e) => {
-        const kind = e?.kind ?? e?.[0]?.kind ?? 'error';
+        const kind = window.posAlertFromEvent ? window.posAlertFromEvent(e) : (e?.kind ?? e?.[0]?.kind ?? 'error');
+        if (! kind) return;
         window.playPosAlert && window.playPosAlert(kind);
     });
 </script>

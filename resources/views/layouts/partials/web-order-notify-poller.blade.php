@@ -56,7 +56,6 @@
             if (! res.ok) return;
             const data = await res.json();
             if (window.posNotifyClaim(soundKey, data.latest_id)) {
-                window.playPosNotify('order');
                 show(data);
             }
         } catch (e) {}

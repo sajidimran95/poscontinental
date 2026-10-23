@@ -841,6 +841,16 @@
                     return null;
                 }
 
+                window.posSoundUserId = @json((int) (auth()->id() ?? 0));
+                window.posAlertFromEvent = function (e) {
+                    const payload = (e && (e.kind || e.userId || e.user_id)) ? e : ((Array.isArray(e) && e[0]) || {});
+                    const uid = Number(payload.userId || payload.user_id || 0);
+                    if (uid && uid !== Number(window.posSoundUserId || 0)) {
+                        return null;
+                    }
+                    return payload.kind || 'error';
+                };
+
                 window.playPosAlert = function (kind) {
                     const nowMs = Date.now();
                     if (kind !== 'scan-miss' && nowMs - lastAt < 280) return;
@@ -984,30 +994,35 @@
                     window.setTimeout(function () { hideFlash(el); }, FLASH_MS);
                 }
 
-                function kindFromEl(el) {
-                    const fromText = kindFromText(el.textContent || '');
+                const sounded = new Set();
+
+                function soundKind(el) {
+                    const text = String(el.textContent || '');
+                    const fromText = kindFromText(text);
                     if (fromText) return fromText;
                     const cls = String(el.className || '');
                     if (cls.indexOf('danger') !== -1 || cls.indexOf('err') !== -1 || cls.indexOf('alert-error') !== -1) return 'error';
                     if (cls.indexOf('credit') !== -1 || cls.indexOf('alert-warn') !== -1 || cls.indexOf('so-msg-alert') !== -1 || cls.indexOf('chief-prompt') !== -1) return 'warning';
                     if (el.getAttribute && el.getAttribute('role') === 'alertdialog') return 'warning';
-                    if (cls.indexOf('info') !== -1 || cls.indexOf('alert-ok') !== -1) return 'success';
-                    return 'info';
+                    return null;
                 }
 
                 function maybePlay(el) {
                     if (! el || el.nodeType !== 1 || ! el.matches) return;
-                    if (el.closest && el.closest('.home-chief-alert')) return;
+                    if (el.closest && (el.closest('.home-chief-alert') || el.closest('#web-order-toast') || el.closest('#team-chat-toast') || el.closest('.wo-toast') || el.closest('.tc-nav-toast'))) return;
+                    if (el.id === 'web-order-toast' || el.id === 'team-chat-toast') return;
                     if (el.id === 'pos-permission-toast' && el.hidden) return;
                     if (! el.matches(alertSel)) return;
                     scheduleFlashHide(el);
                     const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
                     if (text.length < 3) return;
-                    const now = Date.now();
-                    const key = kindFromEl(el) + '|' + text;
-                    if (key === lastKey && now - lastAt < 1600) return;
+                    const kind = soundKind(el);
+                    if (! kind) return;
+                    const key = kind + '|' + text;
+                    if (sounded.has(key)) return;
+                    sounded.add(key);
                     lastKey = key;
-                    window.playPosAlert(kindFromEl(el));
+                    window.playPosAlert(kind);
                 }
 
                 function maybePlayFromNode(n) {
@@ -1018,7 +1033,12 @@
                 }
 
                 function scanAlerts() {
-                    document.querySelectorAll(alertSel).forEach(maybePlay);
+                    document.querySelectorAll(alertSel).forEach(function (el) {
+                        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                        const kind = soundKind(el);
+                        if (kind && text.length >= 3) sounded.add(kind + '|' + text);
+                        scheduleFlashHide(el);
+                    });
                     document.querySelectorAll(flashSel).forEach(scheduleFlashHide);
                 }
 
@@ -1063,7 +1083,8 @@
                     if (livewireBound || ! window.Livewire || ! Livewire.on) return;
                     livewireBound = true;
                     Livewire.on('pos-alert', function (e) {
-                        const kind = (e && e.kind) || (Array.isArray(e) && e[0] && e[0].kind) || 'error';
+                        const kind = window.posAlertFromEvent ? window.posAlertFromEvent(e) : ((e && e.kind) || 'error');
+                        if (! kind) return;
                         window.playPosAlert(kind);
                     });
                     if (Livewire.hook) {
@@ -1285,6 +1306,9 @@
                 }, true);
             })();
         </script>
+        @if (! $isPosEmbed && (auth()->user()?->canUsePosAiChat() ?? false) && \Illuminate\Support\Facades\Route::has('notify.my-sound'))
+            @include('layouts.partials.pos-user-sound')
+        @endif
         @if (! $isPosEmbed && \Illuminate\Support\Facades\Route::has('team-chat.unread') && (auth()->user()?->canAccessFeature('team.chat', 'view') ?? false))
             @include('layouts.partials.team-chat-nav-poller', ['teamChatUnreadUrl' => route('team-chat.unread')])
         @endif

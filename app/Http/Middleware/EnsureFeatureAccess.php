@@ -20,7 +20,7 @@ class EnsureFeatureAccess
         if ($request->is('pos/tabs/*') || $request->is('team-chat/unread')) {
             return $next($request);
         }
-        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show', 'admin.terminal', 'pos.tabs.open', 'pos.tabs.remember', 'pos.tabs.ensure', 'pos.tabs.close', 'pos.tabs.close-all', 'sales.orders.windows.open', 'sales.orders.windows.close', 'sales.orders.leave', 'exports.xlsx', 'team-chat.unread', 'notify.web-orders'], true)) {
+        if (in_array($routeName, ['home', 'dashboard', 'profile', 'logout', 'media.show', 'admin.terminal', 'pos.tabs.open', 'pos.tabs.remember', 'pos.tabs.ensure', 'pos.tabs.close', 'pos.tabs.close-all', 'sales.orders.windows.open', 'sales.orders.windows.close', 'sales.orders.leave', 'exports.xlsx', 'team-chat.unread', 'notify.web-orders', 'notify.my-sound'], true)) {
             return $next($request);
         }
 

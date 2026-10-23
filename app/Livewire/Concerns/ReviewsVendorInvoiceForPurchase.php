@@ -76,6 +76,7 @@ trait ReviewsVendorInvoiceForPurchase
             session()->forget('pos_ai_pending_vendor_invoice');
             $reply = $creator->formatChatReply($company, $matched, $created);
             $this->posAiInvoiceNotice($reply);
+            $this->speakPosWorkAlert();
             if (property_exists($this, 'showAiInvoiceModal')) {
                 $this->closeAiInvoiceModal();
                 session()->flash('status', $created['msg']);
@@ -86,6 +87,36 @@ trait ReviewsVendorInvoiceForPurchase
         }
 
         $this->posAiInvoiceNotice($created['msg'] ?? 'Could not create the purchase order.');
+    }
+
+    /**
+     * Read the new alert on this user's POS only.
+     */
+    protected function speakPosWorkAlert(): void
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return;
+        }
+
+        $companyId = (int) $user->company_id;
+        $alerts = VendorInvoicePurchaseOrderService::adminAlerts($companyId);
+        $script = VendorInvoicePurchaseOrderService::speakTextForUser($companyId, (int) $user->id, $alerts);
+        $fp = VendorInvoicePurchaseOrderService::adminAlertFingerprint($alerts);
+        if ($script === '' || $fp === '') {
+            return;
+        }
+        if (property_exists($this, 'adminAlerts')) {
+            $this->adminAlerts = $alerts;
+        }
+        if (property_exists($this, 'adminAlertFingerprint') && $fp === $this->adminAlertFingerprint) {
+            return;
+        }
+        if (property_exists($this, 'adminAlertFingerprint')) {
+            $this->adminAlertFingerprint = $fp;
+        }
+
+        $this->dispatch('pos-ai-speak-alert', text: $script, fingerprint: $fp, userId: (int) $user->id);
     }
 
     /**

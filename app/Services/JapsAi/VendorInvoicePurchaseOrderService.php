@@ -380,13 +380,18 @@ class VendorInvoicePurchaseOrderService
             ->filter(fn ($row) => (int) ($row['item_id'] ?? 0) <= 0)
             ->values();
         if ($missing->isNotEmpty()) {
-            $rows = ["**Items not found in item list ({$missing->count()})**"];
+            $rows = ["**Items not found in item list ({$missing->count()})**", 'Checked item code (SKU), alias, and barcode. None of those codes are on these items.'];
             foreach ($missing->take(25) as $row) {
-                $sku = trim((string) ($row['sku'] ?? '')) ?: 'no SKU';
+                $sku = trim((string) ($row['sku'] ?? ''));
+                $barcode = trim((string) ($row['barcode'] ?? ''));
                 $name = trim((string) ($row['name'] ?? '')) ?: '—';
+                $code = $sku !== '' ? $sku : 'no SKU';
+                if ($barcode !== '' && strcasecmp($barcode, $sku) !== 0) {
+                    $code .= ' / barcode '.$barcode;
+                }
                 $qty = number_format((float) ($row['quantity'] ?? 0), 2);
                 $price = (float) ($row['unit_price'] ?? 0);
-                $rows[] = "- **{$sku}** — {$name} · qty {$qty} @ $".number_format($price, 2);
+                $rows[] = "- **{$code}** — {$name} · qty {$qty} @ $".number_format($price, 2);
             }
             if ($missing->count() > 25) {
                 $rows[] = '- … and '.($missing->count() - 25).' more.';
@@ -596,19 +601,31 @@ class VendorInvoicePurchaseOrderService
         }
         $head .= ' for **'.$company->name.'**.';
 
-        $unmatchedNames = collect($lines)
-            ->filter(fn ($row) => (int) ($row['item_id'] ?? 0) <= 0)
-            ->map(fn ($row) => trim((string) ($row['name'] ?? $row['sku'] ?? '')))
-            ->filter()
-            ->unique()
-            ->take(12)
-            ->values();
-
         $reply = $head."\n";
         $reply .= $supplierOk
             ? "Supplier is in your supplier list.\n"
             : "Supplier is **not** in your supplier list.\n";
+        $reply .= "Checked each line against item code (SKU), alias, and barcode.\n";
         $reply .= "{$matchedCount} of {$count} line(s) are in your item list.\n";
+        $notInList = collect($lines)->filter(fn ($row) => (int) ($row['item_id'] ?? 0) <= 0)->values();
+        if ($notInList->isNotEmpty()) {
+            $reply .= "Not in your item list ({$notInList->count()}):\n";
+            foreach ($notInList->take(40) as $row) {
+                $sku = trim((string) ($row['sku'] ?? ''));
+                $barcode = trim((string) ($row['barcode'] ?? ''));
+                $name = trim((string) ($row['name'] ?? ''));
+                $codes = $sku !== '' ? $sku : 'no SKU';
+                if ($barcode !== '' && strcasecmp($barcode, $sku) !== 0) {
+                    $codes .= ' / barcode '.$barcode;
+                }
+                $reply .= '- '.$codes.($name !== '' ? ' — '.$name : '')."\n";
+            }
+            if ($notInList->count() > 40) {
+                $reply .= '- … and '.($notInList->count() - 40)." more.\n";
+            }
+        } else {
+            $reply .= "Every line was found on your item list.\n";
+        }
         $target = self::invoiceTarget($matched);
         $credits = self::creditsTotal($matched);
         $reply .= 'Item lines $'.number_format(self::linesTotal($matched), 2)
@@ -629,14 +646,6 @@ class VendorInvoicePurchaseOrderService
         $creditsNote = self::creditsNote($matched);
         if ($creditsNote !== '') {
             $reply .= $creditsNote."\n";
-        }
-
-        if ($unmatchedNames->isNotEmpty()) {
-            $reply .= 'Unmatched: '.$unmatchedNames->implode(', ');
-            if (collect($lines)->where('item_id', '<=', 0)->count() > 12) {
-                $reply .= '…';
-            }
-            $reply .= "\n";
         }
 
         $reply .= "\n".$this->missingCatalogBrief($matched);

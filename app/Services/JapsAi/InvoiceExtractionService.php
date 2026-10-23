@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -32,7 +33,7 @@ Extract the data and return ONLY a single valid JSON object (no markdown, no com
   "invoice_date": string|null,
   "currency": string|null,
   "lines": [
-    { "name": string, "sku": string|null, "quantity": number, "unit_price": number, "line_total": number|null }
+    { "name": string, "sku": string|null, "barcode": string|null, "quantity": number, "unit_price": number, "line_total": number|null }
   ],
   "subtotal": number|null,
   "freight": number|null,
@@ -58,14 +59,15 @@ Rules:
 - "unit_price" is the billed cost for one of the quantity units on that row (what the vendor charged), not a catalog or list price.
 - "line_total" is the extended amount printed for that row when available (quantity × unit_price). If unit_price is missing, compute unit_price = line_total / quantity.
 - "quantity" and "unit_price" must use the same unit as the billed row (do not convert cases to eaches unless the invoice already shows eaches).
-- If a SKU / item code / barcode is printed next to a line, put it in "sku" exactly as printed, else null. Never output a placeholder like 000000.
+- "sku" is the item number / vendor item code printed on the row, exactly as printed, else null.
+- "barcode" is the UPC / EAN / barcode number printed on that same row, exactly as printed, else null. If the row shows only one code, put that code in "sku" and also in "barcode" when it is all digits. Never output a placeholder like 000000.
 - Do not invent data that is not visibly on the document. Use null when unsure.
 - Return ONLY the JSON object, nothing else.
 PROMPT;
 
     protected const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-    protected const CACHE_VERSION = 'v5';
+    protected const CACHE_VERSION = 'v6';
 
     protected const MAX_PAGE_READS = 30;
 
@@ -155,23 +157,27 @@ PROMPT;
         foreach ((array) ($data['lines'] ?? []) as $line) {
             $name = trim((string) ($line['name'] ?? ''));
             $sku = trim((string) ($line['sku'] ?? ''));
-            if ($name === '' && $sku === '') {
+            $barcode = trim((string) ($line['barcode'] ?? ''));
+            if ($name === '' && $sku === '' && $barcode === '') {
                 continue;
             }
             if ((float) ($line['line_total'] ?? 0) < 0) {
                 $credits[] = [
-                    'name' => $name !== '' ? $name : $sku,
+                    'name' => $name !== '' ? $name : ($sku !== '' ? $sku : $barcode),
                     'sku' => $sku !== '' ? $sku : null,
+                    'barcode' => $barcode !== '' ? $barcode : null,
                     'quantity' => abs((float) ($line['quantity'] ?? 1)),
                     'line_total' => (float) $line['line_total'],
                 ];
 
                 continue;
             }
-            $item = $this->matchItem($companyId, $sku !== '' ? $sku : null, $name !== '' ? $name : null);
+            $hit = $this->matchInvoiceItem($companyId, $sku !== '' ? $sku : null, $barcode !== '' ? $barcode : null, $name !== '' ? $name : null);
+            $item = $hit['item'];
             $lines[] = [
-                'name' => $name !== '' ? $name : ($sku ?: 'Item'),
+                'name' => $name !== '' ? $name : ($sku !== '' ? $sku : ($barcode !== '' ? $barcode : 'Item')),
                 'sku' => $sku !== '' ? $sku : null,
+                'barcode' => $barcode !== '' ? $barcode : null,
                 'quantity' => max(0.01, (float) ($line['quantity'] ?? 1)),
                 'unit_price' => max(0, (float) ($line['unit_price'] ?? 0)),
                 'line_total' => isset($line['line_total']) ? (float) $line['line_total'] : null,
@@ -180,6 +186,7 @@ PROMPT;
                 'item_code' => $item?->item_code,
                 'description' => $item?->description ?? $name,
                 'status' => $item ? 'matched' : 'unmatched',
+                'matched_by' => $hit['via'],
             ];
         }
 
@@ -317,21 +324,35 @@ PROMPT;
         return ((float) $pct) / 100;
     }
 
-    protected function matchItem(int $companyId, ?string $sku, ?string $name): ?Item
+    /**
+     * Invoice row is in the item list when the printed code matches the item code,
+     * an alias, or a barcode. A missing alias alone does not make it "not in list".
+     *
+     * @return array{item: ?Item, via: ?string}
+     */
+    protected function matchInvoiceItem(int $companyId, ?string $sku, ?string $barcode, ?string $name): array
     {
-        if ($sku) {
-            $byCode = Item::findByScanCode($companyId, $sku);
-            if ($byCode) {
-                return $byCode;
+        $seen = [];
+        foreach ([$sku, $barcode] as $raw) {
+            foreach ($this->invoiceCodeNeedles($raw, false) as $needle) {
+                if (isset($seen[$needle])) {
+                    continue;
+                }
+                $seen[$needle] = true;
+                $found = $this->findItemByCatalogCode($companyId, $needle);
+                if ($found !== null) {
+                    return $found;
+                }
             }
-            $exact = Item::query()
-                ->where('company_id', $companyId)
-                ->where(function ($q) use ($sku) {
-                    $q->where('item_code', $sku)->orWhere('primary_upc', $sku);
-                })
-                ->first();
-            if ($exact) {
-                return $exact;
+        }
+        foreach ($this->invoiceCodeNeedles($name, true) as $needle) {
+            if (isset($seen[$needle])) {
+                continue;
+            }
+            $seen[$needle] = true;
+            $found = $this->findItemByCatalogCode($companyId, $needle);
+            if ($found !== null) {
+                return $found;
             }
         }
 
@@ -340,11 +361,134 @@ PROMPT;
             ItemSearch::constrain($q, $name);
             $row = $q->orderBy('item_code')->first();
             if ($row) {
-                return $row;
+                return ['item' => $row, 'via' => 'name'];
+            }
+        }
+
+        return ['item' => null, 'via' => null];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function invoiceCodeNeedles(?string $raw, bool $digitsOnly): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '' || preg_match('/^0+$/', $raw)) {
+            return [];
+        }
+
+        $out = [];
+        $push = function (string $value) use (&$out, $digitsOnly): void {
+            $value = trim($value);
+            if ($value === '' || preg_match('/^0+$/', $value)) {
+                return;
+            }
+            if ($digitsOnly && preg_match('/\d/', $value) !== 1) {
+                return;
+            }
+            if (mb_strlen($value) < ($digitsOnly ? 6 : 1)) {
+                return;
+            }
+            $out[$value] = true;
+            $compact = preg_replace('/[\s\-]+/', '', $value) ?? $value;
+            if ($compact !== '' && $compact !== $value) {
+                $out[$compact] = true;
+            }
+        };
+
+        if (! $digitsOnly) {
+            $push($raw);
+        }
+        if (preg_match_all('/\d[\d\s\-]{5,}\d/', $raw, $groups)) {
+            foreach ($groups[0] as $group) {
+                $push($group);
+            }
+        }
+        if (preg_match_all('/[A-Za-z0-9][A-Za-z0-9._\-]{3,}/', $raw, $tokens)) {
+            foreach ($tokens[0] as $token) {
+                $push($token);
+            }
+        }
+
+        return array_keys($out);
+    }
+
+    /**
+     * @return array{item: Item, via: string}|null
+     */
+    protected function findItemByCatalogCode(int $companyId, string $code): ?array
+    {
+        $keys = Item::scanCodeLookupKeys($code);
+        if ($keys === []) {
+            return null;
+        }
+
+        $item = Item::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->whereIn('item_code', $keys)
+            ->orderBy('item_code')
+            ->first();
+        if ($item) {
+            return ['item' => $item, 'via' => 'sku'];
+        }
+
+        $aliasId = $this->catalogItemId($companyId, 'item_prices', 'alias_code', $keys);
+        if ($aliasId) {
+            $item = Item::query()->where('company_id', $companyId)->where('is_inactive', false)->where('id', $aliasId)->first();
+            if ($item) {
+                return ['item' => $item, 'via' => 'alias'];
+            }
+        }
+
+        $item = Item::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->whereIn('primary_upc', $keys)
+            ->orderBy('item_code')
+            ->first();
+        if ($item) {
+            return ['item' => $item, 'via' => 'barcode'];
+        }
+
+        $upcId = $this->catalogItemId($companyId, 'item_upcs', 'upc', $keys);
+        if ($upcId) {
+            $item = Item::query()->where('company_id', $companyId)->where('is_inactive', false)->where('id', $upcId)->first();
+            if ($item) {
+                return ['item' => $item, 'via' => 'barcode'];
+            }
+        }
+
+        $supplierId = $this->catalogItemId($companyId, 'item_suppliers', 'supplier_item_code', $keys);
+        if ($supplierId) {
+            $item = Item::query()->where('company_id', $companyId)->where('is_inactive', false)->where('id', $supplierId)->first();
+            if ($item) {
+                return ['item' => $item, 'via' => 'supplier'];
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<string>  $keys
+     */
+    protected function catalogItemId(int $companyId, string $table, string $column, array $keys): ?int
+    {
+        $id = DB::table($table)
+            ->join('items', 'items.id', '=', $table.'.item_id')
+            ->where('items.company_id', $companyId)
+            ->where('items.is_inactive', false)
+            ->whereIn($table.'.'.$column, $keys)
+            ->value($table.'.item_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    protected function matchItem(int $companyId, ?string $sku, ?string $name): ?Item
+    {
+        return $this->matchInvoiceItem($companyId, $sku, null, $name)['item'];
     }
 
     protected function resolveApiKey(): string
@@ -1054,7 +1198,7 @@ PROMPT;
     {
         $lines = [];
         foreach ((array) ($parsed['lines'] ?? []) as $line) {
-            if (empty($line['name']) && empty($line['sku'])) {
+            if (empty($line['name']) && empty($line['sku']) && empty($line['barcode'])) {
                 continue;
             }
             $rawQty = $this->toNumber($line['quantity'] ?? null) ?? 1.0;
@@ -1071,12 +1215,17 @@ PROMPT;
                 $ext = round($qty * $unit, 4);
             }
             $sku = trim((string) ($line['sku'] ?? ''));
+            $barcode = trim((string) ($line['barcode'] ?? ''));
             if ($sku !== '' && preg_match('/^0+$/', $sku)) {
                 $sku = '';
             }
+            if ($barcode !== '' && preg_match('/^0+$/', $barcode)) {
+                $barcode = '';
+            }
             $lines[] = [
-                'name' => (string) ($line['name'] ?? $line['sku'] ?? 'Item'),
+                'name' => (string) ($line['name'] ?? $line['sku'] ?? $line['barcode'] ?? 'Item'),
                 'sku' => $sku !== '' ? $sku : null,
+                'barcode' => $barcode !== '' ? $barcode : null,
                 'quantity' => $qty,
                 'unit_price' => $unit,
                 'line_total' => $isCredit ? -$ext : $ext,
@@ -1128,8 +1277,11 @@ PROMPT;
     protected function feeKind(array $line): ?string
     {
         $sku = trim((string) ($line['sku'] ?? ''));
-        if ($sku !== '' && ! preg_match('/fee|frt|ship|deliv|fuel|handl/i', $sku) && preg_match('/\d/', $sku)) {
-            return null;
+        $barcode = trim((string) ($line['barcode'] ?? ''));
+        foreach ([$sku, $barcode] as $code) {
+            if ($code !== '' && ! preg_match('/fee|frt|ship|deliv|fuel|handl/i', $code) && preg_match('/\d/', $code)) {
+                return null;
+            }
         }
         $name = mb_strtolower(trim((string) ($line['name'] ?? '')));
         if ($name === '') {

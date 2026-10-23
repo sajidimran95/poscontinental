@@ -13,9 +13,15 @@
 @elseif ($colKey === 'customer_name')
     <td>{{ $m->customer?->company_name }}</td>
 @elseif ($colKey === 'order_number')
-    <td class="desk-num">{{ $m->salesOrder?->order_number ?: '—' }}</td>
+    @php $orderNo = $m->salesOrder?->order_number ?: ($m->applied_order_numbers ?? ''); @endphp
+    <td class="desk-num">{{ $orderNo !== '' ? $orderNo : '—' }}</td>
 @elseif ($colKey === 'invoice_number')
-    <td class="desk-num">{{ $m->salesOrder?->invoice?->invoice_number ?: '—' }}</td>
+    @php
+        $invoiceNo = ($m->applied_invoice_numbers ?? '') !== ''
+            ? $m->applied_invoice_numbers
+            : ($m->salesOrder?->invoice?->invoice_number ?? '');
+    @endphp
+    <td class="desk-num" @if (($m->applied_invoice_numbers ?? '') !== '') title="Invoice this credit was applied to" @endif>{{ $invoiceNo !== '' ? $invoiceNo : '—' }}</td>
 @elseif ($colKey === 'reason')
     <td>{{ $m->reason ?: '—' }}</td>
 @elseif ($colKey === 'amount')

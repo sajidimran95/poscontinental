@@ -8,6 +8,7 @@ use App\Livewire\Concerns\SelectsDeskRows;
 use App\Livewire\Concerns\SortsDeskList;
 use App\Models\CreditMemo;
 use App\Models\Customer;
+use App\Models\InvoiceCredit;
 use App\Models\Item;
 use App\Models\ItemPrice;
 use App\Models\SalesOrder;
@@ -135,6 +136,17 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
                             $o->where('order_number', 'like', $term)
                                 ->orWhere('customer_po_no', 'like', $term)
                                 ->orWhereHas('invoice', fn ($inv) => $inv->where('invoice_number', 'like', $term));
+                        })
+                        ->orWhereExists(function ($q) use ($term) {
+                            $q->selectRaw('1')
+                                ->from('invoice_credits as ic')
+                                ->join('invoices as i', 'i.id', '=', 'ic.invoice_id')
+                                ->leftJoin('sales_orders as so', 'so.id', '=', 'i.sales_order_id')
+                                ->whereColumn('ic.credit_memo_id', 'credit_memos.id')
+                                ->where(function ($w) use ($term) {
+                                    $w->where('i.invoice_number', 'like', $term)
+                                        ->orWhere('so.order_number', 'like', $term);
+                                });
                         });
                 });
             });
@@ -171,19 +183,37 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $scroll = $this->scrollDeskList($query);
         $memos = $scroll['rows'];
 
-        if (! $sortNeedsApplied) {
-            $ids = $memos->pluck('id')->filter()->all();
-            if ($ids !== []) {
-                $applied = \App\Models\InvoiceCredit::query()
+        $ids = $memos->pluck('id')->filter()->all();
+        $applied = collect();
+        $appliedLinks = collect();
+        if ($ids !== []) {
+            if (! $sortNeedsApplied) {
+                $applied = InvoiceCredit::query()
                     ->whereIn('credit_memo_id', $ids)
                     ->groupBy('credit_memo_id')
                     ->selectRaw('credit_memo_id, COALESCE(SUM(amount), 0) as s')
                     ->pluck('s', 'credit_memo_id');
-                $memos->each(function (CreditMemo $m) use ($applied) {
-                    $m->setAttribute('applied_sum', (float) ($applied[$m->id] ?? 0));
-                });
             }
+            $appliedLinks = InvoiceCredit::query()
+                ->join('invoices', 'invoices.id', '=', 'invoice_credits.invoice_id')
+                ->leftJoin('sales_orders', 'sales_orders.id', '=', 'invoices.sales_order_id')
+                ->whereIn('invoice_credits.credit_memo_id', $ids)
+                ->orderBy('invoices.invoice_number')
+                ->get([
+                    'invoice_credits.credit_memo_id',
+                    'invoices.invoice_number',
+                    'sales_orders.order_number',
+                ])
+                ->groupBy('credit_memo_id');
         }
+        $memos->each(function (CreditMemo $m) use ($applied, $appliedLinks, $sortNeedsApplied) {
+            if (! $sortNeedsApplied) {
+                $m->setAttribute('applied_sum', (float) ($applied[$m->id] ?? 0));
+            }
+            $rows = $appliedLinks->get($m->id, collect());
+            $m->setAttribute('applied_invoice_numbers', $rows->pluck('invoice_number')->filter()->unique()->implode(', '));
+            $m->setAttribute('applied_order_numbers', $rows->pluck('order_number')->filter()->unique()->implode(', '));
+        });
 
         $data = [
             'memos' => $memos,
@@ -300,7 +330,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
             'customer_code' => ['relation' => 'customer', 'column' => 'customer_id'],
             'customer_name' => ['relation' => 'customer', 'column' => 'company_name'],
             'order_number' => ['relation' => 'salesOrder', 'column' => 'order_number'],
-            'invoice_number' => ['raw' => '(select invoice_number from invoices where invoices.sales_order_id = credit_memos.sales_order_id limit 1)'],
+            'invoice_number' => ['raw' => "COALESCE((select group_concat(distinct i.invoice_number order by i.invoice_number separator ', ') from invoice_credits ic join invoices i on i.id = ic.invoice_id where ic.credit_memo_id = credit_memos.id), (select invoice_number from invoices where invoices.sales_order_id = credit_memos.sales_order_id limit 1))"],
             'reason' => 'reason',
             'amount' => 'amount',
             'remaining' => ['raw' => '(credit_memos.amount - COALESCE(applied_sum, 0))'],

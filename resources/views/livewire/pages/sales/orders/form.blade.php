@@ -1482,9 +1482,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $item = Item::query()->with('prices')->find($itemId);
             if ($item) {
                 $price = $this->formatMoney($this->resolveItemPrice($item, $uom));
-                $match = $item->prices->first(fn ($p) => strcasecmp((string) $p->uom, $uom) === 0);
-                if ($match) {
-                    $price = $this->formatMoney((string) $match->price);
+                $baseUom = strtoupper(trim((string) ($item->unit_of_measure ?: '')));
+                $askedUom = strtoupper(trim($uom));
+                if ($askedUom !== '' && $baseUom !== '' && $askedUom !== $baseUom) {
+                    $match = $item->prices->first(fn ($p) => strcasecmp((string) $p->uom, $uom) === 0 && blank($p->price_level_id));
+                    if ($match && (float) $match->price > 0) {
+                        $price = $this->formatMoney((string) $match->price);
+                    }
                 }
                 $this->lines[$i]['price'] = $price;
                 $this->lines[$i]['system_price'] = $price;
@@ -4960,6 +4964,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function resolveItemPrice(Item $item, ?string $uom = null): string
     {
+        $asked = strtoupper(trim((string) ($uom ?: $item->unit_of_measure ?: '')));
+        $base = strtoupper(trim((string) ($item->unit_of_measure ?: '')));
+        $list = (float) $item->list_price;
+        if ($list > 0 && ($asked === '' || $base === '' || $asked === $base)) {
+            return (string) $list;
+        }
+
         $levelId = $this->customerPriceLevelId;
         if ($levelId === null && $this->customer_id) {
             $levelId = Customer::query()->whereKey($this->customer_id)->value('price_level_id');

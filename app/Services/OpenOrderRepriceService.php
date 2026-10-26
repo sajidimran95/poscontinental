@@ -231,7 +231,12 @@ class OpenOrderRepriceService
                 continue;
             }
 
-            $newPrice = round(ItemPricing::resolve($item, $levelId, $line->uom ?: null, $customerId), 4);
+            $asked = strtoupper(trim((string) ($line->uom ?: $item->unit_of_measure ?: '')));
+            $base = strtoupper(trim((string) ($item->unit_of_measure ?: '')));
+            $list = round((float) $item->list_price, 4);
+            $newPrice = ($list > 0 && ($asked === '' || $base === '' || $asked === $base))
+                ? $list
+                : round(ItemPricing::resolve($item, $levelId, $line->uom ?: null, $customerId), 4);
             if ($newPrice <= 0 || abs($newPrice - $oldPrice) < 0.005) {
                 $newSubtotal += $oldLine;
 

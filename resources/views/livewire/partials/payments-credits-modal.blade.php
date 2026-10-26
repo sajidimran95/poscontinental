@@ -342,16 +342,21 @@
                                 <label for="pc_miscellaneous">Miscellaneous</label>
                                 <span class="pc-adj-ctl">$<input id="pc_miscellaneous" type="text" inputmode="decimal" wire:model.live.debounce.500ms="pc_miscellaneous" class="so-input pc-adj-input" placeholder="0.00" autocomplete="off" /></span>
                             </div>
+                            @php
+                                $savedPayShown = round((float) $previewPayments - (float) $draftPayTotal, 2);
+                                $savedCreditShown = round((float) $previewCredits - (float) $draftCreditTotal, 2);
+                                $currentDue = max(0, round((float) $savedBalance + (float) $pcDelta, 2));
+                            @endphp
                             <div @class(['pc-sum-row', 'pc-sum-changed' => abs($pcDelta) >= 0.005])><span>New Total</span><strong>${{ number_format((float) $pcNewTotal, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Total Credits</span><strong>@if ($previewCredits > 0.0001)−@endif${{ number_format((float) $previewCredits, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Total Payments</span><strong>${{ number_format((float) $previewPayments, 2) }}</strong></div>
-                            <div class="pc-sum-row pc-sum-balance"><span>Invoice Balance</span><strong>${{ number_format((float) $previewBalance, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Credits</span><strong>@if ($savedCreditShown > 0.0001)−@endif${{ number_format($savedCreditShown, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Payments</span><strong>${{ number_format($savedPayShown, 2) }}</strong></div>
+                            <div class="pc-sum-row pc-sum-balance"><span>Invoice Balance</span><strong>${{ number_format($currentDue, 2) }}</strong></div>
                             @if (abs($pcDelta) >= 0.005)
                                 <div class="pc-sum-hint">Total {{ $pcDelta > 0 ? 'goes up' : 'goes down' }} ${{ number_format(abs($pcDelta), 2) }}. Click Save to apply.</div>
                             @endif
                             @if ($draftPayTotal > 0.0001 || $draftCreditTotal > 0.0001)
                                 <div class="pc-sum-row"><span>After Save</span><strong>${{ number_format((float) $previewBalance, 2) }}</strong></div>
-                                <div class="pc-sum-hint">Click Save to apply. Balance above is current unpaid amount.</div>
+                                <div class="pc-sum-hint">Invoice Balance is unpaid now. After Save is what is left when you click Save.</div>
                             @endif
                         </div>
                     </div>

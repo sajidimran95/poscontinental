@@ -5329,7 +5329,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $oldQtyByItem = [];
             $oldInvoiceTotal = 0.0;
             $linkedInvoice = null;
-            // Unchanged prices keep their original timestamp so invoicing can tell they predate a price change.
             $priceSetAt = [];
 
             if ($this->salesOrder) {

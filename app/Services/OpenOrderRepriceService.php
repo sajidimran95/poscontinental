@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Item;
-use App\Models\ItemPriceHistory;
 use App\Models\SalesOrder;
 use App\Support\ItemPricing;
 use Illuminate\Support\Collection;
@@ -106,8 +105,10 @@ class OpenOrderRepriceService
     }
 
     /**
-     * Called while invoicing a locked order: lines whose item sales price changed after the
-     * line was last saved move to today's price. Lines saved after the change keep their price.
+     * Called while invoicing: every line moves to the item's current sell price
+     * (saved customer price, then price level, then list) when that price differs.
+     * The line's save time is not used. A price change after the order was entered
+     * still applies.
      *
      * @return list<array{item_code:string, description:string, old_price:float, new_price:float}>
      */
@@ -118,34 +119,11 @@ class OpenOrderRepriceService
             return [];
         }
 
-        $itemIds = $order->lines->pluck('item_id')->filter()->unique()->values()->all();
-        if ($itemIds === []) {
+        if ($order->lines->pluck('item_id')->filter()->isEmpty()) {
             return [];
         }
 
-        $lastChange = DB::table('item_price_histories')
-            ->where('company_id', (int) $order->company_id)
-            ->whereIn('item_id', $itemIds)
-            ->whereIn('change_type', [ItemPriceHistory::TYPE_SALES, ItemPriceHistory::TYPE_BOTH])
-            ->groupBy('item_id')
-            ->selectRaw('item_id, MAX(created_at) as changed_at')
-            ->pluck('changed_at', 'item_id');
-
-        $lineIds = $order->lines
-            ->filter(function ($line) use ($lastChange) {
-                $changedAt = $line->item_id ? ($lastChange[(int) $line->item_id] ?? null) : null;
-                $savedAt = $line->updated_at ?? $line->created_at;
-
-                return $changedAt && (! $savedAt || $savedAt->lt(\Illuminate\Support\Carbon::parse($changedAt)));
-            })
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-        if ($lineIds === []) {
-            return [];
-        }
-
-        $plan = $this->plan($order, [], $lineIds);
+        $plan = $this->plan($order, []);
         if ($plan['changes'] === []) {
             return [];
         }

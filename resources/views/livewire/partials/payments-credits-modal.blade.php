@@ -217,6 +217,18 @@
                                     <button type="button" class="pc-tool-btn" wire:click="removeCreditRow" title="Remove selected">−</button>
                                 </div>
                             </div>
+                            @php
+                                $draftMemoIds = collect($draftCredits)->map(fn ($r) => (int) ($r['credit_memo_id'] ?? 0))->filter()->all();
+                                $waitingCredits = $pcOpenCredits->filter(fn ($cm) => ! in_array((int) $cm->id, $draftMemoIds, true))->values();
+                                $leftOnCustomer = $pcOpenCredits->map(function ($cm) use ($draftCredits) {
+                                    $used = collect($draftCredits)
+                                        ->filter(fn ($r) => (int) ($r['credit_memo_id'] ?? 0) === (int) $cm->id)
+                                        ->sum(fn ($r) => (float) str_replace(',', '', (string) ($r['amount'] ?? 0)));
+                                    $left = round((float) $cm->remaining_amount - $used, 2);
+
+                                    return ($used > 0.0001 && $left > 0.009) ? ['memo' => $cm, 'left' => $left] : null;
+                                })->filter()->values();
+                            @endphp
                             @if ($pcOpenCredits->isEmpty())
                                 <div class="pc-credit-empty">
                                     This customer has no open credit memo.
@@ -257,6 +269,20 @@
                                             </tr>
                                         @endforeach
 
+                                        @foreach ($waitingCredits as $cm)
+                                            <tr wire:key="open-cr-{{ $cm->id }}">
+                                                <td class="desk-num">{{ $cm->memo_number }}</td>
+                                                <td>{{ optional($cm->memo_date)?->format('n/j/Y') ?: '—' }}</td>
+                                                @if ($hasCreditSalesOrder)
+                                                    <td class="desk-num">{{ $cm->salesOrder?->order_number ?: '—' }}</td>
+                                                @endif
+                                                <td class="desk-money">
+                                                    ${{ number_format($cm->remaining_amount, 2) }}
+                                                    <button type="button" class="pc-row-apply" wire:click="applyOpenCredit({{ $cm->id }})">Apply</button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+
                                         @forelse ($draftCredits as $i => $row)
                                             @php
                                                 $selectedMemo = $pcOpenCredits->firstWhere('id', (int) ($row['credit_memo_id'] ?? 0));
@@ -279,14 +305,25 @@
                                                     <td class="desk-num">{{ $selectedMemo?->salesOrder?->order_number ?: '—' }}</td>
                                                 @endif
                                                 <td>
+                                                    <span class="pc-credit-minus" title="Taken off this invoice">−</span>
                                                     <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.blur="draftCredits.{{ $i }}.amount" placeholder="0" />
                                                 </td>
                                             </tr>
                                         @empty
-                                            @if ($pcCredits->isEmpty())
+                                            @if ($pcCredits->isEmpty() && $waitingCredits->isEmpty())
                                                 <tr class="is-empty"><td colspan="{{ $hasCreditSalesOrder ? 4 : 3 }}">Use + to select from outstanding credit memos.</td></tr>
                                             @endif
                                         @endforelse
+                                        @foreach ($leftOnCustomer as $left)
+                                            <tr wire:key="left-cr-{{ $left['memo']->id }}">
+                                                <td class="desk-num">{{ $left['memo']->memo_number }}</td>
+                                                <td>{{ optional($left['memo']->memo_date)?->format('n/j/Y') ?: '—' }}</td>
+                                                @if ($hasCreditSalesOrder)
+                                                    <td class="desk-num">{{ $left['memo']->salesOrder?->order_number ?: '—' }}</td>
+                                                @endif
+                                                <td class="desk-money">${{ number_format($left['left'], 2) }} stays on customer</td>
+                                            </tr>
+                                        @endforeach
                                     </tbody>
                                 </table>
                             </div>
@@ -306,9 +343,9 @@
                                 <span class="pc-adj-ctl">$<input id="pc_miscellaneous" type="text" inputmode="decimal" wire:model.live.debounce.500ms="pc_miscellaneous" class="so-input pc-adj-input" placeholder="0.00" autocomplete="off" /></span>
                             </div>
                             <div @class(['pc-sum-row', 'pc-sum-changed' => abs($pcDelta) >= 0.005])><span>New Total</span><strong>${{ number_format((float) $pcNewTotal, 2) }}</strong></div>
-                            <div class="pc-sum-row"><span>Total Credits</span><strong>${{ number_format((float) $previewCredits, 2) }}</strong></div>
+                            <div class="pc-sum-row"><span>Total Credits</span><strong>@if ($previewCredits > 0.0001)−@endif${{ number_format((float) $previewCredits, 2) }}</strong></div>
                             <div class="pc-sum-row"><span>Total Payments</span><strong>${{ number_format((float) $previewPayments, 2) }}</strong></div>
-                            <div class="pc-sum-row pc-sum-balance"><span>Invoice Balance</span><strong>${{ number_format((float) max(0, $savedBalance + $pcDelta), 2) }}</strong></div>
+                            <div class="pc-sum-row pc-sum-balance"><span>Invoice Balance</span><strong>${{ number_format((float) $previewBalance, 2) }}</strong></div>
                             @if (abs($pcDelta) >= 0.005)
                                 <div class="pc-sum-hint">Total {{ $pcDelta > 0 ? 'goes up' : 'goes down' }} ${{ number_format(abs($pcDelta), 2) }}. Click Save to apply.</div>
                             @endif

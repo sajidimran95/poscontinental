@@ -313,10 +313,11 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             ->leftJoin('customers as c', 'c.id', '=', 'i.customer_id')
             ->where('i.company_id', $companyId)
             ->when($customerId, fn ($q) => $q->where('i.customer_id', $customerId))
-            ->when($from !== '', fn ($q) => $q->whereRaw('COALESCE(cm.memo_date, DATE(ic.created_at)) >= ?', [$from]))
-            ->when($to !== '', fn ($q) => $q->whereRaw('COALESCE(cm.memo_date, DATE(ic.created_at)) <= ?', [$to]))
-            ->selectRaw("'credit' as kind, ic.id as row_id, ic.invoice_id, COALESCE(cm.memo_date, DATE(ic.created_at)) as row_date,
-                'Credit Memo' as method, cm.memo_number as ref, ic.amount, cm.reason as comments,
+            ->when($from !== '', fn ($q) => $q->whereDate('ic.created_at', '>=', $from))
+            ->when($to !== '', fn ($q) => $q->whereDate('ic.created_at', '<=', $to))
+            ->selectRaw("'credit' as kind, ic.id as row_id, ic.invoice_id, DATE(ic.created_at) as row_date,
+                'Credit Memo' as method, cm.memo_number as ref, ic.amount,
+                COALESCE(NULLIF(TRIM(cm.reason), ''), CONCAT('Memo date ', DATE_FORMAT(cm.memo_date, '%c/%e/%Y'))) as comments,
                 i.invoice_number, i.customer_id, c.customer_id as customer_code, c.company_name as customer_name,
                 ic.created_at");
 
@@ -1801,7 +1802,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                     <td class="desk-num">{{ $row->invoice_number }}</td>
                                     <td>{{ $row->method }}</td>
                                     <td class="desk-num">{{ $row->ref ?: '—' }}</td>
-                                    <td class="desk-money">${{ number_format((float) $row->amount, 2) }}</td>
+                                    <td class="desk-money">@if ($row->kind === 'credit')−@endif${{ number_format((float) $row->amount, 2) }}</td>
                                     <td class="pl-comments">{{ $row->comments }}</td>
                                     <td>
                                         @unless ($rowIsReturn)

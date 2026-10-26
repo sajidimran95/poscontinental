@@ -96,7 +96,6 @@ trait ManagesInvoicePaymentsModal
                     ->where('company_id', $companyId)
                     ->where('customer_id', $modalInvoice->customer_id)
                     ->where('status', 'Open')
-                    ->countsOnInvoice()
                     ->orderByDesc('id')
                     ->get()
                     ->filter(fn (CreditMemo $m) => $m->remaining_amount > 0.0001)
@@ -231,12 +230,8 @@ trait ManagesInvoicePaymentsModal
 
         $this->loadPcAdjustments($invoice);
 
-        // Like Sales → Payments: open credit memos pay first, cash row only for what is left.
         if ($invoice && $invoice->invoice_balance > 0.0001) {
-            $this->fillOpenCreditDrafts($invoice);
-            if ($this->remainingDraftDue() > 0.0001) {
-                $this->addPaymentRow();
-            }
+            $this->addPaymentRow();
         }
     }
 
@@ -292,43 +287,8 @@ trait ManagesInvoicePaymentsModal
         $this->pc_freight = number_format((float) $invoices->sum('freight'), 2, '.', '');
         $this->pc_miscellaneous = number_format((float) $invoices->sum('miscellaneous'), 2, '.', '');
 
-        $due = round((float) $invoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2);
-        $this->fillOpenCreditDrafts($first, $due);
-        if ($this->remainingDraftDue() > 0.0001) {
+        if ($invoices->sum(fn (Invoice $i) => (float) $i->invoice_balance) > 0.0001) {
             $this->addPaymentRow();
-        }
-    }
-
-    protected function fillOpenCreditDrafts(Invoice $invoice, ?float $left = null): void
-    {
-        $left = round($left ?? (float) $invoice->invoice_balance, 2);
-        if (! $invoice->customer_id) {
-            return;
-        }
-        $memos = CreditMemo::query()
-            ->withAppliedSum()
-            ->where('company_id', $invoice->company_id)
-            ->where('customer_id', $invoice->customer_id)
-            ->where('status', 'Open')
-            ->countsOnInvoice()
-            ->orderBy('memo_date')
-            ->orderBy('id')
-            ->get();
-
-        foreach ($memos as $memo) {
-            if ($left <= 0.0001) {
-                break;
-            }
-            $apply = round(min((float) $memo->remaining_amount, $left), 2);
-            if ($apply <= 0.0001) {
-                continue;
-            }
-            $this->draftCredits[] = [
-                'key' => uniqid('cr_', true),
-                'credit_memo_id' => (string) $memo->id,
-                'amount' => number_format($apply, 2, '.', ''),
-            ];
-            $left = round($left - $apply, 2);
         }
     }
 
@@ -567,7 +527,12 @@ trait ManagesInvoicePaymentsModal
         $this->selectedPaymentIndex = $index;
     }
 
-    public function addCreditRow(): void
+    public function applyOpenCredit(int $memoId): void
+    {
+        $this->addCreditRow($memoId);
+    }
+
+    public function addCreditRow(int $memoId = 0): void
     {
         if (! auth()->user()?->canAccessFeature('sales.payments', 'edit')) {
             session()->flash('status', 'Your role cannot apply credits. Enable Payments & Credits permission.');
@@ -585,7 +550,6 @@ trait ManagesInvoicePaymentsModal
             ->where('company_id', auth()->user()->company_id)
             ->where('customer_id', $invoice->customer_id)
             ->where('status', 'Open')
-            ->countsOnInvoice()
             ->orderBy('memo_date')
             ->orderBy('id')
             ->get()
@@ -606,8 +570,15 @@ trait ManagesInvoicePaymentsModal
             ->filter()
             ->all();
 
-        $memo = $openMemos->first(fn (CreditMemo $m) => ! in_array((int) $m->id, $usedIds, true))
-            ?? $openMemos->first();
+        $memo = $memoId > 0
+            ? $openMemos->firstWhere('id', $memoId)
+            : ($openMemos->first(fn (CreditMemo $m) => ! in_array((int) $m->id, $usedIds, true))
+                ?? $openMemos->first());
+        if (! $memo) {
+            session()->flash('status', 'That credit memo is not open for this customer.');
+
+            return;
+        }
 
         $usedOfMemo = collect($this->draftCredits)
             ->filter(fn ($r) => (int) ($r['credit_memo_id'] ?? 0) === (int) $memo->id)
@@ -635,6 +606,13 @@ trait ManagesInvoicePaymentsModal
         ];
         $this->selectedCreditIndex = count($this->draftCredits) - 1;
         $this->syncCashDraftsAfterCredits();
+
+        $left = round($memoLeft - $apply, 2);
+        $msg = '−$'.number_format($apply, 2).' on this invoice.';
+        if ($left > 0.009) {
+            $msg .= ' $'.number_format($left, 2).' stays on the customer (memo '.$memo->memo_number.').';
+        }
+        session()->flash('status', $msg);
     }
 
     public function removeCreditRow(): void
@@ -942,9 +920,10 @@ trait ManagesInvoicePaymentsModal
         $lastPayment = null;
         $savedPayTotal = $payTotal;
         $savedCreditTotal = $creditTotal;
+        $leftOnCustomer = [];
 
         try {
-            DB::transaction(function () use ($invoice, $payments, $credits, &$lastPayment) {
+            DB::transaction(function () use ($invoice, $payments, $credits, &$lastPayment, &$leftOnCustomer) {
                 $this->applyPcAdjustments($invoice);
                 $invoice->customer?->refresh();
                 $customerDebit = 0.0;
@@ -969,8 +948,7 @@ trait ManagesInvoicePaymentsModal
                     abort_unless(
                         $memo->company_id === $invoice->company_id
                         && (int) $memo->customer_id === (int) $invoice->customer_id
-                        && $memo->status === 'Open'
-                        && $memo->countsOnInvoice(),
+                        && $memo->status === 'Open',
                         403
                     );
 
@@ -986,10 +964,15 @@ trait ManagesInvoicePaymentsModal
                         'amount' => $amount,
                     ]);
 
+                    $memo->unsetRelation('applications');
                     $memo->refresh();
+                    $left = round((float) $memo->remaining_amount, 2);
                     $memo->update([
-                        'status' => $memo->remaining_amount <= 0.0001 ? 'Applied' : 'Open',
+                        'status' => $left <= 0.0001 ? 'Applied' : 'Open',
                     ]);
+                    if ($left > 0.009) {
+                        $leftOnCustomer[] = 'Memo '.$memo->memo_number.' $'.number_format($left, 2).' stays on the customer';
+                    }
 
                     $customerDebit += $amount;
                 }
@@ -1034,7 +1017,10 @@ trait ManagesInvoicePaymentsModal
             $parts[] = 'Payment $'.number_format($savedPayTotal, 2).' saved';
         }
         if ($savedCreditTotal > 0) {
-            $parts[] = 'Credit $'.number_format($savedCreditTotal, 2).' applied';
+            $parts[] = '−$'.number_format($savedCreditTotal, 2).' on the invoice';
+        }
+        if ($leftOnCustomer !== []) {
+            $parts[] = implode('. ', $leftOnCustomer);
         }
         $msg = implode('. ', $parts).'. Status: '.$invoice->status.'.';
         $remainingDue = round((float) $invoice->invoice_balance, 2);
@@ -1151,8 +1137,7 @@ trait ManagesInvoicePaymentsModal
                         abort_unless(
                             $memo->company_id === $invoice->company_id
                             && (int) $memo->customer_id === (int) $invoice->customer_id
-                            && $memo->status === 'Open'
-                            && $memo->countsOnInvoice(),
+                            && $memo->status === 'Open',
                             403
                         );
                         $apply = round(min($due, $row['amount'], (float) $memo->remaining_amount), 2);

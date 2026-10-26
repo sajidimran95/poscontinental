@@ -569,18 +569,20 @@ function initDeskColResize() {
     window.applyDeskColWidths = function applyDeskColWidths() {
         document.querySelectorAll('table.desk-table-resizable').forEach(function (table) {
             const map = loadMap(table);
-            table.style.tableLayout = 'fixed';
             const ths = Array.from(table.querySelectorAll('thead th[data-col]'));
-            ths.forEach(function (th, index) {
-                const col = th.getAttribute('data-col');
-                const w = map[col];
-                if (! w) {
-                    if (table.getAttribute('data-col-resize') === 'invoices-list' && col === 'bill_to') {
-                        setColumnWidth(table, index, 288);
-                    }
-                    return;
-                }
-                setColumnWidth(table, index, w);
+            const saved = ths.filter(function (th) {
+                return map[th.getAttribute('data-col')];
+            });
+            if (saved.length === 0) {
+                table.style.tableLayout = '';
+                table.style.width = '';
+                return;
+            }
+            table.style.tableLayout = 'fixed';
+            table.style.width = 'max-content';
+            saved.forEach(function (th) {
+                const index = Array.from(th.parentNode.children).indexOf(th);
+                setColumnWidth(table, index, map[th.getAttribute('data-col')]);
             });
         });
     };

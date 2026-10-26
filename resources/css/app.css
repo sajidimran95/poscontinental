@@ -4756,7 +4756,7 @@
     .desk-grid {
         flex: 1 1 auto;
         min-height: 0;
-        overflow-x: hidden; /* fit columns to screen — no horizontal crop/scroll */
+        overflow-x: auto;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         max-width: 100%;
@@ -4772,12 +4772,12 @@
         flex: 0 0 auto;
     }
 
-    /* List tables: stretch to viewport, truncate long cells (Orders / Items / Invoices / etc.) */
+    /* List tables keep a readable column width. A small screen scrolls sideways. */
     .desk-grid > .desk-table {
-        table-layout: fixed;
-        width: 100%;
-        min-width: 0 !important;
-        max-width: 100%;
+        table-layout: auto;
+        width: max-content;
+        min-width: 100%;
+        max-width: none;
     }
 
     .desk-grid > .desk-table thead th,
@@ -4785,9 +4785,10 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        padding: 0.42rem 0.4rem;
+        padding: 0.42rem 0.55rem;
         font-size: 12px;
         box-sizing: border-box;
+        min-width: 6.5rem;
     }
 
     .desk-grid > .desk-table thead th {
@@ -4813,6 +4814,7 @@
     .desk-grid > .desk-table thead th.text-center:first-child,
     .desk-grid > .desk-table tbody td.text-center:first-child {
         width: 2rem;
+        min-width: 2rem;
         max-width: 2rem;
         padding-left: 0.25rem;
         padding-right: 0.25rem;

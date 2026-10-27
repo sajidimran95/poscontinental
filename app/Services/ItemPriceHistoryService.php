@@ -10,8 +10,12 @@ use Illuminate\Support\Facades\DB;
 
 class ItemPriceHistoryService
 {
-    /** Days to surface “sales price updated” alerts on search / add-to-cart. */
-    public const ALERT_DAYS = 7;
+    /**
+     * No age cutoff. Each price change warns once per viewer, then stays off.
+     * Pass a day count to latestSalesPriceChange / salesAlertsForItemIds only
+     * when a caller still wants a window.
+     */
+    public const ALERT_DAYS = null;
 
     public function record(
         Item $item,

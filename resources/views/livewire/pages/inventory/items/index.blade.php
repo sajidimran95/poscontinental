@@ -18,6 +18,7 @@ use App\Services\InventoryService;
 use App\Support\ExcelCsv;
 use App\Support\ItemSearch;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
@@ -1487,11 +1488,29 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             return null;
         }
 
+        $skuAt = array_search('item_code', $keys, true);
+        if ($skuAt !== false) {
+            array_splice($keys, $skuAt, 1);
+            array_splice($headers, $skuAt, 1);
+        }
+        $upcAt = array_search('primary_upc', $keys, true);
+        if ($upcAt !== false) {
+            array_splice($keys, $upcAt, 1);
+            array_splice($headers, $upcAt, 1);
+        }
+        array_unshift($headers, 'SKU', 'UPC', 'Alias');
+
+        $codes = $this->exportUpcAndAliasByItem((int) auth()->user()->company_id);
         $self = $this;
 
-        $token = ExcelCsv::queue('items.xlsx', $headers, (static function () use ($query, $keys, $catalog, $self) {
+        $token = ExcelCsv::queue('inventory-sku-upc.xlsx', $headers, (static function () use ($query, $keys, $catalog, $self, $codes) {
             foreach ($query->cursor() as $item) {
-                yield array_map(fn (string $key) => $self->excelCellForItem($item, $key, $catalog[$key]), $keys);
+                $cells = array_map(fn (string $key) => $self->excelCellForItem($item, $key, $catalog[$key]), $keys);
+                $extra = $codes[(int) $item->id] ?? ['upc' => '', 'alias' => ''];
+                $sku = trim((string) $item->item_code);
+                $upc = trim((string) $extra['upc']);
+                array_unshift($cells, $sku, $upc, $extra['alias']);
+                yield $cells;
             }
         })(), 'Items');
 
@@ -1499,6 +1518,77 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->js('window.__posDownloadXlsx('.json_encode($url).')');
 
         return null;
+    }
+
+    /**
+     * UPC is the primary barcode. Alias is every other barcode on the item, plus any price-grid alias.
+     *
+     * @return array<int, array{upc:string, alias:string}>
+     */
+    protected function exportUpcAndAliasByItem(int $companyId): array
+    {
+        $byItem = [];
+
+        $primaries = DB::table('items')
+            ->where('company_id', $companyId)
+            ->whereRaw("TRIM(IFNULL(primary_upc, '')) <> ''")
+            ->get(['id', 'primary_upc']);
+
+        foreach ($primaries as $row) {
+            $byItem[(int) $row->id] = ['primary' => trim((string) $row->primary_upc), 'others' => []];
+        }
+
+        $upcRows = DB::table('item_upcs')
+            ->join('items', 'items.id', '=', 'item_upcs.item_id')
+            ->where('items.company_id', $companyId)
+            ->whereRaw("TRIM(IFNULL(item_upcs.upc, '')) <> ''")
+            ->orderByDesc('item_upcs.is_primary')
+            ->orderBy('item_upcs.sort_order')
+            ->get(['item_upcs.item_id', 'item_upcs.upc']);
+
+        foreach ($upcRows as $row) {
+            $id = (int) $row->item_id;
+            $code = trim((string) $row->upc);
+            if ($code === '') {
+                continue;
+            }
+            $byItem[$id] ??= ['primary' => '', 'others' => []];
+            if ($byItem[$id]['primary'] === '') {
+                $byItem[$id]['primary'] = $code;
+            } elseif (strcasecmp($byItem[$id]['primary'], $code) !== 0) {
+                $byItem[$id]['others'][$code] = $code;
+            }
+        }
+
+        $aliasRows = DB::table('item_prices')
+            ->join('items', 'items.id', '=', 'item_prices.item_id')
+            ->where('items.company_id', $companyId)
+            ->whereRaw("TRIM(IFNULL(item_prices.alias_code, '')) <> ''")
+            ->get(['item_prices.item_id', 'item_prices.alias_code']);
+
+        foreach ($aliasRows as $row) {
+            $id = (int) $row->item_id;
+            $code = trim((string) $row->alias_code);
+            $byItem[$id] ??= ['primary' => '', 'others' => []];
+            if ($code !== '' && strcasecmp($byItem[$id]['primary'], $code) !== 0) {
+                $byItem[$id]['others'][$code] = $code;
+            }
+        }
+
+        $out = [];
+        foreach ($byItem as $id => $row) {
+            $others = array_values($row['others']);
+            $upc = $row['primary'];
+            if ($upc === '' && $others !== []) {
+                $upc = array_shift($others);
+            }
+            $out[$id] = [
+                'upc' => $upc,
+                'alias' => implode(', ', $others),
+            ];
+        }
+
+        return $out;
     }
 
     protected function filteredItemsQuery()
@@ -1594,7 +1684,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 <x-action-item label="Cost & Sales Price History" sep wire:click="openPriceHistory" />
                 <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Group Update" sep wire:click="openUpdatePrices" />
-                <x-action-item label="Export to Excel" sep wire:click="exportItemsToExcel" />
+                <x-action-item label="Export to Excel (SKU, UPC)" sep wire:click="exportItemsToExcel" />
                 <x-action-item label="Delete Selected Item" sep wire:click="deleteSelected" />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
@@ -1703,7 +1793,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                         >
                             New ({{ \App\Models\Item::NEW_ITEM_DAYS }}d)
                         </button>
-                        <button type="button" wire:click="exportItemsToExcel" class="desk-btn" title="Move this list to Excel">
+                        <button type="button" wire:click="exportItemsToExcel" class="desk-btn" title="Export this list. SKU and UPC are two separate columns.">
                             Excel
                         </button>
                         <a href="{{ route('inventory.items.create') }}" wire:navigate class="desk-btn desk-btn-primary" title="Add new item">+ Item</a>

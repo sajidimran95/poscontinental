@@ -6868,9 +6868,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </p>
                         <p style="margin:.55rem 0 0;font-size:12px;color:#64748b;line-height:1.35;">
                             @if ($priceUpdateAlertKind === 'cost')
-                                Cost changed from PO/receive. Update List Price manually if needed.
+                                Cost changed from PO/receive. This notice shows once. Update List Price manually if needed.
                             @else
-                                Sales (list) price was changed recently. Confirm the line price is correct.
+                                Sales (list) price changed. This notice shows once. Confirm the line price is correct.
                             @endif
                         </p>
                     </div>

@@ -70,7 +70,6 @@
             @else
                 <th class="right" style="width:75px">Price</th>
             @endif
-            <th class="right" style="width:70px">MSRP</th>
         </tr>
     </thead>
     <tbody>
@@ -88,11 +87,10 @@
                 @else
                     <td class="right"><strong>${{ number_format((float) ($item->display_price ?? $item->list_price), 2) }}</strong></td>
                 @endif
-                <td class="right">${{ number_format((float) $item->msrp, 2) }}</td>
             </tr>
         @empty
             <tr>
-                <td colspan="{{ $multi ? (6 + $levels->count()) : 7 }}" class="empty">No items match the selected filters.</td>
+                <td colspan="{{ $multi ? (5 + $levels->count()) : 6 }}" class="empty">No items match the selected filters.</td>
             </tr>
         @endforelse
     </tbody>

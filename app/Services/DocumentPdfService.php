@@ -174,9 +174,12 @@ class DocumentPdfService
 
         $rows = collect($items)->map(function (Item $item) use ($levelIds, $levels) {
             if ($levelIds === []) {
+                $list = round((float) $item->list_price, 2);
                 $item->setAttribute(
                     'display_price',
-                    \App\Support\ItemPricing::resolve($item, null, $item->unit_of_measure ?: null)
+                    $list > 0
+                        ? $list
+                        : \App\Support\ItemPricing::resolve($item, null, $item->unit_of_measure ?: null)
                 );
                 $item->setAttribute('level_prices', []);
             } else {

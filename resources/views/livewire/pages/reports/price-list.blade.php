@@ -306,7 +306,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
         return response()->streamDownload(function () use ($companyId, $departmentId, $categoryId, $search, $includeInactive, $priceLevelId) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item Code', 'Description', 'UPC', 'Department', 'Category', 'UOM', 'Price', 'MSRP', 'Std Cost']);
+            fputcsv($out, ['Category', 'Item Number', 'Description', 'List Price']);
 
             Item::query()
                 ->with(['department', 'category', 'prices'])
@@ -315,20 +315,23 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                 ->when($departmentId, fn ($q) => $q->where('department_id', $departmentId))
                 ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
                 ->when($search !== '', fn ($q) => $q->looseSearch($search))
+                ->orderBy(
+                    \App\Models\Category::query()
+                        ->select('name')
+                        ->whereColumn('categories.id', 'items.category_id')
+                )
                 ->orderBy('item_code')
                 ->chunk(200, function ($rows) use ($out, $priceLevelId) {
                     foreach ($rows as $item) {
-                        $price = ItemPricing::resolve($item, $priceLevelId, $item->unit_of_measure ?: null);
+                        $list = round((float) $item->list_price, 2);
+                        $price = $priceLevelId
+                            ? ItemPricing::resolve($item, $priceLevelId, $item->unit_of_measure ?: null)
+                            : ($list > 0 ? $list : ItemPricing::resolve($item, null, $item->unit_of_measure ?: null));
                         fputcsv($out, [
+                            $item->category?->name ?: 'No Category',
                             $item->item_code,
                             $item->description,
-                            $item->primary_upc,
-                            $item->department?->name,
-                            $item->category?->name,
-                            $item->unit_of_measure,
                             number_format($price, 2, '.', ''),
-                            number_format((float) $item->msrp, 2, '.', ''),
-                            number_format((float) $item->standard_cost, 2, '.', ''),
                         ]);
                     }
                 });
@@ -375,6 +378,25 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 @endphp
 
 <div class="desk-page relative">
+    <style>
+        .desk-grid > .desk-table thead th.pl-check-col,
+        .desk-grid > .desk-table tbody td.pl-check-col {
+            width: 2.5rem;
+            min-width: 2.5rem;
+            max-width: 2.5rem;
+            overflow: visible;
+            text-align: center;
+            padding: 0.35rem 0.15rem;
+        }
+        .pl-check-col input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            margin: 0;
+            cursor: pointer;
+            accent-color: #1e3a5f;
+            vertical-align: middle;
+        }
+    </style>
     <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Price List" />
 
@@ -468,10 +490,11 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                     <table class="desk-table">
                         <thead>
                             <tr>
-                                <th class="text-center" style="width:2.25rem">
+                                <th class="pl-check-col">
                                     <input
                                         type="checkbox"
-                                        wire:click.prevent="toggleSelectAll"
+                                        wire:key="pl-all-{{ $allSelected ? 'on' : 'off' }}-{{ $selectedCount }}"
+                                        wire:click.stop.prevent="toggleSelectAll"
                                         @checked($allSelected)
                                         title="Select all"
                                         aria-label="Select all items"
@@ -497,12 +520,13 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                                     wire:dblclick="openSelectedItem"
                                     @class(['is-selected' => $isSelected, 'cursor-pointer'])
                                 >
-                                    <td class="text-center" wire:click.stop>
+                                    <td class="pl-check-col" wire:click.stop>
                                         <input
                                             type="checkbox"
+                                            wire:key="pl-row-{{ $item->id }}-{{ $isSelected ? 'on' : 'off' }}"
                                             value="{{ $item->id }}"
                                             @checked($isSelected)
-                                            wire:click="selectRow({{ $item->id }})"
+                                            wire:click.stop.prevent="selectRow({{ $item->id }})"
                                             aria-label="Select {{ $item->item_code }}"
                                         />
                                     </td>

@@ -151,12 +151,12 @@ class DocumentPdfService
             }
         }
 
-        return Pdf::loadView('pdf.credit-memo', [
+        return $this->documentPdfWithPageCount('pdf.credit-memo', [
             'memo' => $memo,
             'company' => $company,
             'logoPath' => $logoPath,
             ...$this->letterhead($company),
-        ])->setPaper('letter');
+        ]);
     }
 
     public function priceListPdf(iterable $items, ?User $user = null, ?string $title = null, ?int $priceLevelId = null, array $priceLevelIds = [])
@@ -671,8 +671,8 @@ class DocumentPdfService
             $this->stampPageStrip($pdf, $pageStrip);
         }
 
-        // pdf.sales-order repeats its header (with "X of N") on every page itself.
-        if ($count < 2 || $view === 'pdf.sales-order') {
+        // These views repeat the header (with "X of N") on every page themselves.
+        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo'], true)) {
             return $pdf;
         }
 

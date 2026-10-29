@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\SortsDeskList;
 use App\Models\BulkPriceChangeLog;
 use App\Models\Category;
 use App\Models\Department;
@@ -9,6 +10,7 @@ use App\Models\ItemPriceHistory;
 use App\Models\ItemType;
 use App\Models\Subcategory;
 use App\Services\ItemPriceHistoryService;
+use App\Support\ItemSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -17,6 +19,8 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
 {
+    use SortsDeskList;
+
     public string $activeTab = 'update';
 
     public string $brand = '';
@@ -224,9 +228,24 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
         ];
     }
 
+    /** @return array<string, string|array{relation: string, column: string}> */
+    protected function deskSortMap(): array
+    {
+        return [
+            'bp_code' => 'item_code',
+            'bp_desc' => 'description',
+            'bp_brand' => 'manufacturer',
+            'bp_type' => 'item_type',
+            'bp_dept' => ['relation' => 'department', 'column' => 'name'],
+            'bp_list' => 'list_price',
+            'bp_std' => 'standard_cost',
+            'bp_current' => 'current_cost',
+        ];
+    }
+
     protected function filteredQuery(int $companyId): Builder
     {
-        return Item::query()
+        $query = Item::query()
             ->with(['department', 'category', 'subcategory'])
             ->where('company_id', $companyId)
             ->where('is_inactive', false)
@@ -234,9 +253,56 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
             ->when($this->item_type !== '', fn ($q) => $q->where('item_type', $this->item_type))
             ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
             ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
-            ->when($this->subcategory_id, fn ($q) => $q->where('subcategory_id', $this->subcategory_id))
-            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
-            ->orderBy('item_code');
+            ->when($this->subcategory_id, fn ($q) => $q->where('subcategory_id', $this->subcategory_id));
+
+        $this->applyBulkSearch($query, $this->search);
+
+        return $this->applyDeskSort($query, 'item_code', 'asc');
+    }
+
+    /**
+     * Every typed word must match (AND). No fuzzy typos — so "16oz" does not pull in "6oz".
+     * A bare price like 5.51 / $5.51 also matches list / std / current cost.
+     */
+    protected function applyBulkSearch(Builder $query, string $search): void
+    {
+        $tokens = preg_split('/\s+/u', trim($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($tokens === []) {
+            return;
+        }
+
+        foreach ($tokens as $raw) {
+            $token = mb_strtolower(trim($raw));
+            if ($token === '') {
+                continue;
+            }
+
+            if (preg_match('/^\$?\d+(?:\.\d{1,4})?$/', $token)) {
+                $amount = round((float) ltrim($token, '$'), 4);
+                $query->where(function ($w) use ($amount) {
+                    $w->whereRaw('ABS(list_price - ?) < 0.005', [$amount])
+                        ->orWhereRaw('ABS(standard_cost - ?) < 0.005', [$amount])
+                        ->orWhereRaw('ABS(current_cost - ?) < 0.005', [$amount]);
+                });
+
+                continue;
+            }
+
+            $like = '%'.ItemSearch::escapeLike($token).'%';
+            $pattern = ItemSearch::wordStartPattern($token);
+            $query->where(function ($w) use ($like, $pattern) {
+                $w->where(function ($inner) use ($like, $pattern) {
+                    $inner->whereRaw('LOWER(item_code) LIKE ?', [$like])
+                        ->whereRaw('LOWER(item_code) REGEXP ?', [$pattern]);
+                })->orWhere(function ($inner) use ($like, $pattern) {
+                    $inner->whereRaw('LOWER(description) LIKE ?', [$like])
+                        ->whereRaw('LOWER(description) REGEXP ?', [$pattern]);
+                })->orWhere(function ($inner) use ($like, $pattern) {
+                    $inner->whereRaw("LOWER(IFNULL(manufacturer, '')) LIKE ?", [$like])
+                        ->whereRaw("LOWER(IFNULL(manufacturer, '')) REGEXP ?", [$pattern]);
+                });
+            });
+        }
     }
 
     /**
@@ -672,9 +738,10 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                             id="bp-search"
                             type="search"
                             wire:model.live.debounce.300ms="search"
+                            title="Every word must match. Example: Red River 16oz. Add a price like 5.51 to filter by List / Cost."
                             wire:keydown.enter.prevent="scanSearch($event.target.value)"
                             class="so-input desk-search"
-                            placeholder="Code, UPC, or words in the description"
+                            placeholder="All words must match — e.g. Red River 16oz or Red River 5.51"
                             autocomplete="off"
                         />
                     </div>
@@ -736,14 +803,14 @@ new #[Layout('layouts.app'), Title('Bulk Pricing')] class extends Component
                             <th class="bp-check-col">
                                 <input type="checkbox" wire:click="toggleSelectAll(@js($visibleIds))" @checked($allVisibleSelected) @disabled($matchCount === 0) aria-label="Select all visible" />
                             </th>
-                            <th>Item Code</th>
-                            <th>Description</th>
-                            <th>Brand</th>
-                            <th>Type</th>
-                            <th>Department</th>
-                            <th class="text-right">List</th>
-                            <th class="text-right">Std Cost</th>
-                            <th class="text-right">Current</th>
+                            <x-desk-sort-th field="bp_code" label="Item Code" />
+                            <x-desk-sort-th field="bp_desc" label="Description" />
+                            <x-desk-sort-th field="bp_brand" label="Brand" />
+                            <x-desk-sort-th field="bp_type" label="Type" />
+                            <x-desk-sort-th field="bp_dept" label="Department" />
+                            <x-desk-sort-th field="bp_list" label="List" align="right" />
+                            <x-desk-sort-th field="bp_std" label="Std Cost" align="right" />
+                            <x-desk-sort-th field="bp_current" label="Current" align="right" />
                             @foreach ($activeTargets as $field)
                                 <th class="text-right">New {{ $targetLabels[$field] }}</th>
                             @endforeach

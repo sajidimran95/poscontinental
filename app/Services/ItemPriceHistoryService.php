@@ -11,11 +11,10 @@ use Illuminate\Support\Facades\DB;
 class ItemPriceHistoryService
 {
     /**
-     * No age cutoff. Each price change warns once per viewer, then stays off.
-     * Pass a day count to latestSalesPriceChange / salesAlertsForItemIds only
-     * when a caller still wants a window.
+     * Only warn about price changes from the last N days, and only once per viewer.
+     * Older changes (like a week-ago update) no longer pop up on every order.
      */
-    public const ALERT_DAYS = null;
+    public const ALERT_DAYS = 7;
 
     public function record(
         Item $item,

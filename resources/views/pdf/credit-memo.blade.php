@@ -4,17 +4,21 @@
     <meta charset="utf-8">
     <title>Credit Memo {{ $memo->memo_number }}</title>
     <style>
-        @page { size: letter; margin: 0.5in 0.5in 0.55in; }
+        /* Top margin clears the fixed header (company / CREDIT MEMO / Bill To / meta). */
+        @page { size: letter; margin: 2.55in 0.4in 0.45in; }
+        .page-head { position: fixed; top: -2.35in; left: 0; right: 0; }
+        .pagenum:after { content: counter(page) " of {{ max(1, (int) ($pageLabel ?? 1)) }}"; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
             font-size: 10px;
             color: #000;
-            line-height: 1.25;
+            line-height: 1.3;
             margin: 0;
+            width: 100%;
         }
         table { border-collapse: collapse; }
-        .hdr { width: 100%; margin-bottom: 10px; }
+        .hdr { width: 100%; margin-bottom: 8px; }
         .hdr td { vertical-align: top; border: none; padding: 0; }
         .co-name { font-size: 17px; font-weight: bold; }
         .co-line { font-size: 9.5px; margin-top: 2px; }
@@ -52,11 +56,10 @@
             border-right: 1px solid #000;
         }
         .doc-box td:last-child { border-right: none; }
-        .pagenum:after { content: counter(page); }
         .bill-box {
-            width: 48%;
+            width: 55%;
             border: 1px solid #000;
-            margin: 6px 0 8px;
+            margin: 0 0 8px;
             border-collapse: collapse;
         }
         .bill-box th {
@@ -81,7 +84,7 @@
         .meta-bar {
             width: 100%;
             border: 1px solid #000;
-            margin: 0 0 10px;
+            margin: 0;
             table-layout: fixed;
         }
         .meta-bar th {
@@ -111,19 +114,29 @@
             border-collapse: collapse;
         }
         table.items thead { display: table-header-group; }
+        /* DomPDF repeats tfoot on every page → closes the line under the last item of page 1, 2, … */
+        table.items tfoot { display: table-footer-group; }
+        table.items tfoot td {
+            padding: 0;
+            height: 1px;
+            font-size: 1px;
+            line-height: 1px;
+            border: none;
+            border-top: 1px solid #000;
+            background: transparent;
+        }
         table.items th {
             background: #d0d0d0;
             color: #000;
-            font-size: 9px;
+            font-size: 8.5px;
             font-weight: bold;
             text-align: center;
-            padding: 4px 3px;
+            padding: 5px 4px;
             border: 1px solid #000;
-            white-space: nowrap;
         }
         table.items td {
-            padding: 2px 4px;
-            font-size: 10.5px;
+            padding: 4px 5px;
+            font-size: 10px;
             vertical-align: top;
             border-left: 1px solid #000;
             border-right: 1px solid #000;
@@ -133,28 +146,54 @@
         table.items tbody tr:last-child td {
             border-bottom: 1px solid #000;
         }
-        .col-qty { width: 10%; text-align: right; white-space: nowrap; }
-        .col-item { width: 12%; text-align: left; white-space: nowrap; }
-        .col-desc { width: 40%; text-align: left; }
-        .col-uom { width: 14%; text-align: center; white-space: nowrap; }
-        .col-unit { width: 12%; text-align: right; white-space: nowrap; }
-        .col-total { width: 12%; text-align: right; white-space: nowrap; }
+        table.items th.col-qty,
+        table.items td.col-qty { width: 7%; text-align: right; white-space: nowrap; }
+        table.items th.col-item,
+        table.items td.col-item { width: 10%; text-align: left; white-space: nowrap; }
+        table.items th.col-desc,
+        table.items td.col-desc {
+            width: 52%;
+            text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        table.items td.col-desc { font-size: 10.5px; line-height: 1.35; }
+        table.items th.col-uom,
+        table.items td.col-uom { width: 7%; text-align: center; white-space: nowrap; }
+        table.items th.col-unit,
+        table.items td.col-unit { width: 12%; text-align: right; white-space: nowrap; }
+        table.items th.col-total,
+        table.items td.col-total { width: 12%; text-align: right; white-space: nowrap; }
+        .notes {
+            margin-top: 8px;
+            margin-bottom: 8px;
+            font-size: 9px;
+            color: #333;
+        }
+        /* Spacer + absolute foot → totals sit at bottom of the last page only. */
+        .doc-foot-space { page-break-inside: avoid; }
+        .doc-foot {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0.05in;
+            width: 100%;
+        }
         .totals-wrap {
             width: 100%;
-            margin-top: 0;
             border-collapse: collapse;
             page-break-inside: avoid;
         }
         .totals-wrap > tbody > tr > td { border: none; vertical-align: bottom; padding: 0; }
         .totals {
-            width: 210px;
+            width: 240px;
             margin-left: auto;
             border: 1px solid #000;
             border-collapse: collapse;
         }
         .totals td {
-            padding: 4px 8px;
-            font-size: 10px;
+            padding: 5px 10px;
+            font-size: 10.5px;
             font-weight: bold;
             border-bottom: 1px solid #000;
         }
@@ -171,12 +210,7 @@
             font-weight: bold;
             font-size: 11px;
             letter-spacing: 0.05em;
-            margin-top: 22px;
-        }
-        .notes {
-            margin-top: 6px;
-            font-size: 9px;
-            color: #333;
+            margin-top: 14px;
         }
     </style>
 </head>
@@ -234,91 +268,99 @@
     $subtotal = (float) $lines->sum(fn ($l) => (float) $l->line_total);
     $tax = (float) ($memo->tax ?? 0);
     $creditTotal = (float) ($memo->amount ?? $subtotal);
-    // Chief sample: large empty gap after items, totals near page bottom.
-    $gapPx = max(60, 480 - ($lineCount * 16));
+    // Push totals toward the bottom of the last page (same approach as sales-order PDF).
+    $footGapPx = max(80, 420 - ($lineCount * 16));
 @endphp
 
-<table class="hdr">
-    <tr>
-        <td style="width:58%">
-            <div class="co-name">{{ $companyName }}</div>
-            <div class="co-line">{{ $companyAddress }} {{ $companyCityLine }}</div>
-            <div class="co-line">{{ $companyTel }}@if ($companyFax) &nbsp; {{ $companyFax }}@endif</div>
-        </td>
-        <td style="width:42%">
-            <table class="doc-box">
-                <tr>
-                    <td class="title" colspan="3">CREDIT MEMO</td>
-                </tr>
-                <tr>
-                    <th style="width:34%">NUMBER</th>
-                    <th style="width:33%">DATE</th>
-                    <th style="width:33%">PAGE</th>
-                </tr>
-                <tr>
-                    <td>{{ $memo->memo_number }}</td>
-                    <td>{{ optional($memo->memo_date)?->format('n/j/Y') }}</td>
-                    <td><span class="pagenum"></span></td>
-                </tr>
-            </table>
-        </td>
-    </tr>
-</table>
+{{-- Repeats on every page --}}
+<div class="page-head">
+    <table class="hdr">
+        <tr>
+            <td style="width:58%">
+                <div class="co-name">{{ $companyName }}</div>
+                <div class="co-line">{{ $companyAddress }} {{ $companyCityLine }}</div>
+                <div class="co-line">{{ $companyTel }}@if ($companyFax) &nbsp; {{ $companyFax }}@endif</div>
+            </td>
+            <td style="width:42%">
+                <table class="doc-box">
+                    <tr>
+                        <td class="title" colspan="3">CREDIT MEMO</td>
+                    </tr>
+                    <tr>
+                        <th style="width:34%">NUMBER</th>
+                        <th style="width:33%">DATE</th>
+                        <th style="width:33%">PAGE</th>
+                    </tr>
+                    <tr>
+                        <td>{{ $memo->memo_number }}</td>
+                        <td>{{ optional($memo->memo_date)?->format('n/j/Y') }}</td>
+                        <td><span class="pagenum"></span></td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 
-<table class="bill-box">
-    <tr>
-        <th>BILL TO</th>
-    </tr>
-    <tr>
-        <td>
-            <div class="bill-name">{{ $billName }}</div>
-            @if ($billAddress !== '')
-                <div class="bill-line">{{ $billAddress }}</div>
-            @endif
-            @if ($billCity !== '')
-                <div class="bill-line">{{ $billCity }}</div>
-            @endif
-            @if ($billPhone !== '')
-                <div class="bill-line">Tel:{{ preg_replace('/^Tel:\s*/i', '', (string) $billPhone) }}</div>
-            @endif
-        </td>
-    </tr>
-</table>
+    <table class="bill-box">
+        <tr>
+            <th>BILL TO</th>
+        </tr>
+        <tr>
+            <td>
+                <div class="bill-name">{{ $billName }}</div>
+                @if ($billAddress !== '')
+                    <div class="bill-line">{{ $billAddress }}</div>
+                @endif
+                @if ($billCity !== '')
+                    <div class="bill-line">{{ $billCity }}</div>
+                @endif
+                @if ($billPhone !== '')
+                    <div class="bill-line">Tel:{{ preg_replace('/^Tel:\s*/i', '', (string) $billPhone) }}</div>
+                @endif
+            </td>
+        </tr>
+    </table>
 
-<table class="meta-bar">
-    <tr>
-        <th style="width:25%">ACCOUNT NO.</th>
-        <th style="width:25%">ORDER NO.</th>
-        <th style="width:25%">SALE REP.</th>
-        <th style="width:25%">DRIVER</th>
-    </tr>
-    <tr>
-        <td>{{ $accountNo }}</td>
-        <td>{{ $orderNo }}</td>
-        <td>{{ $salesRepName }}</td>
-        <td>{{ $driverLabel }}</td>
-    </tr>
-</table>
+    <table class="meta-bar">
+        <tr>
+            <th style="width:25%">ACCOUNT NO.</th>
+            <th style="width:25%">ORDER NO.</th>
+            <th style="width:25%">SALE REP.</th>
+            <th style="width:25%">DRIVER</th>
+        </tr>
+        <tr>
+            <td>{{ $accountNo }}</td>
+            <td>{{ $orderNo }}</td>
+            <td>{{ $salesRepName }}</td>
+            <td>{{ $driverLabel }}</td>
+        </tr>
+    </table>
+</div>
 
 <table class="items">
     <colgroup>
-        <col class="col-qty">
-        <col class="col-item">
-        <col class="col-desc">
-        <col class="col-uom">
-        <col class="col-unit">
-        <col class="col-total">
+        <col style="width:7%">
+        <col style="width:10%">
+        <col style="width:52%">
+        <col style="width:7%">
+        <col style="width:12%">
+        <col style="width:12%">
     </colgroup>
     <thead>
         <tr>
-            <th>QUANTITY</th>
-            <th>ITEM</th>
-            <th>DESCRIPTION</th>
-            <th>UNIT MEASURE</th>
-            <th>UNIT</th>
-            <th>TOTAL</th>
+            <th class="col-qty">Qty</th>
+            <th class="col-item">Item</th>
+            <th class="col-desc">Description</th>
+            <th class="col-uom">UOM</th>
+            <th class="col-unit">Unit Price</th>
+            <th class="col-total">Amount</th>
         </tr>
     </thead>
+    <tfoot>
+        <tr>
+            <td></td><td></td><td></td><td></td><td></td><td></td>
+        </tr>
+    </tfoot>
     <tbody>
         @forelse ($lines as $line)
             <tr>
@@ -337,35 +379,35 @@
     </tbody>
 </table>
 
-{{-- Empty gap (no column lines) then totals near the bottom, matching the Chief sample --}}
-<div style="height: {{ $gapPx }}px"></div>
-
-<table class="totals-wrap">
-    <tr>
-        <td style="width:58%">&nbsp;</td>
-        <td style="width:42%">
-            <table class="totals">
-                <tr>
-                    <td class="lbl">SUBTOTAL</td>
-                    <td class="amt">${{ number_format($subtotal, 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TAX</td>
-                    <td class="amt">${{ number_format($tax, 2) }}</td>
-                </tr>
-                <tr>
-                    <td class="lbl">TOTAL CREDIT</td>
-                    <td class="amt">${{ number_format($creditTotal, 2) }}</td>
-                </tr>
-            </table>
-        </td>
-    </tr>
-</table>
-
 @if (filled($memo->comments))
     <div class="notes"><strong>Comments:</strong> {{ $memo->comments }}</div>
 @endif
 
-<div class="thanks">THANK YOU FOR YOUR BUSINESS</div>
+{{-- Totals only after the last line items, pinned to the bottom of the last page --}}
+<div class="doc-foot-space" style="height: {{ $footGapPx }}px"></div>
+<div class="doc-foot">
+    <table class="totals-wrap">
+        <tr>
+            <td style="width:55%">&nbsp;</td>
+            <td style="width:45%">
+                <table class="totals">
+                    <tr>
+                        <td class="lbl">SUBTOTAL</td>
+                        <td class="amt">${{ number_format($subtotal, 2) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">TAX</td>
+                        <td class="amt">${{ number_format($tax, 2) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">TOTAL CREDIT</td>
+                        <td class="amt">${{ number_format($creditTotal, 2) }}</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    <div class="thanks">THANK YOU FOR YOUR BUSINESS</div>
+</div>
 </body>
 </html>

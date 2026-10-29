@@ -380,6 +380,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $priceUpdateAlertKind = 'sales';
 
+    public ?int $priceUpdateAlertHistoryId = null;
+
     /** Confirm customer selection to avoid order mistakes. */
     public bool $showCustomerConfirmModal = false;
 
@@ -1066,10 +1068,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public function dismissPriceUpdateAlert(): void
     {
+        if ($this->priceUpdateAlertHistoryId) {
+            app(ItemPriceHistoryService::class)->claimAlert(
+                ItemPriceHistoryService::viewerKey(),
+                (int) $this->priceUpdateAlertHistoryId
+            );
+        }
         $this->showPriceUpdateAlertModal = false;
         $this->priceUpdateAlertTitle = '';
         $this->priceUpdateAlertMessage = '';
         $this->priceUpdateAlertKind = 'sales';
+        $this->priceUpdateAlertHistoryId = null;
+        if ($this->lineWarningKind === 'info') {
+            $this->lineWarning = '';
+        }
     }
 
     protected function dismissTransientOverlays(): void
@@ -5026,7 +5038,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->refreshAiAddOns($item);
             $priceHistory = app(ItemPriceHistoryService::class);
             $priceAlert = $priceHistory->salesAlertPayload($item);
-            if ($priceAlert && $priceHistory->claimAlert(ItemPriceHistoryService::viewerKey(), (int) ($priceAlert['price_history_id'] ?? 0))) {
+            $historyId = (int) ($priceAlert['price_history_id'] ?? 0);
+            if ($priceAlert && $priceHistory->claimAlert(ItemPriceHistoryService::viewerKey(), $historyId)) {
                 $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
                 $this->lineWarning = $priceAlert['price_update_message'];
                 $this->lineWarningKind = 'info';
@@ -5035,6 +5048,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $this->priceUpdateAlertTitle = $this->priceUpdateAlertKind === 'cost'
                     ? 'PO / Cost updated'
                     : 'Sales price updated';
+                $this->priceUpdateAlertHistoryId = $historyId > 0 ? $historyId : null;
                 $code = trim((string) $item->item_code);
                 $this->priceUpdateAlertMessage = trim(
                     ($code !== '' ? $code.' — ' : '')
@@ -6868,9 +6882,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                         </p>
                         <p style="margin:.55rem 0 0;font-size:12px;color:#64748b;line-height:1.35;">
                             @if ($priceUpdateAlertKind === 'cost')
-                                Cost changed from PO/receive. This notice shows once. Update List Price manually if needed.
+                                Cost changed from PO/receive. Shown once per person, and only for changes in the last 7 days. Update List Price manually if needed.
                             @else
-                                Sales (list) price changed. This notice shows once. Confirm the line price is correct.
+                                Sales (list) price changed. Shown once per person, and only for changes in the last 7 days. Confirm the line price is correct.
                             @endif
                         </p>
                     </div>
@@ -7483,14 +7497,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         const openLine = (tr, col) => {
             if (! tr) return;
             const n = rowIndex(tr);
-            $wire.selectLine(n).then(() => focusCol(n, col || 'qty_ordered', 0));
+            $wire.selectLine(n).then(() => focusCol(n, col || 'price', 0));
         };
 
-        // Clicking a line puts the cursor in its Qty so you can type straight away.
+        // Clicking a line puts the cursor in Price so you can type the price straight away.
         $wire.$el.addEventListener('click', function (e) {
             const tr = e.target.closest && e.target.closest('tr[id^="so-line-row-"]');
             if (! tr || e.target.closest('input, button, a, select, textarea')) return;
-            focusCol(rowIndex(tr), 'qty_ordered', 0);
+            focusCol(rowIndex(tr), 'price', 0);
         });
 
         // Not inside a line box: ↑ / ↓ / Enter still move through the lines.

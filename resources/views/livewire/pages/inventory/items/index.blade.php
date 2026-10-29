@@ -48,6 +48,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
     public ?int $selectedId = null;
 
+    /** Multi-select for bulk delete (string ids for Livewire checkbox models). */
+    public array $selectedIds = [];
+
     public bool $compactView = false;
 
     /** @var list<string> */
@@ -119,13 +122,14 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $query = $this->filteredItemsQuery();
         $query = $this->applyDeskSort($query, $this->favorite === 'new' ? 'created_at' : 'id', 'desc');
 
-        $nav = Cache::remember('items.list_nav.'.(int) $companyId, 180, function () use ($companyId, $itemNewDays) {
+        $nav = Cache::remember('items.list_nav.v2.'.(int) $companyId, 180, function () use ($companyId, $itemNewDays) {
             $favorites = [
                 'all' => 'All Items',
                 'new' => 'New Items ('.$itemNewDays.' days)',
                 'active' => 'Active Items',
                 'inactive' => 'Inactive Items',
                 'low_stock' => 'Low Stock',
+                'zero_price' => 'List Price $0',
             ];
             $nodes = [
                 ['type' => 'item', 'key' => 'all', 'label' => 'All Items', 'level' => 0],
@@ -133,6 +137,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 ['type' => 'item', 'key' => 'active', 'label' => 'Active Items', 'level' => 0],
                 ['type' => 'item', 'key' => 'inactive', 'label' => 'Inactive Items', 'level' => 0],
                 ['type' => 'item', 'key' => 'low_stock', 'label' => 'Low Stock', 'level' => 0],
+                ['type' => 'item', 'key' => 'zero_price', 'label' => 'List Price $0', 'level' => 0],
             ];
             $departments = Department::query()
                 ->with(['categories' => fn ($q) => $q->orderBy('name')->with(['subcategories' => fn ($sq) => $sq->orderBy('name')])])
@@ -267,10 +272,16 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             }
         }
 
+        $pageIds = $scroll['rows']->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        $bootIds = array_values(array_unique(array_filter(array_map('intval', $this->selectedIds))));
+
         return [
             'items' => $scroll['rows'],
             'listHasMore' => $scroll['hasMore'],
             'listShown' => $scroll['shown'],
+            'pageIds' => $pageIds,
+            'bootIds' => $bootIds,
+            'bootKey' => md5(implode(',', $pageIds).'|'.implode(',', $bootIds).'|'.$this->favorite.'|'.$this->search.'|'.$this->statusFilter.'|'.$this->categoryFilter),
             'favorites' => $favorites,
             'nodes' => $nodes,
             'listTitle' => $listTitle,
@@ -315,7 +326,58 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function updatedCategoryFilter(): void
     {
         $this->resetDeskList();
+        $this->clearSelection();
+    }
+
+    public function clearSelection(): void
+    {
         $this->selectedId = null;
+        $this->selectedIds = [];
+    }
+
+    /**
+     * @param  array<int, int|string>  $ids
+     */
+    public function syncSelection(array $ids): void
+    {
+        $clean = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id < 1 || isset($clean[$id])) {
+                continue;
+            }
+            $clean[$id] = $id;
+            if (count($clean) >= 500) {
+                break;
+            }
+        }
+
+        $clean = array_values($clean);
+        $this->selectedIds = array_map('strval', $clean);
+        if ($clean !== []) {
+            $this->selectedId = $clean[array_key_last($clean)];
+        } else {
+            $this->selectedId = null;
+        }
+        $this->skipRender();
+    }
+
+    /** Select every item matching the current list filters (capped at 500). */
+    public function selectAllFiltered(): void
+    {
+        $ids = $this->filteredItemsQuery()
+            ->orderBy('id')
+            ->limit(500)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->selectedIds = array_map('strval', $ids);
+        $this->selectedId = $ids[0] ?? null;
+        $count = count($ids);
+        session()->flash('status', $count === 0
+            ? 'No items to select.'
+            : ($count === 1 ? '1 item selected.' : $count.' items selected.'));
     }
 
     public function clearSearch(): void
@@ -334,7 +396,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         $this->categoryFilter = '';
         $this->statusFilter = '';
         $this->favorite = 'all';
-        $this->selectedId = null;
+        $this->clearSelection();
         $this->queryCriteria = [];
         $this->querySelectedIndex = null;
         $this->queryLoadedName = '';
@@ -409,7 +471,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     {
         $this->restoreDeskTabSearch();
         $this->resetDeskList();
-        $this->selectedId = null;
+        $this->clearSelection();
         $this->statusFilter = match ($this->favorite) {
             'active' => 'active',
             'inactive' => 'inactive',
@@ -420,7 +482,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     public function updatedStatusFilter(): void
     {
         $this->resetDeskList();
-        $this->selectedId = null;
+        $this->clearSelection();
         if ($this->statusFilter === 'active') {
             $this->favorite = 'active';
         } elseif ($this->statusFilter === 'inactive') {
@@ -815,6 +877,9 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
         if ($this->favorite === 'low_stock') {
             return 'Low Stock Items';
         }
+        if ($this->favorite === 'zero_price') {
+            return 'List Price $0 Items';
+        }
 
         return 'Items List';
     }
@@ -1062,34 +1127,109 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             return;
         }
 
-        if (! $this->selectedId) {
+        $companyId = (int) auth()->user()->company_id;
+        $ids = array_values(array_unique(array_filter(array_map('intval', $this->selectedIds))));
+        if ($ids === [] && $this->selectedId) {
+            $ids = [(int) $this->selectedId];
+        }
+
+        if ($ids === []) {
             session()->flash('status', 'Select an item first.');
 
             return;
         }
 
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->find($this->selectedId);
+        $used = SalesOrderLine::query()->whereIn('item_id', $ids)->pluck('item_id')
+            ->merge(PurchaseOrderLine::query()->whereIn('item_id', $ids)->pluck('item_id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+        $usedSet = array_fill_keys($used, true);
+        $deletable = array_values(array_filter($ids, fn (int $id) => ! isset($usedSet[$id])));
 
-        if (! $item) {
-            session()->flash('status', 'Item not found.');
+        $deleted = 0;
+        foreach (array_chunk($deletable, 100) as $chunk) {
+            $deleted += Item::query()
+                ->where('company_id', $companyId)
+                ->whereIn('id', $chunk)
+                ->delete();
+        }
+
+        $this->clearSelection();
+        $this->resetDeskList();
+
+        $skipped = count($ids) - count($deletable);
+        if ($deleted === 0 && $skipped > 0) {
+            session()->flash('status', 'Selected item(s) are used on orders and cannot be deleted. Mark Inactive instead.');
 
             return;
         }
 
-        if (
-            SalesOrderLine::query()->where('item_id', $item->id)->exists()
-            || PurchaseOrderLine::query()->where('item_id', $item->id)->exists()
-        ) {
-            session()->flash('status', 'Item is used on orders and cannot be deleted. Mark it Inactive instead.');
+        $msg = $deleted === 1 ? '1 item deleted.' : $deleted.' items deleted.';
+        if ($skipped > 0) {
+            $msg .= ' '.$skipped.' skipped (used on orders).';
+        }
+        session()->flash('status', $msg);
+    }
+
+    /**
+     * Delete unused items with List Price $0 (not on sales or purchase orders).
+     * Uses the current List Price $0 list / filters when that favorite is active.
+     */
+    public function deleteZeroListPriceItems(): void
+    {
+        if (! auth()->user()?->canAccessFeature('inventory.items', 'delete')) {
+            session()->flash('status', 'Your role cannot delete items.');
 
             return;
         }
 
-        $item->delete();
-        $this->selectedId = null;
-        session()->flash('status', 'Item deleted.');
+        $companyId = (int) auth()->user()->company_id;
+        $this->favorite = 'zero_price';
+
+        $ids = Item::query()
+            ->where('company_id', $companyId)
+            ->where('list_price', '<=', 0.005)
+            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if ($ids === []) {
+            session()->flash('status', 'No List Price $0 items found to delete.');
+
+            return;
+        }
+
+        $used = SalesOrderLine::query()->whereIn('item_id', $ids)->pluck('item_id')
+            ->merge(PurchaseOrderLine::query()->whereIn('item_id', $ids)->pluck('item_id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+        $usedSet = array_fill_keys($used, true);
+        $deletable = array_values(array_filter($ids, fn (int $id) => ! isset($usedSet[$id])));
+
+        $deleted = 0;
+        foreach (array_chunk($deletable, 100) as $chunk) {
+            $deleted += Item::query()
+                ->where('company_id', $companyId)
+                ->whereIn('id', $chunk)
+                ->where('list_price', '<=', 0.005)
+                ->delete();
+        }
+
+        $this->clearSelection();
+        $this->resetDeskList();
+
+        $skipped = count($ids) - count($deletable);
+        $msg = $deleted === 1
+            ? '1 List Price $0 item deleted.'
+            : $deleted.' List Price $0 items deleted.';
+        if ($skipped > 0) {
+            $msg .= ' '.$skipped.' skipped (used on orders — mark Inactive instead).';
+        }
+        session()->flash('status', $msg);
     }
 
     public function toggleInactive(int $id): void
@@ -1620,6 +1760,7 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
             ->when($this->favorite === 'active', fn ($q) => $q->where('is_inactive', false))
             ->when($this->favorite === 'inactive', fn ($q) => $q->where('is_inactive', true))
             ->when($this->favorite === 'low_stock', fn ($q) => $q->lowStock())
+            ->when($this->favorite === 'zero_price', fn ($q) => $q->where('list_price', '<=', 0.005))
             ->when(str_starts_with($this->favorite, 'dept:'), fn ($q) => $q->where('department_id', (int) substr($this->favorite, 5)))
             ->when(str_starts_with($this->favorite, 'cat:'), fn ($q) => $q->where('category_id', (int) substr($this->favorite, 4)))
             ->when(str_starts_with($this->favorite, 'sub:'), fn ($q) => $q->where('subcategory_id', (int) substr($this->favorite, 4)))
@@ -1672,7 +1813,115 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
     }
 }; ?>
 
-<div class="desk-page" wire:key="inventory-items-desk">
+<div
+    class="desk-page"
+    wire:key="inventory-items-desk"
+    x-data="{
+        on: {},
+        ids: [],
+        boot(detail) {
+            const keep = {};
+            (detail.ids || []).forEach((id) => { keep[Number(id)] = true; });
+            const on = {};
+            const ids = [];
+            (detail.pageIds || []).forEach((raw) => {
+                const id = Number(raw);
+                if (!id || !keep[id]) return;
+                on[id] = true;
+                ids.push(id);
+            });
+            // Keep off-page selections from server boot
+            (detail.ids || []).forEach((raw) => {
+                const id = Number(raw);
+                if (!id || on[id]) return;
+                on[id] = true;
+                ids.push(id);
+            });
+            this.on = on;
+            this.ids = ids;
+            this.$nextTick(() => this.apply());
+        },
+        boxes() { return this.$root.querySelectorAll('tbody .items-check-col input[type=checkbox]'); },
+        recount() {
+            const ids = [];
+            const on = {};
+            this.boxes().forEach((box) => {
+                const id = Number(box.dataset.id);
+                const row = box.closest('tr');
+                if (box.checked && id) {
+                    ids.push(id);
+                    on[id] = true;
+                    row && row.classList.add('is-selected');
+                } else if (row) {
+                    row.classList.remove('is-selected');
+                }
+            });
+            // Preserve checked ids not on this page
+            Object.keys(this.on).forEach((key) => {
+                const id = Number(key);
+                if (!id || on[id]) return;
+                const stillOnPage = Array.from(this.boxes()).some((b) => Number(b.dataset.id) === id);
+                if (!stillOnPage && this.on[id]) {
+                    on[id] = true;
+                    ids.push(id);
+                }
+            });
+            this.on = on;
+            this.ids = ids;
+            const head = this.$root.querySelector('[data-items-all]');
+            if (head) {
+                const total = this.boxes().length;
+                const pageChecked = Array.from(this.boxes()).filter((b) => b.checked).length;
+                head.checked = total > 0 && pageChecked === total;
+                head.indeterminate = pageChecked > 0 && pageChecked < total;
+            }
+        },
+        apply() {
+            this.boxes().forEach((box) => { box.checked = !!this.on[Number(box.dataset.id)]; });
+            this.recount();
+        },
+        toggleRow(id, e) {
+            if (e.target.closest('a, button, input, label')) return;
+            if (e.detail > 1) return;
+            const box = e.currentTarget.querySelector('input[type=checkbox]');
+            if (!box) return;
+            box.checked = !box.checked;
+            this.recount();
+            this.flush();
+        },
+        toggleBox() {
+            this.recount();
+            this.flush();
+        },
+        toggleAll(want) {
+            this.boxes().forEach((box) => { box.checked = !!want; });
+            this.recount();
+            this.flush();
+        },
+        flush() {
+            return this.$wire.syncSelection(this.ids.slice());
+        },
+        deleteChecked() {
+            if (this.ids.length === 0) {
+                return this.$wire.deleteSelected();
+            }
+            return this.flush().then(() => this.$wire.deleteSelected());
+        }
+    }"
+    @items-boot.window="boot($event.detail)"
+>
+    <style>
+        .items-check-col input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            margin: 0;
+            cursor: pointer;
+            accent-color: #1e3a5f;
+            vertical-align: middle;
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+    <span class="hidden" wire:key="items-boot-{{ $bootKey }}" x-init="$dispatch('items-boot', { ids: {{ \Illuminate\Support\Js::from($bootIds) }}, pageIds: {{ \Illuminate\Support\Js::from($pageIds) }} })"></span>
     <x-favorite-list :nodes="$nodes" :favorites="$favorites" :active="$favorite" />
 
     <div class="desk-main desk-main-rail-layout">
@@ -1685,7 +1934,19 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 <x-action-item label="Update Prices" kbd="Ctrl+U" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Group Update" sep wire:click="openUpdatePrices" />
                 <x-action-item label="Export to Excel (SKU, UPC)" sep wire:click="exportItemsToExcel" />
-                <x-action-item label="Delete Selected Item" sep wire:click="deleteSelected" />
+                <x-action-item label="Select All (filtered)" sep wire:click="selectAllFiltered" />
+                <x-action-item label="Clear Selection" wire:click="clearSelection" />
+                <x-action-item
+                    label="Delete Selected Item(s)"
+                    sep
+                    x-on:click="if (confirm('Delete the selected item(s)? This cannot be undone.')) { deleteChecked(); }"
+                />
+                <x-action-item
+                    label="Delete List Price $0 Items"
+                    sep
+                    wire:click="deleteZeroListPriceItems"
+                    wire:confirm="Delete all unused items with List Price $0? Items on orders are skipped. This cannot be undone."
+                />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
         </x-action-bar>
@@ -1805,14 +2066,28 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
 
                 <div class="desk-titlebar">
                     <h2 class="desk-title">{{ $listTitle }}</h2>
-                    <span class="desk-title-meta">{{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records</span>
+                    <span class="desk-title-meta">
+                        {{ number_format($listShown) }}{{ $listHasMore ? '+' : '' }} records
+                        <span x-show="ids.length > 0" x-cloak> · <strong x-text="ids.length.toLocaleString() + ' selected'"></strong></span>
+                    </span>
+                    <div style="margin-left:auto;display:flex;gap:0.4rem;align-items:center">
+                        <button type="button" class="desk-btn desk-btn-sm" wire:click="selectAllFiltered" title="Select all items matching this list (up to 500)">Select all</button>
+                        <button type="button" class="desk-btn desk-btn-sm" x-on:click="ids=[]; on={}; apply(); flush();" x-bind:disabled="ids.length === 0">Clear</button>
+                    </div>
                 </div>
 
                 <x-desk-scroll-grid :has-more="$listHasMore" class="{{ $compactView ? 'is-compact' : '' }}">
                     <table class="desk-table desk-table-fit desk-table-resizable" data-col-resize="items-list" data-excel-grid data-excel-copy-all>
                         <thead>
                             <tr>
-                                <th class="text-center desk-sort-th" data-col="_select" data-excel-skip style="width:2.25rem">
+                                <th class="text-center items-check-col" data-col="_select" data-excel-skip style="width:2.5rem">
+                                    <input
+                                        type="checkbox"
+                                        data-items-all
+                                        title="Select all rows on this page"
+                                        aria-label="Select all rows on this page"
+                                        x-on:click.stop="toggleAll($event.target.checked)"
+                                    />
                                     <span class="desk-col-resizer" title="Drag to make this column wider or narrower" aria-hidden="true"></span>
                                 </th>
                                 @foreach ($visibleColumnKeys as $colKey)
@@ -1831,17 +2106,17 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                                 @php $itemId = (int) $item->id; @endphp
                                 <tr
                                     wire:key="item-row-{{ $itemId }}"
-                                    x-on:click="$wire.selectRow({{ $itemId }})"
+                                    x-on:click="toggleRow({{ $itemId }}, $event)"
                                     wire:dblclick="openItem({{ $itemId }})"
                                     class="cursor-pointer"
-                                    :class="{ 'is-selected': Number($wire.selectedId) === {{ $itemId }} }"
+                                    :class="{ 'is-selected': !!on[{{ $itemId }}] || Number($wire.selectedId) === {{ $itemId }} }"
                                 >
-                                    <td class="text-center" data-excel-skip x-on:click.stop="$wire.selectRow({{ $itemId }})">
+                                    <td class="text-center items-check-col" data-excel-skip x-on:click.stop>
                                         <input
-                                            type="radio"
-                                            name="item_select"
+                                            type="checkbox"
+                                            data-id="{{ $itemId }}"
                                             value="{{ $itemId }}"
-                                            :checked="Number($wire.selectedId) === {{ $itemId }}"
+                                            x-on:change="toggleBox()"
                                             aria-label="Select item {{ $item->item_code }}"
                                         />
                                     </td>
@@ -2024,12 +2299,11 @@ new #[Layout('layouts.app'), Title('Items')] class extends Component
                 </button>
                 <button
                     type="button"
-                    wire:click="deleteSelected"
-                    wire:confirm="Delete the selected item? This cannot be undone."
+                    x-on:click="if (ids.length === 0 && ! $wire.selectedId) return; if (confirm('Delete the selected item(s)? This cannot be undone.')) { deleteChecked(); }"
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="Delete selected"
                     aria-label="Delete selected"
-                    :disabled="! $wire.selectedId"
+                    :disabled="ids.length === 0 && ! $wire.selectedId"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>

@@ -5,6 +5,7 @@ use App\Livewire\Concerns\SearchesItemEntryHits;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\SalesOrderLine;
+use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -15,13 +16,15 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
     use BrowsesItemsForInquiry;
     use SearchesItemEntryHits;
 
-    #[Url]
+    #[Url(history: false, keep: true)]
     public string $itemCode = '';
 
     public ?int $itemId = null;
 
-    #[Url]
+    #[Url(as: 'customer', history: false, keep: true)]
     public ?int $customerId = null;
+
+    public string $customerSearch = '';
 
     public string $datePreset = '30';
 
@@ -33,15 +36,156 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     public function mount(): void
     {
-        $this->applyPreset();
+        $this->restoreVelocityFilters();
+        $this->hydrateCustomerSearchLabel();
+        if ($this->dateFrom === '' && $this->dateTo === '' && $this->datePreset !== 'all') {
+            $this->applyPreset();
+        }
         if (trim($this->itemCode) !== '') {
             $this->lookupItem(playSound: false);
         }
     }
 
+    protected function velocitySessionKey(): string
+    {
+        return 'item_velocity.filters.'.(int) auth()->id().'.'.(int) auth()->user()->company_id;
+    }
+
+    protected function persistVelocityFilters(): void
+    {
+        Session::put($this->velocitySessionKey(), [
+            'customerId' => $this->customerId,
+            'customerSearch' => $this->customerSearch,
+            'itemCode' => $this->itemCode,
+            'itemId' => $this->itemId,
+            'datePreset' => $this->datePreset,
+            'dateFrom' => $this->dateFrom,
+            'dateTo' => $this->dateTo,
+        ]);
+    }
+
+    protected function restoreVelocityFilters(): void
+    {
+        $saved = Session::get($this->velocitySessionKey(), []);
+        if (! is_array($saved) || $saved === []) {
+            return;
+        }
+
+        if ($this->customerId === null && ! empty($saved['customerId'])) {
+            $this->customerId = (int) $saved['customerId'];
+        }
+        if (trim($this->customerSearch) === '' && filled($saved['customerSearch'] ?? null)) {
+            $this->customerSearch = (string) $saved['customerSearch'];
+        }
+        if (trim($this->itemCode) === '' && filled($saved['itemCode'] ?? null)) {
+            $this->itemCode = (string) $saved['itemCode'];
+        }
+        if ($this->itemId === null && ! empty($saved['itemId'])) {
+            $this->itemId = (int) $saved['itemId'];
+        }
+        if (isset($saved['datePreset']) && is_string($saved['datePreset']) && $saved['datePreset'] !== '') {
+            $this->datePreset = $saved['datePreset'];
+        }
+        if (isset($saved['dateFrom']) && is_string($saved['dateFrom'])) {
+            $this->dateFrom = $saved['dateFrom'];
+        }
+        if (isset($saved['dateTo']) && is_string($saved['dateTo'])) {
+            $this->dateTo = $saved['dateTo'];
+        }
+    }
+
+    protected function hydrateCustomerSearchLabel(): void
+    {
+        if (! $this->customerId) {
+            return;
+        }
+
+        if (trim($this->customerSearch) !== '') {
+            return;
+        }
+
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->customerId);
+
+        if (! $customer) {
+            $this->customerId = null;
+
+            return;
+        }
+
+        $this->customerSearch = trim(($customer->customer_id ? $customer->customer_id.' — ' : '').($customer->company_name ?: $customer->contact ?: ''));
+    }
+
+    public function updatedCustomerSearch(): void
+    {
+        if (! $this->customerId) {
+            return;
+        }
+
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->customerId);
+        $label = $customer
+            ? trim(($customer->customer_id ? $customer->customer_id.' — ' : '').($customer->company_name ?: $customer->contact ?: ''))
+            : '';
+
+        // Keep the pick when we only re-hydrate the same label (mount / session restore).
+        if (trim($this->customerSearch) === $label) {
+            return;
+        }
+
+        $this->customerId = null;
+        $this->persistVelocityFilters();
+    }
+
+    public function pickCustomer(int $id): void
+    {
+        $customer = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if (! $customer) {
+            return;
+        }
+
+        // Set label first — updatedCustomerSearch clears any prior id — then lock the pick.
+        $this->customerSearch = trim(($customer->customer_id ? $customer->customer_id.' — ' : '').($customer->company_name ?: $customer->contact ?: ''));
+        $this->customerId = (int) $customer->id;
+        $this->persistVelocityFilters();
+    }
+
+    public function clearCustomer(): void
+    {
+        $this->customerId = null;
+        $this->customerSearch = '';
+        $this->persistVelocityFilters();
+    }
+
+    public function updatedCustomerId(): void
+    {
+        $this->persistVelocityFilters();
+    }
+
+    public function updatedItemId(): void
+    {
+        $this->persistVelocityFilters();
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->persistVelocityFilters();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->persistVelocityFilters();
+    }
+
     public function updatedDatePreset(): void
     {
         $this->applyPreset();
+        $this->persistVelocityFilters();
     }
 
     protected function applyPreset(): void
@@ -92,6 +236,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         if ($item) {
             $this->itemCode = $item->item_code;
             $this->closeBrowse();
+            $this->persistVelocityFilters();
             if ($playSound) {
                 $this->playPosSound('success');
             }
@@ -140,10 +285,12 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
 
     public function clearLookup(): void
     {
-        $this->reset(['itemCode', 'itemId', 'customerId', 'lookupError', 'entryHits']);
+        // Clear item only — keep the selected customer fixed for the next lookup.
+        $this->reset(['itemCode', 'itemId', 'lookupError', 'entryHits']);
         $this->closeBrowse();
         $this->datePreset = '30';
         $this->applyPreset();
+        $this->persistVelocityFilters();
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) { el.value = ""; el.focus(); } });');
     }
 
@@ -164,6 +311,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         $this->lookupError = '';
         $this->entryHits = [];
         $this->closeBrowse();
+        $this->persistVelocityFilters();
         $this->playPosSound('success');
         $code = json_encode($item->item_code);
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) el.value = '.$code.'; });');
@@ -228,11 +376,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                     ->where('company_id', $companyId)
                     ->find($this->itemId)
                 : null,
-            'customers' => Customer::query()
-                ->where('company_id', $companyId)
-                ->where('is_inactive', false)
-                ->orderBy('company_name')
-                ->get(['id', 'customer_id', 'company_name']),
+            'customerSuggestions' => $this->customerSuggestions($companyId),
             'rows' => $rows,
             'totalQty' => $totalQty,
             'totalSales' => $totalSales,
@@ -240,6 +384,29 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
             'avgDailyQty' => $totalQty / $days,
             'outsideRangeCount' => $outsideRangeCount,
         ]);
+    }
+
+    protected function customerSuggestions(int $companyId)
+    {
+        if ($this->customerId || trim($this->customerSearch) === '') {
+            return collect();
+        }
+
+        $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim($this->customerSearch)).'%';
+
+        return Customer::query()
+            ->where('company_id', $companyId)
+            ->where('is_inactive', false)
+            ->where(function ($q) use ($term) {
+                $q->where('company_name', 'like', $term)
+                    ->orWhere('contact', 'like', $term)
+                    ->orWhere('customer_id', 'like', $term)
+                    ->orWhere('telephone', 'like', $term)
+                    ->orWhere('mobile', 'like', $term);
+            })
+            ->orderBy('company_name')
+            ->limit(40)
+            ->get(['id', 'customer_id', 'company_name', 'contact', 'city', 'telephone', 'mobile']);
     }
 
     public function editLookedUpItem(): mixed
@@ -291,14 +458,43 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
                     <span wire:loading wire:target="lookupItem">Looking up…</span>
                 </button>
             </div>
-            <div class="rpt-field rpt-field-search">
+            <div class="rpt-field rpt-field-search" style="position:relative;flex:1 1 16rem;min-width:14rem">
                 <label class="desk-toolbar-label" for="iv-cust">Customer</label>
-                <select id="iv-cust" wire:model.live="customerId" class="desk-select">
-                    <option value="">All customers</option>
-                    @foreach ($customers as $c)
-                        <option value="{{ $c->id }}">{{ $c->customer_id }} — {{ $c->company_name }}</option>
-                    @endforeach
-                </select>
+                <div class="so-lookup-row">
+                    <input
+                        id="iv-cust"
+                        type="search"
+                        class="so-input desk-select"
+                        style="width:100%;min-width:12rem"
+                        placeholder="Search customer ID or name…"
+                        wire:model.live.debounce.200ms="customerSearch"
+                        autocomplete="off"
+                        aria-label="Search customer"
+                        aria-autocomplete="list"
+                    />
+                    @if ($customerId)
+                        <button type="button" wire:click="clearCustomer" class="so-icon-btn" title="Clear customer (show all)" aria-label="Clear customer">×</button>
+                    @endif
+                </div>
+                @if (! $customerId && trim($customerSearch) !== '')
+                    <div class="so-lookup-panel" role="listbox" aria-label="Customer suggestions" style="position:absolute;left:0;right:0;z-index:40;max-height:16rem;margin-top:0.2rem;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 8px 20px rgba(15,23,42,.12)">
+                        @forelse ($customerSuggestions as $bc)
+                            <button
+                                type="button"
+                                wire:key="iv-cust-{{ $bc->id }}"
+                                wire:click="pickCustomer({{ $bc->id }})"
+                                class="so-lookup-row-pick"
+                                role="option"
+                                style="display:block;width:100%;text-align:left;border:0;background:transparent;padding:0.45rem 0.6rem;cursor:pointer"
+                            >
+                                <div style="font-weight:700;font-size:13px">{{ $bc->customer_id }} — {{ $bc->company_name ?: $bc->contact }}</div>
+                                <div style="font-size:11px;color:#64748b">{{ collect([$bc->contact, $bc->mobile ?: $bc->telephone, $bc->city])->filter()->implode(' · ') }}</div>
+                            </button>
+                        @empty
+                            <div style="padding:0.5rem 0.6rem;font-size:12px;color:#64748b">No customers found.</div>
+                        @endforelse
+                    </div>
+                @endif
             </div>
             <div class="rpt-field">
                 <label class="desk-toolbar-label" for="iv-preset">Preset</label>

@@ -18,19 +18,69 @@
                 </div>
 
                 <div class="desk-modal-body pc-modal-body">
+                    <style>
+                        .pc-modal .pc-val-scroll {
+                            display: block;
+                            max-height: 3.6rem;
+                            overflow: auto;
+                            align-items: flex-start;
+                            line-height: 1.35;
+                            white-space: normal;
+                            word-break: break-word;
+                        }
+                        .pc-modal .pc-val-summary {
+                            font-weight: 700;
+                            color: #0f172a;
+                            margin-bottom: 0.15rem;
+                        }
+                        .pc-modal .pc-alloc-scroll {
+                            max-height: 7.5rem;
+                            overflow: auto;
+                            margin-top: 0.35rem;
+                            padding: 0.35rem 0.45rem;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 4px;
+                            background: #f8fafc;
+                        }
+                    </style>
                     @php
                         $pcShown = ($isGroupPay ?? false) && $modalInvoices->isNotEmpty() ? $modalInvoices : collect([$modalInvoice]);
-                        $pcOrderNos = $pcShown->map(fn ($i) => $i->salesOrder?->order_number)->filter()->unique()->implode(', ');
-                        $pcInvoiceNos = $pcShown->pluck('invoice_number')->filter()->implode(', ');
+                        $pcOrderList = $pcShown->map(fn ($i) => $i->salesOrder?->order_number)->filter()->unique()->values();
+                        $pcInvoiceList = $pcShown->pluck('invoice_number')->filter()->values();
+                        $pcOrderNos = $pcOrderList->implode(', ');
+                        $pcInvoiceNos = $pcInvoiceList->implode(', ');
+                        $pcGroup = $pcShown->count() > 1;
                         $pcQty = $pcShown->sum(fn ($i) => (float) ($i->salesOrder?->lines?->sum('qty_ordered') ?? 0));
                     @endphp
                     <div class="pc-top">
                         <div class="pc-top-left">
-                            <div class="pc-kv"><label>Order No.</label><div class="pc-val desk-num">{{ $pcOrderNos !== '' ? $pcOrderNos : '—' }}</div></div>
+                            <div class="pc-kv">
+                                <label>Order No.</label>
+                                <div class="pc-val desk-num {{ $pcGroup && $pcOrderList->count() > 1 ? 'pc-val-scroll' : '' }}" @if ($pcOrderNos !== '') title="{{ $pcOrderNos }}" @endif>
+                                    @if ($pcOrderList->isEmpty())
+                                        —
+                                    @elseif ($pcGroup && $pcOrderList->count() > 1)
+                                        <div class="pc-val-summary">{{ $pcOrderList->count() }} orders</div>
+                                        {{ $pcOrderNos }}
+                                    @else
+                                        {{ $pcOrderNos }}
+                                    @endif
+                                </div>
+                            </div>
                             <div class="pc-kv"><label>Order Date</label><div class="pc-val">{{ optional($modalInvoice->salesOrder?->order_date)?->format('n/j/Y') ?: '—' }}</div></div>
                             <div class="pc-kv"><label>Sales Rep.</label><div class="pc-val">{{ $modalInvoice->salesOrder?->salesRep?->name ?: '' }}</div></div>
                             <div class="pc-kv"><label>Status</label><div class="pc-val">{{ $modalInvoice->salesOrder?->status ?: 'Invoiced' }}{{ $modalInvoice->salesOrder?->delivery_status ? ' · '.ucfirst(str_replace('_', ' ', $modalInvoice->salesOrder->delivery_status)) : '' }}</div></div>
-                            <div class="pc-kv"><label>Invoice No.</label><div class="pc-val desk-num">{{ $pcInvoiceNos }}</div></div>
+                            <div class="pc-kv">
+                                <label>Invoice No.</label>
+                                <div class="pc-val desk-num {{ $pcGroup ? 'pc-val-scroll' : '' }}" @if ($pcInvoiceNos !== '') title="{{ $pcInvoiceNos }}" @endif>
+                                    @if ($pcGroup)
+                                        <div class="pc-val-summary">{{ $pcInvoiceList->count() }} invoices</div>
+                                        {{ $pcInvoiceNos }}
+                                    @else
+                                        {{ $pcInvoiceNos }}
+                                    @endif
+                                </div>
+                            </div>
                             <div class="pc-kv"><label>Invoice Date</label><div class="pc-val">{{ optional($modalInvoice->invoice_date)?->format('n/j/Y') }}</div></div>
                         </div>
 
@@ -81,22 +131,33 @@
                                     <strong>${{ number_format((float) $draftPayTotal + $draftCreditTotal, 2) }}</strong>
                                 </div>
                             @endif
+                            @if (($overpayAmount ?? 0) > 0.0001)
+                                <div class="pc-pay-meta-row pc-pay-over" style="color:#166534;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:4px;padding:0.35rem 0.5rem;margin-top:0.25rem">
+                                    <span>Overpayment</span>
+                                    <strong style="color:#166534">${{ number_format((float) $overpayAmount, 2) }}</strong>
+                                    <span style="flex-basis:100%;font-size:11px;color:#166534">
+                                        Extra becomes a new open credit memo for this customer when you Save.
+                                    </span>
+                                </div>
+                            @endif
                         </div>
                         @if ($isGroupPay && $payAllocation !== [])
                             <div class="pc-sum-hint" style="margin:0.35rem 0 0.5rem">
                                 Oldest invoice is paid first. A short payment pays that invoice in full and only reduces the next one.
-                                @foreach ($payAllocation as $alloc)
-                                    <div>
-                                        Invoice {{ $alloc['invoice_number'] }}:
-                                        @if ($alloc['applied'] <= 0.0001)
-                                            still due ${{ number_format($alloc['due'], 2) }}
-                                        @elseif ($alloc['paid'])
-                                            <strong>paid in full</strong>
-                                        @else
-                                            <strong>still due ${{ number_format($alloc['left'], 2) }}</strong>
-                                        @endif
-                                    </div>
-                                @endforeach
+                                <div class="pc-alloc-scroll">
+                                    @foreach ($payAllocation as $alloc)
+                                        <div>
+                                            Invoice {{ $alloc['invoice_number'] }}:
+                                            @if ($alloc['applied'] <= 0.0001)
+                                                still due ${{ number_format($alloc['due'], 2) }}
+                                            @elseif ($alloc['paid'])
+                                                <strong>paid in full</strong>
+                                            @else
+                                                <strong>still due ${{ number_format($alloc['left'], 2) }}</strong>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
                             </div>
                         @endif
                         <div class="pc-grid-wrap">
@@ -192,7 +253,7 @@
                                                 />
                                             </td>
                                             <td>
-                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.blur="draftPayments.{{ $i }}.amount" placeholder="0" />
+                                                <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live.debounce.200ms="draftPayments.{{ $i }}.amount" placeholder="0" />
                                             </td>
                                             <td>
                                                 <input type="text" class="so-input pc-cell-input" wire:model="draftPayments.{{ $i }}.comments" placeholder="Optional" />
@@ -306,7 +367,7 @@
                                                 @endif
                                                 <td>
                                                     <span class="pc-credit-minus" title="Taken off this invoice">−</span>
-                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.blur="draftCredits.{{ $i }}.amount" placeholder="0" />
+                                                    <input type="text" inputmode="decimal" class="so-input pc-cell-input text-right" wire:model.live.debounce.200ms="draftCredits.{{ $i }}.amount" placeholder="0" />
                                                 </td>
                                             </tr>
                                         @empty
@@ -356,7 +417,12 @@
                             @endif
                             @if ($draftPayTotal > 0.0001 || $draftCreditTotal > 0.0001)
                                 <div class="pc-sum-row"><span>After Save</span><strong>${{ number_format((float) $previewBalance, 2) }}</strong></div>
-                                <div class="pc-sum-hint">Invoice Balance is unpaid now. After Save is what is left when you click Save.</div>
+                                @if (($overpayAmount ?? 0) > 0.0001)
+                                    <div class="pc-sum-row" style="color:#166534"><span>New open credit</span><strong>${{ number_format((float) $overpayAmount, 2) }}</strong></div>
+                                    <div class="pc-sum-hint" style="color:#166534">Pays this invoice in full. Extra ${{ number_format((float) $overpayAmount, 2) }} is saved as an Overpayment credit for this customer.</div>
+                                @else
+                                    <div class="pc-sum-hint">Invoice Balance is unpaid now. After Save is what is left when you click Save.</div>
+                                @endif
                             @endif
                         </div>
                     </div>

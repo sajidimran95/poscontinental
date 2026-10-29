@@ -110,11 +110,11 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 'inv_balance' => fn ($inv) => (float) $inv->invoice_balance,
             ], 'inv_date', 'desc');
 
+            // All open leftovers (incl. Overpayment), same as the payment modal — not date-gated.
             $openCredits = CreditMemo::query()
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
-                ->countsOnInvoice()
                 ->orderByDesc('memo_date')
                 ->orderByDesc('id')
                 ->get()
@@ -129,6 +129,13 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
             $openCreditTotal = round((float) $openCredits->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
+
+        $openIds = $invoices->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $selectedOpenCount = count(array_filter(
+            $openIds,
+            fn (int $id) => ! empty($this->selected[$id])
+        ));
+        $allOpenSelected = $openIds !== [] && $selectedOpenCount === count($openIds);
 
         $checkedTotal = round((float) $invoices
             ->filter(fn ($inv) => ! empty($this->selected[$inv->id]))
@@ -249,6 +256,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             'selectedCustomer' => $selectedCustomer,
             'browseCustomers' => $browseCustomers,
             'openInvoices' => $invoices,
+            'allOpenSelected' => $allOpenSelected,
             'openCredits' => $openCredits,
             'openCreditTotal' => $openCreditTotal,
             'checkedTotal' => $checkedTotal,
@@ -321,10 +329,32 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 i.invoice_number, i.customer_id, c.customer_id as customer_code, c.company_name as customer_name,
                 ic.created_at");
 
+        // Open leftovers (Overpayment, etc.) not yet applied to any invoice — otherwise they never appear here.
+        $applied = DB::table('invoice_credits')
+            ->selectRaw('credit_memo_id, SUM(amount) as applied')
+            ->groupBy('credit_memo_id');
+
+        $openCredits = DB::table('credit_memos as cm')
+            ->leftJoinSub($applied, 'ap', 'ap.credit_memo_id', '=', 'cm.id')
+            ->leftJoin('customers as c', 'c.id', '=', 'cm.customer_id')
+            ->where('cm.company_id', $companyId)
+            ->where('cm.status', 'Open')
+            ->whereRaw('GREATEST(cm.amount - COALESCE(ap.applied, 0), 0) > 0.005')
+            ->when($customerId, fn ($q) => $q->where('cm.customer_id', $customerId))
+            ->when($from !== '', fn ($q) => $q->whereDate('cm.memo_date', '>=', $from))
+            ->when($to !== '', fn ($q) => $q->whereDate('cm.memo_date', '<=', $to))
+            ->selectRaw("'open_credit' as kind, cm.id as row_id, NULL as invoice_id, cm.memo_date as row_date,
+                CASE WHEN LOWER(TRIM(COALESCE(cm.reason, ''))) = 'overpayment' THEN 'Overpayment' ELSE 'Open Credit' END as method,
+                cm.memo_number as ref,
+                GREATEST(cm.amount - COALESCE(ap.applied, 0), 0) as amount,
+                COALESCE(NULLIF(TRIM(cm.comments), ''), NULLIF(TRIM(cm.reason), ''), 'Open credit on customer') as comments,
+                NULL as invoice_number, cm.customer_id, c.customer_id as customer_code, c.company_name as customer_name,
+                cm.created_at");
+
         $source = match ($this->plType) {
             'payment', 'returned' => $payments,
-            'credit' => $credits,
-            default => $payments->unionAll($credits),
+            'credit' => $credits->unionAll($openCredits),
+            default => $payments->unionAll($credits)->unionAll($openCredits),
         };
 
         $query = DB::query()->fromSub($source, 'pl');
@@ -361,7 +391,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
     {
         $out = [];
         foreach ($this->plKeys as $key) {
-            if (preg_match('/^(payment|credit):(\d+)$/', (string) $key, $m)) {
+            if (preg_match('/^(payment|credit|open_credit):(\d+)$/', (string) $key, $m)) {
                 $out[] = [$m[1], (int) $m[2]];
             }
         }
@@ -392,6 +422,10 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
     protected function plInvoiceIdFor(string $kind, int $id): int
     {
+        if ($kind === 'open_credit') {
+            return 0;
+        }
+
         return $kind === 'credit'
             ? (int) InvoiceCredit::query()->whereKey($id)->value('invoice_id')
             : (int) InvoicePayment::query()->whereKey($id)->value('invoice_id');
@@ -488,13 +522,33 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $total = 0.0;
         $errors = [];
         foreach ($sel as [$kind, $id]) {
-            $exists = $kind === 'credit'
-                ? InvoiceCredit::query()->whereKey($id)->exists()
-                : InvoicePayment::query()->whereKey($id)->exists();
-            if (! $exists) {
-                continue;
-            }
             try {
+                if ($kind === 'open_credit') {
+                    $memo = CreditMemo::query()
+                        ->where('company_id', $companyId)
+                        ->whereKey($id)
+                        ->where('status', 'Open')
+                        ->first();
+                    if (! $memo) {
+                        continue;
+                    }
+                    $left = round((float) $memo->remaining_amount, 2);
+                    if ($memo->applications()->exists()) {
+                        throw new \RuntimeException('Memo '.$memo->memo_number.' still has applied amounts — reverse those credits first.');
+                    }
+                    $memo->delete();
+                    $total += $left;
+                    $done++;
+
+                    continue;
+                }
+
+                $exists = $kind === 'credit'
+                    ? InvoiceCredit::query()->whereKey($id)->exists()
+                    : InvoicePayment::query()->whereKey($id)->exists();
+                if (! $exists) {
+                    continue;
+                }
                 $total += $kind === 'credit'
                     ? $svc->removeCredit($id, $companyId)
                     : $svc->removePayment($id, $companyId);
@@ -507,7 +561,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
         $this->plKeys = [];
         $msg = $done === 1 ? '1 row voided' : $done.' rows voided';
-        $msg .= ' ($'.number_format($total, 2).' owed again). Invoice balances restored.';
+        $msg .= ' ($'.number_format($total, 2).').';
         if ($errors !== []) {
             $msg .= ' '.count($errors).' failed: '.$errors[0];
         }
@@ -572,7 +626,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             ->unique()
             ->values();
         if ($invoiceIds->isEmpty()) {
-            session()->flash('status', 'Selected rows no longer exist.');
+            session()->flash('status', 'Open overpayment credits are not on an invoice. Void them, or apply them on the next payment.');
 
             return;
         }
@@ -627,10 +681,16 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 return;
             }
             [$kind, $id] = $sel;
-        } elseif (preg_match('/^(payment|credit):(\d+)$/', $key, $m)) {
+        } elseif (preg_match('/^(payment|credit|open_credit):(\d+)$/', $key, $m)) {
             $kind = $m[1];
             $id = (int) $m[2];
         } else {
+            return;
+        }
+
+        if ($kind === 'open_credit') {
+            session()->flash('status', 'This is an open credit on the customer (not on an invoice yet). Use it on the next payment, or Void to remove it.');
+
             return;
         }
 
@@ -892,7 +952,6 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
                 ->where('status', 'Open')
-                ->countsOnInvoice()
                 ->get()
                 ->sum(fn (CreditMemo $m) => $m->remaining_amount), 2);
         }
@@ -919,6 +978,38 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
         $this->selected = [];
         foreach ($ids as $id) {
             $this->selected[(int) $id] = true;
+        }
+        $this->syncPayAmountToCashNeeded();
+    }
+
+    public function toggleSelectAllOpen(): void
+    {
+        if (! $this->customer_id) {
+            return;
+        }
+
+        $companyId = auth()->user()->company_id;
+        $ids = Invoice::query()
+            ->with(['payments', 'credits'])
+            ->where('company_id', $companyId)
+            ->where('customer_id', $this->customer_id)
+            ->get()
+            ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $allOn = $ids !== [] && collect($ids)->every(fn (int $id) => ! empty($this->selected[$id]));
+
+        if ($allOn) {
+            $this->clearSelected();
+
+            return;
+        }
+
+        $this->selected = [];
+        foreach ($ids as $id) {
+            $this->selected[$id] = true;
         }
         $this->syncPayAmountToCashNeeded();
     }
@@ -1055,7 +1146,6 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         ->where('company_id', $companyId)
                         ->where('customer_id', $this->customer_id)
                         ->where('status', 'Open')
-                        ->countsOnInvoice()
                         ->orderBy('memo_date')
                         ->orderBy('id')
                         ->lockForUpdate()
@@ -1537,7 +1627,17 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         <table class="desk-table">
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width:2.5rem"></th>
+                                    <th class="text-center" style="width:2.5rem">
+                                        <input
+                                            type="checkbox"
+                                            wire:key="open-all-{{ $allOpenSelected ? 1 : 0 }}"
+                                            wire:click.prevent="toggleSelectAllOpen"
+                                            @checked($allOpenSelected)
+                                            @disabled(! $canEnterPayments || $openInvoices->isEmpty())
+                                            title="Select all open invoices"
+                                            aria-label="Select all open invoices"
+                                        />
+                                    </th>
                                     <x-desk-sort-th field="inv_number" label="Invoice No." />
                                     <x-desk-sort-th field="inv_date" label="Invoice Date" />
                                     <x-desk-sort-th field="inv_order" label="Order No." />
@@ -1696,8 +1796,13 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 <div class="pl-actions">
                     <span class="pl-sel-label">
                         @if ($plSelRow)
-                            Selected: <strong>{{ $plSelRow->kind === 'credit' ? 'Credit' : $plSelRow->method }}</strong>
-                            ${{ number_format((float) $plSelRow->amount, 2) }} · Invoice {{ $plSelRow->invoice_number }}
+                            Selected: <strong>{{ $plSelRow->kind === 'payment' ? $plSelRow->method : ($plSelRow->method ?: 'Credit') }}</strong>
+                            ${{ number_format((float) $plSelRow->amount, 2) }}
+                            @if ($plSelRow->kind === 'open_credit')
+                                · Open on customer (not applied)
+                            @else
+                                · Invoice {{ $plSelRow->invoice_number }}
+                            @endif
                         @elseif ($plSelCount > 1)
                             <strong>{{ $plSelCount }} selected</strong> · ${{ number_format($plSelTotal, 2) }}
                             · {{ $plSelInvoices->count() }} invoice{{ $plSelInvoices->count() === 1 ? '' : 's' }}
@@ -1710,7 +1815,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         type="button"
                         class="desk-btn desk-btn-sm desk-btn-primary"
                         wire:click="plOpenEdit"
-                        @disabled($plSelCount !== 1 || ! $canEnterPayments)
+                        @disabled($plSelCount !== 1 || ! $canEnterPayments || ($plSelRow->kind ?? '') === 'open_credit')
                     >Edit</button>
                     <button
                         type="button"
@@ -1733,7 +1838,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         wire:confirm="Reverse ALL payments and credits on invoice {{ $plSelInvoices->implode(', ') }}? {{ $plSelInvoices->count() === 1 ? 'It becomes' : 'They become' }} fully unpaid again."
                         @disabled($plSelCount === 0 || ! $canEnterPayments)
                     >Reverse Payment{{ $plSelInvoices->count() > 1 ? ' ('.$plSelInvoices->count().')' : '' }}</button>
-                    <button type="button" class="desk-btn desk-btn-sm" wire:click="plOpenInvoice" @disabled(! $plSelRow)>Open Invoice</button>
+                    <button type="button" class="desk-btn desk-btn-sm" wire:click="plOpenInvoice" @disabled(! $plSelRow || ($plSelRow->kind ?? '') === 'open_credit' || ! ($plSelRow->invoice_number ?? null))>Open Invoice</button>
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="plPrintReceipt" @disabled(! $plSelRow || $plSelRow->kind !== 'payment')>Print Receipt</button>
                     <button type="button" class="desk-btn desk-btn-sm" wire:click="plRefresh" title="Refresh">↻</button>
                 </div>
@@ -1788,8 +1893,8 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                     </td>
                                     <td>{{ $row->row_date ? \Illuminate\Support\Carbon::parse($row->row_date)->format('n/j/Y') : '—' }}</td>
                                     <td>
-                                        @if ($row->kind === 'credit')
-                                            <span class="pl-tag pl-tag-credit">Credit</span>
+                                        @if ($row->kind === 'credit' || $row->kind === 'open_credit')
+                                            <span class="pl-tag pl-tag-credit">{{ $row->kind === 'open_credit' && strcasecmp((string) $row->method, 'Overpayment') === 0 ? 'Overpay' : 'Credit' }}</span>
                                         @elseif ($rowIsReturn)
                                             <span class="pc-returned-tag">Returned</span>
                                         @elseif ($rowBounced)
@@ -1799,13 +1904,13 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                                         @endif
                                     </td>
                                     <td>{{ $row->customer_code }}{{ $row->customer_code ? ' — ' : '' }}{{ $row->customer_name }}</td>
-                                    <td class="desk-num">{{ $row->invoice_number }}</td>
+                                    <td class="desk-num">{{ $row->invoice_number ?: '—' }}</td>
                                     <td>{{ $row->method }}</td>
                                     <td class="desk-num">{{ $row->ref ?: '—' }}</td>
-                                    <td class="desk-money">@if ($row->kind === 'credit')−@endif${{ number_format((float) $row->amount, 2) }}</td>
+                                    <td class="desk-money">@if ($row->kind === 'credit' || $row->kind === 'open_credit')−@endif${{ number_format((float) $row->amount, 2) }}</td>
                                     <td class="pl-comments">{{ $row->comments }}</td>
                                     <td>
-                                        @unless ($rowIsReturn)
+                                        @unless ($rowIsReturn || $row->kind === 'open_credit')
                                             <button
                                                 type="button"
                                                 class="desk-btn desk-btn-sm"

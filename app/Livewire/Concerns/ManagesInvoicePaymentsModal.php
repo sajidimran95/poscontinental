@@ -83,8 +83,12 @@ trait ManagesInvoicePaymentsModal
             ? round((float) $modalInvoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2)
             : ($modalInvoice ? round((float) $modalInvoice->invoice_balance, 2) : 0);
         $pcDelta = $isGroupPay || ! $modalInvoice ? 0.0 : $this->pcAdjustDelta($modalInvoice);
+        $dueNow = max(0, round($savedBalance + $pcDelta, 2));
+        $creditTowardDue = min($draftCreditTotal, $dueNow);
+        $cashTowardDue = min($draftPayTotal, max(0, round($dueNow - $creditTowardDue, 2)));
+        $overpayAmount = max(0, round($draftPayTotal - $cashTowardDue, 2));
         $previewBalance = $modalInvoice
-            ? max(0, round($savedBalance + $pcDelta - $draftPayTotal - $draftCreditTotal, 2))
+            ? max(0, round($dueNow - $creditTowardDue - $cashTowardDue, 2))
             : 0;
 
         return [
@@ -104,6 +108,7 @@ trait ManagesInvoicePaymentsModal
             'hasCreditSalesOrder' => Cache::remember('schema.credit_memos.sales_order_id', 86400, fn () => Schema::hasColumn('credit_memos', 'sales_order_id')),
             'draftPayTotal' => $draftPayTotal,
             'draftCreditTotal' => $draftCreditTotal,
+            'overpayAmount' => $overpayAmount,
             'previewBalance' => $previewBalance,
             'savedBalance' => $savedBalance,
             'pcDelta' => $pcDelta,
@@ -890,58 +895,36 @@ trait ManagesInvoicePaymentsModal
         $balance = round((float) $invoice->invoice_balance + $pcDelta, 2);
         $payTotal = round((float) $payments->sum('amount'), 2);
         $creditTotal = round((float) $credits->sum('amount'), 2);
-        $combined = round($payTotal + $creditTotal, 2);
 
-        // Allow full payoff when float/rounding is slightly over.
-        if ($combined > $balance && $combined <= round($balance + 0.02, 2) && $payments->isNotEmpty()) {
-            $over = round($combined - $balance, 2);
-            $payments = $payments->values();
-            $lastIdx = $payments->count() - 1;
-            $adjusted = round((float) $payments[$lastIdx]['amount'] - $over, 2);
-            if ($adjusted <= 0.0001) {
-                $payments->forget($lastIdx);
-                $payments = $payments->values();
-            } else {
-                $row = $payments[$lastIdx];
-                $row['amount'] = $adjusted;
-                $payments->put($lastIdx, $row);
-                $payments = $payments->values();
-            }
-            $payTotal = round((float) $payments->sum('amount'), 2);
-            $combined = round($payTotal + $creditTotal, 2);
-        }
-
-        if ($combined > $balance + 0.0001) {
-            session()->flash('status', 'Total payments and credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
+        if ($creditTotal > $balance + 0.0001) {
+            session()->flash('status', 'Credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
 
             return;
         }
 
         $lastPayment = null;
-        $savedPayTotal = $payTotal;
-        $savedCreditTotal = $creditTotal;
+        $savedPayTotal = 0.0;
+        $savedCreditTotal = 0.0;
+        $overpayCreated = 0.0;
+        $overpayMemoNumber = null;
         $leftOnCustomer = [];
 
         try {
-            DB::transaction(function () use ($invoice, $payments, $credits, &$lastPayment, &$leftOnCustomer) {
+            DB::transaction(function () use (
+                $invoice,
+                $payments,
+                $credits,
+                $payTotal,
+                &$lastPayment,
+                &$leftOnCustomer,
+                &$savedPayTotal,
+                &$savedCreditTotal,
+                &$overpayCreated,
+                &$overpayMemoNumber
+            ) {
                 $this->applyPcAdjustments($invoice);
                 $invoice->customer?->refresh();
                 $customerDebit = 0.0;
-
-                foreach ($payments as $row) {
-                    $lastPayment = InvoicePayment::query()->create([
-                        'invoice_id' => $invoice->id,
-                        'payment_date' => $row['payment_date'],
-                        'payment_method' => $row['payment_method'],
-                        'check_number' => InvoicePayment::isCheckMethod($row['payment_method'])
-                            ? $row['check_number']
-                            : null,
-                        'amount' => $row['amount'],
-                        'comments' => $row['comments'] !== '' ? $row['comments'] : null,
-                        'user_id' => auth()->id(),
-                    ]);
-                    $customerDebit += $row['amount'];
-                }
 
                 foreach ($credits as $row) {
                     $memo = CreditMemo::query()->lockForUpdate()->findOrFail($row['credit_memo_id']);
@@ -974,7 +957,61 @@ trait ManagesInvoicePaymentsModal
                         $leftOnCustomer[] = 'Memo '.$memo->memo_number.' $'.number_format($left, 2).' stays on the customer';
                     }
 
+                    $savedCreditTotal = round($savedCreditTotal + $amount, 2);
                     $customerDebit += $amount;
+                }
+
+                $invoice->unsetRelation('payments');
+                $invoice->unsetRelation('credits');
+                $invoice->refresh();
+                $invoice->load(['payments', 'credits']);
+                $due = round((float) $invoice->invoice_balance, 2);
+                $cashLeft = $payTotal;
+
+                foreach ($payments as $row) {
+                    if ($cashLeft <= 0.0001) {
+                        break;
+                    }
+                    $rowAmt = round(min((float) $row['amount'], $cashLeft), 2);
+                    $apply = round(min($rowAmt, max(0, $due)), 2);
+                    $cashLeft = round($cashLeft - $rowAmt, 2);
+
+                    if ($apply > 0.0001) {
+                        $lastPayment = InvoicePayment::query()->create([
+                            'invoice_id' => $invoice->id,
+                            'payment_date' => $row['payment_date'],
+                            'payment_method' => $row['payment_method'],
+                            'check_number' => InvoicePayment::isCheckMethod($row['payment_method'])
+                                ? $row['check_number']
+                                : null,
+                            'amount' => $apply,
+                            'comments' => $row['comments'] !== '' ? $row['comments'] : null,
+                            'user_id' => auth()->id(),
+                        ]);
+                        $savedPayTotal = round($savedPayTotal + $apply, 2);
+                        $customerDebit += $apply;
+                        $due = round($due - $apply, 2);
+                    }
+                }
+
+                $overpay = round(max(0, $payTotal - $savedPayTotal), 2);
+                if ($overpay > 0.0001) {
+                    $ref = collect($payments)
+                        ->map(fn ($r) => InvoicePayment::isCheckMethod($r['payment_method']) ? $r['check_number'] : '')
+                        ->filter()
+                        ->first();
+                    $memoDate = collect($payments)->pluck('payment_date')->filter()->first() ?: now()->toDateString();
+                    $memo = $this->createOverpaymentCreditMemo(
+                        (int) $invoice->company_id,
+                        (int) $invoice->customer_id,
+                        $overpay,
+                        $memoDate,
+                        $ref ? (string) $ref : null,
+                        $payTotal,
+                        $savedPayTotal
+                    );
+                    $overpayCreated = $overpay;
+                    $overpayMemoNumber = $memo->memo_number;
                 }
 
                 $invoice->unsetRelation('payments');
@@ -1018,6 +1055,9 @@ trait ManagesInvoicePaymentsModal
         }
         if ($savedCreditTotal > 0) {
             $parts[] = '−$'.number_format($savedCreditTotal, 2).' on the invoice';
+        }
+        if ($overpayCreated > 0.0001) {
+            $parts[] = 'Overpayment $'.number_format($overpayCreated, 2).' saved as open credit memo '.$overpayMemoNumber;
         }
         if ($leftOnCustomer !== []) {
             $parts[] = implode('. ', $leftOnCustomer);
@@ -1101,18 +1141,31 @@ trait ManagesInvoicePaymentsModal
         }
 
         $balance = round((float) $invoices->sum(fn (Invoice $i) => (float) $i->invoice_balance), 2);
-        $combined = round((float) $payments->sum('amount') + (float) $credits->sum('amount'), 2);
-        if ($combined > $balance + 0.0001) {
-            session()->flash('status', 'Total payments and credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
+        $payTotal = round((float) $payments->sum('amount'), 2);
+        $creditTotal = round((float) $credits->sum('amount'), 2);
+        if ($creditTotal > $balance + 0.0001) {
+            session()->flash('status', 'Credits cannot exceed the invoice balance of $'.number_format($balance, 2).'.');
 
             return;
         }
 
         $lastPayment = null;
         $results = [];
+        $overpayCreated = 0.0;
+        $overpayMemoNumber = null;
 
         try {
-            DB::transaction(function () use ($invoices, $payments, $credits, $customerId, &$lastPayment, &$results) {
+            DB::transaction(function () use (
+                $invoices,
+                $payments,
+                $credits,
+                $customerId,
+                $payTotal,
+                &$lastPayment,
+                &$results,
+                &$overpayCreated,
+                &$overpayMemoNumber
+            ) {
                 $locked = Invoice::query()
                     ->whereIn('id', $invoices->pluck('id'))
                     ->orderBy('invoice_date')
@@ -1161,6 +1214,7 @@ trait ManagesInvoicePaymentsModal
                 }
 
                 $cashPool = $payments->map(fn ($r) => $r)->all();
+                $cashApplied = 0.0;
                 foreach ($locked as $invoice) {
                     $invoice->unsetRelation('payments');
                     $invoice->unsetRelation('credits');
@@ -1187,6 +1241,7 @@ trait ManagesInvoicePaymentsModal
                         $cashPool[$k]['amount'] = round($row['amount'] - $apply, 2);
                         $due = round($due - $apply, 2);
                         $applied += $apply;
+                        $cashApplied = round($cashApplied + $apply, 2);
                     }
 
                     $invoice->unsetRelation('payments');
@@ -1201,6 +1256,27 @@ trait ManagesInvoicePaymentsModal
                         'number' => (string) $invoice->invoice_number,
                         'left' => $left,
                     ];
+                }
+
+                $overpay = round(max(0, $payTotal - $cashApplied), 2);
+                if ($overpay > 0.0001) {
+                    $first = $locked->first();
+                    $ref = collect($payments)
+                        ->map(fn ($r) => InvoicePayment::isCheckMethod($r['payment_method']) ? $r['check_number'] : '')
+                        ->filter()
+                        ->first();
+                    $memoDate = collect($payments)->pluck('payment_date')->filter()->first() ?: now()->toDateString();
+                    $memo = $this->createOverpaymentCreditMemo(
+                        (int) $first->company_id,
+                        $customerId,
+                        $overpay,
+                        $memoDate,
+                        $ref ? (string) $ref : null,
+                        $payTotal,
+                        $cashApplied
+                    );
+                    $overpayCreated = $overpay;
+                    $overpayMemoNumber = $memo->memo_number;
                 }
 
                 if ($applied > 0.0001 && $customerId) {
@@ -1223,6 +1299,9 @@ trait ManagesInvoicePaymentsModal
                 ? 'Invoice '.$row['number'].' paid in full'
                 : 'Invoice '.$row['number'].' still due $'.number_format($row['left'], 2);
         }
+        if ($overpayCreated > 0.0001) {
+            $lines[] = 'Overpayment $'.number_format($overpayCreated, 2).' saved as open credit memo '.$overpayMemoNumber;
+        }
         session()->flash('status', implode('. ', $lines).'.');
 
         if ($print && $lastPayment) {
@@ -1234,6 +1313,40 @@ trait ManagesInvoicePaymentsModal
         }
 
         $this->closeModal();
+    }
+
+    protected function createOverpaymentCreditMemo(
+        int $companyId,
+        int $customerId,
+        float $amount,
+        string $memoDate,
+        ?string $referenceNo,
+        float $paidTotal,
+        float $appliedCash,
+    ): CreditMemo {
+        $candidate = CreditMemo::nextNumber($companyId);
+        while (
+            CreditMemo::query()
+                ->where('company_id', $companyId)
+                ->where('memo_number', $candidate)
+                ->exists()
+        ) {
+            $candidate = (string) (((int) $candidate) + 1);
+        }
+
+        return CreditMemo::query()->create([
+            'company_id' => $companyId,
+            'memo_number' => $candidate,
+            'memo_date' => $memoDate,
+            'reference_no' => $referenceNo,
+            'reason' => 'Overpayment',
+            'customer_id' => $customerId,
+            'sales_order_id' => null,
+            'amount' => round($amount, 2),
+            'status' => 'Open',
+            'comments' => 'Auto credit from customer payment overage ($'.number_format($paidTotal, 2).' paid on $'.number_format($appliedCash, 2).' remaining invoice balance).',
+            'restock_inventory' => false,
+        ]);
     }
 
     protected function openPdfInBrowser(string $url): void

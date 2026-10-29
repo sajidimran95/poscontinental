@@ -630,13 +630,16 @@ class DocumentPdfService
         bool $includeInactive = false,
         array $departmentIds = [],
         array $categoryIds = [],
+        array $itemIds = [],
     ) {
         $deptIds = array_values(array_filter(array_map('intval', $departmentIds)));
         $catIds = array_values(array_filter(array_map('intval', $categoryIds)));
+        $itemIds = array_values(array_unique(array_filter(array_map('intval', $itemIds))));
 
         return Item::query()
             ->with(['department', 'category', 'prices'])
             ->where('company_id', $companyId)
+            ->when($itemIds !== [], fn ($q) => $q->whereIn('id', $itemIds))
             ->when(! $includeInactive, fn ($q) => $q->where('is_inactive', false))
             ->when($deptIds !== [], fn ($q) => $q->whereIn('department_id', $deptIds))
             ->when($deptIds === [] && $departmentId, fn ($q) => $q->where('department_id', $departmentId))

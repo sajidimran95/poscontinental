@@ -180,6 +180,8 @@ class DocumentPdfController extends Controller
             'search' => 'nullable|string|max:255',
             'include_inactive' => 'nullable|boolean',
             'title' => 'nullable|string|max:160',
+            'item_ids' => 'nullable|array|max:500',
+            'item_ids.*' => 'integer',
         ]);
 
         $items = $pdfs->queryPriceListItems(
@@ -190,6 +192,7 @@ class DocumentPdfController extends Controller
             (bool) ($data['include_inactive'] ?? false),
             $data['department_ids'] ?? [],
             $data['category_ids'] ?? [],
+            $data['item_ids'] ?? [],
         );
 
         $levelIds = $data['price_level_ids'] ?? [];

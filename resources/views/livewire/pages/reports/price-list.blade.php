@@ -67,8 +67,6 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
         $pageIds = $items->pluck('id')->map(fn ($id) => (int) $id)->all();
         $selected = $this->normalizedSelectedIds();
-        $allSelected = $pageIds !== [] && count(array_intersect($selected, $pageIds)) === count($pageIds);
-        $selectedSet = array_fill_keys($selected, true);
 
         return [
             'departments' => Department::query()->where('company_id', $companyId)->orderBy('name')->get(),
@@ -85,9 +83,15 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                 ->get(['id', 'customer_id', 'company_name', 'email', 'price_level_id']),
             'items' => $items,
             'pageIds' => $pageIds,
-            'allSelected' => $allSelected,
-            'selectedCount' => count($selected),
-            'selectedSet' => $selectedSet,
+            'bootIds' => $selected,
+            'bootKey' => md5(implode('|', [
+                $this->search,
+                (string) $this->department_id,
+                (string) $this->category_id,
+                (string) $this->price_level_id,
+                $this->includeInactive ? '1' : '0',
+                implode(',', $selected),
+            ])),
         ];
     }
 
@@ -142,44 +146,54 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         $this->clearSelection();
     }
 
-    public function selectRow(int $id): void
+    /**
+     * Save the boxes the screen already checked. Skip the item-list reload so the click stays instant.
+     *
+     * @param  array<int, int|string>  $ids
+     */
+    public function syncSelection(array $ids): void
     {
-        $ids = $this->normalizedSelectedIds();
-        if (in_array($id, $ids, true)) {
-            $ids = array_values(array_filter($ids, fn ($x) => $x !== $id));
-        } else {
-            $ids[] = $id;
+        $clean = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id < 1 || isset($clean[$id])) {
+                continue;
+            }
+            $clean[$id] = $id;
+            if (count($clean) >= 500) {
+                break;
+            }
         }
-        $this->selectedIds = array_map('strval', $ids);
-        $this->selectedId = $ids[0] ?? null;
+
+        $clean = array_values($clean);
+        $this->selectedIds = array_map('strval', $clean);
+        $this->selectedId = $clean[0] ?? null;
+        $this->skipRender();
     }
 
-    public function toggleSelectAll(): void
+    public function openSelectedItem(?int $id = null): mixed
     {
-        $companyId = auth()->user()->company_id;
-        $pageIds = Item::query()
-            ->where('company_id', $companyId)
-            ->when(! $this->includeInactive, fn ($q) => $q->where('is_inactive', false))
-            ->when($this->department_id, fn ($q) => $q->where('department_id', $this->department_id))
-            ->when($this->category_id, fn ($q) => $q->where('category_id', $this->category_id))
-            ->when($this->search !== '', fn ($q) => $q->looseSearch($this->search))
-            ->orderBy('item_code')
-            ->limit(500)
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
-        $selected = $this->normalizedSelectedIds();
-        $allSelected = $pageIds !== [] && count(array_intersect($selected, $pageIds)) === count($pageIds);
-
-        if ($allSelected) {
-            $this->clearSelection();
-
-            return;
+        if ($id) {
+            $this->selectedId = $id;
         }
 
-        $this->selectedIds = array_map('strval', $pageIds);
-        $this->selectedId = $pageIds[0] ?? null;
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select an item first.');
+
+            return null;
+        }
+
+        $item = Item::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($this->selectedId);
+
+        if (! $item) {
+            session()->flash('status', 'Item not found.');
+
+            return null;
+        }
+
+        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
 
     public function clearSelection(): void
@@ -202,27 +216,6 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     public function clearFilters(): void
     {
         $this->reset(['department_id', 'category_id', 'price_level_id', 'search', 'includeInactive', 'selectedId', 'selectedIds']);
-    }
-
-    public function openSelectedItem(): mixed
-    {
-        if (! $this->selectedId) {
-            session()->flash('status', 'Select an item first.');
-
-            return null;
-        }
-
-        $item = Item::query()
-            ->where('company_id', auth()->user()->company_id)
-            ->find($this->selectedId);
-
-        if (! $item) {
-            session()->flash('status', 'Item not found.');
-
-            return null;
-        }
-
-        return $this->redirect(route('inventory.items.edit', $item), navigate: true);
     }
 
     public function refreshList(): void
@@ -256,6 +249,8 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
     protected function printQuery(): array
     {
+        $selected = $this->normalizedSelectedIds();
+
         return array_filter([
             'department_ids' => $this->department_id ? [$this->department_id] : null,
             'category_ids' => $this->category_id ? [$this->category_id] : null,
@@ -263,7 +258,22 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             'search' => $this->search !== '' ? $this->search : null,
             'include_inactive' => $this->includeInactive ? 1 : null,
             'title' => $this->priceListTitle(),
+            'item_ids' => $selected !== [] ? $selected : null,
         ], fn ($v) => $v !== null && $v !== []);
+    }
+
+    protected function priceListItems(DocumentPdfService $pdfs)
+    {
+        return $pdfs->queryPriceListItems(
+            auth()->user()->company_id,
+            $this->department_id,
+            $this->category_id,
+            $this->search,
+            $this->includeInactive,
+            $this->department_id ? [$this->department_id] : [],
+            $this->category_id ? [$this->category_id] : [],
+            $this->normalizedSelectedIds(),
+        );
     }
 
     public function printView(): void
@@ -273,15 +283,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
 
     public function downloadPdf(DocumentPdfService $pdfs): StreamedResponse
     {
-        $items = $pdfs->queryPriceListItems(
-            auth()->user()->company_id,
-            $this->department_id,
-            $this->category_id,
-            $this->search,
-            $this->includeInactive,
-            $this->department_id ? [$this->department_id] : [],
-            $this->category_id ? [$this->category_id] : [],
-        );
+        $items = $this->priceListItems($pdfs);
 
         return $pdfs->streamDownload(
             $pdfs->priceListPdf(
@@ -303,8 +305,9 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         $search = $this->search;
         $includeInactive = $this->includeInactive;
         $priceLevelId = $this->price_level_id;
+        $selectedIds = $this->normalizedSelectedIds();
 
-        return response()->streamDownload(function () use ($companyId, $departmentId, $categoryId, $search, $includeInactive, $priceLevelId) {
+        return response()->streamDownload(function () use ($companyId, $departmentId, $categoryId, $search, $includeInactive, $priceLevelId, $selectedIds) {
             $out = fopen('php://output', 'w');
             fputcsv($out, ['Category', 'Item Number', 'Description', 'List Price']);
 
@@ -315,6 +318,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                 ->when($departmentId, fn ($q) => $q->where('department_id', $departmentId))
                 ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
                 ->when($search !== '', fn ($q) => $q->looseSearch($search))
+                ->when($selectedIds !== [], fn ($q) => $q->whereIn('id', $selectedIds))
                 ->orderBy(
                     \App\Models\Category::query()
                         ->select('name')
@@ -347,15 +351,12 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             'emailSubject' => 'nullable|string|max:255',
         ]);
 
-        $items = $pdfs->queryPriceListItems(
-            auth()->user()->company_id,
-            $this->department_id,
-            $this->category_id,
-            $this->search,
-            $this->includeInactive,
-            $this->department_id ? [$this->department_id] : [],
-            $this->category_id ? [$this->category_id] : [],
-        );
+        $items = $this->priceListItems($pdfs);
+        if ($this->normalizedSelectedIds() !== [] && $items->isEmpty()) {
+            session()->flash('status', 'None of the selected items can be emailed.');
+
+            return;
+        }
 
         $pdfs->emailPriceList(
             $items,
@@ -368,7 +369,8 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
         );
 
         $this->showEmailModal = false;
-        session()->flash('status', 'Price list emailed to '.$this->emailTo);
+        $count = $items->count();
+        session()->flash('status', 'Price list emailed to '.$this->emailTo.' ('.$count.' item'.($count === 1 ? '' : 's').').');
     }
 }; ?>
 
@@ -377,7 +379,78 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
     $msrpAvg = $items->count() ? $items->avg(fn ($i) => (float) $i->msrp) : 0;
 @endphp
 
-<div class="desk-page relative">
+<div
+    class="desk-page relative"
+    x-data='{
+        ids: @json($bootIds),
+        pageIds: @json($pageIds),
+        on: {},
+        init() { this.setIds(this.ids); this.$nextTick(() => this.apply()); },
+        boot(detail) {
+            this.pageIds = (detail.pageIds || []).map(Number);
+            this.setIds(detail.ids || []);
+            this.$nextTick(() => this.apply());
+        },
+        setIds(list) {
+            const on = {};
+            const ids = [];
+            (list || []).forEach((raw) => {
+                const id = Number(raw);
+                if (!id || on[id]) return;
+                on[id] = true;
+                ids.push(id);
+            });
+            this.on = on;
+            this.ids = ids;
+        },
+        boxes() { return this.$root.querySelectorAll("tbody .pl-check-col input[type=checkbox]"); },
+        recount() {
+            const ids = [];
+            const on = {};
+            this.boxes().forEach((box) => {
+                const id = Number(box.dataset.id);
+                const row = box.closest("tr");
+                if (box.checked && id) {
+                    ids.push(id);
+                    on[id] = true;
+                    row && row.classList.add("is-selected");
+                } else if (row) {
+                    row.classList.remove("is-selected");
+                }
+            });
+            this.on = on;
+            this.ids = ids;
+            const head = this.$root.querySelector("[data-pl-all]");
+            if (head) {
+                const total = this.boxes().length;
+                head.checked = total > 0 && ids.length === total;
+                head.indeterminate = ids.length > 0 && ids.length < total;
+            }
+        },
+        apply() {
+            this.boxes().forEach((box) => { box.checked = !!this.on[Number(box.dataset.id)]; });
+            this.recount();
+        },
+        toggleRow(id, e) {
+            if (e.detail > 1) {
+                this.$wire.openSelectedItem(Number(id));
+                return;
+            }
+            const box = e.currentTarget.querySelector("input[type=checkbox]");
+            if (!box) return;
+            box.checked = !box.checked;
+            this.recount();
+        },
+        toggleAll(want) {
+            this.boxes().forEach((box) => { box.checked = !!want; });
+            this.recount();
+        },
+        flush() {
+            return this.$wire.syncSelection(this.ids.slice());
+        }
+    }'
+    @pl-boot.window="boot($event.detail)"
+>
     <style>
         .desk-grid > .desk-table thead th.pl-check-col,
         .desk-grid > .desk-table tbody td.pl-check-col {
@@ -396,7 +469,9 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
             accent-color: #1e3a5f;
             vertical-align: middle;
         }
+        [x-cloak] { display: none !important; }
     </style>
+    <span class="hidden" wire:key="pl-boot-{{ $bootKey }}" x-init="$dispatch('pl-boot', { ids: {{ \Illuminate\Support\Js::from($bootIds) }}, pageIds: {{ \Illuminate\Support\Js::from($pageIds) }} })"></span>
     <div class="desk-main desk-main-rail-layout">
         <x-action-bar title="Price List" />
 
@@ -493,9 +568,8 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                                 <th class="pl-check-col">
                                     <input
                                         type="checkbox"
-                                        wire:key="pl-all-{{ $allSelected ? 'on' : 'off' }}-{{ $selectedCount }}"
-                                        wire:click.stop.prevent="toggleSelectAll"
-                                        @checked($allSelected)
+                                        data-pl-all
+                                        @change.stop="toggleAll($event.target.checked)"
                                         title="Select all"
                                         aria-label="Select all items"
                                     />
@@ -514,19 +588,12 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                         </thead>
                         <tbody>
                             @forelse ($items as $item)
-                                @php $isSelected = isset($selectedSet[(int) $item->id]); @endphp
-                                <tr
-                                    wire:click="selectRow({{ $item->id }})"
-                                    wire:dblclick="openSelectedItem"
-                                    @class(['is-selected' => $isSelected, 'cursor-pointer'])
-                                >
-                                    <td class="pl-check-col" wire:click.stop>
+                                <tr class="cursor-pointer" @click="toggleRow({{ (int) $item->id }}, $event)">
+                                    <td class="pl-check-col" @click.stop>
                                         <input
                                             type="checkbox"
-                                            wire:key="pl-row-{{ $item->id }}-{{ $isSelected ? 'on' : 'off' }}"
-                                            value="{{ $item->id }}"
-                                            @checked($isSelected)
-                                            wire:click.stop.prevent="selectRow({{ $item->id }})"
+                                            data-id="{{ (int) $item->id }}"
+                                            @change.stop="recount()"
                                             aria-label="Select {{ $item->item_code }}"
                                         />
                                     </td>
@@ -559,9 +626,7 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                 <div class="desk-footer">
                     <span>
                         {{ number_format($items->count()) }} item(s) shown
-                        @if ($selectedCount > 0)
-                            · <strong>{{ number_format($selectedCount) }} selected</strong>
-                        @endif
+                        <span x-show="ids.length > 0" x-cloak> · <strong x-text="ids.length.toLocaleString() + ' selected'"></strong></span>
                     </span>
                 </div>
             </div>
@@ -573,31 +638,31 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                         <path d="M3.2 13.2l9.6-9.6" stroke-width="1.7"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="openSelectedItem" class="desk-rail-btn" title="View selected item" aria-label="View selected item" @disabled(! $selectedId)>
+                <button type="button" class="desk-rail-btn" title="View selected item" aria-label="View selected item" :disabled="ids.length === 0" @click="ids[0] && $wire.openSelectedItem(ids[0])">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/>
                         <circle cx="8" cy="8" r="2"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="printView" class="desk-rail-btn" title="Print price list" aria-label="Print price list">
+                <button type="button" class="desk-rail-btn" title="Print price list" aria-label="Print price list" @click="flush().then(() => $wire.printView())">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 6V3h8v3M4 12h8v-3H4v3z"/>
                         <rect x="3" y="6" width="10" height="4" rx="0.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="openEmailModal" class="desk-rail-btn" title="Email price list" aria-label="Email price list">
+                <button type="button" class="desk-rail-btn" title="Email price list" aria-label="Email price list" @click="flush().then(() => $wire.openEmailModal())">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <rect x="2" y="3.5" width="12" height="9" rx="1"/>
                         <path d="M2.5 4.5L8 9l5.5-4.5"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="downloadCsv" class="desk-rail-btn" title="Download CSV" aria-label="Download CSV" wire:loading.attr="disabled">
+                <button type="button" class="desk-rail-btn" title="Download CSV" aria-label="Download CSV" wire:target="downloadCsv" wire:loading.attr="disabled" @click="flush().then(() => $wire.downloadCsv())">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M8 2.5v8M5 8l3 3 3-3"/>
                         <path d="M3 13h10"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="downloadPdf" class="desk-rail-btn desk-rail-btn-primary" title="Download PDF" aria-label="Download PDF" wire:loading.attr="disabled">
+                <button type="button" class="desk-rail-btn desk-rail-btn-primary" title="Download PDF" aria-label="Download PDF" wire:target="downloadPdf" wire:loading.attr="disabled" @click="flush().then(() => $wire.downloadPdf())">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                         <path d="M4 2.5h5l3 3V13.5H4V2.5z"/>
                         <path d="M9 2.5V6h3"/>
@@ -621,6 +686,12 @@ new #[Layout('layouts.app'), Title('Price List')] class extends Component
                     <button type="button" wire:click="closeEmailModal" class="desk-modal-close" aria-label="Close">×</button>
                 </div>
                 <form wire:submit="emailPriceList" class="desk-modal-body" style="display:grid;gap:0.75rem">
+                    <p class="text-sm" style="margin:0" x-show="ids.length > 0" x-cloak>
+                        This email includes only the <strong x-text="ids.length"></strong> selected item(s).
+                    </p>
+                    <p class="text-sm" style="margin:0" x-show="ids.length === 0">
+                        No items are selected, so this email includes the full filtered list.
+                    </p>
                     <div>
                         <label class="desk-toolbar-label" for="pl-email-cust">Customer</label>
                         <select id="pl-email-cust" wire:model.live="emailCustomerId" class="desk-select" style="width:100%">

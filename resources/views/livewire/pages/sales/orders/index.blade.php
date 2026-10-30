@@ -439,7 +439,14 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 'createdBy:id,name',
             ])
             ->where('company_id', $companyId)
-            ->whereNotIn('status', ['Cancelled', 'Void', 'Closed']);
+            ->whereNotIn('status', ['Cancelled', 'Void', 'Closed'])
+            // Voided invoices are invoice-only — keep their SO out of Sales Orders.
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('invoices')
+                    ->whereColumn('invoices.voided_sales_order_id', 'sales_orders.id')
+                    ->whereRaw("UPPER(COALESCE(invoices.status, '')) = 'VOID'");
+            });
 
         // Today & Yesterday also lists processed orders (paid / not paid invoices).
         $includeInvoiced = $this->favorite === 'today' && $this->statusFilter !== 'not_invoiced';
@@ -448,7 +455,8 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
                 ->whereNotExists(function ($q) {
                     $q->selectRaw('1')
                         ->from('invoices')
-                        ->whereColumn('invoices.sales_order_id', 'sales_orders.id');
+                        ->whereColumn('invoices.sales_order_id', 'sales_orders.id')
+                        ->whereRaw("UPPER(COALESCE(invoices.status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')");
                 });
         }
 

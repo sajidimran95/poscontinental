@@ -457,6 +457,19 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($salesOrder instanceof SalesOrder && $salesOrder->exists) {
             abort_unless($salesOrder->company_id === $companyId, 403);
+
+            // Voided invoice orders are invoice-only (Invoices → VOID), not editable here.
+            if (strcasecmp(trim((string) $salesOrder->status), 'Void') === 0
+                || Invoice::query()
+                    ->where('voided_sales_order_id', $salesOrder->id)
+                    ->whereRaw("UPPER(COALESCE(status, '')) = 'VOID'")
+                    ->exists()) {
+                session()->flash('status', 'This sales order is tied to a voided invoice. Open it from Invoices → VOID (Unvoid to restore).');
+                $this->redirect(route('sales.invoices.index', ['statusFilter' => 'VOID']), navigate: true);
+
+                return;
+            }
+
             $salesOrder->loadMissing('invoice');
             $this->salesOrder = $salesOrder->load([
                 'lines' => fn ($q) => $q->orderBy('line_no'),

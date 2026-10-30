@@ -1001,7 +1001,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->closeModal();
         $this->favorite = 'void';
         $this->statusFilter = 'VOID';
-        session()->flash('status', 'Voided: stock returned, customer balance/sales reduced, invoice moved to VOID list (off the sales order).');
+        session()->flash('status', 'Voided: stock/balance reversed. Invoice is in VOID list only — hidden from Sales Orders. Unvoid to restore.');
     }
 
     public function unvoidSelectedInvoice(): void

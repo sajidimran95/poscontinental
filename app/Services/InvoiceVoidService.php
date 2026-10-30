@@ -56,7 +56,8 @@ class InvoiceVoidService
                     ]);
                 }
 
-                $order->update(['status' => 'New']);
+                // Hide from Sales Orders list; voided invoice lives only under Invoices → VOID.
+                $order->update(['status' => 'Void']);
             }
 
             // Detach from SO — void invoice stays only in VOID list.

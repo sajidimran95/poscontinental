@@ -97,6 +97,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                 ->with(['payments', 'credits', 'salesOrder'])
                 ->where('company_id', $companyId)
                 ->where('customer_id', $this->customer_id)
+                ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
                 ->orderByDesc('invoice_date')
                 ->orderByDesc('id')
                 ->get()
@@ -971,6 +972,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             ->with(['payments', 'credits'])
             ->where('company_id', $companyId)
             ->where('customer_id', $this->customer_id)
+            ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
             ->get()
             ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
             ->pluck('id');
@@ -993,6 +995,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
             ->with(['payments', 'credits'])
             ->where('company_id', $companyId)
             ->where('customer_id', $this->customer_id)
+            ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
             ->get()
             ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
             ->pluck('id')
@@ -1135,10 +1138,15 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                     ->where('company_id', $companyId)
                     ->where('customer_id', $this->customer_id)
                     ->whereIn('id', $ids)
+                    ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
                     ->orderBy('invoice_date')
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get();
+
+                if ($invoices->isEmpty()) {
+                    throw new \RuntimeException('Selected invoices are voided or not payable.');
+                }
 
                 // 1) Apply existing open credit memos to selected invoices (oldest first).
                 if ($this->apply_open_credits) {

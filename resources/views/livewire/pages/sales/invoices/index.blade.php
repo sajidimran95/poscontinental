@@ -319,6 +319,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $invoice = Invoice::query()
             ->where('company_id', auth()->user()->company_id)
             ->find($this->selectedId);
+        if ($invoice && strtoupper(trim((string) $invoice->status)) === 'VOID') {
+            session()->flash('status', 'VOID invoices cannot return items. Unvoid first.');
+
+            return;
+        }
         if (! $invoice?->sales_order_id) {
             session()->flash('status', 'This invoice has no sales order lines to return.');
 
@@ -883,6 +888,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
+        if ($this->selectedInvoiceIsVoid()) {
+            session()->flash('status', 'VOID invoices cannot take payments or credits. Unvoid first.');
+
+            return;
+        }
+
         $this->openPayments($this->selectedId);
     }
 
@@ -896,6 +907,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         if (! $this->selectedId) {
             session()->flash('status', 'Select an invoice first.');
+
+            return;
+        }
+
+        if ($this->selectedInvoiceIsVoid()) {
+            session()->flash('status', 'VOID invoices have no payments to reverse. Unvoid first if needed.');
 
             return;
         }
@@ -959,7 +976,27 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             return;
         }
 
+        if ($this->selectedInvoiceIsVoid()) {
+            session()->flash('status', 'VOID invoices cannot take payments or credits. Unvoid first.');
+
+            return;
+        }
+
         $this->openPayments($this->selectedId);
+    }
+
+    protected function selectedInvoiceIsVoid(): bool
+    {
+        if (! $this->selectedId) {
+            return false;
+        }
+
+        $status = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->whereKey($this->selectedId)
+            ->value('status');
+
+        return strtoupper(trim((string) $status)) === 'VOID';
     }
 
     public function voidSelectedInvoice(): void
@@ -1060,21 +1097,28 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         <x-action-bar title="Action">
             <x-slot:menu>
                 <x-action-item label="View Sales Order" kbd="Ctrl+O" wire:click="viewSalesOrder" />
-                <x-action-item label="Payments & Credits" sep wire:click="openPaymentsSelected" />
+                <x-action-item
+                    label="Payments & Credits"
+                    sep
+                    wire:click="openPaymentsSelected"
+                    :disabled="! $canEnterPayments"
+                    x-bind:disabled="! $wire.selectedId || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}"
+                    x-bind:title="{{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) ? 'VOID invoice — unvoid before payments/credits' : 'Payments & Credits'"
+                />
                 <x-action-item
                     label="Reverse Payment"
                     wire:click="reverseSelectedPayments"
                     wire:confirm="Reverse all payments and credits on the selected invoice? It will be fully unpaid again and credit memos go back to open."
                     :disabled="! $canEnterPayments"
-                    x-bind:disabled="! {{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}"
-                    x-bind:title="{{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) ? 'Reverse all payments on this invoice' : 'Select a paid invoice to reverse its payment'"
+                    x-bind:disabled="! {{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}"
+                    x-bind:title="{{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) ? 'VOID invoice — no reverse' : ({{ \Illuminate\Support\Js::from($reversibleIds) }}.includes(Number($wire.selectedId)) ? 'Reverse all payments on this invoice' : 'Select a paid invoice to reverse its payment')"
                 />
                 <x-action-item
                     label="Return Items"
                     sep
                     wire:click="openReturnItems"
                     :disabled="! $canEditInvoice"
-                    x-bind:disabled="! $wire.selectedId || {{ $canEditInvoice ? 'false' : 'true' }}"
+                    x-bind:disabled="! $wire.selectedId || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canEditInvoice ? 'false' : 'true' }}"
                     title="Return qty from the selected invoice (adds RETURN ITEM lines)"
                 />
                 <x-action-item label="Print" kbd="Ctrl+P" sep wire:click="printSelected" />
@@ -1295,7 +1339,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                         <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z"/>
                     </svg>
                 </button>
-                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Enter payment' : 'No payment permission' }}" aria-label="Enter payment" :disabled="! $wire.selectedId || {{ $canEnterPayments ? 'false' : 'true' }}">
+                <button type="button" wire:click="markSelected" class="desk-rail-btn" title="{{ $canEnterPayments ? 'Enter payment' : 'No payment permission' }}" aria-label="Enter payment" x-bind:disabled="! $wire.selectedId || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canEnterPayments ? 'false' : 'true' }}" x-bind:title="{{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) ? 'VOID invoice — unvoid before payment' : {{ \Illuminate\Support\Js::from($canEnterPayments ? 'Enter payment' : 'No payment permission') }}">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/>
                         <path d="M5 8.2l2.1 2.1L11.2 6" stroke-width="1.7"/>

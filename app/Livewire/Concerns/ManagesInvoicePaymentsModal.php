@@ -217,12 +217,21 @@ trait ManagesInvoicePaymentsModal
             return;
         }
 
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+
+        if ($invoice && strtoupper(trim((string) $invoice->status)) === 'VOID') {
+            session()->flash('status', 'Invoice #'.$invoice->invoice_number.' is VOID. Unvoid it first — payments and credits are not allowed on voided invoices.');
+
+            return;
+        }
+
         if (property_exists($this, 'selectedId')) {
             $this->selectedId = $id;
         }
         $this->modalInvoiceId = $id;
         $this->modalInvoiceIds = [$id];
-        $invoice = Invoice::query()->find($id);
         $this->driver = $invoice?->driver ?? '';
         $this->driverSavedAt = '';
         $this->draftPayments = [];
@@ -262,11 +271,18 @@ trait ManagesInvoicePaymentsModal
             ->with('customer')
             ->where('company_id', auth()->user()->company_id)
             ->whereIn('id', $ids)
+            ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
             ->orderBy('invoice_date')
             ->orderBy('id')
             ->get()
             ->filter(fn (Invoice $i) => $i->invoice_balance > 0.0001)
             ->values();
+
+        if ($invoices->isEmpty()) {
+            session()->flash('status', 'No payable invoices selected. VOID invoices cannot take payments or credits.');
+
+            return;
+        }
 
         if ($invoices->count() <= 1) {
             if ($invoices->isNotEmpty()) {
@@ -804,6 +820,12 @@ trait ManagesInvoicePaymentsModal
 
         $invoice = Invoice::query()->with('customer')->findOrFail($this->modalInvoiceId);
         abort_unless($invoice->company_id === auth()->user()->company_id, 403);
+
+        if (strtoupper(trim((string) $invoice->status)) === 'VOID') {
+            session()->flash('status', 'Invoice #'.$invoice->invoice_number.' is VOID. Unvoid it before payments or credits.');
+
+            return;
+        }
 
         if ($this->driver !== ($invoice->driver ?? '')) {
             $invoice->update(['driver' => $this->driver !== '' ? trim($this->driver) : null]);

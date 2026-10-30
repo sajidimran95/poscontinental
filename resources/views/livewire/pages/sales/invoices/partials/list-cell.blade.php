@@ -5,7 +5,7 @@
 @elseif ($colKey === 'invoice_date')
     <td>{{ optional($inv->invoice_date)?->format('n/j/Y') }}</td>
 @elseif ($colKey === 'order_number')
-    <td class="desk-num">{{ $inv->salesOrder?->order_number }}</td>
+    <td class="desk-num">{{ $inv->displayOrderNumber() }}</td>
 @elseif ($colKey === 'customer_code')
     <td class="desk-num">{{ $inv->customer?->customer_id }}</td>
 @elseif ($colKey === 'bill_to')

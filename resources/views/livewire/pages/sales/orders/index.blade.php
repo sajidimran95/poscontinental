@@ -361,6 +361,12 @@ new #[Layout('layouts.app'), Title('Orders')] class extends Component
             return;
         }
 
+        if (Invoice::query()->where('voided_sales_order_id', $order->id)->exists()) {
+            session()->flash('status', 'A voided invoice still points to this order. Unvoid or keep it in VOID — do not delete the order.');
+
+            return;
+        }
+
         $order->loadMissing('lines');
         $itemIds = $order->lines->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
 

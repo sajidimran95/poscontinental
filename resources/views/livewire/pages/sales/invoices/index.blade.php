@@ -88,6 +88,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->favorite = match ($this->statusFilter) {
             'NOT PAID' => 'not_paid',
             'PAID' => 'paid',
+            'VOID' => 'void',
             default => $this->favorite ?: 'not_paid',
         };
         if ($this->sortField === '') {
@@ -114,6 +115,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $query = Invoice::query()
             ->select([
                 'invoices.id', 'invoices.company_id', 'invoices.invoice_number', 'invoices.invoice_date', 'invoices.customer_id', 'invoices.sales_order_id',
+                'invoices.voided_sales_order_id', 'invoices.voided_order_number',
                 'invoices.status', 'invoices.invoice_total', 'invoices.subtotal', 'invoices.tax', 'invoices.freight', 'invoices.trade_discount', 'invoices.miscellaneous',
                 'invoices.driver',
             ])
@@ -121,6 +123,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 'customer:id,customer_id,company_name,portal_email',
                 'salesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source,sales_rep_id',
                 'salesOrder.createdBy:id,name',
+                'voidedSalesOrder:id,order_number,bill_to_name,delivery_status,created_by,order_source,sales_rep_id',
             ])
             ->where('invoices.company_id', $companyId)
             ->when($this->search !== '', function ($q) {
@@ -143,12 +146,14 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 });
             });
 
-        if (in_array($this->statusFilter, ['NOT PAID', 'PAID'], true)) {
+        if (in_array($this->statusFilter, ['NOT PAID', 'PAID', 'VOID'], true)) {
             $query->where('invoices.status', $this->statusFilter);
         } elseif ($this->favorite === 'not_paid') {
             $query->where('invoices.status', 'NOT PAID');
         } elseif ($this->favorite === 'paid') {
             $query->where('invoices.status', 'PAID');
+        } elseif ($this->favorite === 'void') {
+            $query->where('invoices.status', 'VOID');
         }
 
         $this->constrainDeskDateColumn($query, 'invoices.invoice_date', $this->dateFrom, $this->dateTo);
@@ -207,21 +212,31 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ->values()
             ->all();
 
+        $voidIds = $invoices
+            ->filter(fn (Invoice $inv) => strtoupper(trim((string) $inv->status)) === 'VOID')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
         return [
             'invoices' => $invoices,
             'reversibleIds' => $reversibleIds,
+            'voidIds' => $voidIds,
             'listHasMore' => $scroll['hasMore'],
             'listShown' => $scroll['shown'],
             'favorites' => [
                 'all' => 'All Invoices',
                 'not_paid' => 'NOT PAID',
                 'paid' => 'PAID',
+                'void' => 'VOID',
                 'month' => 'This Month',
                 'today' => 'Today',
             ],
             'listTitle' => match (true) {
                 $this->statusFilter === 'NOT PAID', $this->favorite === 'not_paid' => 'Invoices List (NOT PAID)',
                 $this->statusFilter === 'PAID', $this->favorite === 'paid' => 'Invoices List (PAID)',
+                $this->statusFilter === 'VOID', $this->favorite === 'void' => 'Invoices List (VOID)',
                 $this->favorite === 'month' => 'Invoices List (This Month)',
                 $this->favorite === 'today' => 'Invoices List (Today)',
                 default => 'Invoices List',
@@ -238,6 +253,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'canViewInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'view') ?? false,
             'canEditInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'edit') ?? false,
             'canVoidInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'delete') ?? false,
+            'canUnvoidInvoice' => auth()->user()?->canAccessFeature('sales.invoices', 'delete') ?? false,
             'editInvoice' => $this->editInvoiceId
                 ? Invoice::query()
                     ->with(['customer:id,customer_id,company_name', 'salesOrder:id,order_number'])
@@ -456,6 +472,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             $this->statusFilter = 'PAID';
             $this->dateFrom = $today;
             $this->dateTo = $today;
+        } elseif ($this->favorite === 'void') {
+            $this->statusFilter = 'VOID';
+            $this->dateFrom = '';
+            $this->dateTo = '';
         } elseif ($this->favorite === 'today') {
             $this->statusFilter = '';
             $this->dateFrom = $today;
@@ -494,6 +514,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $this->favorite = match ($this->statusFilter) {
             'NOT PAID' => 'not_paid',
             'PAID' => 'paid',
+            'VOID' => 'void',
             default => 'all',
         };
     }
@@ -562,9 +583,10 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         $this->selectedId = $id;
 
-        if ($invoice->sales_order_id) {
+        $orderId = (int) ($invoice->sales_order_id ?: $invoice->voided_sales_order_id ?: 0);
+        if ($orderId > 0 && strtoupper(trim((string) $invoice->status)) !== 'VOID') {
             return $this->redirect(
-                route('sales.orders.show', $invoice->sales_order_id).'?from=invoices',
+                route('sales.orders.show', $orderId).'?from=invoices',
                 navigate: true
             );
         }
@@ -921,7 +943,8 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             ->where('company_id', auth()->user()->company_id)
             ->find($this->selectedId);
 
-        if (! $invoice?->sales_order_id) {
+        $orderId = (int) ($invoice?->sales_order_id ?: $invoice?->voided_sales_order_id ?: 0);
+        if ($orderId < 1) {
             return $this->denyInvoiceOpen('This invoice has no sales order.');
         }
 
@@ -954,31 +977,19 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         }
 
         try {
-            DB::transaction(function () {
-                $invoice = Invoice::query()
-                    ->with(['salesOrder.lines', 'salesOrder.customer', 'payments', 'credits'])
-                    ->where('company_id', auth()->user()->company_id)
-                    ->lockForUpdate()
-                    ->findOrFail($this->selectedId);
+            $invoice = Invoice::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->findOrFail($this->selectedId);
 
-                $order = $invoice->salesOrder;
-                if ($order) {
-                    app(\App\Services\InventoryService::class)->reverseInvoiceStock($order, $invoice);
-                    $customer = $order->customer;
-                    if ($customer) {
-                        $customer->update([
-                            'number_of_orders' => max(0, (int) $customer->number_of_orders - 1),
-                            'total_sales' => max(0, (float) $customer->total_sales - (float) $invoice->invoice_total),
-                            'balance' => (float) $customer->balance - (float) $invoice->invoice_total,
-                        ]);
-                    }
-                    $order->update(['status' => 'New']);
-                }
+            app(\App\Services\InvoiceVoidService::class)->void(
+                $invoice,
+                auth()->id(),
+                'Voided from Invoices list'
+            );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first() ?: 'Unable to void invoice.');
 
-                $invoice->payments()->delete();
-                $invoice->credits()->delete();
-                $invoice->delete();
-            });
+            return;
         } catch (\Throwable $e) {
             report($e);
             session()->flash('status', 'Unable to void invoice. '.$e->getMessage());
@@ -988,7 +999,52 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         $this->selectedId = null;
         $this->closeModal();
-        session()->flash('status', 'Invoice voided. The sales order is open again.');
+        $this->favorite = 'void';
+        $this->statusFilter = 'VOID';
+        session()->flash('status', 'Voided: stock returned, customer balance/sales reduced, invoice moved to VOID list (off the sales order).');
+    }
+
+    public function unvoidSelectedInvoice(): void
+    {
+        if (! auth()->user()?->canAccessFeature('sales.invoices', 'delete')) {
+            session()->flash('status', 'Your role cannot unvoid invoices.');
+
+            return;
+        }
+
+        if (! $this->selectedId) {
+            session()->flash('status', 'Select a voided invoice first.');
+
+            return;
+        }
+
+        try {
+            $invoice = Invoice::query()
+                ->where('company_id', auth()->user()->company_id)
+                ->findOrFail($this->selectedId);
+
+            app(\App\Services\InvoiceVoidService::class)->unvoid(
+                $invoice,
+                auth()->id(),
+                'Unvoided from Invoices list'
+            );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('status', collect($e->errors())->flatten()->first() ?: 'Unable to unvoid invoice.');
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('status', 'Unable to unvoid invoice. '.$e->getMessage());
+
+            return;
+        }
+
+        $restoredId = (int) $this->selectedId;
+        $this->favorite = 'not_paid';
+        $this->statusFilter = 'NOT PAID';
+        $this->selectedId = $restoredId;
+        $this->closeModal();
+        session()->flash('status', 'Unvoided: invoice is NOT PAID again on the sales order; stock out and customer balance/sales restored.');
     }
 
     public function closeDesk(): mixed
@@ -1026,9 +1082,17 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                     label="Void Invoice"
                     sep
                     wire:click="voidSelectedInvoice"
-                    wire:confirm="Void the selected invoice? The sales order will reopen and stock will be reversed."
+                    wire:confirm="Void this invoice? It leaves the sales order and moves to the VOID list only. Stock and customer balance reverse. Reverse payments/credits first if any."
                     :disabled="! $canVoidInvoice"
-                    x-bind:disabled="! $wire.selectedId || {{ $canVoidInvoice ? 'false' : 'true' }}"
+                    x-bind:disabled="! $wire.selectedId || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canVoidInvoice ? 'false' : 'true' }}"
+                />
+                <x-action-item
+                    label="Unvoid Invoice"
+                    wire:click="unvoidSelectedInvoice"
+                    wire:confirm="Unvoid? Invoice goes back on the sales order as NOT PAID. Stock out, amounts, and customer balance are recalculated."
+                    :disabled="! $canUnvoidInvoice"
+                    x-bind:disabled="! {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canUnvoidInvoice ? 'false' : 'true' }}"
+                    x-bind:title="{{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) ? 'Restore this voided invoice' : 'Select a VOID invoice to unvoid'"
                 />
                 <x-action-item label="Close" kbd="Ctrl+Q" sep wire:click="closeDesk" />
             </x-slot:menu>
@@ -1090,6 +1154,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                             <option value="">All</option>
                             <option value="NOT PAID">NOT PAID</option>
                             <option value="PAID">PAID</option>
+                            <option value="VOID">VOID</option>
                         </select>
                     </div>
                 </div>
@@ -1239,15 +1304,31 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                 <button
                     type="button"
                     wire:click="voidSelectedInvoice"
-                    wire:confirm="Void the selected invoice? The sales order will reopen and stock will be reversed."
+                    wire:confirm="Void this invoice? It leaves the sales order and moves to the VOID list only. Stock and customer balance reverse. Reverse payments/credits first if any."
                     class="desk-rail-btn desk-rail-btn-danger"
                     title="{{ $canVoidInvoice ? 'Void invoice' : 'No void permission' }}"
                     aria-label="Void invoice"
-                    :disabled="! $wire.selectedId || {{ $canVoidInvoice ? 'false' : 'true' }}"
+                    x-bind:disabled="! $wire.selectedId || {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canVoidInvoice ? 'false' : 'true' }}"
                 >
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                         <rect x="3.5" y="3.5" width="9" height="9" rx="1"/>
                         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke-width="1.6"/>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    wire:click="unvoidSelectedInvoice"
+                    wire:confirm="Unvoid? Invoice goes back on the sales order as NOT PAID. Stock out, amounts, and customer balance are recalculated."
+                    class="desk-rail-btn"
+                    title="{{ $canUnvoidInvoice ? 'Unvoid invoice' : 'No unvoid permission' }}"
+                    aria-label="Unvoid invoice"
+                    x-bind:disabled="! {{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) || {{ $canUnvoidInvoice ? 'false' : 'true' }}"
+                    x-bind:title="{{ \Illuminate\Support\Js::from($voidIds) }}.includes(Number($wire.selectedId)) ? 'Restore this voided invoice' : 'Select a VOID invoice to unvoid'"
+                >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M3 8h7"/>
+                        <path d="M7.5 4.5L11 8l-3.5 3.5"/>
+                        <path d="M13 3.5v9"/>
                     </svg>
                 </button>
                 <button type="button" wire:click="refreshList" class="desk-rail-btn" title="Refresh" aria-label="Refresh list">

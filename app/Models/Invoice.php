@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Invoice extends Model
 {
     protected $fillable = [
-        'company_id', 'invoice_number', 'invoice_date', 'sales_order_id', 'customer_id', 'status', 'driver',
+        'company_id', 'invoice_number', 'invoice_date', 'sales_order_id', 'voided_sales_order_id', 'voided_order_number',
+        'customer_id', 'status', 'driver',
         'subtotal', 'total_discount', 'trade_discount', 'freight', 'miscellaneous', 'tax', 'invoice_total',
     ];
 
@@ -32,6 +33,38 @@ class Invoice extends Model
         return $this->belongsTo(SalesOrder::class);
     }
 
+    /** Original SO while invoice is VOID (detached from sales_order_id). */
+    public function voidedSalesOrder(): BelongsTo
+    {
+        return $this->belongsTo(SalesOrder::class, 'voided_sales_order_id');
+    }
+
+    /** Active SO, or the SO this voided invoice came from (for PDF / display). */
+    public function orderForDocument(): ?SalesOrder
+    {
+        if ($this->relationLoaded('salesOrder') && $this->salesOrder) {
+            return $this->salesOrder;
+        }
+        if ($this->sales_order_id) {
+            return $this->salesOrder()->first();
+        }
+        if ($this->relationLoaded('voidedSalesOrder') && $this->voidedSalesOrder) {
+            return $this->voidedSalesOrder;
+        }
+        if ($this->voided_sales_order_id) {
+            return $this->voidedSalesOrder()->first();
+        }
+
+        return null;
+    }
+
+    public function displayOrderNumber(): ?string
+    {
+        return $this->salesOrder?->order_number
+            ?? $this->voided_order_number
+            ?? $this->voidedSalesOrder?->order_number;
+    }
+
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
@@ -45,6 +78,16 @@ class Invoice extends Model
     public function credits(): HasMany
     {
         return $this->hasMany(InvoiceCredit::class);
+    }
+
+    public function voidLogs(): HasMany
+    {
+        return $this->hasMany(InvoiceVoidLog::class);
+    }
+
+    public function isVoid(): bool
+    {
+        return strtoupper(trim((string) $this->status)) === 'VOID';
     }
 
     public function getTotalPaymentsAttribute(): float

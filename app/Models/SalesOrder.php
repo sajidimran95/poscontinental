@@ -96,9 +96,17 @@ class SalesOrder extends Model
         return $this->belongsTo(User::class, 'delivery_user_id');
     }
 
+    /** Active (non-void) invoice for this order. */
     public function invoice(): HasOne
     {
-        return $this->hasOne(Invoice::class);
+        return $this->hasOne(Invoice::class)
+            ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')");
+    }
+
+    /** All invoices including voided (for unvoid / audit). */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     public function isReturnSale(): bool

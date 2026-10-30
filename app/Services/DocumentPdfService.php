@@ -44,11 +44,22 @@ class DocumentPdfService
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
             'salesOrder.route',
+            'voidedSalesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
+            'voidedSalesOrder.lines.item.category',
+            'voidedSalesOrder.lines.item.subcategory',
+            'voidedSalesOrder.lines.item.prices',
+            'voidedSalesOrder.customer',
+            'voidedSalesOrder.salesRep',
+            'voidedSalesOrder.paymentTerm',
+            'voidedSalesOrder.route',
             'payments',
             'credits.creditMemo',
         ]);
 
-        $order = $invoice->salesOrder;
+        $order = $invoice->salesOrder ?? $invoice->voidedSalesOrder;
+        if ($order && ! $invoice->salesOrder) {
+            $invoice->setRelation('salesOrder', $order);
+        }
         if (! $order) {
             return Pdf::loadView('pdf.invoice', [
                 'invoice' => $invoice,

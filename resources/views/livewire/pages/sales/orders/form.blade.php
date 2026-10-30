@@ -5359,7 +5359,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             if ($this->salesOrder) {
                 $this->salesOrder->load(['lines', 'invoice']);
                 $linkedInvoice = $this->salesOrder->invoice
-                    ?? Invoice::query()->where('sales_order_id', $this->salesOrder->id)->first();
+                    ?? Invoice::query()
+                        ->where('sales_order_id', $this->salesOrder->id)
+                        ->whereRaw("UPPER(COALESCE(status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')")
+                        ->first();
                 $revisingInvoice = $linkedInvoice !== null;
                 if ($revisingInvoice) {
                     $oldInvoiceTotal = (float) $linkedInvoice->invoice_total;

@@ -382,6 +382,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public ?int $priceUpdateAlertHistoryId = null;
 
+    /** History ids already popped on this order screen (extra guard vs repeat Livewire adds). */
+    public array $priceUpdateAlertsShown = [];
+
     /** Confirm customer selection to avoid order mistakes. */
     public bool $showCustomerConfirmModal = false;
 
@@ -1082,9 +1085,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function dismissPriceUpdateAlert(): void
     {
         if ($this->priceUpdateAlertHistoryId) {
+            $hid = (int) $this->priceUpdateAlertHistoryId;
+            if (! in_array($hid, $this->priceUpdateAlertsShown, true)) {
+                $this->priceUpdateAlertsShown[] = $hid;
+            }
             app(ItemPriceHistoryService::class)->claimAlert(
                 ItemPriceHistoryService::viewerKey(),
-                (int) $this->priceUpdateAlertHistoryId
+                $hid
             );
         }
         $this->showPriceUpdateAlertModal = false;
@@ -5052,7 +5059,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $priceHistory = app(ItemPriceHistoryService::class);
             $priceAlert = $priceHistory->salesAlertPayload($item);
             $historyId = (int) ($priceAlert['price_history_id'] ?? 0);
-            if ($priceAlert && $priceHistory->claimAlert(ItemPriceHistoryService::viewerKey(), $historyId)) {
+            $alreadyOnThisOrder = $historyId > 0 && in_array($historyId, $this->priceUpdateAlertsShown, true);
+            if (
+                $priceAlert
+                && ! $alreadyOnThisOrder
+                && ($historyId <= 0 || $priceHistory->claimAlert(ItemPriceHistoryService::viewerKey(), $historyId))
+            ) {
+                if ($historyId > 0) {
+                    $this->priceUpdateAlertsShown[] = $historyId;
+                }
                 $kind = (string) ($priceAlert['alert_type'] ?? 'sales');
                 $this->lineWarning = $priceAlert['price_update_message'];
                 $this->lineWarningKind = 'info';

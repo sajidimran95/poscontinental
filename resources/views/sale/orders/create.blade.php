@@ -1557,15 +1557,41 @@ body.sale-page-create .sale-order-build__body { padding: 12px 20px 10px; gap: 8p
 
     async function showPriceUpdateAlert(r) {
         if (!r || !r.price_updated) return;
-        if (r.price_history_id) {
+        const hid = Number(r.price_history_id || 0);
+        try {
+            const seen = JSON.parse(sessionStorage.getItem('salePriceAlertsSeen') || '[]');
+            if (hid > 0 && seen.includes(hid)) return;
+        } catch (e) { /* ignore */ }
+        if (hid > 0) {
             try {
                 const res = await fetch(@json(route('sale.api.price_alert_claim')), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
-                    body: JSON.stringify({ price_history_id: r.price_history_id }),
+                    body: JSON.stringify({ price_history_id: hid }),
                 });
-                if (res.ok && !(await res.json()).show) return;
-            } catch (e) { /* offline: show it */ }
+                if (res.ok) {
+                    const data = await res.json();
+                    try {
+                        const seen = JSON.parse(sessionStorage.getItem('salePriceAlertsSeen') || '[]');
+                        if (!seen.includes(hid)) {
+                            seen.push(hid);
+                            sessionStorage.setItem('salePriceAlertsSeen', JSON.stringify(seen));
+                        }
+                    } catch (e2) { /* ignore */ }
+                    if (!data.show) return;
+                } else {
+                    // Claim failed — do not spam on every qty bump / re-add.
+                    return;
+                }
+            } catch (e) {
+                // Network error: still only once this browser tab via sessionStorage below.
+                try {
+                    const seen = JSON.parse(sessionStorage.getItem('salePriceAlertsSeen') || '[]');
+                    if (seen.includes(hid)) return;
+                    seen.push(hid);
+                    sessionStorage.setItem('salePriceAlertsSeen', JSON.stringify(seen));
+                } catch (e2) { return; }
+            }
         }
         const isCost = r.alert_type === 'cost';
         const msg = r.price_update_message

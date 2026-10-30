@@ -312,15 +312,39 @@
 
     async function showPriceUpdateAlert(r) {
         if (!r || !r.price_updated) return;
-        if (r.price_history_id) {
+        const hid = Number(r.price_history_id || 0);
+        try {
+            const seen = JSON.parse(sessionStorage.getItem('custPriceAlertsSeen') || '[]');
+            if (hid > 0 && seen.includes(hid)) return;
+        } catch (e) { /* ignore */ }
+        if (hid > 0) {
             try {
                 const res = await fetch(@json(route('customer.api.price_alert_claim')), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '' },
-                    body: JSON.stringify({ price_history_id: r.price_history_id }),
+                    body: JSON.stringify({ price_history_id: hid }),
                 });
-                if (res.ok && !(await res.json()).show) return;
-            } catch (e) { /* offline: show it */ }
+                if (res.ok) {
+                    const data = await res.json();
+                    try {
+                        const seen = JSON.parse(sessionStorage.getItem('custPriceAlertsSeen') || '[]');
+                        if (!seen.includes(hid)) {
+                            seen.push(hid);
+                            sessionStorage.setItem('custPriceAlertsSeen', JSON.stringify(seen));
+                        }
+                    } catch (e2) { /* ignore */ }
+                    if (!data.show) return;
+                } else {
+                    return;
+                }
+            } catch (e) {
+                try {
+                    const seen = JSON.parse(sessionStorage.getItem('custPriceAlertsSeen') || '[]');
+                    if (seen.includes(hid)) return;
+                    seen.push(hid);
+                    sessionStorage.setItem('custPriceAlertsSeen', JSON.stringify(seen));
+                } catch (e2) { return; }
+            }
         }
         const isCost = r.alert_type === 'cost';
         const msg = r.price_update_message

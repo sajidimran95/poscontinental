@@ -971,41 +971,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 
     /**
-     * After entry typing pause / gun scan: full exact match only → add line.
-     */
-    /**
-     * @return bool true when the line was added (the entry box then skips its own Enter for this code)
+     * Typing pause no longer auto-adds — user must press Enter / Scan to confirm.
+     * Kept for the entry box API; always returns false.
      */
     public function autoAddEntryIfExactMatch(?string $code = null): bool
     {
-        abort_if($this->viewMode, 403);
-
-        $code = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', (string) ($code ?? $this->itemLookup)) ?? '');
-        if ($code === '' || mb_strlen($code) < 2) {
-            return false;
-        }
-
-        $item = $this->findPurchaseItem($code);
-        if (! $item) {
-            return false;
-        }
-
-        // Still typing a longer code (8117… while 8117PL exists) — wait for full entry.
-        if ($this->codeIsPrefixOfLongerOrderableCode($code)) {
-            return false;
-        }
-
-        $this->lookupMessage = '';
-        $this->browseLineIndex = null;
-        $this->applyItemToOrder($item);
-        $this->scanModeActive = true;
-        $this->keepLookupAndFocus((string) $item->item_code, $code);
-
-        return true;
+        return false;
     }
 
     /**
-     * ✓ / Enter: add if match, else open item list filtered by code.
+     * Enter / Scan confirm: add if match. Line Item Code = what they typed (e.g. 285565).
      */
     public function addItemFromEntry(?string $code = null): void
     {
@@ -1024,9 +999,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         if ($item) {
             $this->lookupMessage = '';
             $this->browseLineIndex = null;
-            $this->applyItemToOrder($item);
+            $this->applyItemToOrder($item, $code);
             $this->scanModeActive = true;
-            $this->keepLookupAndFocus((string) $item->item_code, $code);
+            // Keep the number they typed in the box (not the catalog item_code).
+            $this->keepLookupAndFocus($code, $code);
 
             return;
         }
@@ -1123,17 +1099,21 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
     /**
      * Bump qty on existing line, else fill empty line / new line.
+     * $enteredCode: what they typed/searched — that value is stored as the PO line Item Code.
      */
-    protected function applyItemToOrder(Item $item): void
+    protected function applyItemToOrder(Item $item, ?string $enteredCode = null): void
     {
+        $displayCode = trim((string) ($enteredCode ?? '')) !== ''
+            ? trim((string) $enteredCode)
+            : (string) $item->item_code;
+
         $lines = array_values($this->lines);
 
         foreach ($lines as $i => $line) {
             if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
                 $qty = (float) ($line['qty_ordered'] ?? 0);
                 $lines[$i]['qty_ordered'] = $this->formatQty($qty + 1);
-                // Keep code/desc in sync (fixes display if earlier fill was partial).
-                $lines[$i]['item_code'] = (string) $item->item_code;
+                $lines[$i]['item_code'] = $displayCode;
                 $lines[$i]['description'] = (string) ($item->description ?? $lines[$i]['description'] ?? '');
                 if (! filled($lines[$i]['uom'] ?? null)) {
                     $lines[$i]['uom'] = filled($item->unit_of_measure)
@@ -1153,7 +1133,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $target = (int) $this->browseLineIndex;
             $this->browseLineIndex = null;
             $this->lines = $lines;
-            $this->fillLineFromItem($target, $item);
+            $this->fillLineFromItem($target, $item, $displayCode);
             $this->highlightPoLine($target);
             $this->playPosSound('success');
 
@@ -1167,7 +1147,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $filled[] = $this->emptyLine();
         $target = count($filled) - 1;
         $this->lines = $filled;
-        $this->fillLineFromItem($target, $item);
+        $this->fillLineFromItem($target, $item, $displayCode);
         $this->lines[] = $this->emptyLine();
         $this->highlightPoLine($target);
         $this->playPosSound('success');
@@ -1185,7 +1165,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->js('window.playPosAlert && window.playPosAlert('.json_encode($kind).')');
     }
 
-    protected function fillLineFromItem(int $index, Item $item): void
+    protected function fillLineFromItem(int $index, Item $item, ?string $enteredCode = null): void
     {
         $supplierCost = $item->itemSuppliers()
             ->when($this->supplier_id, fn ($q) => $q->where('supplier_id', $this->supplier_id))
@@ -1199,8 +1179,12 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $lines[$index] = $this->emptyLine();
         }
 
+        $displayCode = trim((string) ($enteredCode ?? '')) !== ''
+            ? trim((string) $enteredCode)
+            : (string) $item->item_code;
+
         $lines[$index]['item_id'] = (int) $item->id;
-        $lines[$index]['item_code'] = (string) $item->item_code;
+        $lines[$index]['item_code'] = $displayCode;
         $lines[$index]['description'] = (string) ($item->description ?? '');
         $lines[$index]['uom'] = filled($item->unit_of_measure)
             ? (string) $item->unit_of_measure
@@ -1997,94 +1981,48 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 class="so-input so-entry-input"
                                 id="po-item-entry"
                                 data-pos-item-entry
-                                placeholder="Scan or type full code — adds when it matches"
+                                placeholder="Type or scan code, then press Enter to add"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)
                                 x-data="{
-                                    timer: null,
-                                    lastKeyAt: 0,
-                                    rapid: false,
-                                    // Each typed/scanned code is one 'seq'. Repeat scans of the same barcode are new seqs, so none are dropped.
-                                    seq: 0,
-                                    autoSeq: -1,
-                                    autoPending: null,
                                     enterSeq: -1,
                                     enterAt: 0,
-                                    scheduleAuto() {
-                                        clearTimeout(this.timer);
-                                        // OPTIMIZED: Scanner 25ms, Manual typing 1500ms (1.5 seconds)
-                                        const delay = this.rapid ? 25 : 1500;
-                                        this.timer = setTimeout(() => {
-                                            const v = ($el.value || '').trim();
-                                            if (v.length < 2 || this.autoSeq === this.seq) { this.rapid = false; return; }
-                                            if (this.rapid) $el.select();
-                                            this.autoSeq = this.seq;
-                                            this.autoPending = $wire.autoAddEntryIfExactMatch(v).then((added) => added === true, () => false);
-                                            this.rapid = false;
-                                        }, delay);
-                                    },
+                                    seq: 0,
                                     onKey(e) {
                                         if (e.key === 'Enter') {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            clearTimeout(this.timer);
                                             const v = ($el.value || '').replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                            this.rapid = false;
                                             if (!v) return;
                                             const now = Date.now();
                                             // CR+LF from some scanners arrives as two Enters for one scan.
                                             if (this.enterSeq === this.seq && (now - this.enterAt) < 150) return;
                                             this.enterSeq = this.seq;
                                             this.enterAt = now;
-                                            // Select now so the next scan overwrites it; Livewire queues calls made while a request is in flight.
                                             $el.value = v;
                                             $el.select();
-                                            if (this.autoSeq === this.seq && this.autoPending) {
-                                                const pending = this.autoPending;
-                                                this.autoPending = null;
-                                                pending.then((added) => { if (!added) $wire.addItemFromEntry(v); });
-                                                return;
-                                            }
                                             $wire.addItemFromEntry(v);
                                             return;
                                         }
                                         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.seq++;
                                         if (e.key === 'F2') {
                                             e.preventDefault();
-                                            clearTimeout(this.timer);
                                             $el.focus();
                                             $el.select?.();
                                             return;
                                         }
                                         if (e.key === 'F3') {
                                             e.preventDefault();
-                                            clearTimeout(this.timer);
                                             $wire.openItemBrowse();
-                                            return;
                                         }
-                                        const now = Date.now();
-                                        // OPTIMIZED: Detect scanner by < 50ms between keys
-                                        if (this.lastKeyAt && (now - this.lastKeyAt) < 50) this.rapid = true;
-                                        this.lastKeyAt = now;
-                                    },
-                                    onInput() {
-                                        this.scheduleAuto();
                                     }
                                 }"
                                 x-on:keydown="onKey($event)"
-                                x-on:input="onInput()"
                                 x-on:paste.prevent="
-                                    clearTimeout(timer);
                                     const t = ($event.clipboardData || window.clipboardData).getData('text') || '';
                                     $el.value = t.replace(/[\x00-\x1F\x7F]+/g, '').trim();
-                                    rapid = false;
                                     seq++;
-                                    const v = ($el.value || '').trim();
-                                    if (v.length >= 2) {
-                                        $el.select();
-                                        $wire.addItemFromEntry(v);
-                                    }
                                 "
                             />
                             @unless ($viewMode)

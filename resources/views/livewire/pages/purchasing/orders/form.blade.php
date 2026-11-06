@@ -468,7 +468,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->closeBrowse();
     }
 
-    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, ?string $enteredCode = null): void
     {
         abort_if($this->viewMode, 403);
 
@@ -482,11 +482,15 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
+        // Prefer the number they typed in search (e.g. 285565) over catalog item_code.
+        $typed = trim((string) ($enteredCode ?? $this->browseSearch ?: $this->itemBrowseSearch ?: $this->itemLookup));
+        $displayCode = $typed !== '' ? $typed : null;
+
         $this->browseSelectedId = $itemId;
         $this->lineWarning = '';
         $this->lookupMessage = '';
         if ($keepBrowseOpen) {
-            $this->applyItemToOrder($item);
+            $this->applyItemToOrder($item, $displayCode);
             $this->browseCheckedIds = [];
             $this->browseSelectedId = null;
             $this->dispatch('browse-checks-cleared');
@@ -494,7 +498,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->focusBrowseSearch();
         } else {
             $this->closeBrowse();
-            $this->applyItemToOrder($item);
+            $this->applyItemToOrder($item, $displayCode);
             $this->clearAndFocusEntry();
         }
     }
@@ -1028,7 +1032,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
     }
 
     /**
-     * Scan button: arm field. If a code is already in the box, add it immediately.
+     * Scan button: focus the box only. Add requires Enter or the ✓ confirm button.
      */
     public function focusScanAndAdd(): void
     {
@@ -1042,12 +1046,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 const el = document.getElementById('po-item-entry');
                 if (!el) return;
                 el.focus();
-                const v = (el.value || '').trim();
-                if (v.length >= 2) {
-                    $wire.addItemFromEntry(v);
-                } else {
-                    el.select();
-                }
+                el.select?.();
             });
         JS);
     }
@@ -1306,9 +1305,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
 
         $item = $this->findPurchaseItem($resolved);
         if ($item) {
+            $typed = $resolved;
             $this->browseSearch = '';
             $this->itemBrowseSearch = '';
-            $this->pickBrowseItem((int) $item->id);
+            $this->pickBrowseItem((int) $item->id, false, $typed);
             $this->resetBrowseAndLoadFirstPage();
             $this->focusBrowseSearch();
 
@@ -1967,7 +1967,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 type="button"
                                 wire:click="focusScanAndAdd"
                                 class="so-scan-btn"
-                                title="Scan: click to focus, or add the code already in the box"
+                                title="Scan: focus the box — press Enter or ✓ to confirm add"
                                 @disabled($viewMode)
                             >
                                 <svg class="so-scan-ico" viewBox="0 0 20 16" fill="none" aria-hidden="true">
@@ -1981,7 +1981,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                                 class="so-input so-entry-input"
                                 id="po-item-entry"
                                 data-pos-item-entry
-                                placeholder="Type or scan code, then press Enter to add"
+                                placeholder="Type code (e.g. 285565), then Enter or ✓ to confirm"
                                 autocomplete="off"
                                 inputmode="text"
                                 @disabled($viewMode)

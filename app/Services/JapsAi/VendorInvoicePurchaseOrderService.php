@@ -53,7 +53,9 @@ class VendorInvoicePurchaseOrderService
             ];
         }
 
-        if (! self::amountsMatch($matched) || ($unmatchedCount > 0 && $catalogLines->isNotEmpty())) {
+        $allowPartial = ! empty($matched['allow_partial_amount']);
+        $amountsOk = self::amountsMatch($matched) || ($allowPartial && $unmatchedCount === 0 && $catalogLines->isNotEmpty());
+        if (! $amountsOk || ($unmatchedCount > 0 && $catalogLines->isNotEmpty())) {
             return [
                 'success' => false,
                 'matched_count' => $catalogLines->count(),
@@ -452,11 +454,18 @@ class VendorInvoicePurchaseOrderService
             return false;
         }
         $lines = (array) ($matched['lines'] ?? []);
-        if ($lines === []) {
+        $returnLines = (array) ($matched['return_lines'] ?? []);
+        if ($lines === [] && $returnLines === []) {
+            return false;
+        }
+        if ($lines !== [] && ! collect($lines)->every(fn ($row) => (int) ($row['item_id'] ?? 0) > 0)) {
+            return false;
+        }
+        if ($returnLines !== [] && ! collect($returnLines)->every(fn ($row) => (int) ($row['item_id'] ?? 0) > 0)) {
             return false;
         }
 
-        return collect($lines)->every(fn ($row) => (int) ($row['item_id'] ?? 0) > 0);
+        return true;
     }
 
     /**
@@ -519,9 +528,10 @@ class VendorInvoicePurchaseOrderService
      */
     public static function linesTotal(array $matched): float
     {
+        // Same basis as createFromMatch / invoiceUnitCost: printed Ext. Price wins.
         return round((float) collect($matched['lines'] ?? [])->sum(function ($row) {
             $ext = (float) ($row['line_total'] ?? 0);
-            if ($ext > 0) {
+            if ($ext > 0.0001) {
                 return $ext;
             }
             $qty = max(0.01, (float) ($row['quantity'] ?? 1));
@@ -651,9 +661,17 @@ class VendorInvoicePurchaseOrderService
         $reply .= "\n".$this->missingCatalogBrief($matched);
 
         if (! self::amountsMatch($matched)) {
-            $reply .= "\n\n".self::amountMismatchText($matched)."\nConfirm stays blocked until the amounts match.";
+            $reply .= "\n\n".self::amountMismatchText($matched);
+            if (self::listsAreReady($matched)) {
+                $reply .= "\n**Confirm is still available** — it will create the PO from the matched lines only. Review the PO and fix any wrong/missing rows after.";
+            } else {
+                $reply .= "\nConfirm stays blocked until the amounts match (or add missing items first).";
+            }
         } elseif (self::listsAreReady($matched)) {
             $reply .= "\n\n**All are OK** — amounts match and the supplier and items are in your lists.\nClick **Confirm & create PO** to save a New purchase order. Nothing is sent to the vendor.";
+            if (self::creditsTotal($matched) > 0) {
+                $reply .= "\nInvoice credit/return rows are noted on the PO only — **no RTV** (those items were not received into stock).";
+            }
         } else {
             $reply .= "\n\n**Amounts match.** Click **Review & add to lists** to add the missing supplier and items (or click **Confirm & create PO** to add them and create the PO in one step).";
         }
@@ -691,49 +709,51 @@ class VendorInvoicePurchaseOrderService
 
             $supplierId = (int) ($matched['supplier_id'] ?? 0);
 
-            foreach ($matched['lines'] ?? [] as $i => $row) {
-                if ((int) ($row['item_id'] ?? 0) > 0) {
-                    continue;
-                }
-                $name = trim((string) ($row['name'] ?? ''));
-                $sku = trim((string) ($row['sku'] ?? ''));
-                if ($name === '' && $sku === '') {
-                    continue;
-                }
-                $cost = $this->invoiceUnitCost($row, max(0.01, (float) ($row['quantity'] ?? 1)));
-                $code = $this->uniqueItemCode((int) $company->id, $sku, $name);
-                $item = Item::query()->create([
-                    'company_id' => $company->id,
-                    'item_code' => $code,
-                    'item_type' => 'Standard Item',
-                    'description' => mb_substr($name !== '' ? $name : $code, 0, 191),
-                    'list_price' => 0,
-                    'standard_cost' => $cost,
-                    'current_cost' => $cost,
-                    'last_cost' => $cost,
-                    'average_cost' => $cost,
-                    'quantity_in_stock' => 0,
-                    'can_order' => true,
-                    'can_sell' => true,
-                    'is_inactive' => false,
-                    'primary_upc' => $sku !== '' && strlen($sku) <= 32 ? $sku : null,
-                ]);
-                if ($supplierId > 0) {
-                    ItemSupplier::query()->create([
-                        'item_id' => $item->id,
-                        'supplier_id' => $supplierId,
-                        'supplier_item_code' => $sku !== '' ? mb_substr($sku, 0, 64) : null,
+            foreach (['lines', 'return_lines'] as $bucket) {
+                foreach ($matched[$bucket] ?? [] as $i => $row) {
+                    if ((int) ($row['item_id'] ?? 0) > 0) {
+                        continue;
+                    }
+                    $name = trim((string) ($row['name'] ?? ''));
+                    $sku = trim((string) ($row['sku'] ?? ''));
+                    if ($name === '' && $sku === '') {
+                        continue;
+                    }
+                    $cost = $this->invoiceUnitCost($row, max(0.01, (float) ($row['quantity'] ?? 1)));
+                    $code = $this->uniqueItemCode((int) $company->id, $sku, $name);
+                    $item = Item::query()->create([
+                        'company_id' => $company->id,
+                        'item_code' => $code,
+                        'item_type' => 'Standard Item',
+                        'description' => mb_substr($name !== '' ? $name : $code, 0, 191),
+                        'list_price' => 0,
+                        'standard_cost' => $cost,
+                        'current_cost' => $cost,
                         'last_cost' => $cost,
-                        'avg_cost' => $cost,
-                        'is_default' => true,
-                        'sort_order' => 0,
+                        'average_cost' => $cost,
+                        'quantity_in_stock' => 0,
+                        'can_order' => true,
+                        'can_sell' => true,
+                        'is_inactive' => false,
+                        'primary_upc' => $sku !== '' && strlen($sku) <= 32 ? $sku : null,
                     ]);
+                    if ($supplierId > 0) {
+                        ItemSupplier::query()->create([
+                            'item_id' => $item->id,
+                            'supplier_id' => $supplierId,
+                            'supplier_item_code' => $sku !== '' ? mb_substr($sku, 0, 64) : null,
+                            'last_cost' => $cost,
+                            'avg_cost' => $cost,
+                            'is_default' => true,
+                            'sort_order' => 0,
+                        ]);
+                    }
+                    $addedItems[] = $item->item_code.' — '.$item->description.($bucket === 'return_lines' ? ' (return)' : '');
+                    $matched[$bucket][$i]['item_id'] = $item->id;
+                    $matched[$bucket][$i]['item_code'] = $item->item_code;
+                    $matched[$bucket][$i]['status'] = 'matched';
+                    $matched[$bucket][$i]['selected'] = true;
                 }
-                $addedItems[] = $item->item_code.' — '.$item->description;
-                $matched['lines'][$i]['item_id'] = $item->id;
-                $matched['lines'][$i]['item_code'] = $item->item_code;
-                $matched['lines'][$i]['status'] = 'matched';
-                $matched['lines'][$i]['selected'] = true;
             }
         });
 

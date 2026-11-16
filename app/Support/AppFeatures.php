@@ -85,6 +85,16 @@ class AppFeatures
                 'group' => 'File',
                 'routes' => [],
             ],
+            'admin.desktop_devices' => [
+                'label' => 'Desktop devices',
+                'group' => 'File',
+                'routes' => [
+                    'admin.desktop-devices',
+                    'admin.desktop-devices.store',
+                    'admin.desktop-devices.token',
+                    'admin.desktop-devices.toggle',
+                ],
+            ],
             'admin.users' => [
                 'label' => 'Users & Roles',
                 'group' => 'File',
@@ -473,6 +483,7 @@ class AppFeatures
                 ['label' => 'Overselling Settings', 'feature' => 'admin.overselling'],
                 ['label' => 'POS AI Settings', 'feature' => 'admin.japsai'],
                 ['label' => 'POS AI Chat', 'feature' => 'admin.japsai_chat'],
+                ['label' => 'Desktop devices', 'feature' => 'admin.desktop_devices'],
                 ['label' => 'Users & Roles', 'feature' => 'admin.users'],
                 ['label' => 'Email Setup', 'feature' => 'admin.email_setup'],
                 ['label' => 'Email Send Log', 'feature' => 'admin.email_logs'],
@@ -695,6 +706,7 @@ class AppFeatures
             'admin.ecommerce_messages',
             'admin.ecommerce_promotions',
             'admin.japsai',
+            'admin.desktop_devices',
             'admin.users',
             'admin.email_setup',
             'admin.email_logs',

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\TeamChatController;
+use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\TeamChatAttachmentController;
 use App\Http\Controllers\Api\Rep\AuthController;
 use App\Http\Controllers\Api\Rep\CatalogController;
@@ -16,6 +17,24 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
+
+/*
+|--------------------------------------------------------------------------
+| Offline desktop sync (server side) — docs/offline-desktop/README.md
+| Auth: "Authorization: Bearer {device token}" from sync:device / Desktop devices
+|--------------------------------------------------------------------------
+*/
+Route::prefix('sync')->group(function () {
+    Route::get('/handshake', [SyncController::class, 'handshake'])->middleware('sync.node');
+    Route::get('/schema', [SyncController::class, 'schema'])->middleware('sync.node');
+    Route::get('/snapshot/tables', [SyncController::class, 'snapshotTables'])->middleware('sync.node:schema');
+    Route::get('/snapshot', [SyncController::class, 'snapshot'])->middleware('sync.node:schema');
+    Route::post('/push', [SyncController::class, 'push'])->middleware('sync.node:schema');
+    Route::get('/pull', [SyncController::class, 'pull'])->middleware('sync.node:schema');
+    Route::get('/files', [SyncController::class, 'filesManifest'])->middleware('sync.node');
+    Route::get('/files/download', [SyncController::class, 'fileDownload'])->middleware('sync.node');
+    Route::post('/files/upload', [SyncController::class, 'fileUpload'])->middleware('sync.node');
+});
 
 /*
 |--------------------------------------------------------------------------

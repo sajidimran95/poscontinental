@@ -61,17 +61,27 @@ class CustomerItemPrice extends Model
     {
         $uomKey = filled($uom) ? trim((string) $uom) : '';
 
-        $row = static::query()
+        $query = static::query()
             ->where('customer_id', $customerId)
-            ->where('item_id', $itemId)
-            ->where(function ($q) use ($uomKey) {
-                $q->where('uom', $uomKey);
-                if ($uomKey !== '') {
-                    $q->orWhereNull('uom')->orWhere('uom', '');
-                }
-            })
-            ->orderByRaw("CASE WHEN uom = ? THEN 0 ELSE 1 END", [$uomKey])
-            ->first();
+            ->where('item_id', $itemId);
+
+        if ($uomKey !== '') {
+            // Prefer exact UOM, then blank/null rows for the same customer+item.
+            $row = (clone $query)
+                ->where(function ($q) use ($uomKey) {
+                    $q->where('uom', $uomKey)
+                        ->orWhereNull('uom')
+                        ->orWhere('uom', '');
+                })
+                ->orderByRaw('CASE WHEN uom = ? THEN 0 ELSE 1 END', [$uomKey])
+                ->first();
+        } else {
+            // No UOM asked (common when item.unit_of_measure is empty): use blank row, else any saved UOM.
+            $row = (clone $query)
+                ->orderByRaw("CASE WHEN uom IS NULL OR uom = '' THEN 0 ELSE 1 END")
+                ->orderBy('id')
+                ->first();
+        }
 
         return $row ? (float) $row->price : null;
     }

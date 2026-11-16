@@ -203,6 +203,20 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             }
         }
 
+        // Open overpayment memos tied to these invoice numbers (reference_no).
+        if ($invoices->isNotEmpty()) {
+            $overpays = \App\Models\CreditMemo::openOverpaymentRemainingByInvoiceNumbers(
+                (int) auth()->user()->company_id,
+                $invoices->pluck('invoice_number')->filter()->map(fn ($n) => (string) $n)->all(),
+            );
+            $invoices->each(function (Invoice $inv) use ($overpays) {
+                $inv->setAttribute(
+                    'overpayments_sum_amount',
+                    (float) ($overpays[(string) $inv->invoice_number] ?? 0)
+                );
+            });
+        }
+
         $reversibleIds = $invoices
             ->filter(fn (Invoice $inv) => $inv->status === 'PAID'
                 || (float) ($inv->payments_sum_amount ?? 0) > 0.0001
@@ -427,6 +441,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
             'invoice_total' => ['label' => 'Invoice Total', 'type' => 'money'],
             'payments' => ['label' => 'Payments', 'type' => 'money'],
             'credits' => ['label' => 'Credits', 'type' => 'money'],
+            'overpay' => ['label' => 'Overpay', 'type' => 'money'],
             'balance' => ['label' => 'Balance', 'type' => 'money'],
             'status' => ['label' => 'Status', 'type' => 'center'],
         ];
@@ -1299,6 +1314,12 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
                                 </div>
                                 <div class="desk-list-card__foot">
                                     <span>Total <strong class="tabular-nums">${{ number_format($inv->invoice_total, 2) }}</strong></span>
+                                    @if ((float) $inv->total_credits > 0.0001)
+                                        <span>Cr <strong class="tabular-nums">${{ number_format($inv->total_credits, 2) }}</strong></span>
+                                    @endif
+                                    @if ((float) $inv->total_overpayments > 0.0001)
+                                        <span style="color:#166534">Overpay <strong class="tabular-nums">${{ number_format($inv->total_overpayments, 2) }}</strong></span>
+                                    @endif
                                     <span>Bal <strong class="tabular-nums">${{ number_format($inv->invoice_balance, 2) }}</strong></span>
                                 </div>
                             </article>

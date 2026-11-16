@@ -1,15 +1,8 @@
-        <script>
-            (function () {
-                try {
-                    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-                    var cookie = document.cookie.split('; ').find(function (r) { return r.indexOf('pos_tz=') === 0; });
-                    var current = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
-                    if (current !== tz) {
-                        document.cookie = 'pos_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
-                        if (!current) {
-                            window.location.reload();
-                        }
-                    }
-                } catch (e) {}
-            })();
-        </script>
+{{-- Company timezone is APP_TIMEZONE (America/New_York). Clear any old browser cookie. --}}
+<script>
+    (function () {
+        try {
+            document.cookie = 'pos_tz=;path=/;max-age=0;SameSite=Lax';
+        } catch (e) {}
+    })();
+</script>

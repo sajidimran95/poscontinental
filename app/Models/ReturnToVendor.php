@@ -48,9 +48,6 @@ class ReturnToVendor extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('rtv_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 7000001;
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, $companyId, 'rtv_number', 7000001);
     }
 }

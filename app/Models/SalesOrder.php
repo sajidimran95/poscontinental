@@ -118,31 +118,7 @@ class SalesOrder extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $query = static::query()
-            ->where('company_id', $companyId)
-            ->orderByDesc('id');
-
-        if (DB::transactionLevel() > 0) {
-            $query->lockForUpdate();
-        }
-
-        $last = $query->value('order_number');
-
-        $n = $last ? ((int) preg_replace('/\D/', '', (string) $last)) + 1 : 243074;
-        if ($n < 1) {
-            $n = 243074;
-        }
-
-        while (
-            static::query()
-                ->where('company_id', $companyId)
-                ->where('order_number', (string) $n)
-                ->exists()
-        ) {
-            $n++;
-        }
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, $companyId, 'order_number', 243074);
     }
 
     public const SOURCE_POS = 'pos';

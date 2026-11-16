@@ -71,9 +71,6 @@ class PurchaseOrder extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('po_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 912000061801;
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, $companyId, 'po_number', 912000061801);
     }
 }

@@ -1018,7 +1018,7 @@ trait ManagesInvoicePaymentsModal
 
                 $overpay = round(max(0, $payTotal - $savedPayTotal), 2);
                 if ($overpay > 0.0001) {
-                    $ref = collect($payments)
+                    $checkRef = collect($payments)
                         ->map(fn ($r) => InvoicePayment::isCheckMethod($r['payment_method']) ? $r['check_number'] : '')
                         ->filter()
                         ->first();
@@ -1028,9 +1028,10 @@ trait ManagesInvoicePaymentsModal
                         (int) $invoice->customer_id,
                         $overpay,
                         $memoDate,
-                        $ref ? (string) $ref : null,
+                        (string) $invoice->invoice_number,
                         $payTotal,
-                        $savedPayTotal
+                        $savedPayTotal,
+                        $checkRef ? (string) $checkRef : null,
                     );
                     $overpayCreated = $overpay;
                     $overpayMemoNumber = $memo->memo_number;
@@ -1282,20 +1283,21 @@ trait ManagesInvoicePaymentsModal
 
                 $overpay = round(max(0, $payTotal - $cashApplied), 2);
                 if ($overpay > 0.0001) {
-                    $first = $locked->first();
-                    $ref = collect($payments)
+                    $anchor = $locked->last() ?: $locked->first();
+                    $checkRef = collect($payments)
                         ->map(fn ($r) => InvoicePayment::isCheckMethod($r['payment_method']) ? $r['check_number'] : '')
                         ->filter()
                         ->first();
                     $memoDate = collect($payments)->pluck('payment_date')->filter()->first() ?: now()->toDateString();
                     $memo = $this->createOverpaymentCreditMemo(
-                        (int) $first->company_id,
+                        (int) $anchor->company_id,
                         $customerId,
                         $overpay,
                         $memoDate,
-                        $ref ? (string) $ref : null,
+                        (string) $anchor->invoice_number,
                         $payTotal,
-                        $cashApplied
+                        $cashApplied,
+                        $checkRef ? (string) $checkRef : null,
                     );
                     $overpayCreated = $overpay;
                     $overpayMemoNumber = $memo->memo_number;
@@ -1342,9 +1344,10 @@ trait ManagesInvoicePaymentsModal
         int $customerId,
         float $amount,
         string $memoDate,
-        ?string $referenceNo,
+        ?string $invoiceNumber,
         float $paidTotal,
         float $appliedCash,
+        ?string $checkNumber = null,
     ): CreditMemo {
         $candidate = CreditMemo::nextNumber($companyId);
         while (
@@ -1356,17 +1359,29 @@ trait ManagesInvoicePaymentsModal
             $candidate = (string) (((int) $candidate) + 1);
         }
 
+        $comments = 'Auto credit from customer payment overage ($'
+            .number_format($paidTotal, 2).' paid on $'.number_format($appliedCash, 2)
+            .' remaining invoice balance)';
+        if ($invoiceNumber) {
+            $comments .= ' on invoice '.$invoiceNumber;
+        }
+        if ($checkNumber) {
+            $comments .= '; check #'.$checkNumber;
+        }
+        $comments .= '.';
+
         return CreditMemo::query()->create([
             'company_id' => $companyId,
             'memo_number' => $candidate,
             'memo_date' => $memoDate,
-            'reference_no' => $referenceNo,
+            // Ties overpayment to the invoice so list/PDF/balance can show it.
+            'reference_no' => $invoiceNumber,
             'reason' => 'Overpayment',
             'customer_id' => $customerId,
             'sales_order_id' => null,
             'amount' => round($amount, 2),
             'status' => 'Open',
-            'comments' => 'Auto credit from customer payment overage ($'.number_format($paidTotal, 2).' paid on $'.number_format($appliedCash, 2).' remaining invoice balance).',
+            'comments' => $comments,
             'restock_inventory' => false,
         ]);
     }

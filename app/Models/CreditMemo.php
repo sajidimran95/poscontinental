@@ -107,18 +107,67 @@ class CreditMemo extends Model
             ->value('t'), 2);
     }
 
+    public function isOverpayment(): bool
+    {
+        return strcasecmp(trim((string) $this->reason), 'Overpayment') === 0;
+    }
+
+    /**
+     * Remaining open overpayment tied to an invoice (reference_no stores the invoice number).
+     */
+    public static function openOverpaymentRemainingForInvoice(int $companyId, string $invoiceNumber, ?int $customerId = null): float
+    {
+        $invoiceNumber = trim($invoiceNumber);
+        if ($invoiceNumber === '') {
+            return 0.0;
+        }
+
+        $map = self::openOverpaymentRemainingByInvoiceNumbers($companyId, [$invoiceNumber], $customerId);
+
+        return round((float) ($map[$invoiceNumber] ?? 0), 2);
+    }
+
+    /**
+     * @param  list<string>  $invoiceNumbers
+     * @return array<string, float> invoice_number => remaining overpayment
+     */
+    public static function openOverpaymentRemainingByInvoiceNumbers(int $companyId, array $invoiceNumbers, ?int $customerId = null): array
+    {
+        $invoiceNumbers = array_values(array_unique(array_filter(array_map(
+            static fn ($n) => trim((string) $n),
+            $invoiceNumbers
+        ))));
+        if ($invoiceNumbers === []) {
+            return [];
+        }
+
+        $applied = DB::table('invoice_credits')
+            ->selectRaw('credit_memo_id, SUM(amount) as applied')
+            ->groupBy('credit_memo_id');
+
+        $rows = DB::table('credit_memos as cm')
+            ->leftJoinSub($applied, 'ap', 'ap.credit_memo_id', '=', 'cm.id')
+            ->where('cm.company_id', $companyId)
+            ->where('cm.status', 'Open')
+            ->whereRaw("LOWER(TRIM(COALESCE(cm.reason, ''))) = ?", ['overpayment'])
+            ->whereIn('cm.reference_no', $invoiceNumbers)
+            ->when($customerId, fn ($q) => $q->where('cm.customer_id', $customerId))
+            ->groupBy('cm.reference_no')
+            ->selectRaw('cm.reference_no as invoice_number, SUM(GREATEST(cm.amount - COALESCE(ap.applied, 0), 0)) as remaining')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $key = trim((string) $row->invoice_number);
+            $out[$key] = round((float) $row->remaining, 2);
+        }
+
+        return $out;
+    }
+
     public static function nextNumber(int $companyId): string
     {
         // Imported memos are not in id order, so use the highest numeric memo number.
-        $max = (int) static::query()
-            ->where('company_id', $companyId)
-            ->whereRaw("memo_number REGEXP '^[0-9]+$'")
-            ->max(DB::raw('CAST(memo_number AS UNSIGNED)'));
-        $n = $max > 0 ? $max + 1 : 50001;
-        while (static::query()->where('company_id', $companyId)->where('memo_number', (string) $n)->exists()) {
-            $n++;
-        }
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::nextMaxNumeric(static::class, $companyId, 'memo_number', 50001);
     }
 }

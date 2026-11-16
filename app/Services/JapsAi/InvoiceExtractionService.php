@@ -24,10 +24,11 @@ use Smalot\PdfParser\Parser;
 class InvoiceExtractionService
 {
     protected const SYSTEM_PROMPT = <<<'PROMPT'
-You are reading a photo, scan, or PDF of a vendor purchase invoice / bill for a wholesale POS system.
+You are reading a photo, scan, or PDF of a vendor purchase invoice / bill OR a vendor credit memo / return document for a wholesale POS system.
 Extract the data and return ONLY a single valid JSON object (no markdown, no commentary) with this exact shape:
 
 {
+  "document_type": "purchase_invoice"|"credit_memo"|"return",
   "supplier_name": string|null,
   "ref_no": string|null,
   "invoice_date": string|null,
@@ -43,6 +44,8 @@ Extract the data and return ONLY a single valid JSON object (no markdown, no com
 }
 
 Rules:
+- "document_type" is required. Use "credit_memo" or "return" only when the WHOLE document is a credit memo / return (almost every merchandise amount is negative). Use "purchase_invoice" for a normal bill, including invoices that also have a few damaged-return / credit rows mixed in.
+- On a purchase invoice, POSITIVE quantity / extended amount rows are purchases. NEGATIVE quantity or negative extended amount rows (e.g. qty -1, Ext. Price 3.10-, or "***DAMAGED RETURNS***") are invoice credits — still include them in "lines" with NEGATIVE line_total and positive unit_price (they are not a separate return document).
 - "invoice_date" must be formatted as YYYY-MM-DD if you can determine it, else null.
 - "lines" must contain one entry per product/item row printed on the invoice, in printed order. If the file has multiple pages, include line items from every page.
 - Never skip, summarise or merge rows. If the same product is printed on two rows, output both rows.
@@ -67,7 +70,7 @@ PROMPT;
 
     protected const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-    protected const CACHE_VERSION = 'v6';
+    protected const CACHE_VERSION = 'v12';
 
     protected const MAX_PAGE_READS = 30;
 
@@ -152,8 +155,11 @@ PROMPT;
     public function matchToCatalog(array $data): array
     {
         $companyId = (int) $this->company->id;
+        $pureReturn = self::detectReturnDocument($data);
         $lines = [];
+        $returnLines = [];
         $credits = [];
+
         foreach ((array) ($data['lines'] ?? []) as $line) {
             $name = trim((string) ($line['name'] ?? ''));
             $sku = trim((string) ($line['sku'] ?? ''));
@@ -161,26 +167,34 @@ PROMPT;
             if ($name === '' && $sku === '' && $barcode === '') {
                 continue;
             }
-            if ((float) ($line['line_total'] ?? 0) < 0) {
-                $credits[] = [
-                    'name' => $name !== '' ? $name : ($sku !== '' ? $sku : $barcode),
-                    'sku' => $sku !== '' ? $sku : null,
-                    'barcode' => $barcode !== '' ? $barcode : null,
-                    'quantity' => abs((float) ($line['quantity'] ?? 1)),
-                    'line_total' => (float) $line['line_total'],
-                ];
 
-                continue;
+            $rawQty = (float) ($line['quantity'] ?? 0);
+            $lineTotal = isset($line['line_total']) ? (float) $line['line_total'] : null;
+            // Negative qty or negative extended = return to vendor; positive = purchase.
+            $isReturnRow = ($lineTotal !== null && $lineTotal < -0.0001) || $rawQty < -0.0001;
+
+            $qty = max(0.01, abs($rawQty > 0 || $rawQty < 0 ? $rawQty : 1));
+            $unit = max(0, abs((float) ($line['unit_price'] ?? 0)));
+            $ext = $lineTotal !== null ? abs($lineTotal) : null;
+            if (($ext === null || $ext <= 0) && $unit > 0) {
+                $ext = round($qty * $unit, 4);
             }
+            // Ext. Price is source of truth when it disagrees with qty×unit (retail vs cost).
+            if ($ext !== null && $ext > 0 && $unit > 0 && abs(round($qty * $unit, 4) - $ext) > 0.02) {
+                $unit = round($ext / $qty, 4);
+            } elseif ($unit <= 0 && $ext !== null && $ext > 0) {
+                $unit = round($ext / $qty, 4);
+            }
+
             $hit = $this->matchInvoiceItem($companyId, $sku !== '' ? $sku : null, $barcode !== '' ? $barcode : null, $name !== '' ? $name : null);
             $item = $hit['item'];
-            $lines[] = [
+            $row = [
                 'name' => $name !== '' ? $name : ($sku !== '' ? $sku : ($barcode !== '' ? $barcode : 'Item')),
                 'sku' => $sku !== '' ? $sku : null,
                 'barcode' => $barcode !== '' ? $barcode : null,
-                'quantity' => max(0.01, (float) ($line['quantity'] ?? 1)),
-                'unit_price' => max(0, (float) ($line['unit_price'] ?? 0)),
-                'line_total' => isset($line['line_total']) ? (float) $line['line_total'] : null,
+                'quantity' => $qty,
+                'unit_price' => $unit,
+                'line_total' => $ext,
                 'selected' => true,
                 'item_id' => $item?->id,
                 'item_code' => $item?->item_code,
@@ -188,25 +202,109 @@ PROMPT;
                 'status' => $item ? 'matched' : 'unmatched',
                 'matched_by' => $hit['via'],
             ];
+
+            if ($isReturnRow || $pureReturn) {
+                // Pure credit memo → RTV lines. On a purchase invoice, negative rows are
+                // invoice credits only (no RTV: stock was never received for that return).
+                if ($pureReturn) {
+                    $returnLines[] = $row;
+                }
+                $credits[] = [
+                    'name' => $row['name'],
+                    'sku' => $row['sku'],
+                    'barcode' => $row['barcode'],
+                    'quantity' => $qty,
+                    'line_total' => -1 * (float) ($ext ?? 0),
+                    'item_id' => $item?->id,
+                    'item_code' => $item?->item_code,
+                ];
+
+                continue;
+            }
+
+            $lines[] = $row;
+        }
+
+        // Pure credit memo: return rows are the only catalog lines.
+        if ($pureReturn && $lines === [] && $returnLines !== []) {
+            $lines = $returnLines;
         }
 
         $supplierId = $this->matchSupplier($companyId, $data['supplier_name'] ?? null)
-            ?? $this->inferSupplierFromLines($companyId, $lines);
+            ?? $this->inferSupplierFromLines($companyId, $lines !== [] ? $lines : $returnLines);
+
+        // Purchase invoice (+ optional credit rows) → PO only.
+        // Whole-document credit memo → RTV only. Never PO+RTV from one scan.
+        $kind = $pureReturn ? 'rtv' : 'po';
+
+        $subtotal = $data['subtotal'] ?? null;
+        $total = $data['total'] ?? null;
+        if ($kind === 'rtv') {
+            if (is_numeric($subtotal)) {
+                $subtotal = abs((float) $subtotal);
+            }
+            if (is_numeric($total)) {
+                $total = abs((float) $total);
+            }
+        }
 
         return [
+            'document_type' => $kind === 'rtv' ? 'credit_memo' : (string) ($data['document_type'] ?? 'purchase_invoice'),
+            'document_kind' => $kind,
             'supplier_id' => $supplierId,
             'supplier_name' => $data['supplier_name'] ?? null,
             'ref_no' => $data['ref_no'] ?? null,
             'invoice_date' => $data['invoice_date'] ?? null,
             'currency' => $data['currency'] ?? null,
-            'subtotal' => $data['subtotal'] ?? null,
-            'freight' => $data['freight'] ?? null,
-            'other_fees' => $data['other_fees'] ?? null,
-            'tax_amount' => $data['tax_amount'] ?? null,
-            'total' => $data['total'] ?? null,
+            'subtotal' => $subtotal,
+            'freight' => $kind === 'rtv' ? abs((float) ($data['freight'] ?? 0)) : ($data['freight'] ?? null),
+            'other_fees' => $kind === 'rtv' ? abs((float) ($data['other_fees'] ?? 0)) : ($data['other_fees'] ?? null),
+            'tax_amount' => $kind === 'rtv' ? abs((float) ($data['tax_amount'] ?? 0)) : ($data['tax_amount'] ?? null),
+            'total' => $total,
             'lines' => $lines,
+            // Only filled for pure credit memos (RTV). Purchase invoices keep credits off the PO.
+            'return_lines' => $kind === 'rtv' ? $returnLines : [],
             'credits' => $credits,
         ];
+    }
+
+    /**
+     * Whole document is a credit memo / return (not a purchase bill with a few return rows).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public static function detectReturnDocument(array $data): bool
+    {
+        $type = strtolower(trim((string) ($data['document_type'] ?? '')));
+        if (in_array($type, ['credit_memo', 'credit', 'return', 'rtv', 'creditmemo'], true)) {
+            return true;
+        }
+
+        $sub = (float) ($data['subtotal'] ?? 0);
+        $total = (float) ($data['total'] ?? 0);
+        if ($sub < -0.01 || $total < -0.01) {
+            return true;
+        }
+
+        $rawLines = (array) ($data['lines'] ?? []);
+        if ($rawLines === []) {
+            return false;
+        }
+
+        $neg = 0;
+        $pos = 0;
+        foreach ($rawLines as $line) {
+            $ext = (float) ($line['line_total'] ?? 0);
+            $qty = (float) ($line['quantity'] ?? 0);
+            if ($ext < -0.0001 || $qty < -0.0001) {
+                $neg++;
+            } elseif ($ext > 0.0001 || $qty > 0.0001) {
+                $pos++;
+            }
+        }
+
+        // Only treat as pure RTV when every product row is a return.
+        return $neg > 0 && $pos === 0;
     }
 
     protected function matchSupplier(int $companyId, ?string $name): ?int
@@ -559,10 +657,33 @@ PROMPT;
         $pageTexts = $this->pdfPageTexts($path);
         $pageCount = count($pageTexts) ?: $this->pdfPageCount($bytes);
 
+        // Prefer deterministic text-layer parse when the PDF has selectable text and
+        // purchase + credit rows reconcile to the printed subtotal (no AI drift).
+        $fromText = $this->parseTextLayerInvoice($pageTexts);
+        if ($fromText !== null && $this->isCompleteRead($fromText)) {
+            Log::info('InvoiceExtractionService: text-layer exact match', [
+                'lines' => count($fromText['lines']),
+                'purchase_sum' => $this->extractedPurchaseSum($fromText),
+                'return_sum' => $this->extractedReturnSum($fromText),
+                'subtotal' => $fromText['subtotal'],
+                'ref_no' => $fromText['ref_no'] ?? null,
+            ]);
+
+            return ['success' => true, 'data' => $fromText];
+        }
+
         // Text PDFs: read each page's own text in parallel. Page boundaries are exact, so no row is skipped or doubled.
         $byPage = $this->readPageTexts($apiKey, $model, $pageTexts);
         if ($byPage !== null && $this->isCompleteRead($byPage)) {
             return ['success' => true, 'data' => $byPage];
+        }
+        // If AI page-read is close but text-layer was closer, keep the better of the two.
+        if ($fromText !== null) {
+            $target = $this->extractedMerchandiseTarget($fromText);
+            $byPage = $this->pickCloserRead($byPage, $fromText, $target);
+            if ($byPage !== null && $this->isCompleteRead($byPage)) {
+                return ['success' => true, 'data' => $byPage];
+            }
         }
 
         $upload = Http::withToken($apiKey)
@@ -596,6 +717,163 @@ PROMPT;
                 // ignore cleanup errors
             }
         }
+    }
+
+    /**
+     * Deterministic parse of wholesale invoice text layers (Capital Sales-style columns).
+     * Returns null when too few rows or the line sum does not reconcile to the printed subtotal.
+     *
+     * @param  array<int, string>  $pageTexts
+     * @return array<string, mixed>|null
+     */
+    protected function parseTextLayerInvoice(array $pageTexts): ?array
+    {
+        if ($pageTexts === []) {
+            return null;
+        }
+
+        $lines = [];
+        $supplier = null;
+        $ref = null;
+        $date = null;
+        $subtotal = null;
+        $freight = 0.0;
+        $tax = 0.0;
+        $total = null;
+
+        foreach ($pageTexts as $page) {
+            $page = (string) $page;
+            if ($supplier === null && preg_match('/^\s*([A-Z][A-Za-z0-9 &.\'\-]{2,80})\s*$/m', $page, $m)) {
+                $candidate = trim($m[1]);
+                if (! preg_match('/^(invoice|qty|page|sold|ship|total)/i', $candidate)) {
+                    $supplier = $candidate;
+                }
+            }
+            if ($ref === null && preg_match('/Invoice\s*#\s*:\s*(\S+)/i', $page, $m)) {
+                $ref = trim($m[1]);
+            }
+            if ($date === null && preg_match('/\bDate:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/', $page, $m)) {
+                try {
+                    $date = \Carbon\Carbon::createFromFormat(
+                        strlen($m[1]) > 8 ? 'm/d/Y' : 'm/d/y',
+                        $m[1]
+                    )->format('Y-m-d');
+                } catch (\Throwable) {
+                    $date = null;
+                }
+            }
+            if ($subtotal === null && preg_match('/Sub\s*Total:\s*([\d,]+\.\d{2})/i', $page, $m)) {
+                $subtotal = (float) str_replace(',', '', $m[1]);
+            }
+            if (preg_match('/Shipping:\s*([\d,]+\.\d{2})/i', $page, $m)) {
+                $freight = max($freight, (float) str_replace(',', '', $m[1]));
+            }
+            if (preg_match('/Sales\s*Tax:\s*([\d,]+\.\d{2})/i', $page, $m)) {
+                $tax = max($tax, (float) str_replace(',', '', $m[1]));
+            }
+            if ($total === null && preg_match('/^\s*Total:\s*([\d,]+\.\d{2})/mi', $page, $m)) {
+                $total = (float) str_replace(',', '', $m[1]);
+            }
+
+            foreach (preg_split("/\r\n|\n|\r/", $page) ?: [] as $rawLine) {
+                $parsed = $this->parseTextProductLine((string) $rawLine);
+                if ($parsed !== null) {
+                    $lines[] = $parsed;
+                }
+            }
+        }
+
+        if (count($lines) < 3 || $subtotal === null || $subtotal <= 0) {
+            return null;
+        }
+
+        $data = [
+            'document_type' => 'purchase_invoice',
+            'supplier_name' => $supplier,
+            'ref_no' => $ref,
+            'invoice_date' => $date,
+            'currency' => 'USD',
+            'lines' => $lines,
+            'subtotal' => round($subtotal, 2),
+            'freight' => round($freight, 2),
+            'other_fees' => 0.0,
+            'tax_amount' => round($tax, 2),
+            'total' => $total !== null ? round($total, 2) : round($subtotal + $freight + $tax, 2),
+        ];
+
+        // Accept only when net of credits equals printed subtotal (ground truth).
+        $net = round($this->extractedLineSum($data), 2);
+        if (abs($net - $subtotal) > 0.02) {
+            Log::info('InvoiceExtractionService: text-layer sum mismatch', [
+                'lines' => count($lines),
+                'net' => $net,
+                'subtotal' => $subtotal,
+            ]);
+
+            return null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Capital Sales / similar: Qty Item# [UPC] Description CasePrc UntPrc[T] Extended
+     *
+     * @return array{name: string, sku: string|null, barcode: string|null, quantity: float, unit_price: float, line_total: float}|null
+     */
+    protected function parseTextProductLine(string $line): ?array
+    {
+        $line = trim(preg_replace('/\s+/u', ' ', $line) ?? $line);
+        if ($line === '' || ! preg_match('/^-?\d/', $line)) {
+            return null;
+        }
+        if (preg_match('/^(Sub\s*Total|Shipping|Sales\s*Tax|Total|Payments|Prev\s*Bal|Invoice|Date|Time|Page)\b/i', $line)) {
+            return null;
+        }
+
+        // qty item# mid… casePrc (unitPrc[T]|T) extended
+        if (! preg_match(
+            '/^(-?\d+(?:\.\d+)?)\s+(\S+)\s+(.+)\s+(\d+(?:\.\d+)?)\s+(?:(\d+(?:\.\d+)?)T?|T)\s+(-?\d{1,3}(?:,\d{3})*\.\d{2}-?)$/',
+            $line,
+            $m
+        )) {
+            return null;
+        }
+
+        $rawQty = (float) $m[1];
+        $sku = trim($m[2]);
+        $mid = trim($m[3]);
+        $casePrc = (float) $m[4];
+        $ext = $this->toNumber($m[6]);
+        if ($ext === null) {
+            return null;
+        }
+
+        $barcode = null;
+        $name = $mid;
+        if (preg_match('/^(\d{8,14})\s+(.+)$/', $mid, $u)) {
+            $barcode = $u[1];
+            $name = trim($u[2]);
+        }
+
+        if ($name === '' || preg_match('/^(subtotal|shipping|sales tax|total|payments)\b/i', $name)) {
+            return null;
+        }
+
+        $qty = abs($rawQty) > 0 ? abs($rawQty) : 1.0;
+        $unit = $casePrc;
+        if (abs($qty * $casePrc - abs($ext)) > 0.02) {
+            $unit = round(abs($ext) / $qty, 4);
+        }
+
+        return [
+            'name' => $name,
+            'sku' => $sku !== '' ? $sku : null,
+            'barcode' => $barcode,
+            'quantity' => $qty,
+            'unit_price' => $unit,
+            'line_total' => $ext,
+        ];
     }
 
     /**
@@ -739,8 +1017,12 @@ PROMPT;
             return count($b['lines']) >= count($a['lines']) ? $b : $a;
         }
 
-        $gapA = abs($target - $this->extractedLineSum($a));
-        $gapB = abs($target - $this->extractedLineSum($b));
+        // Prefer the read whose positive purchase rows are closest to merchandise target
+        // (header subtotal is net of credits — do not compare net line sum).
+        $merchA = $this->extractedMerchandiseTarget($a) ?: $target;
+        $merchB = $this->extractedMerchandiseTarget($b) ?: $target;
+        $gapA = abs($merchA - $this->extractedPurchaseSum($a));
+        $gapB = abs($merchB - $this->extractedPurchaseSum($b));
 
         return $gapB <= $gapA ? $b : $a;
     }
@@ -797,17 +1079,19 @@ PROMPT;
             }
         }
 
-        // A row read on both sides of a page break shows up twice; drop repeats only while the lines overshoot.
-        $target = $this->extractedHeaderTarget($merged);
-        if ($target > 0.05 && $this->extractedLineSum($merged) > $target * 1.005) {
+        // A row read on both sides of a page break shows up twice; drop repeats only while purchases overshoot.
+        $merged = $this->reconcilePurchaseAmounts($merged);
+        $target = $this->extractedMerchandiseTarget($merged);
+        if ($target > 0.05 && $this->extractedPurchaseSum($merged) > $target * 1.005) {
             $seen = [];
             $keep = [];
-            $sum = $this->extractedLineSum($merged);
+            $sum = $this->extractedPurchaseSum($merged);
             foreach ($merged['lines'] as $i => $line) {
                 $key = $this->lineKey($line);
-                $p = $pageOfLine[$i];
-                if ($sum > $target * 1.005 && isset($seen[$key]) && $seen[$key] !== $p) {
-                    $sum -= (float) $line['line_total'];
+                $p = $pageOfLine[$i] ?? 0;
+                $ext = (float) ($line['line_total'] ?? 0);
+                if ($ext > 0 && $sum > $target * 1.005 && isset($seen[$key]) && $seen[$key] !== $p) {
+                    $sum -= $ext;
 
                     continue;
                 }
@@ -817,7 +1101,7 @@ PROMPT;
             $merged['lines'] = $keep;
         }
 
-        return $merged;
+        return $this->reconcilePurchaseAmounts($merged);
     }
 
     /**
@@ -829,9 +1113,12 @@ PROMPT;
      */
     protected function completeLineSet(string $apiKey, string $model, array $data, array $attachment): array
     {
+        $data = $this->reconcilePurchaseAmounts($data);
+
         for ($attempt = 1; $attempt <= self::MAX_COMPLETION_ATTEMPTS; $attempt++) {
-            $target = $this->extractedHeaderTarget($data);
-            $sum = $this->extractedLineSum($data);
+            // Purchase rows are positive; header subtotal is usually net of credit/return rows.
+            $target = $this->extractedMerchandiseTarget($data);
+            $sum = $this->extractedPurchaseSum($data);
             if ($target <= 0.05 || $this->isCompleteRead($data) || $sum >= $target) {
                 break;
             }
@@ -841,12 +1128,14 @@ PROMPT;
                 ->take(250)
                 ->implode('; ');
 
-            $ask = 'INCOMPLETE EXTRACTION. The invoice subtotal is '.number_format($target, 2, '.', '')
-                .' but the '.count($data['lines']).' rows found so far only add up to '.number_format($sum, 2, '.', '')
+            $ask = 'INCOMPLETE EXTRACTION. Purchase merchandise should total '.number_format($target, 2, '.', '')
+                .' (invoice subtotal '.number_format($this->extractedHeaderTarget($data), 2, '.', '')
+                .' plus any credit/return rows), but positive product rows so far only add up to '.number_format($sum, 2, '.', '')
                 .' (missing '.number_format($target - $sum, 2, '.', '').').'
                 ."\nRows already found (sku or name x qty = line total): ".$found
-                ."\nRead every page again from top to bottom and return ONLY the product rows that are NOT in the list above."
-                .' Return the same JSON shape; put only the missing rows in "lines". If nothing is missing, return "lines": [].';
+                ."\nRead every page again from top to bottom and return ONLY the missing POSITIVE purchase product rows that are NOT in the list above."
+                .' Do not re-send credit/return (negative) rows already found. Use Ext. Price / cost extended amounts only (never retail).'
+                .' Return the same JSON shape; put only the missing purchase rows in "lines". If nothing is missing, return "lines": [].';
 
             $results = $this->runParallel($apiKey, $model, ['more' => $ask], $attachment);
             $more = $results['more'] ?? null;
@@ -855,11 +1144,16 @@ PROMPT;
             }
 
             $before = count($data['lines']);
-            $candidate = $this->dropSummaryRows(array_merge($data, [
-                'lines' => $this->mergeNewLines($data['lines'], $more['lines']),
-            ]));
-            // Extra rows that overshoot the subtotal are summary / recap rows, not missing products.
-            if (abs($target - $this->extractedLineSum($candidate)) < abs($target - $sum)) {
+            $candidate = $this->reconcilePurchaseAmounts($this->dropSummaryRows(array_merge($data, [
+                'lines' => $this->mergeNewLines($data['lines'], $more['lines'] ?? []),
+            ])));
+            $candSum = $this->extractedPurchaseSum($candidate);
+            $oldGap = abs($target - $sum);
+            $candGap = abs($target - $candSum);
+            // Do not accept a completion that flips a short read into a large overshoot
+            // (that was producing "over by $110" after filling a short gap).
+            $crossedToOver = $sum <= $target + 1.0 && $candSum > $target + 1.0;
+            if ($candGap + 0.01 < $oldGap && ! ($crossedToOver && $candGap > max(5.0, $target * 0.002))) {
                 $data = $candidate;
             }
             $added = count($data['lines']) - $before;
@@ -868,7 +1162,7 @@ PROMPT;
                 'attempt' => $attempt,
                 'added' => $added,
                 'lines' => count($data['lines']),
-                'sum' => round($this->extractedLineSum($data), 2),
+                'purchase_sum' => round($this->extractedPurchaseSum($data), 2),
                 'target' => round($target, 2),
             ]);
 
@@ -877,7 +1171,133 @@ PROMPT;
             }
         }
 
+        return $this->reconcilePurchaseAmounts($data);
+    }
+
+    /**
+     * Fix qty×unit vs Ext mismatches, drop duplicate rows, and trim overshoot toward the merchandise target.
+     * Credit/return (negative) rows stay; purchase match uses subtotal + |credits|.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function reconcilePurchaseAmounts(array $data): array
+    {
+        $lines = array_values((array) ($data['lines'] ?? []));
+        if ($lines === []) {
+            return $data;
+        }
+
+        // Prefer printed Ext. Price when qty×unit disagrees (OCR often swaps in retail).
+        foreach ($lines as $i => $line) {
+            $qty = abs((float) ($line['quantity'] ?? 0));
+            if ($qty < 0.0001) {
+                $qty = 1.0;
+            }
+            $unit = abs((float) ($line['unit_price'] ?? 0));
+            $ext = (float) ($line['line_total'] ?? 0);
+            $absExt = abs($ext);
+            $computed = round($qty * $unit, 4);
+            $isCredit = $ext < -0.0001;
+
+            if ($absExt > 0.0001 && $unit > 0 && abs($computed - $absExt) > 0.02) {
+                // Keep printed extended; derive unit from it.
+                $unit = round($absExt / $qty, 4);
+                $computed = $absExt;
+            } elseif ($absExt <= 0.0001 && $unit > 0) {
+                $absExt = $computed;
+            } elseif ($unit <= 0 && $absExt > 0.0001) {
+                $unit = round($absExt / $qty, 4);
+            }
+
+            $lines[$i]['quantity'] = $qty;
+            $lines[$i]['unit_price'] = $unit;
+            $lines[$i]['line_total'] = $isCredit ? -1 * $absExt : $absExt;
+        }
+        $data['lines'] = $lines;
+
+        $target = $this->extractedMerchandiseTarget($data);
+        if ($target <= 0.05) {
+            return $data;
+        }
+
+        $purchaseSum = $this->extractedPurchaseSum($data);
+        if ($purchaseSum <= $target + max(1.0, $target * 0.0002)) {
+            return $data;
+        }
+
+        // Drop exact duplicates (same sku/name + qty + ext) — page-break / completion doubles.
+        $seen = [];
+        $deduped = [];
+        foreach ($lines as $line) {
+            $key = $this->lineKey($line);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $line;
+        }
+        $data['lines'] = $deduped;
+        $purchaseSum = $this->extractedPurchaseSum($data);
+        if ($purchaseSum <= $target + max(1.0, $target * 0.0002)) {
+            Log::info('InvoiceExtractionService: trimmed exact duplicate lines', [
+                'dropped' => count($lines) - count($deduped),
+                'purchase_sum' => round($purchaseSum, 2),
+                'target' => round($target, 2),
+            ]);
+
+            return $data;
+        }
+
+        // Soft duplicates: same identity + qty (amount may differ slightly). Keep the first;
+        // only drop later ones while still over.
+        $softSeen = [];
+        $softKeep = [];
+        $running = 0.0;
+        $creditsOnly = [];
+        foreach ($deduped as $line) {
+            $ext = (float) ($line['line_total'] ?? 0);
+            if ($ext < -0.0001) {
+                $creditsOnly[] = $line;
+
+                continue;
+            }
+            $soft = $this->softLineKey($line);
+            if (isset($softSeen[$soft]) && ($running - $target) > 1.0) {
+                // Skip this duplicate while overshoot remains.
+                continue;
+            }
+            $softSeen[$soft] = true;
+            $softKeep[] = $line;
+            $running += max(0, $ext);
+        }
+        $merged = array_merge($softKeep, $creditsOnly);
+        $candidate = array_merge($data, ['lines' => $merged]);
+        if (abs($target - $this->extractedPurchaseSum($candidate)) < abs($target - $purchaseSum)) {
+            Log::info('InvoiceExtractionService: trimmed soft duplicate purchase lines', [
+                'dropped' => count($deduped) - count($merged),
+                'purchase_sum' => round($this->extractedPurchaseSum($candidate), 2),
+                'target' => round($target, 2),
+            ]);
+
+            return $candidate;
+        }
+
         return $data;
+    }
+
+    /**
+     * Identity for soft dedupe (ignores tiny amount OCR drift).
+     *
+     * @param  array<string, mixed>  $line
+     */
+    protected function softLineKey(array $line): string
+    {
+        $id = trim((string) ($line['sku'] ?? ''))
+            ?: trim((string) ($line['barcode'] ?? ''))
+            ?: mb_strtoupper(preg_replace('/\s+/', ' ', trim((string) ($line['name'] ?? ''))) ?? '');
+
+        return $id.'|'.number_format(abs((float) ($line['quantity'] ?? 0)), 2, '.', '');
     }
 
     /**
@@ -1075,8 +1495,8 @@ PROMPT;
      */
     protected function dropSummaryRows(array $data): array
     {
-        $target = $this->extractedHeaderTarget($data);
-        $sum = $this->extractedLineSum($data);
+        $target = $this->extractedMerchandiseTarget($data);
+        $sum = $this->extractedPurchaseSum($data);
         if ($target <= 0.05 || $sum <= $target + max(1.0, $target * 0.0002)) {
             return $data;
         }
@@ -1087,10 +1507,10 @@ PROMPT;
                 || preg_match('/\d/', (string) ($line['name'] ?? ''))
         ));
         $trimmed = array_merge($data, ['lines' => $keep]);
-        if ($keep !== [] && abs($target - $this->extractedLineSum($trimmed)) < abs($target - $sum)) {
+        if ($keep !== [] && abs($target - $this->extractedPurchaseSum($trimmed)) < abs($target - $sum)) {
             Log::info('InvoiceExtractionService: dropped summary rows', [
                 'dropped' => count($data['lines']) - count($keep),
-                'sum' => round($this->extractedLineSum($trimmed), 2),
+                'sum' => round($this->extractedPurchaseSum($trimmed), 2),
                 'target' => round($target, 2),
             ]);
 
@@ -1119,6 +1539,38 @@ PROMPT;
         return (float) collect($data['lines'] ?? [])->sum(fn ($l) => (float) ($l['line_total'] ?? 0));
     }
 
+    /** Sum of purchase (positive) product rows only. */
+    public function extractedPurchaseSum(array $data): float
+    {
+        return round((float) collect($data['lines'] ?? [])->sum(fn ($l) => max(0, (float) ($l['line_total'] ?? 0))), 2);
+    }
+
+    /** Absolute sum of credit/return (negative) product rows. */
+    public function extractedReturnSum(array $data): float
+    {
+        return round((float) collect($data['lines'] ?? [])->sum(function ($l) {
+            $ext = (float) ($l['line_total'] ?? 0);
+
+            return $ext < 0 ? abs($ext) : 0;
+        }), 2);
+    }
+
+    /**
+     * What positive purchase lines must add up to.
+     * Vendor subtotals are usually net of credits, so purchases ≈ subtotal + returns.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function extractedMerchandiseTarget(array $data): float
+    {
+        $subtotal = $this->extractedHeaderTarget($data);
+        if ($subtotal <= 0.05) {
+            return 0.0;
+        }
+
+        return round($subtotal + $this->extractedReturnSum($data), 2);
+    }
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -1145,12 +1597,12 @@ PROMPT;
      */
     protected function isCompleteRead(array $data): bool
     {
-        $target = $this->extractedHeaderTarget($data);
+        $target = $this->extractedMerchandiseTarget($data);
         if ($target <= 0.05 || empty($data['lines'])) {
             return false;
         }
 
-        return abs($target - $this->extractedLineSum($data)) <= max(1.0, $target * 0.0002);
+        return abs($target - $this->extractedPurchaseSum($data)) <= max(1.0, $target * 0.0002);
     }
 
     protected function extractResponsesText(array $json): ?string
@@ -1207,8 +1659,11 @@ PROMPT;
             $isCredit = ($rawExt !== null && $rawExt < 0) || $rawQty < 0 || $rawUnit < 0;
             $qty = abs($rawQty) > 0 ? abs($rawQty) : 1.0;
             $unit = abs($rawUnit);
-            $ext = abs((float) $rawExt);
-            if ($unit <= 0 && $ext > 0) {
+            $ext = abs((float) ($rawExt ?? 0));
+            // Ext. Price wins when qty×unit disagrees (cost vs retail column mix-ups).
+            if ($ext > 0 && $unit > 0 && abs(round($qty * $unit, 4) - $ext) > 0.02) {
+                $unit = round($ext / $qty, 4);
+            } elseif ($unit <= 0 && $ext > 0) {
                 $unit = $ext / $qty;
             }
             if ($ext <= 0) {

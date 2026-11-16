@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\Item;
 use App\Services\JapsAi\InvoiceExtractionService;
 use App\Services\JapsAi\VendorInvoicePurchaseOrderService;
+use App\Services\JapsAi\VendorInvoiceRtvService;
 use Livewire\WithFileUploads;
 
 /**
@@ -95,9 +96,13 @@ trait ScansVendorInvoiceWithAi
             'total' => $matched['total'] ?? null,
         ];
         $this->aiInvoiceLines = $matched['lines'] ?? [];
+        $this->aiInvoiceHeader['document_kind'] = $matched['document_kind'] ?? 'po';
         $ready = VendorInvoicePurchaseOrderService::listsAreReady($matched);
         VendorInvoicePurchaseOrderService::storeReview($result['data'] ?? [], $matched, $ready);
-        $this->aiInvoiceStatus = app(VendorInvoicePurchaseOrderService::class)->reviewReply($company, $matched);
+        $kind = (string) ($matched['document_kind'] ?? 'po');
+        $this->aiInvoiceStatus = $kind === 'rtv'
+            ? app(VendorInvoiceRtvService::class)->reviewReply($company, $matched)
+            : app(VendorInvoicePurchaseOrderService::class)->reviewReply($company, $matched);
     }
 
     public function updatedAiInvoiceFile(): void

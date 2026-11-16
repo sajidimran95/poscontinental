@@ -30,7 +30,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return route('login');
         });
-        $middleware->web(append: [
+        $middleware->web(prepend: [
+            \App\Http\Middleware\EnsureDesktopSetup::class,
+        ], append: [
             \App\Http\Middleware\CaptureUserTimezone::class,
             \App\Http\Middleware\EagerLoadAuthenticatedUser::class,
         ]);
@@ -40,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'customer.app' => \App\Http\Middleware\EnsureCustomerApp::class,
             'delivery.app' => \App\Http\Middleware\EnsureDeliveryApp::class,
             'store.enabled' => \App\Http\Middleware\EnsureStoreEnabled::class,
+            'sync.node' => \App\Http\Middleware\SyncNodeAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

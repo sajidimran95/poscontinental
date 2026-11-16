@@ -116,9 +116,28 @@ class Invoice extends Model
         return (float) $this->credits()->sum('amount');
     }
 
+    /**
+     * Open overpayment credit still on this invoice (memo reference_no = invoice_number).
+     * Created when the customer paid more than the due; leftover becomes an Overpayment memo.
+     */
+    public function getTotalOverpaymentsAttribute(): float
+    {
+        if (array_key_exists('overpayments_sum_amount', $this->attributes)) {
+            return round(max(0, (float) $this->attributes['overpayments_sum_amount']), 2);
+        }
+
+        return CreditMemo::openOverpaymentRemainingForInvoice(
+            (int) $this->company_id,
+            (string) $this->invoice_number,
+            $this->customer_id ? (int) $this->customer_id : null,
+        );
+    }
+
     public function getInvoiceBalanceAttribute(): float
     {
-        return (float) $this->invoice_total - $this->total_payments - $this->total_credits;
+        // Due after cash + applied credits (incl. applied overpayment credits).
+        // Open overpayment leftover is shown separately (total_overpayments), not as negative due.
+        return round((float) $this->invoice_total - $this->total_payments - $this->total_credits, 2);
     }
 
     /**
@@ -168,10 +187,6 @@ class Invoice extends Model
 
     public static function nextNumber(int|string $companyId): string
     {
-        $companyId = (int) $companyId;
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('invoice_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 100001;
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, (int) $companyId, 'invoice_number', 100001);
     }
 }

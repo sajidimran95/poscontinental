@@ -273,6 +273,8 @@
                                 ['Company Settings', 'admin.company-settings'],
                                 ['Overselling Settings', 'admin.overselling-settings'],
                                 ['POS AI Settings', 'admin.japsai'],
+                                ['Desktop devices', 'admin.desktop-devices'],
+                                ['Sync status', 'desktop.status'],
                                 ['Users & Roles', 'admin.users.index'],
                                 ['Email Setup', 'admin.email-setup'],
                                 ['Email Send Log', 'admin.email-logs'],
@@ -718,7 +720,7 @@
                 </a>
                 <span>Site: <strong>{{ session('site_code', auth()->user()?->site?->code ?? 'WS') }}</strong></span>
                 <span>Company: <strong>{{ session('company_name', auth()->user()?->company?->name ?? '—') }}</strong></span>
-                <span id="status-clock" class="ms-auto text-amber-200" title="Your local time" aria-live="polite">{{ now()->format('g:i A, n/j/Y') }}</span>
+                <span id="status-clock" class="ms-auto text-amber-200" title="Eastern Time ({{ config('app.timezone') }})" data-tz="{{ config('app.timezone') }}" aria-live="polite">{{ now()->timezone(config('app.timezone'))->format('g:i A, n/j/Y') }}</span>
             </footer>
         </div>
         @auth
@@ -767,7 +769,9 @@
                 const el = document.getElementById('status-clock');
                 if (! el) return;
 
-                const fmt = new Intl.DateTimeFormat(undefined, {
+                const tz = el.getAttribute('data-tz') || 'America/New_York';
+                const fmt = new Intl.DateTimeFormat('en-US', {
+                    timeZone: tz,
                     hour: 'numeric',
                     minute: '2-digit',
                     hour12: true,
@@ -777,7 +781,7 @@
                 });
 
                 function tick() {
-                    // Match prior style: "2:44 AM, 7/24/2026"
+                    // Eastern Time from APP_TIMEZONE — style: "2:44 AM, 7/24/2026"
                     const parts = fmt.formatToParts(new Date());
                     const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
                     const hour = get('hour');

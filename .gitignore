@@ -26,6 +26,13 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
+# Desktop / NativePHP build artifacts
+.env.desktop
+/dist
+/extras
+/nativephp
+/resources/build
+
 # Never commit API keys / local secret files
 Open api.txt
 *_api_key*

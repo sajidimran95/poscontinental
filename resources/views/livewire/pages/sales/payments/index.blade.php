@@ -1216,6 +1216,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
                 // 2) Apply cash / check payment to remaining balances.
                 $remaining = $payTotal;
+                $overpayInvoiceNumber = null;
                 foreach ($invoices as $invoice) {
                     if ($remaining <= 0.0001) {
                         break;
@@ -1248,6 +1249,7 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
 
                     $appliedCash += $apply;
                     $remaining = round($remaining - $apply, 2);
+                    $overpayInvoiceNumber = (string) $invoice->invoice_number;
                     if ($newBal <= 0.0001) {
                         $paidCount++;
                     } else {
@@ -1281,18 +1283,30 @@ new #[Layout('layouts.app'), Title('Payments')] class extends Component
                         $candidate = (string) (((int) $candidate) + 1);
                     }
                     $creditNumber = $candidate;
+                    $anchorInvoice = $overpayInvoiceNumber
+                        ?: (string) ($invoices->last()?->invoice_number ?? '');
+                    $comments = 'Auto credit from customer payment overage ($'
+                        .number_format($payTotal, 2).' paid on $'.number_format($appliedCash, 2)
+                        .' remaining invoice balance)';
+                    if ($anchorInvoice !== '') {
+                        $comments .= ' on invoice '.$anchorInvoice;
+                    }
+                    if ($checkNumber) {
+                        $comments .= '; check #'.$checkNumber;
+                    }
+                    $comments .= '.';
 
                     CreditMemo::query()->create([
                         'company_id' => $companyId,
                         'memo_number' => $candidate,
                         'memo_date' => $this->pay_date ?: now()->toDateString(),
-                        'reference_no' => $checkNumber,
+                        'reference_no' => $anchorInvoice !== '' ? $anchorInvoice : $checkNumber,
                         'reason' => 'Overpayment',
                         'customer_id' => $this->customer_id,
                         'sales_order_id' => null,
                         'amount' => $creditAmount,
                         'status' => 'Open',
-                        'comments' => 'Auto credit from customer payment overage ($'.number_format($payTotal, 2).' paid on $'.number_format($appliedCash, 2).' remaining invoice balance).',
+                        'comments' => $comments,
                         'restock_inventory' => false,
                     ]);
                 }

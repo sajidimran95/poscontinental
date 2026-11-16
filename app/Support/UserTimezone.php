@@ -9,18 +9,18 @@ use DateTimeZone;
 use Throwable;
 
 /**
- * POS clock follows the browser (USA → US time, Bangladesh → BD time, etc.).
+ * Company clock — always APP_TIMEZONE (America/New_York for Continental).
+ * Browser timezone is ignored so every PC shows the same Eastern time.
  */
 class UserTimezone
 {
     public static function name(): string
     {
-        $tz = session('pos_tz')
-            ?: request()?->cookie('pos_tz')
-            ?: request()?->header('X-Timezone')
-            ?: (string) (config('app.fallback_timezone') ?: config('app.timezone') ?: 'UTC');
+        $tz = (string) (config('app.timezone')
+            ?: config('app.fallback_timezone')
+            ?: 'America/New_York');
 
-        return self::sanitize($tz) ?: 'UTC';
+        return self::sanitize($tz) ?: 'America/New_York';
     }
 
     public static function sanitize(mixed $tz): ?string
@@ -40,7 +40,7 @@ class UserTimezone
     }
 
     /**
-     * Use this workstation's timezone for now(), create/edit stamps, and date displays.
+     * Lock PHP / Carbon to the company timezone.
      */
     public static function apply(?string $tz = null): string
     {
@@ -48,16 +48,6 @@ class UserTimezone
 
         config(['app.timezone' => $name]);
         date_default_timezone_set($name);
-
-        if (function_exists('session')) {
-            try {
-                if (session()->isStarted()) {
-                    session(['pos_tz' => $name]);
-                }
-            } catch (Throwable) {
-                // Console / early boot has no session.
-            }
-        }
 
         return $name;
     }

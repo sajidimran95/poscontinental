@@ -136,10 +136,10 @@
                 $paymentRows = $invoice->payments ?? collect();
                 $creditRows = $invoice->credits ?? collect();
             @endphp
-            @if ($paymentRows->isEmpty() && $creditRows->isEmpty())
+            @if ($paymentRows->isEmpty() && $creditRows->isEmpty() && (float) $invoice->total_overpayments <= 0.0001)
                 <div class="muted">No payments recorded yet.</div>
             @else
-                <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:11px">
+                <table style="width:100%;border-collapse:collapse;margin-top:4px;font-size:12px">
                     <thead>
                         <tr>
                             <th style="text-align:left;padding:2px 4px 4px 0;border-bottom:1px solid #cbd5e1">Method</th>
@@ -167,7 +167,7 @@
                         @foreach ($creditRows as $c)
                             <tr>
                                 <td style="padding:3px 4px 3px 0;vertical-align:top">
-                                    <strong>Credit Memo</strong>
+                                    <strong>Credit Memo Applied</strong>
                                 </td>
                                 <td style="padding:3px 4px 3px 0;vertical-align:top" class="muted">
                                     #{{ $c->creditMemo?->memo_number ?: '—' }}
@@ -180,6 +180,19 @@
                                 </td>
                             </tr>
                         @endforeach
+                        @if ((float) $invoice->total_overpayments > 0.0001)
+                            <tr>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top">
+                                    <strong>Overpayment (open)</strong>
+                                </td>
+                                <td style="padding:3px 4px 3px 0;vertical-align:top" class="muted">
+                                    On account · inv {{ $invoice->invoice_number }}
+                                </td>
+                                <td style="padding:3px 0 3px 4px;text-align:right;vertical-align:top;color:#166534">
+                                    ${{ number_format((float) $invoice->total_overpayments, 2) }}
+                                </td>
+                            </tr>
+                        @endif
                     </tbody>
                 </table>
             @endif
@@ -223,10 +236,22 @@
                     <td class="label">Credits</td>
                     <td class="right">${{ number_format((float) $invoice->total_credits, 2) }}</td>
                 </tr>
+                @if ((float) $invoice->total_overpayments > 0.0001)
+                    <tr>
+                        <td class="label">Overpayment</td>
+                        <td class="right" style="color:#166534">${{ number_format((float) $invoice->total_overpayments, 2) }}</td>
+                    </tr>
+                @endif
                 <tr class="balance">
                     <td>Balance Due</td>
                     <td class="right">${{ number_format((float) $invoice->invoice_balance, 2) }}</td>
                 </tr>
+                @if ((float) $invoice->total_overpayments > 0.0001 && (float) $invoice->invoice_balance <= 0.0001)
+                    <tr>
+                        <td class="label" style="color:#166534">Customer credit (overpay)</td>
+                        <td class="right" style="color:#166534">${{ number_format((float) $invoice->total_overpayments, 2) }}</td>
+                    </tr>
+                @endif
             </table>
         </td>
     </tr>

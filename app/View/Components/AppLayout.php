@@ -72,6 +72,8 @@ class AppLayout extends Component
             str_contains($routeName, 'lookups') => 'Lookups',
             str_contains($routeName, 'reports') => 'Reports',
             str_contains($routeName, 'bulk-pricing') => 'Bulk Pricing',
+            str_contains($routeName, 'desktop-devices') => 'Desktop devices',
+            str_contains($routeName, 'desktop.status') || str_contains($routeName, 'desktop.sync') => 'Sync status',
             default => str($routeName)->afterLast('.')->headline()->toString(),
         };
     }

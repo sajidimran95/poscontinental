@@ -65,9 +65,9 @@ return [
     |
     */
 
-    'timezone' => env('APP_TIMEZONE', 'UTC'),
+    'timezone' => env('APP_TIMEZONE', 'America/New_York'),
 
-    'fallback_timezone' => env('APP_TIMEZONE', 'UTC'),
+    'fallback_timezone' => env('APP_TIMEZONE', 'America/New_York'),
 
     /*
     |--------------------------------------------------------------------------

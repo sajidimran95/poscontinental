@@ -382,13 +382,16 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             }
 
             $matched = InvoiceExtractionService::forCompany($company)->matchToCatalog($result['data'] ?? []);
-            $creator = app(VendorInvoicePurchaseOrderService::class);
             $ready = VendorInvoicePurchaseOrderService::listsAreReady($matched);
             VendorInvoicePurchaseOrderService::storeReview($result['data'] ?? [], $matched, $ready);
+            $kind = (string) ($matched['document_kind'] ?? 'po');
+            $reply = $kind === 'rtv'
+                ? app(\App\Services\JapsAi\VendorInvoiceRtvService::class)->reviewReply($company, $matched)
+                : app(VendorInvoicePurchaseOrderService::class)->reviewReply($company, $matched);
 
             $this->messages[] = $this->posAiMakeMessage(
                 'assistant',
-                $creator->reviewReply($company, $matched),
+                $reply,
                 'invoice_review'
             );
         } catch (\Throwable $e) {

@@ -11,16 +11,16 @@
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
-            font-size: 9.5px;
+            font-size: 10.5px;
             color: #000;
-            line-height: 1.28;
+            line-height: 1.32;
             margin: 0;
         }
         table { border-collapse: collapse; }
         .hdr { width: 100%; margin-bottom: 4px; }
         .hdr td { vertical-align: top; border: none; padding: 0; }
-        .co-name { font-size: 17px; font-weight: bold; letter-spacing: 0.01em; }
-        .co-line { font-size: 9px; margin-top: 1px; }
+        .co-name { font-size: 19px; font-weight: bold; letter-spacing: 0.01em; }
+        .co-line { font-size: 10px; margin-top: 1px; }
         .notice {
             font-size: 7.5px;
             text-align: right;
@@ -183,9 +183,9 @@
         table.items th.col-qty, table.items td.col-qty { padding-left: 2px; padding-right: 3px; }
         table.items th.col-uom, table.items td.col-uom { padding-left: 2px; padding-right: 2px; text-align: center; }
         table.items th.col-item, table.items td.col-item { text-align: left; white-space: nowrap; padding-left: 3px; padding-right: 2px; }
-        table.items td.col-item.is-long { font-size: 9px; }
+        table.items td.col-item.is-long { font-size: 10px; }
         table.items th.col-desc, table.items td.col-desc { text-align: left; }
-        table.items td.col-desc { font-size: 11px; }
+        table.items td.col-desc { font-size: 12px; }
         table.items td.col-desc .desc-one {
             white-space: nowrap;
             overflow: hidden;
@@ -213,33 +213,57 @@
             font-size: 7.5px;
             font-weight: bold;
             text-align: center;
-            line-height: 1.15;
-            margin-bottom: 2px;
+            line-height: 1.1;
+            margin-bottom: 1px;
         }
         .foot-sum .sum-val {
             display: block;
             font-size: 11px;
             font-weight: bold;
             text-align: center;
-            line-height: 1.15;
+            line-height: 1.1;
         }
         .foot-sum td.sum-box {
             width: 22%;
-            padding: 4px 3px;
+            padding: 2px 3px;
             text-align: center;
         }
-        .foot-sum td.bal-box {
-            padding: 6px 3px;
+        .foot-sum td.bal-side {
+            width: 66%;
+            vertical-align: bottom;
+            border: none !important;
+            padding: 0;
+            background: transparent;
+        }
+        .foot-sum table.bal-row {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .foot-sum table.bal-row td.bal-box {
+            width: 33.33%;
+            padding: 2px 3px;
             text-align: center;
             vertical-align: middle;
-            font-size: 8.5px;
+            font-size: 8px;
             font-weight: bold;
             white-space: nowrap;
+            border: 1px solid #222;
+            height: auto;
+            line-height: 1.1;
         }
-        .foot-sum.merch-sum { margin-top: 6px; }
+        .foot-sum table.bal-row .sum-val {
+            display: block;
+            font-size: 11px;
+            font-weight: bold;
+            margin-top: 1px;
+            line-height: 1.1;
+        }
+        .foot-sum.merch-sum { margin-top: 4px; }
         .foot-sum td.tot-wrap {
             width: 32%;
             padding: 0;
+            vertical-align: top;
         }
         .foot-sum table.tot-inner {
             width: 100%;
@@ -249,10 +273,11 @@
         .foot-sum table.tot-inner td {
             border: none;
             border-bottom: 1px solid #222;
-            padding: 4px 6px;
-            font-size: 10px;
+            padding: 2px 5px;
+            font-size: 9.5px;
             font-weight: bold;
             white-space: nowrap;
+            line-height: 1.15;
         }
         .foot-sum table.tot-inner tr:last-child td {
             border-bottom: none;
@@ -266,8 +291,8 @@
             width: 42%;
         }
         .foot-sum table.tot-inner tr.due td {
-            font-size: 12px;
-            padding: 6px;
+            font-size: 11px;
+            padding: 3px 5px;
         }
         .doc-end { page-break-inside: avoid; }
         /* Footer sits at the bottom of the last page; the spacer reserves its height in the flow. */
@@ -365,7 +390,12 @@
     $docTax = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->tax : (float) ($order->tax ?? 0);
     $docTotal = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->invoice_total : (float) ($order->total ?? 0);
     $payTotal = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->total_payments : 0.0;
+    // Any credit memo applied to this invoice (return, overpay leftover applied later, etc.).
     $creditTotal = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->total_credits : 0.0;
+    // True overpayment on THIS bill only: paid more than due (e.g. bill 500, pay 600 → 100).
+    // Not the same as applying an existing credit memo.
+    $openOverpay = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->total_overpayments : 0.0;
+    // Remaining on THIS invoice after payments + applied credits.
     $thisOpen = $isInvoiceDoc && $invoiceDoc ? (float) $invoiceDoc->invoice_balance : $docTotal;
     $previousInvoices = \App\Models\Invoice::previousOpenInvoices(
         (int) $order->company_id,
@@ -379,7 +409,8 @@
         (int) $order->company_id,
         $order->customer_id ? (int) $order->customer_id : null
     );
-    $totalDue = round(max(0, $docTotal + $previousBalance - $openCredit), 2);
+    // TOTAL DUE uses invoice balance (after pay/credit/overpay applied), not raw invoice total.
+    $totalDue = round(max(0, $thisOpen + $previousBalance - $openCredit), 2);
 @endphp
 
 <div class="page-head">
@@ -558,24 +589,41 @@
 </table>
 
 @php
-    $footExtraRows = collect([$returnsTotal < -0.004, $docDiscount != 0.0, $docFreight != 0.0, $docMisc != 0.0, $docTax != 0.0, $isInvoiceDoc && $thisOpen < -0.004, $openCredit > 0.004])->filter()->count();
+    $footExtraRows = collect([
+        $returnsTotal < -0.004,
+        $docDiscount != 0.0,
+        $docFreight != 0.0,
+        $docMisc != 0.0,
+        $docTax != 0.0,
+        $isInvoiceDoc && $payTotal > 0.004,
+        $isInvoiceDoc && $creditTotal > 0.004,
+        $isInvoiceDoc && $openOverpay > 0.004,
+        $isInvoiceDoc && abs($thisOpen) > 0.004,
+        $isInvoiceDoc && $thisOpen < -0.004,
+        $openCredit > 0.004,
+    ])->filter()->count();
 @endphp
-<div class="doc-foot-space" style="height: {{ 220 + 22 * $footExtraRows }}px"></div>
+<div class="doc-foot-space" style="height: {{ 170 + 16 * $footExtraRows }}px"></div>
 <div class="doc-foot">
 {{-- Balances (left) + totals (right); merchandise boxes at the bottom --}}
 <table class="foot-sum">
     <colgroup>
-        <col style="width:22%">
-        <col style="width:22%">
-        <col style="width:22%">
+        <col style="width:66%">
         <col style="width:2%">
         <col style="width:32%">
     </colgroup>
     <tbody>
     <tr>
-        <td class="bal-box">PREVIOUS BALANCE<br><span class="sum-val">${{ number_format($previousBalance, 2) }}</span></td>
-        <td class="bal-box">TOTAL CREDITS<br><span class="sum-val">${{ number_format($creditTotal, 2) }}</span></td>
-        <td class="bal-box">TOTAL PAYMENTS<br><span class="sum-val">${{ number_format($payTotal, 2) }}</span></td>
+        <td class="bal-side">
+            {{-- Original bal boxes; short height, bottom-aligned with TOTAL DUE. --}}
+            <table class="bal-row">
+                <tr>
+                    <td class="bal-box">PREVIOUS BALANCE<br><span class="sum-val">${{ number_format($previousBalance, 2) }}</span></td>
+                    <td class="bal-box">TOTAL CREDITS<br><span class="sum-val">${{ number_format($creditTotal, 2) }}</span></td>
+                    <td class="bal-box">TOTAL PAYMENTS<br><span class="sum-val">${{ number_format($payTotal, 2) }}</span></td>
+                </tr>
+            </table>
+        </td>
         <td class="gap">&nbsp;</td>
         <td class="tot-wrap">
             <table class="tot-inner">
@@ -618,13 +666,37 @@
                     <td class="lbl">{{ $isInvoiceDoc ? 'INVOICE TOTAL' : 'ORDER TOTAL' }}</td>
                     <td class="amt">${{ number_format($docTotal, 2) }}</td>
                 </tr>
+                @if ($isInvoiceDoc && $payTotal > 0.004)
+                    <tr>
+                        <td class="lbl">PAYMENTS</td>
+                        <td class="amt">-${{ number_format($payTotal, 2) }}</td>
+                    </tr>
+                @endif
+                @if ($isInvoiceDoc && $creditTotal > 0.004)
+                    <tr>
+                        <td class="lbl">CREDITS APPLIED</td>
+                        <td class="amt">-${{ number_format($creditTotal, 2) }}</td>
+                    </tr>
+                @endif
+                @if ($isInvoiceDoc && $openOverpay > 0.004)
+                    <tr>
+                        <td class="lbl">OVERPAYMENT</td>
+                        <td class="amt">${{ number_format($openOverpay, 2) }}</td>
+                    </tr>
+                @endif
+                @if ($isInvoiceDoc && abs($thisOpen) > 0.004)
+                    <tr>
+                        <td class="lbl">INVOICE BALANCE</td>
+                        <td class="amt">${{ number_format($thisOpen, 2) }}</td>
+                    </tr>
+                @endif
                 <tr>
                     <td class="lbl">PREVIOUS BALANCE</td>
                     <td class="amt">${{ number_format($previousBalance, 2) }}</td>
                 </tr>
                 @if ($openCredit > 0.004)
                     <tr>
-                        <td class="lbl">OVERPAYMENT / CREDIT</td>
+                        <td class="lbl">OPEN CREDIT ON ACCOUNT</td>
                         <td class="amt">-${{ number_format($openCredit, 2) }}</td>
                     </tr>
                 @endif

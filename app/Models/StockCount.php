@@ -42,9 +42,6 @@ class StockCount extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('stock_count_no');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 300450481966;
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, $companyId, 'stock_count_no', 300450481966);
     }
 }

@@ -13,6 +13,7 @@
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^3.6.4",
         "livewire/volt": "^1.7.0",
+        "nativephp/desktop": "^2.4",
         "phpoffice/phpspreadsheet": "^5.9",
         "smalot/pdfparser": "^2.12"
     },

@@ -50,8 +50,19 @@
     <td class="desk-money">${{ number_format($inv->total_payments, 2) }}</td>
 @elseif ($colKey === 'credits')
     <td class="desk-money">${{ number_format($inv->total_credits, 2) }}</td>
+@elseif ($colKey === 'overpay')
+    <td class="desk-money" @if ((float) $inv->total_overpayments > 0.0001) style="color:#166534;font-weight:600" @endif>
+        ${{ number_format($inv->total_overpayments, 2) }}
+    </td>
 @elseif ($colKey === 'balance')
-    <td class="desk-money">${{ number_format($inv->invoice_balance, 2) }}</td>
+    <td class="desk-money">
+        ${{ number_format($inv->invoice_balance, 2) }}
+        @if ((float) $inv->total_overpayments > 0.0001 && (float) $inv->invoice_balance <= 0.0001)
+            <div style="font-size:0.72rem;color:#166534;font-weight:600" title="Open overpayment credit on this invoice">
+                +overpay ${{ number_format($inv->total_overpayments, 2) }}
+            </div>
+        @endif
+    </td>
 @elseif ($colKey === 'status')
     <td class="text-center">
         <span @class([

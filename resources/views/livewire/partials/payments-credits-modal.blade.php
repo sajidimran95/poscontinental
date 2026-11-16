@@ -312,7 +312,10 @@
                                         @php $pcCredits = $pcShown->flatMap(fn ($i) => $i->credits); @endphp
                                         @foreach ($pcCredits as $c)
                                             <tr class="pc-row-saved">
-                                                <td class="desk-num">{{ $c->creditMemo?->memo_number }}</td>
+                                                <td class="desk-num">
+                                                    {{ $c->creditMemo?->memo_number }}
+                                                    <span class="pc-saved-tag">Applied</span>
+                                                </td>
                                                 <td>{{ optional($c->creditMemo?->memo_date)?->format('n/j/Y') }}</td>
                                                 @if ($hasCreditSalesOrder)
                                                     <td class="desk-num">{{ $c->creditMemo?->salesOrder?->order_number ?: '—' }}</td>
@@ -332,7 +335,12 @@
 
                                         @foreach ($waitingCredits as $cm)
                                             <tr wire:key="open-cr-{{ $cm->id }}">
-                                                <td class="desk-num">{{ $cm->memo_number }}</td>
+                                                <td class="desk-num">
+                                                    {{ $cm->memo_number }}
+                                                    @if ($cm->isOverpayment())
+                                                        <span class="pc-saved-tag" style="background:#dcfce7;color:#166534">Overpay</span>
+                                                    @endif
+                                                </td>
                                                 <td>{{ optional($cm->memo_date)?->format('n/j/Y') ?: '—' }}</td>
                                                 @if ($hasCreditSalesOrder)
                                                     <td class="desk-num">{{ $cm->salesOrder?->order_number ?: '—' }}</td>

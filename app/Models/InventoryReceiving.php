@@ -78,9 +78,6 @@ class InventoryReceiving extends Model
 
     public static function nextNumber(int $companyId): string
     {
-        $last = static::query()->where('company_id', $companyId)->orderByDesc('id')->value('receipt_number');
-        $n = $last ? ((int) preg_replace('/\D/', '', $last)) + 1 : 8000001;
-
-        return (string) $n;
+        return \App\Sync\SyncDocumentNumber::next(static::class, $companyId, 'receipt_number', 8000001);
     }
 }

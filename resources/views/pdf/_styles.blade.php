@@ -4,9 +4,9 @@
     * { box-sizing: border-box; }
     body {
         font-family: DejaVu Sans, sans-serif;
-        font-size: 10.5px;
+        font-size: 11.5px;
         color: #0f172a;
-        line-height: 1.35;
+        line-height: 1.4;
         margin: 0;
     }
     .brand-bar {
@@ -18,10 +18,10 @@
     }
     .brand-bar table { width: 100%; border-collapse: collapse; }
     .brand-bar td { border: none; padding: 0; vertical-align: top; color: #0f172a; }
-    .brand-name { font-size: 16px; font-weight: bold; letter-spacing: 0.02em; color: #0f172a; }
-    .brand-sub { font-size: 9px; color: #475569; margin-top: 2px; }
-    .doc-title { font-size: 18px; font-weight: bold; text-align: right; color: #0f172a; }
-    .doc-meta { font-size: 9.5px; text-align: right; color: #475569; margin-top: 4px; }
+    .brand-name { font-size: 18px; font-weight: bold; letter-spacing: 0.02em; color: #0f172a; }
+    .brand-sub { font-size: 10px; color: #475569; margin-top: 2px; }
+    .doc-title { font-size: 20px; font-weight: bold; text-align: right; color: #0f172a; }
+    .doc-meta { font-size: 10.5px; text-align: right; color: #475569; margin-top: 4px; }
     .status {
         display: inline-block;
         margin-top: 6px;
@@ -89,18 +89,19 @@
     table.lines th {
         background: #1e3a5f;
         color: #fff;
-        font-size: 9px;
+        font-size: 10px;
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 0.03em;
-        padding: 7px 8px;
+        padding: 8px 9px;
         border: none;
         text-align: left;
     }
     table.lines td {
-        padding: 7px 8px;
+        padding: 8px 9px;
         border-bottom: 1px solid #e2e8f0;
         vertical-align: top;
+        font-size: 11px;
     }
     table.lines tr:nth-child(even) td { background: #f8fafc; }
     .right { text-align: right; }
@@ -112,7 +113,7 @@
         width: 54%;
         padding-right: 16px;
         color: #64748b;
-        font-size: 9.5px;
+        font-size: 10.5px;
     }
     .totals-wrap { width: 46%; }
     .totals {
@@ -122,23 +123,24 @@
         border: 1px solid #e2e8f0;
     }
     .totals td {
-        padding: 6px 10px;
+        padding: 7px 11px;
         border-bottom: 1px solid #e2e8f0;
-        font-size: 10.5px;
+        font-size: 11.5px;
     }
     .totals tr:last-child td { border-bottom: none; }
     .totals .label { color: #475569; }
     .totals .grand td {
         background: #1e3a5f;
         color: #fff;
-        font-size: 12px;
+        font-size: 13px;
         font-weight: bold;
-        padding: 8px 10px;
+        padding: 9px 11px;
     }
     .totals .balance td {
         background: #fef2f2;
         color: #991b1b;
         font-weight: bold;
+        font-size: 12.5px;
     }
     .totals .credit-grand td {
         background: #92400e;

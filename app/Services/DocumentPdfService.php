@@ -123,8 +123,8 @@ class DocumentPdfService
             (int) $order->company_id,
             $order->customer_id ? (int) $order->customer_id : null
         );
-        // Same figure as TOTAL DUE in the last-page totals.
-        $totalDue = round(max(0, (float) $invoice->invoice_total + (float) $previous - $openCredit), 2);
+        // Same figure as TOTAL DUE in the last-page totals (after pay/credit/overpay on this invoice).
+        $totalDue = round(max(0, (float) $invoice->invoice_balance + (float) $previous - $openCredit), 2);
 
         return [
             'PREVIOUS BALANCE' => '$'.number_format((float) $previous, 2),

@@ -34,6 +34,8 @@ use App\Http\Controllers\Store\StoreHomeController;
 use App\Http\Controllers\Store\StorePageController;
 use App\Http\Controllers\Store\StoreQuickOrderController;
 use App\Http\Controllers\Store\StoreShopController;
+use App\Http\Controllers\DesktopSyncController;
+use App\Http\Controllers\SyncDeviceController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -86,6 +88,16 @@ Route::post('logout', LogoutController::class)
     ->middleware('auth')
     ->name('logout');
 
+/*
+|--------------------------------------------------------------------------
+| Offline desktop app (SYNC_MODE=client) — docs/offline-desktop/README.md
+|--------------------------------------------------------------------------
+*/
+if (config('sync.mode') === 'client') {
+    Route::get('/desktop/setup', [DesktopSyncController::class, 'setup'])->name('desktop.setup');
+    Route::post('/desktop/setup', [DesktopSyncController::class, 'storeSetup'])->name('desktop.setup.store');
+}
+
 // Public item media (no auth) — <img> tags must load without a session cookie.
 Route::get('media/{path}', [PublicMediaController::class, 'show'])
     ->where('path', '.*')
@@ -133,6 +145,25 @@ Route::middleware(['auth', 'feature'])->group(function () {
     Volt::route('admin/email-setup', 'pages.admin.email-setup')->name('admin.email-setup');
     Volt::route('admin/email-logs', 'pages.admin.email-logs')->name('admin.email-logs');
     Volt::route('admin/terminal', 'pages.admin.terminal')->name('admin.terminal');
+
+    // Offline desktop devices (SYNC_MODE=server)
+    if (config('sync.mode') === 'server') {
+        Route::get('admin/desktop-devices', [SyncDeviceController::class, 'index'])->name('admin.desktop-devices');
+        Route::post('admin/desktop-devices', [SyncDeviceController::class, 'store'])->name('admin.desktop-devices.store');
+        Route::post('admin/desktop-devices/{node_no}/token', [SyncDeviceController::class, 'newToken'])
+            ->whereNumber('node_no')
+            ->name('admin.desktop-devices.token');
+        Route::post('admin/desktop-devices/{node_no}/toggle', [SyncDeviceController::class, 'toggle'])
+            ->whereNumber('node_no')
+            ->name('admin.desktop-devices.toggle');
+    }
+
+    // Desktop sync status (SYNC_MODE=client)
+    if (config('sync.mode') === 'client') {
+        Route::get('/desktop/sync', [DesktopSyncController::class, 'status'])->name('desktop.status');
+        Route::post('/desktop/sync', [DesktopSyncController::class, 'syncNow'])->name('desktop.sync_now');
+        Route::post('/desktop/sync/conflicts', [DesktopSyncController::class, 'resolveConflicts'])->name('desktop.resolve_conflicts');
+    }
 
     // Purchasing / Suppliers
     Volt::route('purchasing/suppliers', 'pages.purchasing.suppliers.index')->name('purchasing.suppliers.index');

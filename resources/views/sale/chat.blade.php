@@ -403,9 +403,12 @@
             const res = await fetch(pollUrl + '?after=' + lastId(), { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
             const data = await res.json();
             (data.messages || []).forEach(appendMsg);
-            const theirs = (data.messages || []).filter(m => Number(m.sender_id) !== meId).map(m => Number(m.id));
+            const theirMsgs = (data.messages || []).filter(m => Number(m.sender_id) !== meId);
+            const theirs = theirMsgs.map(m => Number(m.id));
             if (theirs.length && window.posChatSoundKey && window.posNotifyClaim(window.posChatSoundKey, Math.max(...theirs))) {
-                window.playPosNotify('chat');
+                const last = theirMsgs[theirMsgs.length - 1] || {};
+                const from = last.sender_name || 'someone';
+                window.playPosNotify('chat', 'You have a new team chat message from ' + from + '.');
             }
         } catch (e) {}
     }

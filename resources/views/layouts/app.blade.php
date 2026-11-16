@@ -1013,7 +1013,7 @@
 
                 function maybePlay(el) {
                     if (! el || el.nodeType !== 1 || ! el.matches) return;
-                    if (el.closest && (el.closest('.home-chief-alert') || el.closest('#web-order-toast') || el.closest('#team-chat-toast') || el.closest('.wo-toast') || el.closest('.tc-nav-toast'))) return;
+                    if (el.closest && (el.closest('.home-chief-alert') || el.closest('#web-order-toast') || el.closest('#team-chat-toast') || el.closest('.wo-toast') || el.closest('.tc-nav-toast') || el.closest('.pos-red-toast'))) return;
                     if (el.id === 'web-order-toast' || el.id === 'team-chat-toast') return;
                     if (el.id === 'pos-permission-toast' && el.hidden) return;
                     if (! el.matches(alertSel)) return;

@@ -4,7 +4,12 @@
 @endphp
 @if ($teamChatUnreadUrl)
 @include('layouts.partials.notify-sounds')
-<div id="team-chat-toast" class="tc-nav-toast" hidden role="status"></div>
+<a id="team-chat-toast" class="pos-red-toast pos-red-toast-chat" hidden role="status" href="{{ \Illuminate\Support\Facades\Route::has('team-chat.index') ? route('team-chat.index') : ( \Illuminate\Support\Facades\Route::has('sale.chat') ? route('sale.chat') : '#' ) }}">
+    <span class="pos-red-toast-kicker">Team chat</span>
+    <span class="pos-red-toast-title"></span>
+    <span class="pos-red-toast-body"></span>
+    <button type="button" class="pos-red-toast-x" aria-label="Dismiss">&times;</button>
+</a>
 <style>
     .tc-nav-link { position: relative; display: inline-flex; align-items: center; gap: .35rem; }
     .tc-nav-badge {
@@ -12,11 +17,13 @@
         border-radius: 999px; background: #dc2626; color: #fff;
         font-size: 10px; font-weight: 800; line-height: 1.1rem; text-align: center;
     }
-    .tc-nav-toast {
-        position: fixed; top: 2.75rem; right: 1rem; z-index: 80;
-        max-width: 20rem; background: #0f172a; color: #fff;
-        border-radius: 10px; padding: .65rem .85rem; font-size: .8rem; font-weight: 600;
-        box-shadow: 0 10px 28px rgba(15,23,42,.28); line-height: 1.35;
+    .pos-red-toast-chat { top: 3.1rem; }
+    #web-order-toast.pos-red-toast { top: 3.1rem; }
+    #team-chat-toast.pos-red-toast { top: 3.1rem; }
+    /* Stack chat below order toast when both visible */
+    #web-order-toast.pos-red-toast:not([hidden]) ~ #team-chat-toast.pos-red-toast:not([hidden]),
+    body:has(#web-order-toast.pos-red-toast:not([hidden])) #team-chat-toast.pos-red-toast {
+        top: 8.4rem;
     }
     .sale-tab { position: relative; }
     .sale-side-link { position: relative; }
@@ -35,6 +42,48 @@
     window.posChatSoundKey = soundKey;
     const toast = document.getElementById('team-chat-toast');
 
+    if (toast) {
+        const x = toast.querySelector('.pos-red-toast-x');
+        if (x) {
+            x.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                toast.hidden = true;
+            });
+        }
+    }
+
+    function showChatToast(preview) {
+        if (! toast) return;
+        const from = (preview && preview.from) || 'New message';
+        const body = (preview && preview.body) || '';
+        const ch = (preview && preview.channel) ? preview.channel : 'Team chat';
+        toast.querySelector('.pos-red-toast-kicker').textContent = 'Team chat';
+        toast.querySelector('.pos-red-toast-title').textContent = from + (ch ? ' · ' + ch : '');
+        toast.querySelector('.pos-red-toast-body').textContent = body || 'New message';
+        toast.hidden = false;
+        clearTimeout(toast._hide);
+        toast._hide = setTimeout(function () { toast.hidden = true; }, 12000);
+    }
+
+    function chatVoice(preview) {
+        const from = preview && preview.from ? String(preview.from).trim() : '';
+        if (from) {
+            return 'You have a new team chat message from ' + from + '.';
+        }
+        return 'You have a new team chat message.';
+    }
+
+    function notifyIncoming(id, preview) {
+        if (! window.posNotifyClaim(soundKey, id)) return;
+        // Red toast + short spoken voice.
+        const p = preview || { from: 'Someone', body: 'New message', channel: 'chat' };
+        showChatToast(p);
+        if (typeof window.playPosNotify === 'function') {
+            window.playPosNotify('chat', chatVoice(p));
+        }
+    }
+
     async function tick() {
         try {
             const res = await fetch(url, {
@@ -48,26 +97,33 @@
                 el.hidden = n < 1;
                 el.textContent = n > 9 ? '9+' : String(n);
             });
-            if (window.posNotifyClaim(soundKey, data.latest_id) && data.preview) {
-                window.playPosNotify('chat');
-                if (toast) {
-                    const from = data.preview.from || 'New message';
-                    const body = data.preview.body || '';
-                    const ch = data.preview.channel ? ' · ' + data.preview.channel : '';
-                    toast.textContent = from + ch + ': ' + body;
-                    toast.hidden = false;
-                    clearTimeout(toast._hide);
-                    toast._hide = setTimeout(function () { toast.hidden = true; }, 7000);
-                }
+            if (Number(data.latest_id || 0) > 0) {
+                notifyIncoming(data.latest_id, data.preview);
             }
         } catch (e) {}
     }
+
+    function incomingId(payload) {
+        if (! payload) return 0;
+        if (typeof payload === 'number') return payload;
+        if (payload.id) return Number(payload.id);
+        if (Array.isArray(payload) && payload[0]) return Number(payload[0].id || payload[0]);
+        if (payload.detail) return incomingId(payload.detail);
+        return 0;
+    }
+
     window.addEventListener('team-chat-incoming', function (e) {
-        const id = e.detail && (e.detail.id || (e.detail[0] && e.detail[0].id));
-        if (window.posNotifyClaim(soundKey, id)) window.playPosNotify('chat');
+        notifyIncoming(incomingId(e.detail || e), null);
+    });
+    document.addEventListener('livewire:init', function () {
+        if (! window.Livewire || ! Livewire.on || window.__posTeamChatSoundBound) return;
+        window.__posTeamChatSoundBound = true;
+        Livewire.on('team-chat-incoming', function (payload) {
+            notifyIncoming(incomingId(payload), null);
+        });
     });
     tick();
-    setInterval(tick, 12000);
+    setInterval(tick, 8000);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') tick();
     });

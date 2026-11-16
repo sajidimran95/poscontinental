@@ -76,6 +76,7 @@ class DocumentPdfService
         $company = $user?->company ?? $invoice->customer?->company ?? auth()->user()?->company;
 
         $logoCandidates = [
+            public_path('images/continental_palm_logo.png'),
             public_path('images/logo.png'),
             public_path('images/logo.jpg'),
             public_path('logo.png'),
@@ -91,23 +92,15 @@ class DocumentPdfService
 
         $includeSecondaryBarcodeCopy = $company?->printsSecondaryInvoiceWithItemBarcodes() ?? false;
 
-        return $this->documentPdfWithPageCount('pdf.sales-order', [
+        return $this->documentPdfWithPageCount('pdf.invoice-continental', [
+            'invoice' => $invoice,
             'order' => $order,
             'company' => $company,
             'logoPath' => $logoPath,
             ...$this->letterhead($company),
-            'docTitle' => 'Invoice',
-            'showLineMessage' => false,
             'barcodeValue' => (string) $invoice->invoice_number,
-            'statusLabel' => $invoice->status,
             'includeSecondaryBarcodeCopy' => $includeSecondaryBarcodeCopy,
-            'metaLines' => [
-                ['label' => 'Invoice No:', 'value' => $invoice->invoice_number],
-                ['label' => 'Invoice Date:', 'value' => optional($invoice->invoice_date)?->format('m/d/Y')],
-                ['label' => 'Order No:', 'value' => $order->order_number],
-                ['label' => 'Order Status:', 'value' => $invoice->status],
-            ],
-        ], $this->invoicePageStrip($order, $invoice));
+        ]);
     }
 
     /**
@@ -688,7 +681,7 @@ class DocumentPdfService
         }
 
         // These views repeat the header (with "X of N") on every page themselves.
-        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo'], true)) {
+        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo', 'pdf.invoice-continental'], true)) {
             return $pdf;
         }
 

@@ -301,15 +301,15 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
             <h3 class="msa-section-title">Invoice print</h3>
             <p class="stamp-inv-hint" style="margin-top:0;">
-                Choose one invoice layout. Print never includes both on the same invoice.
+                Matches the Continental invoice templates. Choose one layout; print never mixes both.
             </p>
             <label class="stamp-inv-field" style="display:flex;align-items:flex-start;gap:.75rem;cursor:pointer;padding:.25rem 0 0.75rem;">
                 <input type="checkbox" wire:model="print_secondary_invoice_with_item_barcodes" style="margin-top:.35rem;width:1.15rem;height:1.15rem;" />
                 <span>
                     <strong>Use secondary invoice (item barcodes)</strong>
                     <span class="block text-slate-600" style="font-size:.9em;line-height:1.4;margin-top:.35rem;">
-                        Off: primary invoice (item codes only, no item barcodes).
-                        On: secondary invoice only — each line shows its UPC barcode (or item code if there is no UPC).
+                        Off: primary invoice (<code>invoice_sample</code>) — item codes, no product barcodes.
+                        On: secondary invoice (<code>invoice_barcode_sample</code>) — quantity column includes each item’s UPC barcode.
                     </span>
                 </span>
             </label>

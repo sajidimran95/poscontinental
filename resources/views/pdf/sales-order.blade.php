@@ -316,6 +316,15 @@
         .logo-img { max-height: 48px; max-width: 160px; margin-bottom: 3px; }
         .line-msg { margin-top: 1px; font-size: 8px; }
         .line-msg-lbl { font-weight: bold; margin-right: 3px; }
+        table.items.has-item-bc col.col-item,
+        table.items.has-item-bc th.col-item,
+        table.items.has-item-bc td.col-item { width: 16%; white-space: normal; }
+        table.items.has-item-bc col.col-desc,
+        table.items.has-item-bc th.col-desc,
+        table.items.has-item-bc td.col-desc { width: 48%; }
+        .item-bc { margin-top: 2px; line-height: 0; }
+        .item-bc img { height: 20px; max-width: 100%; }
+        .item-bc-num { font-size: 7.5px; margin-top: 1px; letter-spacing: 0.02em; }
     </style>
 </head>
 <body>
@@ -411,6 +420,7 @@
     );
     // TOTAL DUE uses invoice balance (after pay/credit/overpay applied), not raw invoice total.
     $totalDue = round(max(0, $thisOpen + $previousBalance - $openCredit), 2);
+    $showItemBarcodes = $isInvoiceDoc && (bool) ($includeSecondaryBarcodeCopy ?? false);
 @endphp
 
 <div class="page-head">
@@ -523,7 +533,7 @@
 </table>
 </div>
 
-<table class="items">
+<table @class(['items', 'has-item-bc' => $showItemBarcodes])>
     <colgroup>
         <col class="col-qty">
         <col class="col-item">
@@ -561,8 +571,19 @@
             @endphp
             <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="col-qty">{{ $qtyLabel }}</td>
-                @php $itemCode = (string) $line->item_code; @endphp
-                <td @class(['col-item', 'is-long' => mb_strlen($itemCode) > 7])>{{ $itemCode }}</td>
+                @php
+                    $itemCode = (string) $line->item_code;
+                    $itemBarcode = $showItemBarcodes ? SalesOrderLinePresentation::itemBarcode($line) : '';
+                @endphp
+                <td @class(['col-item', 'is-long' => mb_strlen($itemCode) > 7])>
+                    {{ $itemCode }}
+                    @if ($showItemBarcodes && $itemBarcode !== '')
+                        <div class="item-bc">{!! Code128Barcode::html($itemBarcode, 1, 20, 'left') !!}</div>
+                        @if ($itemBarcode !== $itemCode)
+                            <div class="item-bc-num">{{ $itemBarcode }}</div>
+                        @endif
+                    @endif
+                </td>
                 <td class="col-desc">
                     <div class="desc-one">{{ mb_strimwidth((string) $line->description, 0, 52, '') }}</div>
                     @if ($qty < 0)

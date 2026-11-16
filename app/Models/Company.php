@@ -26,6 +26,7 @@ class Company extends Model
         'ecommerce_enabled', 'ecommerce_store_name', 'ecommerce_tagline',
         'ecommerce_phone', 'ecommerce_email', 'ecommerce_hours',
         'ecommerce_nav_category_ids',
+        'print_secondary_invoice_with_item_barcodes',
     ];
 
     protected function casts(): array
@@ -41,7 +42,13 @@ class Company extends Model
             'japs_ai_match_tolerance' => 'decimal:2',
             'ecommerce_enabled' => 'boolean',
             'ecommerce_nav_category_ids' => 'array',
+            'print_secondary_invoice_with_item_barcodes' => 'boolean',
         ];
+    }
+
+    public function printsSecondaryInvoiceWithItemBarcodes(): bool
+    {
+        return (bool) ($this->print_secondary_invoice_with_item_barcodes ?? false);
     }
 
     public function allowsNegativeStock(): bool

@@ -39,6 +39,8 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
 
     public bool $is_active = true;
 
+    public bool $print_secondary_invoice_with_item_barcodes = false;
+
     public string $statusMessage = '';
 
     public function mount(): void
@@ -71,6 +73,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
         $this->msa_distributor_id = (string) ($company?->msa_distributor_id ?? '');
         $this->transmitter_account_number = (string) ($company?->transmitter_account_number ?? '');
         $this->is_active = (bool) ($company?->is_active ?? true);
+        $this->print_secondary_invoice_with_item_barcodes = (bool) ($company?->print_secondary_invoice_with_item_barcodes ?? false);
     }
 
     public function save(): void
@@ -93,6 +96,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             'msa_distributor_id' => ['required', 'string', 'min:8', 'max:20', 'regex:/^[0-9]+$/'],
             'transmitter_account_number' => ['nullable', 'string', 'max:20', 'regex:/^[0-9]*$/'],
             'is_active' => ['boolean'],
+            'print_secondary_invoice_with_item_barcodes' => ['boolean'],
         ], [
             'fein_no.required' => 'Company FEIN is required for MSA tobacco filing.',
             'fein_no.regex' => 'FEIN must be digits (dashes allowed).',
@@ -147,6 +151,7 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
                 ? $this->transmitter_account_number
                 : null,
             'is_active' => $this->is_active,
+            'print_secondary_invoice_with_item_barcodes' => $this->print_secondary_invoice_with_item_barcodes,
         ]);
 
         session(['company_name' => $company->name]);
@@ -292,6 +297,21 @@ new #[Layout('layouts.app'), Title('Company Settings')] class extends Component
             <label class="stamp-inv-field">
                 <span>Transmitter <small>(State Employer Account #)</small></span>
                 <input type="text" wire:model.blur="transmitter_account_number" class="desk-input" placeholder="Account number (optional)" />
+            </label>
+
+            <h3 class="msa-section-title">Invoice print</h3>
+            <p class="stamp-inv-hint" style="margin-top:0;">
+                Choose one invoice layout. Print never includes both on the same invoice.
+            </p>
+            <label class="stamp-inv-field" style="display:flex;align-items:flex-start;gap:.75rem;cursor:pointer;padding:.25rem 0 0.75rem;">
+                <input type="checkbox" wire:model="print_secondary_invoice_with_item_barcodes" style="margin-top:.35rem;width:1.15rem;height:1.15rem;" />
+                <span>
+                    <strong>Use secondary invoice (item barcodes)</strong>
+                    <span class="block text-slate-600" style="font-size:.9em;line-height:1.4;margin-top:.35rem;">
+                        Off: primary invoice (item codes only, no item barcodes).
+                        On: secondary invoice only — each line shows its UPC barcode (or item code if there is no UPC).
+                    </span>
+                </span>
             </label>
 
             <div class="stamp-inv-actions">

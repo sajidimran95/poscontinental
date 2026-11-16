@@ -50,4 +50,26 @@ class SalesOrderLinePresentation
 
         return '';
     }
+
+    /**
+     * Value to encode on the secondary (item-barcode) invoice copy.
+     * Prefer primary UPC, then any item UPC, then item code.
+     */
+    public static function itemBarcode(SalesOrderLine $line): string
+    {
+        $line->loadMissing(['item.upcs']);
+        $upc = trim((string) ($line->item?->primary_upc ?? ''));
+        if ($upc !== '') {
+            return $upc;
+        }
+
+        foreach ($line->item?->upcs ?? [] as $row) {
+            $value = trim((string) ($row->upc ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return trim((string) ($line->item_code ?? ''));
+    }
 }

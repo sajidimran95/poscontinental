@@ -40,6 +40,7 @@ class DocumentPdfService
             'salesOrder.lines.item.category',
             'salesOrder.lines.item.subcategory',
             'salesOrder.lines.item.prices',
+            'salesOrder.lines.item.upcs',
             'salesOrder.customer',
             'salesOrder.salesRep',
             'salesOrder.paymentTerm',
@@ -48,6 +49,7 @@ class DocumentPdfService
             'voidedSalesOrder.lines.item.category',
             'voidedSalesOrder.lines.item.subcategory',
             'voidedSalesOrder.lines.item.prices',
+            'voidedSalesOrder.lines.item.upcs',
             'voidedSalesOrder.customer',
             'voidedSalesOrder.salesRep',
             'voidedSalesOrder.paymentTerm',
@@ -87,6 +89,8 @@ class DocumentPdfService
             }
         }
 
+        $includeSecondaryBarcodeCopy = $company?->printsSecondaryInvoiceWithItemBarcodes() ?? false;
+
         return $this->documentPdfWithPageCount('pdf.sales-order', [
             'order' => $order,
             'company' => $company,
@@ -96,6 +100,7 @@ class DocumentPdfService
             'showLineMessage' => false,
             'barcodeValue' => (string) $invoice->invoice_number,
             'statusLabel' => $invoice->status,
+            'includeSecondaryBarcodeCopy' => $includeSecondaryBarcodeCopy,
             'metaLines' => [
                 ['label' => 'Invoice No:', 'value' => $invoice->invoice_number],
                 ['label' => 'Invoice Date:', 'value' => optional($invoice->invoice_date)?->format('m/d/Y')],

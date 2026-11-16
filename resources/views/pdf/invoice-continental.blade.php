@@ -217,13 +217,14 @@
     $tradeDiscount = (float) $invoice->trade_discount;
     $misc = (float) $invoice->miscellaneous;
     $payTotal = (float) $invoice->total_payments;
-    $creditTotal = (float) $invoice->total_credits;
     $previousBalance = \App\Models\Invoice::previousOpenInvoices(
         (int) ($order?->company_id ?? $invoice->company_id),
         $order?->customer_id ? (int) $order->customer_id : ($invoice->customer_id ? (int) $invoice->customer_id : null),
         $invoice->id
     )['total'];
-    $accountBalance = round($previousBalance + $invoiceTotal - $payTotal - $creditTotal, 2);
+    // Credits stay on the credit memo / account — never print or deduct them here
+    // (staff and customers were subtracting the same credit a second time).
+    $accountBalance = round($previousBalance + $invoiceTotal - $payTotal, 2);
 @endphp
 
 <table class="head">
@@ -409,12 +410,6 @@
                     <td>Previous balance</td>
                     <td class="num">{{ $fmtMoney((float) $previousBalance) }}</td>
                 </tr>
-                @if ($creditTotal > 0.004)
-                    <tr>
-                        <td>Credit memo</td>
-                        <td class="num">-{{ $fmtMoney($creditTotal) }}</td>
-                    </tr>
-                @endif
                 @if ($payTotal > 0.004)
                     <tr>
                         <td>Payments</td>

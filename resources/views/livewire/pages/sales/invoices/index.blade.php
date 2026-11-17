@@ -1563,7 +1563,7 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
     @endif
 
     @if ($showInvoiceDeliveryDialog)
-        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="inv-delivery-title">
+        <div class="desk-modal-backdrop desk-modal-top" style="z-index:120" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="inv-delivery-title">
             <div class="desk-modal desk-modal-sm">
                 <div class="desk-modal-head">
                     <span id="inv-delivery-title">Invoice delivery</span>

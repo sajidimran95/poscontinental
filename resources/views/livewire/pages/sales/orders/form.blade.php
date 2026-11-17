@@ -5711,12 +5711,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->optPrintSalesOrder) {
             $urls[] = route('sales.orders.print', $order);
         }
-        if ($this->optCreatePrintInvoice && $invoice) {
-            $urls[] = route('sales.invoices.pdf', $invoice);
-        }
         if ($this->optPrintPickList) {
             $urls[] = route('sales.orders.pick-list', $order).'?v='.time();
         }
+
+        $wantInvoicePrint = $this->optCreatePrintInvoice && $invoice;
 
         $this->showPrintDialog = false;
 
@@ -5731,11 +5730,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        if ($this->optCreatePrintInvoice && $invoice) {
-            session()->flash('status', $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created.'));
-        } else {
-            session()->flash('status', 'Order '.$order->order_number.' saved.');
+        if ($wantInvoicePrint) {
+            $this->notifyAlert(
+                $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created. Choose print or email.'),
+                'success'
+            );
+            $this->printInvoiceStyle();
+
+            return;
         }
+
+        session()->flash('status', 'Order '.$order->order_number.' saved.');
 
         $this->finishSaveStayOnOrder();
     }
@@ -7581,7 +7586,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     @endif
 
     @if ($showInvoiceDeliveryDialog)
-        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="so-inv-delivery-title">
+        <div class="desk-modal-backdrop desk-modal-top" style="z-index:120" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="so-inv-delivery-title">
             <div class="desk-modal desk-modal-sm">
                 <div class="desk-modal-head">
                     <span id="so-inv-delivery-title">Invoice delivery</span>

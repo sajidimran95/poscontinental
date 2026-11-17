@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Invoice {{ $invoice->invoice_number }}</title>
     <style>
-        @page { size: letter; margin: 2.82in 0.40in 0.40in 0.40in; }
+        @page { size: letter; margin: 2.22in 0.40in 0.40in 0.40in; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -14,12 +14,11 @@
             line-height: 1.35;
         }
         table { border-collapse: collapse; }
-        .page-head { position: fixed; top: -2.50in; left: 0; right: 0; }
-        .head { width: 100%; margin-bottom: 4px; }
+        .page-head { position: fixed; top: -1.88in; left: 0; right: 0; }
+        .head { width: 100%; margin-bottom: 0; }
         .head td { vertical-align: top; border: none; padding: 0; }
-        .head td.brand { width: 67%; text-align: left; vertical-align: middle; }
-        .head td.meta-right { width: 33%; text-align: right; }
-        .head td.addr { text-align: left; padding-top: 2px; }
+        .head td.brand { width: 70%; text-align: left; }
+        .head td.meta-right { width: 30%; text-align: right; }
         .co-name {
             font-size: 19px;
             font-weight: bold;
@@ -30,7 +29,11 @@
         .co-line { font-size: 10px; color: #222; margin: 0; line-height: 1.45; text-align: left; }
         .inv-barcode { width: 115px; margin: 0 0 2px auto; text-align: center; }
         .inv-barcode img { display: block; width: 115px; height: 36px; margin: 0 auto; }
-        .invoice-info { width: 230px; margin-left: auto; border: 1px solid #777; }
+        .invoice-info {
+            width: 100%;
+            margin: 0;
+            border-collapse: collapse;
+        }
         .invoice-info th {
             background: #292929;
             color: #fff;
@@ -38,15 +41,16 @@
             letter-spacing: 0.12em;
             text-align: center;
             padding: 5px 6px;
-            border: 1px solid #222;
+            border: 1px solid #000;
         }
         .invoice-info td {
             text-align: center;
-            border: 1px solid #aaa;
+            border: 1px solid #000;
             font-size: 11px;
             font-weight: bold;
-            padding: 4px 6px 6px;
-            width: 33%;
+            padding: 4px 5px 6px;
+            width: 33.33%;
+            vertical-align: top;
         }
         .invoice-info small {
             display: block;
@@ -56,23 +60,41 @@
             margin-bottom: 2px;
         }
         .pagenum:after { content: counter(page) " of {{ (int) ($pageLabel ?? 1) }}"; }
-        .customers { width: 100%; margin: 4px 0 3px; }
-        .customers td {
+        .addr-wrap { width: 100%; margin: 4px 0 3px; border-collapse: collapse; }
+        .addr-wrap > tr > td,
+        .addr-wrap > tbody > tr > td { vertical-align: top; padding: 0; border: none; }
+        .addr-wrap td.addr-cell { width: 66%; padding-right: 6px; }
+        .addr-wrap td.inv-cell { width: 34%; }
+        .addr-box { width: 100%; border-collapse: collapse; margin: 0; }
+        .addr-box th {
             width: 50%;
-            border: 1px solid #bbb;
-            vertical-align: top;
-            padding: 5px 8px;
+            background: none;
+            color: #000;
+            font-size: 9px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            padding: 3px 7px;
+            text-align: left;
+            border: 1px solid #000;
         }
+        .addr-box td {
+            width: 50%;
+            vertical-align: top;
+            text-align: left;
+            padding: 5px 7px 6px;
+            font-size: 11px;
+            border: 1px solid #000;
+        }
+        .addr-name { font-weight: bold; font-size: 12px; line-height: 1.25; }
+        .addr-line { margin: 1px 0 0; font-size: 11px; line-height: 1.25; }
         .label {
             font-size: 9px;
             font-weight: bold;
             letter-spacing: 0.08em;
             margin-bottom: 4px;
         }
-        .cust-name { font-weight: bold; font-size: 12px; }
-        .cust-line { margin-top: 1px; font-size: 11px; }
         .meta {
-            padding: 4px 0 5px;
+            padding: 3px 0 4px;
             border-bottom: 1px solid #aaa;
             margin-bottom: 0;
             font-size: 11px;
@@ -88,7 +110,7 @@
             font-weight: bold;
             letter-spacing: 0.04em;
             text-align: left;
-            padding: 6px 4px;
+            padding: 4px 4px;
             border-bottom: 1px solid #222;
             white-space: nowrap;
         }
@@ -122,33 +144,15 @@
         .bottom td { vertical-align: top; border: none; padding: 0; }
         .bottom .categories { width: 46%; padding-right: 18px; }
         .bottom .summary { width: 54%; }
-        .acct-boxes { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .acct-boxes td {
-            border: 1px solid #222;
-            padding: 5px 7px;
-            vertical-align: top;
-            width: 50%;
-        }
-        .acct-boxes .lbl {
-            display: block;
-            font-size: 7.5px;
+        .sum-table { width: 100%; }
+        .sum-table td { padding: 4px 0; font-size: 11px; border: none; }
+        .sum-table td.num { text-align: right; white-space: nowrap; }
+        .sum-table tr.grand td {
+            font-size: 13px;
             font-weight: bold;
-            letter-spacing: 0.06em;
-            text-align: center;
+            padding-top: 7px;
+            border-top: 2px solid #111;
         }
-        .acct-boxes .val {
-            display: block;
-            font-size: 12px;
-            font-weight: bold;
-            text-align: center;
-            margin-top: 3px;
-        }
-        .acct-boxes td.grand {
-            width: 100%;
-            background: #f3f3f3;
-            padding: 6px 7px;
-        }
-        .acct-boxes td.grand .val { font-size: 14px; }
         .hint { font-size: 9px; color: #555; margin: 6px 0 0; line-height: 1.35; }
         .received { margin-top: 14px; font-size: 11px; }
         .sign-line {
@@ -244,19 +248,54 @@
     <tr>
         <td class="brand">
             <div class="co-name">{{ $companyName }}</div>
-        </td>
-        <td class="meta-right">
-            {!! Code128Barcode::invoiceHeaderHtml($invoiceNo) !!}
-        </td>
-    </tr>
-    <tr>
-        <td class="addr">
             <div class="co-line">{{ $addr }}@if ($tel !== '') | Tel: {{ $tel }}@endif</div>
             @if ($email !== '')
                 <div class="co-line">{{ $email }}</div>
             @endif
         </td>
         <td class="meta-right">
+            {!! Code128Barcode::invoiceHeaderHtml($invoiceNo) !!}
+        </td>
+    </tr>
+</table>
+
+<table class="addr-wrap">
+    <tr>
+        <td class="addr-cell">
+            <table class="addr-box">
+                <tr>
+                    <th>SOLD TO</th>
+                    <th>SHIP TO</th>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="addr-name">{{ $billName }}</div>
+                        @if ($order?->bill_to_address)
+                            <div class="addr-line">{{ $order->bill_to_address }}</div>
+                        @endif
+                        @if ($billCity !== '')
+                            <div class="addr-line">{{ $billCity }}</div>
+                        @endif
+                        @if ($order?->bill_to_phone)
+                            <div class="addr-line">Tel: {{ $order->bill_to_phone }}</div>
+                        @endif
+                    </td>
+                    <td>
+                        <div class="addr-name">{{ $shipName }}</div>
+                        @if ($order?->ship_to_address ?: $order?->bill_to_address)
+                            <div class="addr-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
+                        @endif
+                        @if ($shipCity !== '')
+                            <div class="addr-line">{{ $shipCity }}</div>
+                        @endif
+                        @if ($order?->ship_to_phone ?: $order?->bill_to_phone)
+                            <div class="addr-line">Tel: {{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
+                        @endif
+                    </td>
+                </tr>
+            </table>
+        </td>
+        <td class="inv-cell">
             <table class="invoice-info">
                 <tr><th colspan="3">INVOICE</th></tr>
                 <tr>
@@ -265,37 +304,6 @@
                     <td><small>PAGE</small><span class="pagenum"></span></td>
                 </tr>
             </table>
-        </td>
-    </tr>
-</table>
-
-<table class="customers">
-    <tr>
-        <td>
-            <div class="label">SOLD TO</div>
-            <div class="cust-name">{{ $billName }}</div>
-            @if ($order?->bill_to_address)
-                <div class="cust-line">{{ $order->bill_to_address }}</div>
-            @endif
-            @if ($billCity !== '')
-                <div class="cust-line">{{ $billCity }}</div>
-            @endif
-            @if ($order?->bill_to_phone)
-                <div class="cust-line">Tel: {{ $order->bill_to_phone }}</div>
-            @endif
-        </td>
-        <td>
-            <div class="label">SHIP TO</div>
-            <div class="cust-name">{{ $shipName }}</div>
-            @if ($order?->ship_to_address ?: $order?->bill_to_address)
-                <div class="cust-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
-            @endif
-            @if ($shipCity !== '')
-                <div class="cust-line">{{ $shipCity }}</div>
-            @endif
-            @if ($order?->ship_to_phone ?: $order?->bill_to_phone)
-                <div class="cust-line">Tel: {{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
-            @endif
         </td>
     </tr>
 </table>
@@ -367,32 +375,26 @@
     <tr>
         <td class="categories">
             <div class="label">PRODUCT SUMMARY</div>
-            <table class="acct-boxes">
+            <table class="sum-table">
                 <tr>
-                    <td>
-                        <span class="lbl">TOBACCO (EXCL. CIGARETTES)</span>
-                        <span class="val">{{ $fmtMoney((float) $buckets['tobacco_total']) }}</span>
-                    </td>
-                    <td>
-                        <span class="lbl">CIGARETTES</span>
-                        <span class="val">{{ $fmtMoney((float) $buckets['cigarette_total']) }}</span>
-                    </td>
+                    <td>Tobacco (excl. cigarettes)</td>
+                    <td class="num">{{ $fmtMoney((float) $buckets['tobacco_total']) }}</td>
                 </tr>
                 <tr>
-                    <td>
-                        <span class="lbl">OTHER PRODUCTS</span>
-                        <span class="val">{{ $fmtMoney((float) $buckets['other_total']) }}</span>
-                    </td>
-                    <td>
-                        <span class="lbl">CIGARETTE QTY (SELLING UNITS)</span>
-                        <span class="val">{{ $fmtQty((float) $buckets['cigarette_qty']) }}</span>
-                    </td>
+                    <td>Cigarettes</td>
+                    <td class="num">{{ $fmtMoney((float) $buckets['cigarette_total']) }}</td>
                 </tr>
                 <tr>
-                    <td class="grand" colspan="2">
-                        <span class="lbl">TOTAL COUNT</span>
-                        <span class="val">{{ $fmtQty((float) $buckets['all_qty']) }}</span>
-                    </td>
+                    <td>Other products</td>
+                    <td class="num">{{ $fmtMoney((float) $buckets['other_total']) }}</td>
+                </tr>
+                <tr>
+                    <td>Cigarette qty (selling units)</td>
+                    <td class="num">{{ $fmtQty((float) $buckets['cigarette_qty']) }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Total count</strong></td>
+                    <td class="num"><strong>{{ $fmtQty((float) $buckets['all_qty']) }}</strong></td>
                 </tr>
             </table>
             <div class="received">Received by: <span class="sign-line">&nbsp;</span></div>
@@ -400,55 +402,31 @@
         </td>
         <td class="summary">
             <div class="label">ACCOUNT SUMMARY</div>
-            <table class="acct-boxes">
-                <tr>
-                    <td>
-                        <span class="lbl">INVOICE TOTAL</span>
-                        <span class="val">{{ $fmtMoney($invoiceTotal) }}</span>
-                    </td>
-                    <td>
-                        <span class="lbl">FREIGHT</span>
-                        <span class="val">{{ $fmtMoney($freight) }}</span>
-                    </td>
-                </tr>
-                @if (abs($tax) > 0.004 || abs($tradeDiscount) > 0.004 || abs($misc) > 0.004)
-                    <tr>
-                        @if (abs($tax) > 0.004)
-                            <td>
-                                <span class="lbl">TAX</span>
-                                <span class="val">{{ $fmtMoney($tax) }}</span>
-                            </td>
-                        @endif
-                        @if (abs($tradeDiscount) > 0.004)
-                            <td>
-                                <span class="lbl">TRADE DISCOUNT</span>
-                                <span class="val">{{ $fmtMoney($tradeDiscount) }}</span>
-                            </td>
-                        @elseif (abs($misc) > 0.004)
-                            <td>
-                                <span class="lbl">MISCELLANEOUS</span>
-                                <span class="val">{{ $fmtMoney($misc) }}</span>
-                            </td>
-                        @elseif (abs($tax) > 0.004)
-                            <td></td>
-                        @endif
-                    </tr>
+            <table class="sum-table">
+                @if (abs($tax) > 0.004)
+                    <tr><td>Tax</td><td class="num">{{ $fmtMoney($tax) }}</td></tr>
+                @endif
+                @if (abs($tradeDiscount) > 0.004)
+                    <tr><td>Trade discount</td><td class="num">{{ $fmtMoney($tradeDiscount) }}</td></tr>
+                @endif
+                @if (abs($misc) > 0.004)
+                    <tr><td>Miscellaneous</td><td class="num">{{ $fmtMoney($misc) }}</td></tr>
                 @endif
                 <tr>
-                    <td>
-                        <span class="lbl">PREVIOUS BALANCE</span>
-                        <span class="val">{{ $fmtMoney((float) $previousBalance) }}</span>
-                    </td>
-                    <td>
-                        <span class="lbl">PAYMENTS</span>
-                        <span class="val">{{ $payTotal > 0.004 ? '-'.$fmtMoney($payTotal) : $fmtMoney(0) }}</span>
-                    </td>
+                    <td>Invoice total</td>
+                    <td class="num">{{ $fmtMoney($invoiceTotal) }}</td>
                 </tr>
                 <tr>
-                    <td class="grand" colspan="2">
-                        <span class="lbl">TOTAL ACCOUNT BALANCE</span>
-                        <span class="val">{{ $fmtMoney($accountBalance) }}</span>
-                    </td>
+                    <td>Freight</td>
+                    <td class="num">{{ $fmtMoney($freight) }}</td>
+                </tr>
+                <tr>
+                    <td>Previous balance</td>
+                    <td class="num">{{ $fmtMoney((float) $previousBalance) }}</td>
+                </tr>
+                <tr class="grand">
+                    <td>Total account balance</td>
+                    <td class="num">{{ $fmtMoney($accountBalance) }}</td>
                 </tr>
             </table>
             <p class="hint">Account balance includes this invoice and prior outstanding balance. Payment timing follows account terms.</p>

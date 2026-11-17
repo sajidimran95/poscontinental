@@ -680,14 +680,8 @@ class DocumentPdfService
             $this->stampPageStrip($pdf, $pageStrip);
         }
 
-        if ($view === 'pdf.invoice-continental' && $count >= 2) {
-            $this->stampRepeatingInvoiceHeaderBarcode($pdf, (string) ($data['barcodeValue'] ?? ''));
-
-            return $pdf;
-        }
-
-        // These views repeat the header (with "X of N") on every page themselves.
-        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo'], true)) {
+        // Header (incl. invoice barcode) repeats itself on every page.
+        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo', 'pdf.invoice-continental'], true)) {
             return $pdf;
         }
 

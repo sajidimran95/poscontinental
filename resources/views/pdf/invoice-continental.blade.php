@@ -4,8 +4,7 @@
     <meta charset="utf-8">
     <title>Invoice {{ $invoice->invoice_number }}</title>
     <style>
-        @page { size: letter; margin: 1.20in 0.45in 0.45in 0.45in; }
-        @page :first { margin-top: 0.45in; }
+        @page { size: letter; margin: 2.82in 0.40in 0.40in 0.40in; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -15,18 +14,17 @@
             line-height: 1.35;
         }
         table { border-collapse: collapse; }
-        .head { width: 100%; margin-bottom: 8px; }
+        .page-head { position: fixed; top: -2.50in; left: 0; right: 0; }
+        .head { width: 100%; margin-bottom: 4px; }
         .head td { vertical-align: top; border: none; padding: 0; }
-        .brand-logo { width: 30px; height: 57px; }
-        .head td.logo { width: 18%; text-align: left; }
-        .head td.brand { width: 49%; text-align: center; vertical-align: middle; }
+        .head td.brand { width: 67%; text-align: left; vertical-align: middle; }
         .head td.meta-right { width: 33%; text-align: right; }
         .head td.addr { text-align: left; padding-top: 2px; }
         .co-name {
-            font-size: 21px;
+            font-size: 19px;
             font-weight: bold;
             margin: 0;
-            text-align: center;
+            text-align: left;
             white-space: nowrap;
         }
         .co-line { font-size: 10px; color: #222; margin: 0; line-height: 1.45; text-align: left; }
@@ -58,12 +56,12 @@
             margin-bottom: 2px;
         }
         .pagenum:after { content: counter(page) " of {{ (int) ($pageLabel ?? 1) }}"; }
-        .customers { width: 100%; margin: 8px 0 6px; }
+        .customers { width: 100%; margin: 4px 0 3px; }
         .customers td {
             width: 50%;
             border: 1px solid #bbb;
             vertical-align: top;
-            padding: 8px 10px;
+            padding: 5px 8px;
         }
         .label {
             font-size: 9px;
@@ -74,9 +72,9 @@
         .cust-name { font-weight: bold; font-size: 12px; }
         .cust-line { margin-top: 1px; font-size: 11px; }
         .meta {
-            padding: 7px 0 8px;
+            padding: 4px 0 5px;
             border-bottom: 1px solid #aaa;
-            margin-bottom: 8px;
+            margin-bottom: 0;
             font-size: 11px;
         }
         .meta b { font-weight: bold; }
@@ -124,15 +122,33 @@
         .bottom td { vertical-align: top; border: none; padding: 0; }
         .bottom .categories { width: 46%; padding-right: 18px; }
         .bottom .summary { width: 54%; }
-        .sum-table { width: 100%; }
-        .sum-table td { padding: 4px 0; font-size: 11px; border: none; }
-        .sum-table td.num { text-align: right; white-space: nowrap; }
-        .sum-table tr.grand td {
-            font-size: 13px;
-            font-weight: bold;
-            padding-top: 7px;
-            border-top: 2px solid #111;
+        .acct-boxes { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .acct-boxes td {
+            border: 1px solid #222;
+            padding: 5px 7px;
+            vertical-align: top;
+            width: 50%;
         }
+        .acct-boxes .lbl {
+            display: block;
+            font-size: 7.5px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            text-align: center;
+        }
+        .acct-boxes .val {
+            display: block;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 3px;
+        }
+        .acct-boxes td.grand {
+            width: 100%;
+            background: #f3f3f3;
+            padding: 6px 7px;
+        }
+        .acct-boxes td.grand .val { font-size: 14px; }
         .hint { font-size: 9px; color: #555; margin: 6px 0 0; line-height: 1.35; }
         .received { margin-top: 14px; font-size: 11px; }
         .sign-line {
@@ -223,13 +239,9 @@
     $accountBalance = round($previousBalance + $invoiceTotal - $payTotal, 2);
 @endphp
 
+<div class="page-head">
 <table class="head">
     <tr>
-        <td class="logo">
-            @if ($logoPath && is_file($logoPath))
-                <img class="brand-logo" src="{{ $logoPath }}" alt="">
-            @endif
-        </td>
         <td class="brand">
             <div class="co-name">{{ $companyName }}</div>
         </td>
@@ -238,7 +250,7 @@
         </td>
     </tr>
     <tr>
-        <td class="addr" colspan="2">
+        <td class="addr">
             <div class="co-line">{{ $addr }}@if ($tel !== '') | Tel: {{ $tel }}@endif</div>
             @if ($email !== '')
                 <div class="co-line">{{ $email }}</div>
@@ -294,6 +306,7 @@
     <span class="gap">Sales rep: <b>{{ $salesRepLabel !== '' ? $salesRepLabel : '-' }}</b></span>
     <span class="gap">Terms: <b>{{ $paymentLabel !== '' ? $paymentLabel : '-' }}</b></span>
     <span class="gap">Route: {{ $routeLabel !== '' ? $routeLabel : '-' }}</span>
+</div>
 </div>
 
 <table @class(['items', 'is-barcode' => $showItemBarcodes])>
@@ -354,26 +367,32 @@
     <tr>
         <td class="categories">
             <div class="label">PRODUCT SUMMARY</div>
-            <table class="sum-table">
+            <table class="acct-boxes">
                 <tr>
-                    <td>Tobacco (excl. cigarettes)</td>
-                    <td class="num">{{ $fmtMoney((float) $buckets['tobacco_total']) }}</td>
+                    <td>
+                        <span class="lbl">TOBACCO (EXCL. CIGARETTES)</span>
+                        <span class="val">{{ $fmtMoney((float) $buckets['tobacco_total']) }}</span>
+                    </td>
+                    <td>
+                        <span class="lbl">CIGARETTES</span>
+                        <span class="val">{{ $fmtMoney((float) $buckets['cigarette_total']) }}</span>
+                    </td>
                 </tr>
                 <tr>
-                    <td>Cigarettes</td>
-                    <td class="num">{{ $fmtMoney((float) $buckets['cigarette_total']) }}</td>
+                    <td>
+                        <span class="lbl">OTHER PRODUCTS</span>
+                        <span class="val">{{ $fmtMoney((float) $buckets['other_total']) }}</span>
+                    </td>
+                    <td>
+                        <span class="lbl">CIGARETTE QTY (SELLING UNITS)</span>
+                        <span class="val">{{ $fmtQty((float) $buckets['cigarette_qty']) }}</span>
+                    </td>
                 </tr>
                 <tr>
-                    <td>Other products</td>
-                    <td class="num">{{ $fmtMoney((float) $buckets['other_total']) }}</td>
-                </tr>
-                <tr>
-                    <td>Cigarette qty (selling units)</td>
-                    <td class="num">{{ $fmtQty((float) $buckets['cigarette_qty']) }}</td>
-                </tr>
-                <tr>
-                    <td><strong>Total count</strong></td>
-                    <td class="num"><strong>{{ $fmtQty((float) $buckets['all_qty']) }}</strong></td>
+                    <td class="grand" colspan="2">
+                        <span class="lbl">TOTAL COUNT</span>
+                        <span class="val">{{ $fmtQty((float) $buckets['all_qty']) }}</span>
+                    </td>
                 </tr>
             </table>
             <div class="received">Received by: <span class="sign-line">&nbsp;</span></div>
@@ -381,37 +400,55 @@
         </td>
         <td class="summary">
             <div class="label">ACCOUNT SUMMARY</div>
-            <table class="sum-table">
-                @if (abs($tax) > 0.004)
-                    <tr><td>Tax</td><td class="num">{{ $fmtMoney($tax) }}</td></tr>
-                @endif
-                @if (abs($tradeDiscount) > 0.004)
-                    <tr><td>Trade discount</td><td class="num">{{ $fmtMoney($tradeDiscount) }}</td></tr>
-                @endif
-                @if (abs($misc) > 0.004)
-                    <tr><td>Miscellaneous</td><td class="num">{{ $fmtMoney($misc) }}</td></tr>
-                @endif
+            <table class="acct-boxes">
                 <tr>
-                    <td>Invoice total</td>
-                    <td class="num">{{ $fmtMoney($invoiceTotal) }}</td>
+                    <td>
+                        <span class="lbl">INVOICE TOTAL</span>
+                        <span class="val">{{ $fmtMoney($invoiceTotal) }}</span>
+                    </td>
+                    <td>
+                        <span class="lbl">FREIGHT</span>
+                        <span class="val">{{ $fmtMoney($freight) }}</span>
+                    </td>
                 </tr>
-                <tr>
-                    <td>Freight</td>
-                    <td class="num">{{ $fmtMoney($freight) }}</td>
-                </tr>
-                <tr>
-                    <td>Previous balance</td>
-                    <td class="num">{{ $fmtMoney((float) $previousBalance) }}</td>
-                </tr>
-                @if ($payTotal > 0.004)
+                @if (abs($tax) > 0.004 || abs($tradeDiscount) > 0.004 || abs($misc) > 0.004)
                     <tr>
-                        <td>Payments</td>
-                        <td class="num">-{{ $fmtMoney($payTotal) }}</td>
+                        @if (abs($tax) > 0.004)
+                            <td>
+                                <span class="lbl">TAX</span>
+                                <span class="val">{{ $fmtMoney($tax) }}</span>
+                            </td>
+                        @endif
+                        @if (abs($tradeDiscount) > 0.004)
+                            <td>
+                                <span class="lbl">TRADE DISCOUNT</span>
+                                <span class="val">{{ $fmtMoney($tradeDiscount) }}</span>
+                            </td>
+                        @elseif (abs($misc) > 0.004)
+                            <td>
+                                <span class="lbl">MISCELLANEOUS</span>
+                                <span class="val">{{ $fmtMoney($misc) }}</span>
+                            </td>
+                        @elseif (abs($tax) > 0.004)
+                            <td></td>
+                        @endif
                     </tr>
                 @endif
-                <tr class="grand">
-                    <td>Total account balance</td>
-                    <td class="num">{{ $fmtMoney($accountBalance) }}</td>
+                <tr>
+                    <td>
+                        <span class="lbl">PREVIOUS BALANCE</span>
+                        <span class="val">{{ $fmtMoney((float) $previousBalance) }}</span>
+                    </td>
+                    <td>
+                        <span class="lbl">PAYMENTS</span>
+                        <span class="val">{{ $payTotal > 0.004 ? '-'.$fmtMoney($payTotal) : $fmtMoney(0) }}</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="grand" colspan="2">
+                        <span class="lbl">TOTAL ACCOUNT BALANCE</span>
+                        <span class="val">{{ $fmtMoney($accountBalance) }}</span>
+                    </td>
                 </tr>
             </table>
             <p class="hint">Account balance includes this invoice and prior outstanding balance. Payment timing follows account terms.</p>

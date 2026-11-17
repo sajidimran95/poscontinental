@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <title>Invoice {{ $invoice->invoice_number }}</title>
     <style>
-        @page { size: letter; margin: 0.45in; }
+        @page { size: letter; margin: 1.20in 0.45in 0.45in 0.45in; }
+        @page :first { margin-top: 0.45in; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -29,13 +30,8 @@
             white-space: nowrap;
         }
         .co-line { font-size: 10px; color: #222; margin: 0; line-height: 1.45; text-align: left; }
-        .inv-barcode { text-align: right; margin: 0 0 6px; }
-        .inv-barcode img { height: 40px; }
-        .inv-barcode .digits {
-            font-size: 9px;
-            letter-spacing: 0.12em;
-            margin-top: 2px;
-        }
+        .inv-barcode { width: 115px; margin: 0 0 2px auto; text-align: center; }
+        .inv-barcode img { display: block; width: 115px; height: 36px; margin: 0 auto; }
         .invoice-info { width: 230px; margin-left: auto; border: 1px solid #777; }
         .invoice-info th {
             background: #292929;
@@ -238,10 +234,7 @@
             <div class="co-name">{{ $companyName }}</div>
         </td>
         <td class="meta-right">
-            <div class="inv-barcode">
-                {!! Code128Barcode::html($invoiceNo, 2, 40, 'right') !!}
-                <div class="digits">{{ $invoiceNo }}</div>
-            </div>
+            {!! Code128Barcode::invoiceHeaderHtml($invoiceNo) !!}
         </td>
     </tr>
     <tr>

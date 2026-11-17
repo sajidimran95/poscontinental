@@ -38,10 +38,76 @@ class Code128Barcode
     private const STOP = 106;
 
     /**
+     * Invoice-number header barcode (Code 128 + human-readable digits), matching
+     * Continental_Invoice_Template/invoice_barcode_sample.pdf.
+     */
+    /**
+     * @return array{uri: string, width: int, height: int}
+     */
+    public static function invoiceHeaderAsset(string $text): array
+    {
+        $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
+        $png = self::png($text, 2, 50, quietModules: 10, caption: true);
+        // invoice_barcode_sample.pdf header barcode (CSS px at 96dpi).
+        $displayW = 115;
+        $displayH = 36;
+
+        $path = sys_get_temp_dir().'/inv-bc-'.md5($text).'.png';
+        if ($png !== '') {
+            file_put_contents($path, $png);
+        }
+
+        $dpi = 96.0;
+        $pt = static fn (int $px): float => round($px * 72.0 / $dpi, 2);
+
+        return [
+            'uri' => $png === '' ? '' : 'data:image/png;base64,'.base64_encode($png),
+            'path' => $png === '' ? '' : $path,
+            'width' => $displayW,
+            'height' => $displayH,
+            'pt_width' => $pt($displayW),
+            'pt_height' => $pt($displayH),
+        ];
+    }
+
+    public static function invoiceHeaderHtml(string $text): string
+    {
+        $asset = self::invoiceHeaderAsset($text);
+        if ($asset['uri'] === '') {
+            return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        }
+
+        $w = (int) $asset['width'];
+        $h = (int) $asset['height'];
+
+        return '<div class="inv-barcode">'
+            .'<img src="'.$asset['uri'].'" alt="" width="'.$w.'" height="'.$h.'" />'
+            .'</div>';
+    }
+
+    /**
      * Render Code 128B as a single PNG data-URI (fast for DomPDF vs hundreds of spans).
      */
     public static function dataUri(string $text, int $moduleWidth = 2, int $height = 44): string
     {
+        $png = self::png($text, $moduleWidth, $height);
+        if ($png === '') {
+            return '';
+        }
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
+    /**
+     * @return string Raw PNG bytes
+     */
+    public static function png(
+        string $text,
+        int $moduleWidth = 2,
+        int $height = 44,
+        int $quietModules = 0,
+        bool $caption = false
+    ): string {
         if (! function_exists('imagecreatetruecolor')) {
             return '';
         }
@@ -73,17 +139,20 @@ class Code128Barcode
             }
         }
 
-        $width = max(1, $totalModules);
-        $img = imagecreatetruecolor($width, $height);
+        $quiet = max(0, $quietModules) * max(1, $moduleWidth);
+        $captionH = $caption ? (int) round($height * 0.42) : 0;
+        $width = max(1, $totalModules + 2 * $quiet);
+        $imgH = max(1, $height + $captionH);
+        $img = imagecreatetruecolor($width, $imgH);
         if ($img === false) {
             return '';
         }
 
         $white = imagecolorallocate($img, 255, 255, 255);
         $blackColor = imagecolorallocate($img, 0, 0, 0);
-        imagefilledrectangle($img, 0, 0, $width, $height, $white);
+        imagefilledrectangle($img, 0, 0, $width, $imgH, $white);
 
-        $x = 0;
+        $x = $quiet;
         foreach ($segments as [$isBlack, $w]) {
             if ($isBlack) {
                 imagefilledrectangle($img, $x, 0, $x + $w - 1, $height - 1, $blackColor);
@@ -91,16 +160,44 @@ class Code128Barcode
             $x += $w;
         }
 
+        if ($caption) {
+            $font = self::monoFontPath();
+            if ($font !== null && function_exists('imagettftext')) {
+                $size = max(10.0, $height * 0.28);
+                $box = imagettfbbox($size, 0, $font, $text) ?: [0, 0, 0, 0, 0, 0, 0, 0];
+                $textW = abs($box[2] - $box[0]);
+                $tx = (int) max(0, ($width - $textW) / 2);
+                $ty = $height + (int) round($captionH * 0.72);
+                imagettftext($img, $size, 0, $tx, $ty, $blackColor, $font, $text);
+            } else {
+                $fontW = imagefontwidth(5);
+                $tx = (int) max(0, ($width - $fontW * strlen($text)) / 2);
+                imagestring($img, 5, $tx, $height + 2, $text, $blackColor);
+            }
+        }
+
         ob_start();
         imagepng($img);
         $png = ob_get_clean();
         imagedestroy($img);
 
-        if ($png === false || $png === '') {
-            return '';
+        return is_string($png) ? $png : '';
+    }
+
+    protected static function monoFontPath(): ?string
+    {
+        foreach ([
+            '/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf',
+            '/usr/share/fonts/type1/gsfonts/n022003l.pfb',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+            '/usr/share/fonts/truetype/freefont/FreeMono.ttf',
+        ] as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
         }
 
-        return 'data:image/png;base64,'.base64_encode($png);
+        return null;
     }
 
     /**

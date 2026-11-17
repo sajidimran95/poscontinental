@@ -680,8 +680,14 @@ class DocumentPdfService
             $this->stampPageStrip($pdf, $pageStrip);
         }
 
+        if ($view === 'pdf.invoice-continental' && $count >= 2) {
+            $this->stampRepeatingInvoiceHeaderBarcode($pdf, (string) ($data['barcodeValue'] ?? ''));
+
+            return $pdf;
+        }
+
         // These views repeat the header (with "X of N") on every page themselves.
-        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo', 'pdf.invoice-continental'], true)) {
+        if ($count < 2 || in_array($view, ['pdf.sales-order', 'pdf.credit-memo'], true)) {
             return $pdf;
         }
 
@@ -702,6 +708,38 @@ class DocumentPdfService
         });
 
         return $pdf;
+    }
+
+    /**
+     * Later pages: stamp the same invoice-number barcode PNG used on page 1.
+     */
+    protected function stampRepeatingInvoiceHeaderBarcode(object $pdf, string $invoiceNumber): void
+    {
+        $invoiceNumber = trim($invoiceNumber);
+        if ($invoiceNumber === '') {
+            return;
+        }
+
+        $asset = \App\Support\Code128Barcode::invoiceHeaderAsset($invoiceNumber);
+        $path = (string) ($asset['path'] ?? '');
+        if ($path === '' || ! is_file($path)) {
+            return;
+        }
+
+        $pdf->render();
+        $canvas = $pdf->getDomPDF()->getCanvas();
+        // Same size as page-1 CSS px (96dpi → PDF points). Do not stamp native px as pt.
+        $imgW = (float) ($asset['pt_width'] ?? 86.25);
+        $imgH = (float) ($asset['pt_height'] ?? 27.0);
+        $x = $canvas->get_width() - 32.4 - $imgW;
+        $y = 20.0;
+
+        $canvas->page_script(function (int $pageNumber, int $pageCount, $canvas) use ($path, $x, $y, $imgW, $imgH) {
+            if ($pageNumber < 2) {
+                return;
+            }
+            $canvas->image($path, $x, $y, $imgW, $imgH);
+        });
     }
 
     protected function probePageCount(string $view, array $data): int

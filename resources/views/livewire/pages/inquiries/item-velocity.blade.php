@@ -312,7 +312,7 @@ new #[Layout('layouts.app'), Title('Item Velocity')] class extends Component
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("iv-code"); if (el) { el.value = ""; el.focus(); } });');
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, $keepBrowseOpen = null, $qty = null): void
     {
         $item = Item::query()
             ->where('company_id', auth()->user()->company_id)

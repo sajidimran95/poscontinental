@@ -120,7 +120,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("ss-code"); if (el) el.value = ""; el?.focus(); });');
     }
 
-    public function pickBrowseItem(int $itemId): void
+    public function pickBrowseItem(int $itemId, $keepBrowseOpen = null, $qty = null): void
     {
         $item = Item::query()
             ->where('company_id', auth()->user()->company_id)

@@ -975,7 +975,7 @@ new #[Layout('layouts.app'), Title('Credit Memos')] class extends Component
         $this->closeDocumentItemBrowse();
     }
 
-    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, $qty = null): void
     {
         if (! $this->showForm) {
             return;

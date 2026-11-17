@@ -284,7 +284,7 @@ trait BrowsesItemsForDocument
         $this->pickBrowseItem($id, true);
     }
 
-    public function insertBrowseChecked($ids = null): void
+    public function insertBrowseChecked($ids = null, $qtys = null): void
     {
         if (is_array($ids) && $ids !== []) {
             $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));

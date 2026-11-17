@@ -468,9 +468,16 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->closeBrowse();
     }
 
-    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, ?string $enteredCode = null): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, $enteredCode = null, $qty = null): void
     {
         abort_if($this->viewMode, 403);
+
+        if ($qty === null && (is_int($enteredCode) || is_float($enteredCode))) {
+            $qty = $enteredCode;
+            $enteredCode = null;
+        }
+
+        $addQty = is_numeric($qty) && (float) $qty > 0 ? (float) $qty : 1.0;
 
         $item = Item::query()
             ->where('company_id', auth()->user()->company_id)
@@ -490,7 +497,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->lineWarning = '';
         $this->lookupMessage = '';
         if ($keepBrowseOpen) {
-            $this->applyItemToOrder($item, $displayCode);
+            $this->applyItemToOrder($item, $displayCode, $addQty);
             $this->browseCheckedIds = [];
             $this->browseSelectedId = null;
             $this->dispatch('browse-checks-cleared');
@@ -498,7 +505,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $this->focusBrowseSearch();
         } else {
             $this->closeBrowse();
-            $this->applyItemToOrder($item, $displayCode);
+            $this->applyItemToOrder($item, $displayCode, $addQty);
             $this->clearAndFocusEntry();
         }
     }
@@ -649,7 +656,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $this->pickBrowseItem($id, true);
     }
 
-    public function insertBrowseChecked($ids = null): void
+    public function insertBrowseChecked($ids = null, $qtys = null): void
     {
         if (is_array($ids) && $ids !== []) {
             $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
@@ -662,6 +669,8 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             return;
         }
 
+        $qtyMap = is_array($qtys) ? $qtys : [];
+
         foreach ($ids as $itemId) {
             $item = Item::query()
                 ->where('company_id', auth()->user()->company_id)
@@ -669,7 +678,10 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
                 ->where('can_order', true)
                 ->find($itemId);
             if ($item) {
-                $this->applyItemToOrder($item);
+                $qty = isset($qtyMap[$itemId]) && is_numeric($qtyMap[$itemId]) && (float) $qtyMap[$itemId] > 0
+                    ? (float) $qtyMap[$itemId]
+                    : 1.0;
+                $this->applyItemToOrder($item, null, $qty);
             }
         }
 
@@ -1100,18 +1112,19 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
      * Bump qty on existing line, else fill empty line / new line.
      * $enteredCode: what they typed/searched — that value is stored as the PO line Item Code.
      */
-    protected function applyItemToOrder(Item $item, ?string $enteredCode = null): void
+    protected function applyItemToOrder(Item $item, ?string $enteredCode = null, float $addQty = 1): void
     {
         $displayCode = trim((string) ($enteredCode ?? '')) !== ''
             ? trim((string) $enteredCode)
             : (string) $item->item_code;
+        $addQty = $addQty > 0 ? $addQty : 1.0;
 
         $lines = array_values($this->lines);
 
         foreach ($lines as $i => $line) {
             if ((int) ($line['item_id'] ?? 0) === (int) $item->id) {
                 $qty = (float) ($line['qty_ordered'] ?? 0);
-                $lines[$i]['qty_ordered'] = $this->formatQty($qty + 1);
+                $lines[$i]['qty_ordered'] = $this->formatQty($qty + $addQty);
                 $lines[$i]['item_code'] = $displayCode;
                 $lines[$i]['description'] = (string) ($item->description ?? $lines[$i]['description'] ?? '');
                 if (! filled($lines[$i]['uom'] ?? null)) {
@@ -1132,6 +1145,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
             $target = (int) $this->browseLineIndex;
             $this->browseLineIndex = null;
             $this->lines = $lines;
+            $this->lines[$target]['qty_ordered'] = $this->formatQty($addQty);
             $this->fillLineFromItem($target, $item, $displayCode);
             $this->highlightPoLine($target);
             $this->playPosSound('success');
@@ -1146,6 +1160,7 @@ new #[Layout('layouts.app'), Title('Purchase Order')] class extends Component
         $filled[] = $this->emptyLine();
         $target = count($filled) - 1;
         $this->lines = $filled;
+        $this->lines[$target]['qty_ordered'] = $this->formatQty($addQty);
         $this->fillLineFromItem($target, $item, $displayCode);
         $this->lines[] = $this->emptyLine();
         $this->highlightPoLine($target);

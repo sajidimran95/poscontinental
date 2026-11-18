@@ -7,6 +7,18 @@ namespace App\Support;
  */
 class Code128Barcode
 {
+    /**
+     * When true (page-count probe), emit fixed-height placeholders instead of PNGs.
+     * Keeps DomPDF layout/height similar without GD work.
+     */
+    public static bool $probePlaceholders = false;
+
+    /** @var array<string, string> request-lifetime PNG cache (raw bytes) */
+    private static array $pngCache = [];
+
+    /** @var array<string, string> request-lifetime data-URI cache */
+    private static array $uriCache = [];
+
     /** @var array<int, string> Pattern of bar/space widths (B=bar, S=space) as digit string */
     private const PATTERNS = [
         0 => '212222', 1 => '222122', 2 => '222221', 3 => '121223', 4 => '121322',
@@ -47,18 +59,34 @@ class Code128Barcode
     public static function invoiceHeaderAsset(string $text): array
     {
         $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
-        $png = self::png($text, 2, 50, quietModules: 10, caption: true);
         // invoice_barcode_sample.pdf header barcode (CSS px at 96dpi).
         $displayW = 115;
         $displayH = 36;
-
-        $path = sys_get_temp_dir().'/inv-bc-'.md5($text).'.png';
-        if ($png !== '') {
-            file_put_contents($path, $png);
-        }
-
         $dpi = 96.0;
         $pt = static fn (int $px): float => round($px * 72.0 / $dpi, 2);
+
+        if (self::$probePlaceholders) {
+            return [
+                'uri' => '',
+                'path' => '',
+                'width' => $displayW,
+                'height' => $displayH,
+                'pt_width' => $pt($displayW),
+                'pt_height' => $pt($displayH),
+            ];
+        }
+
+        $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'inv-bc-'.md5($text).'.png';
+        $png = '';
+        if (is_file($path) && filesize($path) > 0) {
+            $png = (string) file_get_contents($path);
+            self::$pngCache['hdr:'.$text] = $png;
+        } else {
+            $png = self::png($text, 2, 50, quietModules: 10, caption: true);
+            if ($png !== '') {
+                @file_put_contents($path, $png);
+            }
+        }
 
         return [
             'uri' => $png === '' ? '' : 'data:image/png;base64,'.base64_encode($png),
@@ -72,6 +100,10 @@ class Code128Barcode
 
     public static function invoiceHeaderHtml(string $text): string
     {
+        if (self::$probePlaceholders) {
+            return '<div class="inv-barcode" style="width:115px;height:36px;"></div>';
+        }
+
         $asset = self::invoiceHeaderAsset($text);
         if ($asset['uri'] === '') {
             return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
@@ -90,12 +122,18 @@ class Code128Barcode
      */
     public static function dataUri(string $text, int $moduleWidth = 2, int $height = 44): string
     {
-        $png = self::png($text, $moduleWidth, $height);
-        if ($png === '') {
-            return '';
+        $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
+        $key = $moduleWidth.'|'.$height.'|'.$text;
+        if (isset(self::$uriCache[$key])) {
+            return self::$uriCache[$key];
         }
 
-        return 'data:image/png;base64,'.base64_encode($png);
+        $png = self::png($text, $moduleWidth, $height);
+        if ($png === '') {
+            return self::$uriCache[$key] = '';
+        }
+
+        return self::$uriCache[$key] = 'data:image/png;base64,'.base64_encode($png);
     }
 
     /**
@@ -113,6 +151,21 @@ class Code128Barcode
         }
 
         $text = preg_replace('/[^\x20-\x7E]/', '', $text) ?: '0';
+        $cacheKey = $moduleWidth.'|'.$height.'|'.$quietModules.'|'.($caption ? '1' : '0').'|'.$text;
+        if (isset(self::$pngCache[$cacheKey])) {
+            return self::$pngCache[$cacheKey];
+        }
+
+        // Disk cache for repeated UPCs across probe/final and multi-invoice prints.
+        $diskKey = md5($cacheKey);
+        $diskPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'c128-'.$diskKey.'.png';
+        if (is_file($diskPath) && filesize($diskPath) > 0) {
+            $cached = (string) file_get_contents($diskPath);
+            if ($cached !== '') {
+                return self::$pngCache[$cacheKey] = $cached;
+            }
+        }
+
         $codes = [self::START_B];
         $checksum = self::START_B;
 
@@ -181,7 +234,13 @@ class Code128Barcode
         $png = ob_get_clean();
         imagedestroy($img);
 
-        return is_string($png) ? $png : '';
+        $png = is_string($png) ? $png : '';
+        if ($png !== '') {
+            self::$pngCache[$cacheKey] = $png;
+            @file_put_contents($diskPath, $png);
+        }
+
+        return $png;
     }
 
     protected static function monoFontPath(): ?string
@@ -205,10 +264,14 @@ class Code128Barcode
      */
     public static function html(string $text, int $moduleWidth = 1, int $height = 38, string $align = 'right'): string
     {
+        $alignCss = in_array($align, ['left', 'center', 'right'], true) ? $align : 'right';
+        if (self::$probePlaceholders) {
+            // Same vertical space as a real barcode row; no GD / base64 work.
+            return '<div style="text-align:'.$alignCss.';line-height:0;font-size:0;height:'.$height.'px;"></div>';
+        }
+
         $uri = self::dataUri($text, max(1, $moduleWidth), $height);
         if ($uri !== '') {
-            $alignCss = in_array($align, ['left', 'center', 'right'], true) ? $align : 'right';
-
             return '<div style="text-align:'.$alignCss.';line-height:0;font-size:0;">'
                 .'<img src="'.$uri.'" alt="" height="'.$height.'" style="height:'.$height.'px;" />'
                 .'</div>';

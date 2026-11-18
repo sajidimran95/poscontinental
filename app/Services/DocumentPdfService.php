@@ -744,12 +744,25 @@ class DocumentPdfService
 
     protected function probePageCount(string $view, array $data): int
     {
-        $probe = Pdf::loadView($view, $data)
-            ->setPaper('letter')
-            ->setOption('defaultFont', 'Helvetica');
-        $probe->render();
+        // Secondary invoice has one barcode PNG per line — skip GD during this layout probe.
+        $usePlaceholders = in_array($view, ['pdf.invoice-continental', 'pdf.sales-order'], true)
+            && ! empty($data['includeSecondaryBarcodeCopy']);
+        if ($usePlaceholders) {
+            \App\Support\Code128Barcode::$probePlaceholders = true;
+        }
 
-        return max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
+        try {
+            $probe = Pdf::loadView($view, $data)
+                ->setPaper('letter')
+                ->setOption('defaultFont', 'Helvetica');
+            $probe->render();
+
+            return max(1, (int) $probe->getDomPDF()->getCanvas()->get_page_count());
+        } finally {
+            if ($usePlaceholders) {
+                \App\Support\Code128Barcode::$probePlaceholders = false;
+            }
+        }
     }
 
     /**

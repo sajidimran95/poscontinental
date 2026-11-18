@@ -3949,7 +3949,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->resetErrorBag('invoiceEmailTo');
 
         if ($print) {
-            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.print', $this->salesOrder).'?v='.time());
+            // Invoice layout (cig qty / previous balance) — not the plain sales-order-doc print.
+            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder).'?v='.time());
         }
     }
 

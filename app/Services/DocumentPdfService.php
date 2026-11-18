@@ -34,10 +34,12 @@ class DocumentPdfService
 
     public function invoicePdf(Invoice $invoice, ?User $user = null)
     {
-        // Print needs lines + item (UOM / UPC / message). Skip category/subcategory — unused on invoice PDF.
+        // Category/subcategory required for cigarette vs tobacco product summary (TobaccoItem::kind).
         $invoice->loadMissing([
             'customer',
             'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
+            'salesOrder.lines.item.category',
+            'salesOrder.lines.item.subcategory',
             'salesOrder.lines.item.prices',
             'salesOrder.lines.item.upcs',
             'salesOrder.customer',
@@ -45,6 +47,8 @@ class DocumentPdfService
             'salesOrder.paymentTerm',
             'salesOrder.route',
             'voidedSalesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
+            'voidedSalesOrder.lines.item.category',
+            'voidedSalesOrder.lines.item.subcategory',
             'voidedSalesOrder.lines.item.prices',
             'voidedSalesOrder.lines.item.upcs',
             'voidedSalesOrder.customer',

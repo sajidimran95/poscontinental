@@ -34,11 +34,10 @@ class DocumentPdfService
 
     public function invoicePdf(Invoice $invoice, ?User $user = null)
     {
+        // Print needs lines + item (UOM / UPC / message). Skip category/subcategory — unused on invoice PDF.
         $invoice->loadMissing([
             'customer',
             'salesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
-            'salesOrder.lines.item.category',
-            'salesOrder.lines.item.subcategory',
             'salesOrder.lines.item.prices',
             'salesOrder.lines.item.upcs',
             'salesOrder.customer',
@@ -46,8 +45,6 @@ class DocumentPdfService
             'salesOrder.paymentTerm',
             'salesOrder.route',
             'voidedSalesOrder.lines' => fn ($q) => $q->orderBy('line_no')->orderBy('id'),
-            'voidedSalesOrder.lines.item.category',
-            'voidedSalesOrder.lines.item.subcategory',
             'voidedSalesOrder.lines.item.prices',
             'voidedSalesOrder.lines.item.upcs',
             'voidedSalesOrder.customer',
@@ -669,7 +666,20 @@ class DocumentPdfService
     protected function documentPdfWithPageCount(string $view, array $data, array $pageStrip = [])
     {
         $data['pageLabel'] = '1';
-        $count = $this->probePageCount($view, $data);
+
+        // Short continental invoices almost always fit on 1 page — skip the full DomPDF probe render.
+        $skipProbe = false;
+        if ($view === 'pdf.invoice-continental') {
+            $lineCount = (int) ($data['order']?->lines?->count() ?? 0);
+            $secondary = ! empty($data['includeSecondaryBarcodeCopy']);
+            // Conservative thresholds so "1 of 1" stays correct; taller barcode rows use a lower cap.
+            $onePageMax = $secondary ? 16 : 22;
+            if ($lineCount <= $onePageMax) {
+                $skipProbe = true;
+            }
+        }
+
+        $count = $skipProbe ? 1 : $this->probePageCount($view, $data);
         $data['pageLabel'] = (string) $count;
 
         $pdf = Pdf::loadView($view, $data)
@@ -738,9 +748,8 @@ class DocumentPdfService
 
     protected function probePageCount(string $view, array $data): int
     {
-        // Secondary invoice has one barcode PNG per line — skip GD during this layout probe.
-        $usePlaceholders = in_array($view, ['pdf.invoice-continental', 'pdf.sales-order'], true)
-            && ! empty($data['includeSecondaryBarcodeCopy']);
+        // Skip barcode PNG/GD work during layout probe (header + line barcodes).
+        $usePlaceholders = in_array($view, ['pdf.invoice-continental', 'pdf.sales-order'], true);
         if ($usePlaceholders) {
             \App\Support\Code128Barcode::$probePlaceholders = true;
         }

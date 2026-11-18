@@ -1953,7 +1953,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /**
      * Progressive F2 list — fast open (first page), scroll loads the rest.
      */
-    protected const BROWSE_PAGE_SIZE = 80;
+    protected const BROWSE_PAGE_SIZE = 60;
 
     public function updatedBrowseSearch(): void
     {
@@ -2262,7 +2262,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $addedItemIds = [];
 
         $items = Item::query()
-            ->with(['prices', 'taxSchedule', 'category', 'subcategory'])
+            ->with(['prices', 'taxSchedule'])
             ->where('company_id', $companyId)
             ->whereIn('id', $ids)
             ->get()
@@ -2648,6 +2648,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $uoms = $this->browseUomsForRows($rows);
 
+        // Skip price-history alerts here — they made F2 open slow (~10k catalog).
+        // Alerts still appear when the item is actually added to the order.
         $mapped = $rows->map(function ($row) use ($newSince, $uoms) {
             $created = $row->created_at ? \Illuminate\Support\Carbon::parse($row->created_at) : null;
             $id = (int) $row->id;
@@ -2667,17 +2669,6 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 'price_update_message' => null,
             ];
         })->all();
-
-        $alerts = app(ItemPriceHistoryService::class)->salesAlertsForItemIds(
-            array_column($mapped, 'id')
-        );
-        foreach ($mapped as $i => $row) {
-            $id = (int) $row['id'];
-            if (! isset($alerts[$id])) {
-                continue;
-            }
-            $mapped[$i] = array_merge($row, $alerts[$id]);
-        }
 
         $this->browseRows = array_values(array_merge($this->browseRows, $mapped));
         $this->browseHasMore = $hasMore;
@@ -4734,7 +4725,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->browseCheckedIds = [];
             $this->browseSelectedId = null;
             $this->dispatch('browse-checks-cleared');
-            $this->queueItemOrPromptSubstitute($item);
+            // Batch side-effects: skip AI cross-sell + per-line tax while inserting from F2.
+            $this->deferLineSideEffects = true;
+            try {
+                $this->queueItemOrPromptSubstitute($item);
+            } finally {
+                $this->deferLineSideEffects = false;
+            }
+            if (
+                ! $this->showLineChangeConfirmModal
+                && ! $this->showWalkInTobaccoBlockModal
+                && ! $this->showSubstitutePrompt
+            ) {
+                $this->taxManual = false;
+                $this->refreshCreditWarning();
+                $this->suggestTax();
+                if ($this->selectedLineIndex !== null) {
+                    $this->highlightScannedLine((int) $this->selectedLineIndex);
+                }
+                $this->playPosSound('success');
+            }
             // Do not reload the full browse list after every insert — just refresh stock for this SKU.
             if ($this->showBrowse) {
                 $this->refreshBrowseStockFromDatabase([(int) $item->id]);

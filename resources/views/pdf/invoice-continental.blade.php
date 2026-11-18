@@ -4,8 +4,7 @@
     <meta charset="utf-8">
     <title>Invoice {{ $invoice->invoice_number }}</title>
     <style>
-        @page { size: letter; margin: 1.20in 0.45in 0.45in 0.45in; }
-        @page :first { margin-top: 0.45in; }
+        @page { size: letter; margin: 2.22in 0.40in 0.40in 0.40in; }
         * { box-sizing: border-box; }
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -15,24 +14,26 @@
             line-height: 1.35;
         }
         table { border-collapse: collapse; }
-        .head { width: 100%; margin-bottom: 8px; }
+        .page-head { position: fixed; top: -1.88in; left: 0; right: 0; }
+        .head { width: 100%; margin-bottom: 0; }
         .head td { vertical-align: top; border: none; padding: 0; }
-        .brand-logo { width: 30px; height: 57px; }
-        .head td.logo { width: 18%; text-align: left; }
-        .head td.brand { width: 49%; text-align: center; vertical-align: middle; }
-        .head td.meta-right { width: 33%; text-align: right; }
-        .head td.addr { text-align: left; padding-top: 2px; }
+        .head td.brand { width: 70%; text-align: left; }
+        .head td.meta-right { width: 30%; text-align: right; }
         .co-name {
-            font-size: 21px;
+            font-size: 19px;
             font-weight: bold;
             margin: 0;
-            text-align: center;
+            text-align: left;
             white-space: nowrap;
         }
         .co-line { font-size: 10px; color: #222; margin: 0; line-height: 1.45; text-align: left; }
         .inv-barcode { width: 115px; margin: 0 0 2px auto; text-align: center; }
         .inv-barcode img { display: block; width: 115px; height: 36px; margin: 0 auto; }
-        .invoice-info { width: 230px; margin-left: auto; border: 1px solid #777; }
+        .invoice-info {
+            width: 100%;
+            margin: 0;
+            border-collapse: collapse;
+        }
         .invoice-info th {
             background: #292929;
             color: #fff;
@@ -40,15 +41,16 @@
             letter-spacing: 0.12em;
             text-align: center;
             padding: 5px 6px;
-            border: 1px solid #222;
+            border: 1px solid #000;
         }
         .invoice-info td {
             text-align: center;
-            border: 1px solid #aaa;
+            border: 1px solid #000;
             font-size: 11px;
             font-weight: bold;
-            padding: 4px 6px 6px;
-            width: 33%;
+            padding: 4px 5px 6px;
+            width: 33.33%;
+            vertical-align: top;
         }
         .invoice-info small {
             display: block;
@@ -58,25 +60,43 @@
             margin-bottom: 2px;
         }
         .pagenum:after { content: counter(page) " of {{ (int) ($pageLabel ?? 1) }}"; }
-        .customers { width: 100%; margin: 8px 0 6px; }
-        .customers td {
+        .addr-wrap { width: 100%; margin: 4px 0 3px; border-collapse: collapse; }
+        .addr-wrap > tr > td,
+        .addr-wrap > tbody > tr > td { vertical-align: top; padding: 0; border: none; }
+        .addr-wrap td.addr-cell { width: 66%; padding-right: 6px; }
+        .addr-wrap td.inv-cell { width: 34%; }
+        .addr-box { width: 100%; border-collapse: collapse; margin: 0; }
+        .addr-box th {
             width: 50%;
-            border: 1px solid #bbb;
-            vertical-align: top;
-            padding: 8px 10px;
+            background: none;
+            color: #000;
+            font-size: 9px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            padding: 3px 7px;
+            text-align: left;
+            border: 1px solid #000;
         }
+        .addr-box td {
+            width: 50%;
+            vertical-align: top;
+            text-align: left;
+            padding: 5px 7px 6px;
+            font-size: 11px;
+            border: 1px solid #000;
+        }
+        .addr-name { font-weight: bold; font-size: 12px; line-height: 1.25; }
+        .addr-line { margin: 1px 0 0; font-size: 11px; line-height: 1.25; }
         .label {
             font-size: 9px;
             font-weight: bold;
             letter-spacing: 0.08em;
             margin-bottom: 4px;
         }
-        .cust-name { font-weight: bold; font-size: 12px; }
-        .cust-line { margin-top: 1px; font-size: 11px; }
         .meta {
-            padding: 7px 0 8px;
+            padding: 3px 0 4px;
             border-bottom: 1px solid #aaa;
-            margin-bottom: 8px;
+            margin-bottom: 0;
             font-size: 11px;
         }
         .meta b { font-weight: bold; }
@@ -90,7 +110,7 @@
             font-weight: bold;
             letter-spacing: 0.04em;
             text-align: left;
-            padding: 6px 4px;
+            padding: 4px 4px;
             border-bottom: 1px solid #222;
             white-space: nowrap;
         }
@@ -223,28 +243,59 @@
     $accountBalance = round($previousBalance + $invoiceTotal - $payTotal, 2);
 @endphp
 
+<div class="page-head">
 <table class="head">
     <tr>
-        <td class="logo">
-            @if ($logoPath && is_file($logoPath))
-                <img class="brand-logo" src="{{ $logoPath }}" alt="">
-            @endif
-        </td>
         <td class="brand">
             <div class="co-name">{{ $companyName }}</div>
-        </td>
-        <td class="meta-right">
-            {!! Code128Barcode::invoiceHeaderHtml($invoiceNo) !!}
-        </td>
-    </tr>
-    <tr>
-        <td class="addr" colspan="2">
             <div class="co-line">{{ $addr }}@if ($tel !== '') | Tel: {{ $tel }}@endif</div>
             @if ($email !== '')
                 <div class="co-line">{{ $email }}</div>
             @endif
         </td>
         <td class="meta-right">
+            {!! Code128Barcode::invoiceHeaderHtml($invoiceNo) !!}
+        </td>
+    </tr>
+</table>
+
+<table class="addr-wrap">
+    <tr>
+        <td class="addr-cell">
+            <table class="addr-box">
+                <tr>
+                    <th>SOLD TO</th>
+                    <th>SHIP TO</th>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="addr-name">{{ $billName }}</div>
+                        @if ($order?->bill_to_address)
+                            <div class="addr-line">{{ $order->bill_to_address }}</div>
+                        @endif
+                        @if ($billCity !== '')
+                            <div class="addr-line">{{ $billCity }}</div>
+                        @endif
+                        @if ($order?->bill_to_phone)
+                            <div class="addr-line">Tel: {{ $order->bill_to_phone }}</div>
+                        @endif
+                    </td>
+                    <td>
+                        <div class="addr-name">{{ $shipName }}</div>
+                        @if ($order?->ship_to_address ?: $order?->bill_to_address)
+                            <div class="addr-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
+                        @endif
+                        @if ($shipCity !== '')
+                            <div class="addr-line">{{ $shipCity }}</div>
+                        @endif
+                        @if ($order?->ship_to_phone ?: $order?->bill_to_phone)
+                            <div class="addr-line">Tel: {{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
+                        @endif
+                    </td>
+                </tr>
+            </table>
+        </td>
+        <td class="inv-cell">
             <table class="invoice-info">
                 <tr><th colspan="3">INVOICE</th></tr>
                 <tr>
@@ -257,43 +308,13 @@
     </tr>
 </table>
 
-<table class="customers">
-    <tr>
-        <td>
-            <div class="label">SOLD TO</div>
-            <div class="cust-name">{{ $billName }}</div>
-            @if ($order?->bill_to_address)
-                <div class="cust-line">{{ $order->bill_to_address }}</div>
-            @endif
-            @if ($billCity !== '')
-                <div class="cust-line">{{ $billCity }}</div>
-            @endif
-            @if ($order?->bill_to_phone)
-                <div class="cust-line">Tel: {{ $order->bill_to_phone }}</div>
-            @endif
-        </td>
-        <td>
-            <div class="label">SHIP TO</div>
-            <div class="cust-name">{{ $shipName }}</div>
-            @if ($order?->ship_to_address ?: $order?->bill_to_address)
-                <div class="cust-line">{{ $order->ship_to_address ?: $order->bill_to_address }}</div>
-            @endif
-            @if ($shipCity !== '')
-                <div class="cust-line">{{ $shipCity }}</div>
-            @endif
-            @if ($order?->ship_to_phone ?: $order?->bill_to_phone)
-                <div class="cust-line">Tel: {{ $order->ship_to_phone ?: $order->bill_to_phone }}</div>
-            @endif
-        </td>
-    </tr>
-</table>
-
 <div class="meta">
     Account: <b>{{ $accountNo !== '' ? $accountNo : '-' }}</b>
     <span class="gap">Order: <b>{{ $order?->order_number ?: '-' }}</b></span>
     <span class="gap">Sales rep: <b>{{ $salesRepLabel !== '' ? $salesRepLabel : '-' }}</b></span>
     <span class="gap">Terms: <b>{{ $paymentLabel !== '' ? $paymentLabel : '-' }}</b></span>
     <span class="gap">Route: {{ $routeLabel !== '' ? $routeLabel : '-' }}</span>
+</div>
 </div>
 
 <table @class(['items', 'is-barcode' => $showItemBarcodes])>
@@ -403,12 +424,6 @@
                     <td>Previous balance</td>
                     <td class="num">{{ $fmtMoney((float) $previousBalance) }}</td>
                 </tr>
-                @if ($payTotal > 0.004)
-                    <tr>
-                        <td>Payments</td>
-                        <td class="num">-{{ $fmtMoney($payTotal) }}</td>
-                    </tr>
-                @endif
                 <tr class="grand">
                     <td>Total account balance</td>
                     <td class="num">{{ $fmtMoney($accountBalance) }}</td>

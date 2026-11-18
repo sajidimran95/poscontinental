@@ -304,7 +304,7 @@
                 line-height: 1.35;
             }
             .so-item-browse-table {
-                min-width: 46rem;
+                min-width: 50rem;
             }
             .so-item-browse-table thead th {
                 overflow: hidden !important;
@@ -318,6 +318,31 @@
             .so-item-browse-table td.col-desc-cell .item-desc-text {
                 display: inline;
                 white-space: nowrap;
+            }
+            .so-item-browse-table td.so-browse-qty-cell {
+                overflow: visible;
+                padding: .2rem .3rem !important;
+            }
+            .so-browse-qty-input {
+                width: 100%;
+                max-width: 4.1rem;
+                height: 1.7rem;
+                margin-left: auto;
+                display: block;
+                text-align: right;
+                font-variant-numeric: tabular-nums;
+                font-size: 12px;
+                font-weight: 700;
+                color: #0f172a;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 0 .35rem;
+                background: #fff;
+            }
+            .so-browse-qty-input:focus {
+                outline: none;
+                border-color: #2563eb;
+                box-shadow: 0 0 0 2px rgba(37, 99, 235, .18);
             }
             .so-item-browse-table tr.is-pickable { cursor: pointer; }
             .so-item-browse-table tr.is-pickable:hover { background: #f1f5f9; }
@@ -585,6 +610,7 @@
                 dy: 0,
                 checked: @js(array_values(array_map('intval', $browseCheckedIds))),
                 selected: {{ (int) ($browseSelectedId ?? 0) }},
+                qtys: (window.__soBrowseQtys && typeof window.__soBrowseQtys === 'object') ? window.__soBrowseQtys : {},
                 expanded: (window.__browseDescExpanded && typeof window.__browseDescExpanded === 'object') ? window.__browseDescExpanded : {},
                 lastClickAt: 0,
                 lastClickId: 0,
@@ -612,21 +638,41 @@
                     }
                     this.selected = this.checked.length === 1 ? this.checked[0] : 0;
                 },
+                qtyFor(id) {
+                    const n = parseFloat(this.qtys[id]);
+                    return Number.isFinite(n) && n > 0 ? n : 1;
+                },
+                qtyMap(ids) {
+                    const map = {};
+                    ids.forEach((id) => { map[id] = this.qtyFor(id); });
+                    window.__soBrowseQtys = { ...this.qtys };
+                    return map;
+                },
+                setQty(id, value) {
+                    id = Number(id);
+                    this.qtys = { ...this.qtys, [id]: value };
+                    window.__soBrowseQtys = this.qtys;
+                    if (!this.isChecked(id) && parseFloat(value) > 0) {
+                        this.checked = [...this.checked, id];
+                        this.selected = this.checked.length === 1 ? id : 0;
+                    }
+                },
                 pickRow(id) {
-                    $wire.pickBrowseItem(Number(id), true);
+                    $wire.pickBrowseItem(Number(id), true, this.qtyFor(id));
                 },
                 insertChecked() {
                     if (this.checkingAll) return;
                     const ids = [...this.checked];
                     if (!ids.length && this.selected) ids.push(this.selected);
                     if (!ids.length) return;
+                    const qtys = this.qtyMap(ids);
                     this.clearChecked();
-                    $wire.insertBrowseChecked(ids).then(() => this.clearChecked());
+                    $wire.insertBrowseChecked(ids, qtys).then(() => this.clearChecked());
                 },
                 insertSelected() {
                     const id = this.checked.length === 1 ? this.checked[0] : this.selected;
                     if (!id) return;
-                    $wire.pickBrowseItem(Number(id), true);
+                    $wire.pickBrowseItem(Number(id), true, this.qtyFor(id));
                 },
                 editSelected() {
                     if (this.checked.length !== 1) return;
@@ -805,6 +851,7 @@
                                 <col />
                                 <col style="width:4.25rem" />
                                 <col style="width:5.5rem" />
+                                <col style="width:4.35rem" />
                                 <col style="width:5.75rem" />
                                 <col style="width:5.5rem" />
                             </colgroup>
@@ -857,6 +904,7 @@
                                             <span>Price</span><span class="so-browse-sort-ico">{!! $bsIco('list_price') !!}</span>
                                         </button>
                                     </th>
+                                    <th scope="col" class="is-num" title="Quantity to add">Qty</th>
                                     <th scope="col" @class(['is-num', 'is-sorted' => $bsField === 'available'])>
                                         <button type="button" class="so-browse-sort-btn" wire:click="sortBrowseBy('available')" title="Sort by Available Qty">
                                             <span>Available Qty</span><span class="so-browse-sort-ico">{!! $bsIco('available') !!}</span>
@@ -907,12 +955,26 @@
                                                 </div>
                                             @endif
                                         </td>
+                                        <td class="is-num so-browse-qty-cell" @click.stop @dblclick.stop>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                inputmode="decimal"
+                                                class="so-browse-qty-input"
+                                                :value="qtys[{{ $itemId }}] ?? ''"
+                                                placeholder="1"
+                                                aria-label="Qty for {{ $bi['item_code'] }}"
+                                                @input="setQty({{ $itemId }}, $event.target.value)"
+                                                @keydown.enter.prevent="pickRow({{ $itemId }})"
+                                            />
+                                        </td>
                                         <td class="is-num {{ $avail <= 0 ? 'text-red-700 font-semibold' : '' }}">{{ number_format($avail, 0) }}</td>
                                         <td class="is-num">{{ number_format((float) ($bi['on_hand'] ?? $avail), 0) }}</td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="so-item-browse-empty">
+                                        <td colspan="8" class="so-item-browse-empty">
                                             <span wire:loading.remove wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">No items found to match selected criteria.</span>
                                             <span wire:loading wire:target="toggleBrowse,browseSearch,browseNewOnly,browseCategoryId,browseSubcategoryId,setBrowseCategory,setBrowseSubcategory,clearBrowseFilters">Loading items…</span>
                                         </td>
@@ -920,7 +982,7 @@
                                 @endforelse
                                 @if ($browseHasMore && count($browseRows) > 0)
                                     <tr wire:key="browse-load-more">
-                                        <td colspan="7" class="so-item-browse-empty" style="padding:0.75rem !important;">
+                                        <td colspan="8" class="so-item-browse-empty" style="padding:0.75rem !important;">
                                             <button
                                                 type="button"
                                                 class="desk-btn desk-btn-sm"

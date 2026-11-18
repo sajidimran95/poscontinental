@@ -373,7 +373,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
         $this->openDocumentItemBrowse($lineIndex, $search);
     }
 
-    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, $qty = null): void
     {
         if ($this->status === 'Processed') {
             return;
@@ -394,7 +394,7 @@ new #[Layout('layouts.app'), Title('Stock Count')] class extends Component
     /**
      * Insert every checked Browse item in one pass (avoids only the first row landing on the count).
      */
-    public function insertBrowseChecked($ids = null): void
+    public function insertBrowseChecked($ids = null, $qtys = null): void
     {
         if ($this->status === 'Processed') {
             return;

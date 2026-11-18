@@ -24,6 +24,7 @@ use App\Support\ItemPricing;
 use App\Support\ItemSearch;
 use App\Support\SalesOrderLinePresentation;
 use App\Support\StockPolicy;
+use App\Support\TobaccoItem;
 use App\Livewire\Concerns\ReturnsToDeskList;
 use App\Livewire\Concerns\SortsItemBrowse;
 use Illuminate\Support\Facades\Cache;
@@ -256,6 +257,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     public string $unknownScanCode = '';
 
+    public bool $showWalkInTobaccoBlockModal = false;
+
+    public string $walkInTobaccoBlockMessage = '';
+
     public bool $showSubstitutePrompt = false;
 
     public ?int $pendingItemId = null;
@@ -415,6 +420,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /** @var list<int> */
     public array $pendingBrowseAddIds = [];
+
+    /** @var array<int, float> */
+    public array $pendingBrowseAddQtys = [];
+
+    public float $pendingBrowseAddQty = 1;
 
     /** @var array<int, array{item_id:?int,item_code:string,description:string,uom:string,qty_ordered:string,qty_shipped:string,price:string,discount:string}> */
     public array $lines = [];
@@ -2177,7 +2187,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pickBrowseItem($id, true);
     }
 
-    public function insertBrowseChecked($ids = null): void
+    public function insertBrowseChecked($ids = null, $qtys = null): void
     {
         if (is_array($ids) && $ids !== []) {
             $this->browseCheckedIds = array_values(array_unique(array_map('intval', $ids)));
@@ -2190,11 +2200,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
+        $qtyMap = $this->normalizeBrowseQtyMap($qtys);
+
         if ($this->needsLineChangeConfirm()) {
             $this->pendingLineChangeKind = 'browse';
             $this->pendingLineChangeItemId = null;
             $this->pendingLineChangeLineIndex = null;
             $this->pendingBrowseAddIds = $ids;
+            $this->pendingBrowseAddQtys = $qtyMap;
             $count = count($ids);
             $doc = $this->savedDocumentLabel();
             $this->lineChangeConfirmMessage = $count === 1
@@ -2205,10 +2218,43 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        $this->insertBrowseCheckedConfirmed($ids);
+        $this->insertBrowseCheckedConfirmed($ids, $qtyMap);
     }
 
-    protected function insertBrowseCheckedConfirmed(array $ids): void
+    /**
+     * @param  mixed  $qtys
+     * @return array<int, float>
+     */
+    protected function normalizeBrowseQtyMap($qtys): array
+    {
+        if (! is_array($qtys)) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($qtys as $id => $qty) {
+            $itemId = (int) $id;
+            if ($itemId <= 0) {
+                continue;
+            }
+            $map[$itemId] = $this->normalizeBrowseQty($qty);
+        }
+
+        return $map;
+    }
+
+    protected function normalizeBrowseQty($qty): float
+    {
+        if (! is_numeric($qty)) {
+            return 1.0;
+        }
+
+        $n = (float) $qty;
+
+        return $n > 0 ? $n : 1.0;
+    }
+
+    protected function insertBrowseCheckedConfirmed(array $ids, array $qtyMap = []): void
     {
         $companyId = (int) auth()->user()->company_id;
         $added = 0;
@@ -2216,7 +2262,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $addedItemIds = [];
 
         $items = Item::query()
-            ->with(['prices', 'taxSchedule'])
+            ->with(['prices', 'taxSchedule', 'category', 'subcategory'])
             ->where('company_id', $companyId)
             ->whereIn('id', $ids)
             ->get()
@@ -2237,7 +2283,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     continue;
                 }
                 if ($this->canAddItemToOrder($item)) {
-                    $this->appendItemLine($item);
+                    $this->appendItemLine($item, $qtyMap[(int) $itemId] ?? 1.0);
                     $added++;
                     $addedItemIds[] = (int) $item->id;
                 }
@@ -2265,12 +2311,16 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('window.dispatchEvent(new CustomEvent("browse-checks-cleared"))');
 
         if ($deferredSubstitute !== null && $added === 0 && count($ids) === 1) {
+            $this->pendingBrowseAddQty = $qtyMap[(int) $deferredSubstitute->id] ?? 1.0;
             $this->proceedQueuedItem($deferredSubstitute);
 
             return;
         }
 
         if ($added === 0) {
+            if ($this->showWalkInTobaccoBlockModal) {
+                return;
+            }
             $this->notifyAlert('No checked items could be added to this order.', 'error');
 
             return;
@@ -2473,6 +2523,45 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->drainDeferredScans();
     }
 
+    protected function isWalkInOrder(): bool
+    {
+        if (! $this->customer_id) {
+            return false;
+        }
+
+        $code = Customer::query()->whereKey($this->customer_id)->value('customer_id');
+
+        return strtoupper((string) $code) === Customer::WALK_IN_CODE;
+    }
+
+    protected function blockWalkInTobacco(Item $item): void
+    {
+        $code = trim((string) ($item->item_code ?? ''));
+        $message = 'Tobacco and cigarette items cannot be sold to WALKIN customers.'
+            .($code !== '' ? ' Item: '.$code : '');
+        $this->walkInTobaccoBlockMessage = $message;
+        $this->showWalkInTobaccoBlockModal = true;
+        $this->scanModeActive = false;
+        $this->notifyAlert($message, 'error');
+        $this->js('window.startPosScanMissAlarm && window.startPosScanMissAlarm()');
+    }
+
+    public function acknowledgeWalkInTobaccoBlock(): void
+    {
+        $this->showWalkInTobaccoBlockModal = false;
+        $this->walkInTobaccoBlockMessage = '';
+        $this->js('window.stopPosScanMissAlarm && window.stopPosScanMissAlarm()');
+        if ($this->showBrowse) {
+            $this->focusBrowseSearch();
+            $this->drainDeferredScans();
+
+            return;
+        }
+        $this->scanModeActive = true;
+        $this->clearAndFocusEntry();
+        $this->drainDeferredScans();
+    }
+
     public function loadMoreBrowseItems(): void
     {
         if (! $this->showBrowse || ! $this->browseHasMore || $this->browseLoadingMore) {
@@ -2649,7 +2738,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     {
         abort_if($this->viewMode, 403);
 
-        if ($this->showUnknownScanModal) {
+        if ($this->showUnknownScanModal || $this->showWalkInTobaccoBlockModal) {
             return;
         }
 
@@ -3755,6 +3844,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             $this->pendingLineChangeItemId = (int) $item->id;
             $this->pendingLineChangeLineIndex = $index;
             $this->pendingBrowseAddIds = [];
+            $this->pendingBrowseAddQtys = [];
             $this->lineChangeConfirmMessage = 'Add item '.$item->item_code.' to this '.$this->savedDocumentLabel().'?';
             $this->showLineChangeConfirmModal = true;
 
@@ -4361,7 +4451,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     protected function scanEntryBlocked(): bool
     {
-        return $this->showUnknownScanModal || $this->showLineChangeConfirmModal || $this->showSubstitutePrompt;
+        return $this->showUnknownScanModal
+            || $this->showWalkInTobaccoBlockModal
+            || $this->showLineChangeConfirmModal
+            || $this->showSubstitutePrompt;
     }
 
     protected function drainDeferredScans(): void
@@ -4621,9 +4714,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("so-item-entry"); if (el) { el.focus();'.$selectJs.' } });');
     }
 
-    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false): void
+    public function pickBrowseItem(int $itemId, bool $keepBrowseOpen = false, $qty = null): void
     {
         abort_if($this->viewMode, 403);
+
+        $this->pendingBrowseAddQty = $this->normalizeBrowseQty($qty);
 
         $item = Item::query()
             ->with(['prices', 'taxSchedule'])
@@ -4671,10 +4766,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
 
         if (! $this->canAddItemToOrder($item)) {
+            $this->pendingBrowseAddQty = 1;
+
             return;
         }
 
-        $this->appendItemLine($item);
+        $qty = $this->pendingBrowseAddQty > 0 ? $this->pendingBrowseAddQty : 1.0;
+        $this->pendingBrowseAddQty = 1;
+        $this->appendItemLine($item, $qty);
     }
 
     protected function needsLineChangeConfirm(): bool
@@ -4715,6 +4814,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pendingLineChangeItemId = null;
         $this->pendingLineChangeLineIndex = $i;
         $this->pendingBrowseAddIds = [];
+        $this->pendingBrowseAddQtys = [];
         $this->lineChangeConfirmMessage = 'Remove item '.$code.' from this '.$this->savedDocumentLabel().'?';
         $this->showLineChangeConfirmModal = true;
     }
@@ -4725,9 +4825,10 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $itemId = $this->pendingLineChangeItemId;
         $lineIndex = $this->pendingLineChangeLineIndex;
         $browseIds = $this->pendingBrowseAddIds;
+        $browseQtys = $this->pendingBrowseAddQtys;
         $this->rejectLineChange(false);
         try {
-            $this->applyConfirmedLineChange($kind, $itemId, $lineIndex, $browseIds);
+            $this->applyConfirmedLineChange($kind, $itemId, $lineIndex, $browseIds, $browseQtys);
         } finally {
             $this->drainDeferredScans();
         }
@@ -4735,8 +4836,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
     /**
      * @param  list<int>  $browseIds
+     * @param  array<int, float>  $browseQtys
      */
-    protected function applyConfirmedLineChange(string $kind, ?int $itemId, ?int $lineIndex, array $browseIds): void
+    protected function applyConfirmedLineChange(string $kind, ?int $itemId, ?int $lineIndex, array $browseIds, array $browseQtys = []): void
     {
         if ($kind === 'remove' && $lineIndex !== null) {
             $this->performRemoveLine($lineIndex);
@@ -4746,7 +4848,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         if ($kind === 'browse' && $browseIds !== []) {
             $this->browseCheckedIds = $browseIds;
-            $this->insertBrowseCheckedConfirmed($browseIds);
+            $this->insertBrowseCheckedConfirmed($browseIds, $browseQtys);
 
             return;
         }
@@ -4782,6 +4884,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->pendingLineChangeItemId = null;
         $this->pendingLineChangeLineIndex = null;
         $this->pendingBrowseAddIds = [];
+        $this->pendingBrowseAddQtys = [];
         $this->focusItemEntry(true);
         if ($drainScans) {
             $this->drainDeferredScans();
@@ -4831,6 +4934,15 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
      */
     protected function canAddItemToOrder(Item $item): bool
     {
+        if ($this->isWalkInOrder()) {
+            $item->loadMissing(['category', 'subcategory']);
+            if (TobaccoItem::isTobacco($item)) {
+                $this->blockWalkInTobacco($item);
+
+                return false;
+            }
+        }
+
         $available = (float) $item->available_quantity;
         if ($available > 0) {
             return true;
@@ -4908,12 +5020,13 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         $this->drainDeferredScans();
     }
 
-    protected function appendItemLine(Item $item): void
+    protected function appendItemLine(Item $item, float $qty = 1): void
     {
+        $addQty = $qty > 0 ? $qty : 1.0;
         $existingIndex = $this->findLineIndexForItem((int) $item->id);
         if ($existingIndex !== null) {
             $qty = (float) ($this->lines[$existingIndex]['qty_ordered'] ?? 0);
-            $this->lines[$existingIndex]['qty_ordered'] = $this->formatQty($qty + 1);
+            $this->lines[$existingIndex]['qty_ordered'] = $this->formatQty($qty + $addQty);
             $this->orderQtyByItemId = null;
             $this->recalcLineDiscount($existingIndex);
             $msg = trim((string) ($this->lines[$existingIndex]['line_message'] ?? ''));
@@ -4935,6 +5048,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         $this->lines[] = $this->emptyLine();
         $index = count($this->lines) - 1;
+        $this->lines[$index]['qty_ordered'] = $this->formatQty($addQty);
         $this->fillLineFromItem($index, $item);
         $this->rememberLineIndex((int) $item->id, $index);
         if (! $this->deferLineSideEffects) {
@@ -4982,7 +5096,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     protected function findItem(string $code): ?Item
     {
         $item = Item::findByScanCode((int) auth()->user()->company_id, $code, 'sell');
-        $item?->loadMissing(['prices', 'taxSchedule']);
+        $item?->loadMissing(['prices', 'taxSchedule', 'category', 'subcategory']);
 
         return $item;
     }
@@ -5597,12 +5711,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($this->optPrintSalesOrder) {
             $urls[] = route('sales.orders.print', $order);
         }
-        if ($this->optCreatePrintInvoice && $invoice) {
-            $urls[] = route('sales.invoices.pdf', $invoice);
-        }
         if ($this->optPrintPickList) {
             $urls[] = route('sales.orders.pick-list', $order).'?v='.time();
         }
+
+        $wantInvoicePrint = $this->optCreatePrintInvoice && $invoice;
 
         $this->showPrintDialog = false;
 
@@ -5617,11 +5730,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             return;
         }
 
-        if ($this->optCreatePrintInvoice && $invoice) {
-            session()->flash('status', $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created.'));
-        } else {
-            session()->flash('status', 'Order '.$order->order_number.' saved.');
+        if ($wantInvoicePrint) {
+            $this->notifyAlert(
+                $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created. Choose print or email.'),
+                'success'
+            );
+            $this->printInvoiceStyle();
+
+            return;
         }
+
+        session()->flash('status', 'Order '.$order->order_number.' saved.');
 
         $this->finishSaveStayOnOrder();
     }
@@ -6877,6 +6996,37 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         </div>
     @endif
 
+    @if ($showWalkInTobaccoBlockModal && ! $viewMode)
+        <div
+            class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="walkin-tobacco-title"
+            aria-describedby="walkin-tobacco-msg"
+            style="z-index:120"
+        >
+            <div class="desk-modal desk-modal-sm" style="max-width:28rem;" wire:keydown.enter.window.prevent="acknowledgeWalkInTobaccoBlock" wire:keydown.escape.window="acknowledgeWalkInTobaccoBlock">
+                <div class="desk-modal-head">
+                    <span id="walkin-tobacco-title">WALKIN — tobacco not allowed</span>
+                </div>
+                <div class="desk-modal-body" style="display:flex; gap:.75rem; align-items:flex-start; padding:1rem 1.1rem;">
+                    <div
+                        aria-hidden="true"
+                        style="flex-shrink:0;width:2.25rem;height:2.25rem;border-radius:9999px;background:#b91c1c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;font-weight:700;line-height:1;"
+                    >!</div>
+                    <div style="flex:1; min-width:0;">
+                        <p id="walkin-tobacco-msg" style="margin:0;font-size:.95rem;line-height:1.4;">
+                            {{ $walkInTobaccoBlockMessage !== '' ? $walkInTobaccoBlockMessage : 'Tobacco and cigarette items cannot be sold to WALKIN customers.' }}
+                        </p>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:.5rem;padding:0 1rem 1rem;">
+                    <button type="button" wire:click="acknowledgeWalkInTobaccoBlock" class="desk-btn desk-btn-primary" autofocus>OK</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if ($showPriceUpdateAlertModal && filled($priceUpdateAlertMessage) && ! $viewMode)
         <div
             class="desk-modal-backdrop desk-modal-top desk-chief-prompt"
@@ -7436,7 +7586,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     @endif
 
     @if ($showInvoiceDeliveryDialog)
-        <div class="desk-modal-backdrop desk-modal-top" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="so-inv-delivery-title">
+        <div class="desk-modal-backdrop desk-modal-top" style="z-index:120" wire:click.self="cancelInvoiceDeliveryDialog" role="dialog" aria-modal="true" aria-labelledby="so-inv-delivery-title">
             <div class="desk-modal desk-modal-sm">
                 <div class="desk-modal-head">
                     <span id="so-inv-delivery-title">Invoice delivery</span>
@@ -7493,13 +7643,20 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         }
         window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
     });
+    $wire.$watch('showWalkInTobaccoBlockModal', (open) => {
+        if (open) {
+            window.startPosScanMissAlarm && window.startPosScanMissAlarm();
+            return;
+        }
+        window.stopPosScanMissAlarm && window.stopPosScanMissAlarm();
+    });
 
     // Line grid like Excel: listen on the document so Alpine / Livewire morph cannot drop the keys.
     // Enter / ↓ next line, ↑ previous, ← → Qty / Price / Discount. Shift+↑ / Shift+↓ still add or take 1.
     (function () {
         const modalOpen = () => !!(
             $wire.showPriceBelowLimitModal || $wire.showMemorizePriceModal || $wire.showCustomerConfirmModal
-            || $wire.showUnknownScanModal || $wire.showPriceUpdateAlertModal
+            || $wire.showUnknownScanModal || $wire.showWalkInTobaccoBlockModal || $wire.showPriceUpdateAlertModal
         );
         const focusCol = (n, col, tries) => {
             if (modalOpen()) return;
@@ -7611,6 +7768,17 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                     e.preventDefault();
                     e.stopPropagation();
                     $wire.acknowledgeUnknownScan();
+                } else if (e.key.length === 1 || e.key === 'Tab') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                return;
+            }
+            if ($wire.showWalkInTobaccoBlockModal) {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    $wire.acknowledgeWalkInTobaccoBlock();
                 } else if (e.key.length === 1 || e.key === 'Tab') {
                     e.preventDefault();
                     e.stopPropagation();

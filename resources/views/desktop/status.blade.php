@@ -36,7 +36,7 @@
             <div class="mt-4 flex gap-2">
                 <form method="POST" action="{{ route('desktop.sync_now') }}">
                     @csrf
-                    <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Sync now</button>
+                    <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700" style="background:#4f46e5;color:#fff;border-radius:4px;padding:.5rem 1rem;font-weight:600;font-size:.875rem;border:0;cursor:pointer" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">Sync now</button>
                 </form>
                 <a href="{{ route('desktop.printer') }}" class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Receipt printer</a>
             </div>

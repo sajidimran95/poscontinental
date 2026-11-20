@@ -801,12 +801,14 @@ class JapsAiChatService
 
     public function resolveApiKey(): string
     {
-        $fromCompany = trim((string) ($this->company->japs_ai_api_key ?? ''));
-        if ($fromCompany !== '') {
+        // Server: key saved in POS AI settings. Desktop app: that value is encrypted with the
+        // server's APP_KEY and cannot be read here, so fall back to OPENAI_API_KEY in .env.
+        $fromCompany = $this->company->decryptedOrNull('japs_ai_api_key');
+        if ($fromCompany !== null) {
             return $fromCompany;
         }
 
-        return trim((string) env('OPENAI_API_KEY', ''));
+        return trim((string) (config('services.openai.key') ?? ''));
     }
 
     /**

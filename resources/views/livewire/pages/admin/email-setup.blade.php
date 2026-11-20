@@ -90,6 +90,13 @@ new #[Layout('layouts.app'), Title('Email Setup')] class extends Component
             'mail_from_address' => $this->mail_from_address ?: null,
             'mail_from_name' => $this->mail_from_name ?: null,
         ];
+        // The password is encrypted with this install's APP_KEY. One saved on a desktop PC
+        // would sync to the server unreadable and break email online, so only the server stores it.
+        if (filled($this->mail_password) && \App\Sync\SyncNode::isClient()) {
+            $this->addError('mail_password', 'Change the email password on the online server. The desktop app uses MAIL_PASSWORD from its .env.desktop.');
+
+            return;
+        }
         if (filled($this->mail_password)) {
             $data['mail_password'] = $this->mail_password;
         }

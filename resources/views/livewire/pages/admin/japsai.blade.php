@@ -278,7 +278,7 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
         $this->japs_ai_model = (string) ($company?->japs_ai_model ?: 'gpt-4o-mini');
         $this->japs_ai_api_key = '';
         $this->clear_api_key = false;
-        $this->has_saved_api_key = filled($company?->japs_ai_api_key);
+        $this->has_saved_api_key = $company !== null && $company->decryptedOrNull('japs_ai_api_key') !== null;
     }
 
     public function saveSettings(): void
@@ -304,6 +304,15 @@ new #[Layout('layouts.app'), Title('POS AI')] class extends Component
             'japs_ai_match_tolerance' => round((float) $this->japs_ai_match_tolerance, 2),
             'japs_ai_model' => trim($this->japs_ai_model) ?: 'gpt-4o-mini',
         ];
+
+        // The key is encrypted with this install's APP_KEY. A key saved on a desktop PC would
+        // sync to the server unreadable and break AI online, so only the server stores it.
+        $isDesktop = \App\Sync\SyncNode::isClient();
+        if ($isDesktop && ($this->clear_api_key || trim($this->japs_ai_api_key) !== '')) {
+            $this->addError('japs_ai_api_key', 'Change the API key on the online server. The desktop app uses OPENAI_API_KEY from its .env.desktop.');
+
+            return;
+        }
 
         if ($this->clear_api_key) {
             $data['japs_ai_api_key'] = null;

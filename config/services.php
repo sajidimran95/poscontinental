@@ -14,6 +14,11 @@ return [
     |
     */
 
+    // POS AI fallback key (desktop app, or when no key is saved in POS AI settings).
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

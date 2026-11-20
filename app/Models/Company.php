@@ -46,6 +46,26 @@ class Company extends Model
         ];
     }
 
+    /**
+     * Read an `encrypted` column without throwing.
+     *
+     * Encrypted values are tied to the APP_KEY of the install that saved them. The
+     * offline desktop app has its own APP_KEY, so after sync it cannot decrypt the
+     * server's AI key / mail password — return null there instead of crashing.
+     */
+    public function decryptedOrNull(string $attribute): ?string
+    {
+        try {
+            $value = $this->getAttribute($attribute);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            return null;
+        }
+
+        $value = trim((string) ($value ?? ''));
+
+        return $value !== '' ? $value : null;
+    }
+
     public function printsSecondaryInvoiceWithItemBarcodes(): bool
     {
         return (bool) ($this->print_secondary_invoice_with_item_barcodes ?? false);

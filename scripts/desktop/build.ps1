@@ -6,12 +6,23 @@
 # NativePHP's default PHP only has SQLite, so the app could not reach its MySQL without this.
 # e.g. the "spc-max" Windows CLI build from https://dl.static-php.dev/static-php-cli/windows/spc-max/
 param(
-    [Parameter(Mandatory = $true)][string]$PhpExe
+    [string]$PhpExe = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $root
+
+if (-not $PhpExe) {
+    # usual places for the static php.exe; first one found wins
+    $candidates = @((Join-Path $root "tools\php-static\php.exe"), "C:\tools\php-static\php.exe") +
+        (Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root "laragon\bin\php-static\php.exe" })
+    $PhpExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $PhpExe) {
+        throw "Static PHP not found. Download php-8.4.x-cli-win.zip from https://dl.static-php.dev/static-php-cli/windows/spc-max/, unzip php.exe to <drive>:\laragon\bin\php-static\ (or pass -PhpExe <path>)."
+    }
+    Write-Host "Using static PHP $PhpExe"
+}
 
 # check the PHP binary has what the POS needs
 $modules = & $PhpExe -m

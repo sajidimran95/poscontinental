@@ -3134,6 +3134,7 @@
         }
     </style>
     @stack('head')
+    @include('layouts.partials.desktop_unload')
 </head>
 <body class="antialiased {{ auth('sale')->check() ? 'sale-authed' : 'sale-guest' }} {{ in_array(optional(request()->route())->getName(), ['sale.orders.create', 'sale.orders.edit'], true) ? 'sale-page-create sale-building-order' : '' }} {{ optional(request()->route())->getName() === 'sale.products' ? 'sale-page-products' : '' }} {{ (optional(request()->route())->getName() === 'sale.orders.show') ? 'sale-page-order-show' : '' }} {{ optional(request()->route())->getName() === 'sale.orders' ? 'sale-page-reports' : '' }} {{ optional(request()->route())->getName() === 'sale.chat' ? 'sale-page-chat'.(! request()->route('channel') ? ' sale-chat-inbox' : ' sale-chat-thread') : '' }}">
 @php

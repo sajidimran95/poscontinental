@@ -49,7 +49,7 @@ class SyncDevices
                 throw new RuntimeException('No free node numbers left (max '.((int) config('sync.id_step') - 1).' desktops).');
             }
 
-            $prefix = strtoupper(trim((string) $prefix) ?: 'PC'.$node_no);
+            $prefix = strtoupper(trim((string) $prefix) ?: self::suggestPrefix($node_no));
             $token = Str::random(48);
 
             DB::table('sync_nodes')->insert([
@@ -76,6 +76,39 @@ class SyncDevices
             ->update(['token_hash' => hash('sha256', $token), 'updated_at' => now()]);
 
         return $updated ? $token : null;
+    }
+
+    /**
+     * Free document prefix for a new device: PC{node}, or PC{node}A, B... if taken.
+     */
+    public static function suggestPrefix(?int $node_no = null): string
+    {
+        $node_no ??= self::freeNodeNo() ?? 0;
+        $base = 'PC'.$node_no;
+        $taken = DB::table('sync_nodes')->pluck('invoice_prefix')->map(fn ($p) => strtoupper((string) $p))->all();
+        if (! in_array($base, $taken, true)) {
+            return $base;
+        }
+        foreach (range('A', 'Z') as $suffix) {
+            if (! in_array($base.$suffix, $taken, true)) {
+                return $base.$suffix;
+            }
+        }
+
+        return $base.'-'.strtoupper(Str::random(3));
+    }
+
+    /**
+     * Rename a device / change its document prefix. The PC picks it up at its next sync;
+     * documents already numbered keep their old prefix.
+     */
+    public static function update(int $node_no, string $name, string $prefix): bool
+    {
+        return (bool) DB::table('sync_nodes')->where('node_no', $node_no)->update([
+            'name' => trim($name),
+            'invoice_prefix' => strtoupper(trim($prefix)),
+            'updated_at' => now(),
+        ]);
     }
 
     public static function setActive(int $node_no, bool $active): bool

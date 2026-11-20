@@ -33,10 +33,13 @@
                 <tr><th class="py-2 pr-4 text-left text-slate-600 font-medium">Unresolved conflicts</th><td>{{ $status['conflicts'] }}</td></tr>
             </table>
 
-            <form method="POST" action="{{ route('desktop.sync_now') }}" class="mt-4">
-                @csrf
-                <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Sync now</button>
-            </form>
+            <div class="mt-4 flex gap-2">
+                <form method="POST" action="{{ route('desktop.sync_now') }}">
+                    @csrf
+                    <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Sync now</button>
+                </form>
+                <a href="{{ route('desktop.printer') }}" class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Receipt printer</a>
+            </div>
         </div>
 
         @if ($conflicts->isNotEmpty())

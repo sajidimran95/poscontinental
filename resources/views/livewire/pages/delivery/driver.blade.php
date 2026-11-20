@@ -238,7 +238,7 @@ new #[Layout('layouts.app'), Title("Today's Deliveries")] class extends Componen
 
 @script
 <script>
-    const origin = @json($route ? ['lat' => $route->start_latitude, 'lng' => $route->start_longitude, 'name' => $route->start_name] : ['lat' => null, 'lng' => null, 'name' => '']);
+    const origin = {!! json_encode($route ? ['lat' => $route->start_latitude, 'lng' => $route->start_longitude, 'name' => $route->start_name] : ['lat' => null, 'lng' => null, 'name' => ''], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
     const stops = @json($mapStops);
     const pin = (label, start) => window.L.divIcon({
         className: '',

@@ -101,6 +101,7 @@
             }
         }
     </style>
+    @include('layouts.partials.desktop_print')
 </head>
 <body>
     <div class="sale-inv-bar">

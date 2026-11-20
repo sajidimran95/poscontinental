@@ -24,7 +24,7 @@ use Illuminate\Validation\ValidationException;
 | Auth: "Authorization: Bearer {device token}" from sync:device / Desktop devices
 |--------------------------------------------------------------------------
 */
-Route::prefix('sync')->group(function () {
+Route::prefix('sync')->middleware(\App\Http\Middleware\SyncGzip::class)->group(function () {
     Route::get('/handshake', [SyncController::class, 'handshake'])->middleware('sync.node');
     Route::get('/schema', [SyncController::class, 'schema'])->middleware('sync.node');
     Route::get('/snapshot/tables', [SyncController::class, 'snapshotTables'])->middleware('sync.node:schema');

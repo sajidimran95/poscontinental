@@ -1,3 +1,23 @@
+/**
+ * Speed: Livewire fires `morph.updated` once for EVERY element it touches (thousands per
+ * update on big screens like Sales Order + item browse). Page-wide work hooked there ran
+ * thousands of times per click. Coalesce it so it runs once, right after the morph
+ * finishes (same tick, before paint) — same end result.
+ */
+function onceAfterMorph(fn) {
+    let queued = false;
+    return function () {
+        if (queued) {
+            return;
+        }
+        queued = true;
+        queueMicrotask(function () {
+            queued = false;
+            fn();
+        });
+    };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     initDeskColResize();
     initExcelGrid();
@@ -660,9 +680,9 @@ function initDeskColResize() {
 
     document.addEventListener('livewire:init', function () {
         if (window.Livewire && Livewire.hook) {
-            Livewire.hook('morph.updated', function () {
+            Livewire.hook('morph.updated', onceAfterMorph(function () {
                 applyDeskColWidths();
-            });
+            }));
             Livewire.hook('commit', function ({ succeed }) {
                 succeed(function () {
                     requestAnimationFrame(applyDeskColWidths);
@@ -1129,7 +1149,7 @@ function initExcelGrid() {
 
     document.addEventListener('livewire:init', function () {
         if (window.Livewire && Livewire.hook) {
-            Livewire.hook('morph.updated', enableDragRows);
+            Livewire.hook('morph.updated', onceAfterMorph(enableDragRows));
         }
     });
     document.addEventListener('livewire:navigated', enableDragRows);
@@ -1199,7 +1219,7 @@ function initExcelGrid() {
                 });
             });
         });
-        Livewire.hook('morph.updated', restoreDesc);
+        Livewire.hook('morph.updated', onceAfterMorph(restoreDesc));
     });
 })();
 

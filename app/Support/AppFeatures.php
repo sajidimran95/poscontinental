@@ -93,6 +93,7 @@ class AppFeatures
                     'admin.desktop-devices.store',
                     'admin.desktop-devices.token',
                     'admin.desktop-devices.toggle',
+                    'admin.desktop-devices.update',
                 ],
             ],
             'admin.users' => [

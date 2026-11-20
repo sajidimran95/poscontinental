@@ -34,6 +34,7 @@ use App\Http\Controllers\Store\StoreHomeController;
 use App\Http\Controllers\Store\StorePageController;
 use App\Http\Controllers\Store\StoreQuickOrderController;
 use App\Http\Controllers\Store\StoreShopController;
+use App\Http\Controllers\DesktopPrintController;
 use App\Http\Controllers\DesktopSyncController;
 use App\Http\Controllers\SyncDeviceController;
 use Illuminate\Support\Facades\Route;
@@ -96,6 +97,8 @@ Route::post('logout', LogoutController::class)
 if (config('sync.mode') === 'client') {
     Route::get('/desktop/setup', [DesktopSyncController::class, 'setup'])->name('desktop.setup');
     Route::post('/desktop/setup', [DesktopSyncController::class, 'storeSetup'])->name('desktop.setup.store');
+    Route::get('/desktop/setup/progress', [DesktopSyncController::class, 'progress'])->name('desktop.setup.progress');
+    Route::post('/desktop/setup/retry', [DesktopSyncController::class, 'retryDownload'])->name('desktop.setup.retry');
 }
 
 // Public item media (no auth) — <img> tags must load without a session cookie.
@@ -156,13 +159,19 @@ Route::middleware(['auth', 'feature'])->group(function () {
         Route::post('admin/desktop-devices/{node_no}/toggle', [SyncDeviceController::class, 'toggle'])
             ->whereNumber('node_no')
             ->name('admin.desktop-devices.toggle');
+        Route::post('admin/desktop-devices/{node_no}', [SyncDeviceController::class, 'update'])
+            ->whereNumber('node_no')
+            ->name('admin.desktop-devices.update');
     }
 
-    // Desktop sync status (SYNC_MODE=client)
+    // Desktop sync status + receipt printer (SYNC_MODE=client)
     if (config('sync.mode') === 'client') {
         Route::get('/desktop/sync', [DesktopSyncController::class, 'status'])->name('desktop.status');
         Route::post('/desktop/sync', [DesktopSyncController::class, 'syncNow'])->name('desktop.sync_now');
         Route::post('/desktop/sync/conflicts', [DesktopSyncController::class, 'resolveConflicts'])->name('desktop.resolve_conflicts');
+        Route::get('/desktop/printer', [DesktopPrintController::class, 'index'])->name('desktop.printer');
+        Route::post('/desktop/printer', [DesktopPrintController::class, 'store'])->name('desktop.printer.save');
+        Route::post('/desktop/print', [DesktopPrintController::class, 'print'])->name('desktop.print');
     }
 
     // Purchasing / Suppliers

@@ -1,10 +1,19 @@
 # Copies a trimmed MySQL server into extras/mysql so it ships inside the desktop app.
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/desktop/prepare-mysql.ps1 [-Source D:\laragon\bin\mysql\mysql-8.4.3-winx64]
 param(
-    [string]$Source = "D:\laragon\bin\mysql\mysql-8.4.3-winx64"
+    [string]$Source = ""
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $Source) {
+    # newest MySQL 8.x found in Laragon on any drive
+    $Source = Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root "laragon\bin\mysql" } |
+        Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Directory -Filter "mysql-8*" } |
+        Where-Object { Test-Path (Join-Path $_.FullName "bin\mysqld.exe") } |
+        Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $Source) { throw "No MySQL 8.x found under <drive>:\laragon\bin\mysql. Pass -Source <path>." }
+    Write-Host "Using MySQL from $Source"
+}
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $target = Join-Path $root "extras\mysql"
 

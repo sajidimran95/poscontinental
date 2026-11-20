@@ -33,11 +33,40 @@ class SyncDeviceController extends Controller
     {
         $this->authorizeAccess();
 
+        $next = SyncDevices::freeNodeNo();
+
         return view('sync_devices.index', [
             'devices' => SyncDevices::all(),
-            'next_node_no' => SyncDevices::freeNodeNo(),
+            'next_node_no' => $next,
+            'suggested_prefix' => $next ? SyncDevices::suggestPrefix($next) : '',
             'new_token' => session('sync_device_token'),
         ]);
+    }
+
+    /** Rename a device or change its document prefix (applied on the PC at its next sync). */
+    public function update(Request $request, int $node_no)
+    {
+        $this->authorizeAccess();
+
+        $device = SyncDevices::find($node_no);
+        if (! $device) {
+            return back()->with('status', 'Device not found.');
+        }
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'invoice_prefix' => ['required', 'string', 'max:20', 'regex:/^[A-Za-z0-9_-]+$/',
+                Rule::unique('sync_nodes', 'invoice_prefix')->ignore($node_no, 'node_no')],
+        ]);
+
+        SyncDevices::update($node_no, $data['name'], $data['invoice_prefix']);
+
+        $msg = 'Device "'.$data['name'].'" saved.';
+        if (strtoupper($data['invoice_prefix']) !== strtoupper((string) $device->invoice_prefix)) {
+            $msg .= ' New documents on that PC use prefix '.strtoupper($data['invoice_prefix']).'- after its next sync.';
+        }
+
+        return redirect()->route('admin.desktop-devices')->with('status', $msg);
     }
 
     public function store(Request $request)

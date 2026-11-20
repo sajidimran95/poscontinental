@@ -239,6 +239,8 @@
             .dlv-men-page .desk-grid > .desk-table tbody td a.desk-btn-primary { color: #fff !important; }
             .dlv-men-page .desk-grid > .desk-table tbody td a.desk-btn:not(.desk-btn-primary) { color: #1e3a5f !important; }
         </style>
+        @include('layouts.partials.desktop_unload')
+        @include('layouts.partials.desktop_print')
     </head>
     <body class="font-sans antialiased bg-[#ececec] text-slate-900 text-sm h-screen overflow-hidden">
         @if ($isPosEmbed)

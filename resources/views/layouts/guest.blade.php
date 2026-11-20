@@ -10,6 +10,7 @@
         <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700&display=swap" rel="stylesheet" />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
+        @include('layouts.partials.desktop_unload')
     </head>
     <body class="font-sans text-slate-900 antialiased" style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;color-scheme:light;">
         <div class="min-h-screen flex flex-col sm:justify-center items-center pt-6 sm:pt-0 bg-gradient-to-b from-slate-700 to-slate-900">

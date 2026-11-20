@@ -57,6 +57,9 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
     public bool $showInvoiceDeliveryDialog = false;
 
+    /** Speed: "print + email" opens the print first, then emails in a follow-up request. */
+    public ?int $invoiceEmailAfterPrintId = null;
+
     public string $invoiceDeliveryMode = 'print';
 
     public ?int $editInvoiceId = null;
@@ -664,6 +667,23 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         $print = in_array($mode, ['print', 'both'], true);
         $email = in_array($mode, ['email', 'both'], true);
 
+        // Speed: print + email — open the invoice right away; the email (slow SMTP) follows
+        // in a second request (sendInvoiceEmailAfterPrint) instead of holding up the print.
+        if ($print && $email) {
+            $to = trim($this->emailTo);
+            if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                session()->flash('status', 'Enter a valid customer email address.');
+
+                return;
+            }
+            $this->showInvoiceDeliveryDialog = false;
+            $this->invoiceEmailAfterPrintId = (int) $this->selectedId;
+            $this->openInvoicePdf($this->selectedId);
+            $this->dispatch('invoice-email-after-print');
+
+            return;
+        }
+
         if ($email) {
             $to = trim($this->emailTo);
             if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
@@ -701,6 +721,41 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
 
         if ($print) {
             $this->openInvoicePdf($this->selectedId);
+        }
+    }
+
+    public function sendInvoiceEmailAfterPrint(): void
+    {
+        $id = $this->invoiceEmailAfterPrintId;
+        $this->invoiceEmailAfterPrintId = null;
+        if (! $id) {
+            return;
+        }
+
+        $to = trim($this->emailTo);
+        if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->find($id);
+        if (! $invoice) {
+            session()->flash('status', 'Invoice not found.');
+
+            return;
+        }
+
+        try {
+            app(\App\Services\DocumentPdfService::class)->emailInvoice(
+                $invoice,
+                $to,
+                auth()->user(),
+                $this->emailSubject !== '' ? $this->emailSubject : null
+            );
+            session()->flash('status', 'Invoice emailed to '.$to);
+        } catch (\Throwable $e) {
+            session()->flash('status', 'Could not email invoice: '.$e->getMessage());
         }
     }
 
@@ -1611,6 +1666,11 @@ new #[Layout('layouts.app'), Title('Invoices')] class extends Component
         if (url) {
             window.open(url, '_blank', 'noopener');
         }
+    });
+
+    // Print already opened — now send the email (separate request so printing never waits on SMTP).
+    $wire.on('invoice-email-after-print', () => {
+        $wire.sendInvoiceEmailAfterPrint();
     });
 </script>
 @endscript

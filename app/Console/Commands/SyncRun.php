@@ -57,7 +57,7 @@ class SyncRun extends Command
                 return 1;
             }
             $this->info('Downloading server data...');
-            $done = $client->bootstrap(fn ($message) => $this->line('  '.$message));
+            $done = $client->bootstrap(fn ($message, $percent = null) => $this->line('  '.($percent !== null ? "[{$percent}%] " : '').$message));
             $this->info('Done: '.array_sum($done).' rows in '.count($done).' tables.');
 
             return 0;

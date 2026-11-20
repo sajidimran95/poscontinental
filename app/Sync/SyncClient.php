@@ -2,6 +2,7 @@
 
 namespace App\Sync;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -29,9 +30,15 @@ class SyncClient
             ->withHeaders([
                 'X-Sync-Schema' => SyncSchema::schemaHash(),
                 'X-App-Version' => (string) config('nativephp.version', config('author.app_version', '')),
+                // server gzips sync JSON (~30x smaller), curl decodes it
+                'Accept-Encoding' => 'gzip',
             ])
             ->timeout(config('sync.http_timeout'))
-            ->connectTimeout(15);
+            ->connectTimeout(30)
+            // shared hosts drop connections now and then (and during the long first download);
+            // retry connection failures, pushes are safe to resend (batch_id)
+            ->retry(5, fn (int $attempt) => $attempt * 5000,
+                fn ($e) => $e instanceof ConnectionException, throw: false);
     }
 
     protected function call(string $method, string $uri, array $data = [], ?string $url = null, ?string $token = null): array
@@ -97,14 +104,64 @@ class SyncClient
     }
 
     /**
+     * One page of the initial download. A shared host that kills the connection mid-response
+     * (memory/time/size limits) usually does so again for the same page, so instead of only
+     * retrying, the page is asked for again in smaller pieces.
+     */
+    protected function snapshotPage(string $table, $after, int $offset, int &$limit, callable $progress): array
+    {
+        while (true) {
+            $params = ['table' => $table, 'after' => $after, 'offset' => $offset, 'limit' => $limit];
+            try {
+                $response = $this->http()
+                    ->retry(2, 3000, fn ($e) => $e instanceof ConnectionException, throw: false)
+                    ->get('snapshot', $params);
+            } catch (ConnectionException $e) {
+                if ($limit <= 25) {
+                    throw $e;
+                }
+                $limit = max(25, intdiv($limit, 2));
+                $progress("{$table}: connection dropped, retrying with {$limit} rows per page");
+
+                continue;
+            }
+
+            // 500/503/508 from shared hosting resource limits: same treatment
+            if ($response->serverError() && $limit > 25) {
+                $limit = max(25, intdiv($limit, 2));
+                $progress("{$table}: server error {$response->status()}, retrying with {$limit} rows per page");
+
+                continue;
+            }
+
+            $json = $response->json();
+            if (! $response->successful() || ! is_array($json) || empty($json['success'])) {
+                $message = is_array($json) && ! empty($json['message']) ? $json['message'] : 'HTTP '.$response->status();
+                throw new RuntimeException('Server: '.$message);
+            }
+
+            return $json;
+        }
+    }
+
+    /**
      * Replaces the local data with a full copy of the server database.
      */
     public function bootstrap(?callable $progress = null): array
     {
-        $progress ??= function ($message) {};
+        $progress ??= function ($message, $percent = null) {};
         $info = $this->call('get', 'snapshot/tables');
         $localTables = SyncSchema::allTables();
         $done = [];
+        // overall %: table rows are 0-95, catching up and files the rest
+        $totalRows = max(1, array_sum(array_map(fn ($t) => in_array($t['table'], $localTables) ? (int) $t['rows'] : 0, $info['tables'])));
+        $rowsDone = 0;
+        // by reference: an arrow fn would freeze $rowsDone at 0
+        $percent = function () use (&$rowsDone, $totalRows) {
+            return round(min(95, $rowsDone / $totalRows * 95), 1);
+        };
+        // page size shrinks when the host keeps dropping big responses (wide rows like products)
+        $limit = (int) config('sync.snapshot_page_size') ?: 1000;
 
         DB::statement('SET FOREIGN_KEY_CHECKS = 0');
         DB::statement('SET @sync_skip = 1');
@@ -116,13 +173,13 @@ class SyncClient
 
                     continue;
                 }
-                $progress("{$table}: {$t['rows']} rows");
+                $progress("{$table}: {$t['rows']} rows", $percent());
                 DB::table($table)->truncate();
 
                 $after = 0;
                 $offset = 0;
                 do {
-                    $page = $this->call('get', 'snapshot', ['table' => $table, 'after' => $after, 'offset' => $offset]);
+                    $page = $this->snapshotPage($table, $after, $offset, $limit, $progress);
                     $columns = SyncSchema::columns($table);
                     $rows = array_map(fn ($r) => array_intersect_key(SyncSchema::decodeRow($r), $columns), $page['rows']);
                     foreach (array_chunk($rows, 200) as $chunk) {
@@ -130,6 +187,10 @@ class SyncClient
                     }
                     $after = $page['after'] ?? $after;
                     $offset += count($rows);
+                    $rowsDone += count($rows);
+                    if (! empty($page['more'])) {
+                        $progress("{$table}: {$offset} / {$t['rows']}", $percent());
+                    }
                 } while (! empty($page['more']));
 
                 $done[$table] = $offset;
@@ -145,10 +206,10 @@ class SyncClient
         SyncState::put('pull_cursor', (int) $info['cursor']);
         SyncState::put('bootstrapped_at', now()->toDateTimeString());
 
-        $progress('catching up with changes made during the download...');
+        $progress('catching up with changes made during the download...', 95);
         $this->pull();
 
-        $progress('downloading uploaded files (images, logos)...');
+        $progress('downloading uploaded files (images, logos)...', 97);
         SyncState::forget('files_pulled_at');
         SyncState::put('files_pushed_at', time());
         $this->syncFiles();
@@ -261,6 +322,7 @@ class SyncClient
         do {
             $cursor = (int) SyncState::get('pull_cursor', 0);
             $page = $this->call('get', 'pull', ['cursor' => $cursor]);
+            $this->refreshNodeInfo($page['node'] ?? null);
 
             if (! empty($page['changes'])) {
                 $stats = $applier->apply($page['changes'], 'pull');
@@ -270,6 +332,28 @@ class SyncClient
         } while (! empty($page['more']) && (int) $page['cursor'] > $cursor);
 
         return $applied;
+    }
+
+    /**
+     * Device name / document prefix edited by an admin on the server (Desktop devices)
+     * take effect on this PC at the next sync.
+     */
+    protected function refreshNodeInfo(?array $node): void
+    {
+        $settings = SyncNode::settings();
+        if (! $node || ! $settings) {
+            return;
+        }
+        $changed = false;
+        foreach (['name', 'invoice_prefix'] as $key) {
+            if (isset($node[$key]) && $node[$key] !== '' && ($settings[$key] ?? null) !== $node[$key]) {
+                $settings[$key] = (string) $node[$key];
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            SyncNode::save($settings);
+        }
     }
 
     /**

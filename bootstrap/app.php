@@ -31,6 +31,8 @@ return Application::configure(basePath: dirname(__DIR__))
             return route('login');
         });
         $middleware->web(prepend: [
+            \App\Http\Middleware\CompressLivewireResponse::class,
+            \App\Http\Middleware\ServerTimingHeader::class,
             \App\Http\Middleware\EnsureDesktopSetup::class,
         ], append: [
             \App\Http\Middleware\CaptureUserTimezone::class,

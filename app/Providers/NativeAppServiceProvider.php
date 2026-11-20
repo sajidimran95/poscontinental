@@ -28,6 +28,7 @@ class NativeAppServiceProvider implements ProvidesPhpIni
             Menu::app(),
             Menu::make(
                 Menu::route('desktop.status', 'Sync status'),
+                Menu::route('desktop.printer', 'Receipt printer'),
                 Menu::separator(),
                 Menu::reload(),
                 Menu::fullscreen(),

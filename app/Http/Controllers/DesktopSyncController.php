@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Sync\DownloadProgress;
 use App\Sync\SyncClient;
 use App\Sync\SyncNode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Native\Desktop\Facades\ChildProcess;
 
 /**
  * Desktop app screens: first-run setup and sync status.
@@ -27,6 +29,7 @@ class DesktopSyncController extends Controller
 
         return view('desktop.setup', [
             'settings' => SyncNode::settings() ?? [],
+            'progress' => SyncNode::isConfigured() ? DownloadProgress::read() : null,
         ]);
     }
 
@@ -35,23 +38,87 @@ class DesktopSyncController extends Controller
         if ($this->setupDone()) {
             return redirect('/login');
         }
+        if ((DownloadProgress::read()['state'] ?? null) === 'running') {
+            return redirect('/desktop/setup');
+        }
         $request->validate([
             'server_url' => 'required|url',
             'token' => 'required|string|min:20',
         ]);
 
-        set_time_limit(0);
         try {
-            $info = $this->client->setup($request->input('server_url'), trim($request->input('token')));
-            $done = $this->client->bootstrap();
+            $this->client->setup($request->input('server_url'), trim($request->input('token')));
         } catch (\Throwable $e) {
             return back()->withInput()->withErrors(['token' => $e->getMessage()]);
         }
 
-        return redirect('/login')->with('status', [
-            'success' => 1,
-            'msg' => 'Desktop "'.$info['name'].'" is ready: '.array_sum($done).' records downloaded. Log in with your usual account.',
-        ]);
+        // the download runs in its own process: one long request would block the app's
+        // single-threaded PHP server and the screen could not show any progress
+        $this->startDownload();
+
+        return redirect('/desktop/setup');
+    }
+
+    /** Progress of the background download, polled by the setup screen. */
+    public function progress()
+    {
+        $progress = DownloadProgress::read();
+        if ($progress && $progress['state'] === 'running' && $this->nativeRunning()
+            && time() - (int) ($progress['started_at'] ?? 0) > 15) {
+            try {
+                $gone = ChildProcess::get('sync-download') === null;
+            } catch (\Throwable $e) {
+                $gone = false;
+            }
+            if ($gone && (DownloadProgress::read()['state'] ?? null) === 'running') {
+                DownloadProgress::fail('The download process stopped. Try again.');
+            }
+            $progress = DownloadProgress::read();
+        }
+
+        return response()->json($progress ?? ['state' => 'none']);
+    }
+
+    public function retryDownload()
+    {
+        if ($this->setupDone()) {
+            return redirect('/login');
+        }
+        if (! SyncNode::isConfigured()) {
+            DownloadProgress::clear();
+
+            return redirect('/desktop/setup');
+        }
+        if ((DownloadProgress::read()['state'] ?? null) !== 'running') {
+            $this->startDownload();
+        }
+
+        return redirect('/desktop/setup');
+    }
+
+    protected function nativeRunning(): bool
+    {
+        return (bool) config('nativephp-internal.running');
+    }
+
+    protected function startDownload(): void
+    {
+        DownloadProgress::start();
+
+        if ($this->nativeRunning()) {
+            ChildProcess::artisan(['sync:download'], 'sync-download', persistent: false);
+
+            return;
+        }
+
+        // dev (php artisan serve / laragon): plain detached process
+        $php = escapeshellarg(PHP_BINARY);
+        $artisan = escapeshellarg(base_path('artisan'));
+        if (PHP_OS_FAMILY === 'Windows') {
+            pclose(popen("start \"\" /B {$php} {$artisan} sync:download > NUL 2>&1", 'r'));
+        } else {
+            exec("nohup {$php} {$artisan} sync:download > /dev/null 2>&1 &");
+        }
     }
 
     public function status(Request $request)

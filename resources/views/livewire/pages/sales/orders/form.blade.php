@@ -74,6 +74,9 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** Print / email choice after Print Invoice. */
     public bool $showInvoiceDeliveryDialog = false;
 
+    /** Speed: "print + email" opens the print first, then emails in a follow-up request. */
+    public bool $invoiceEmailAfterPrintPending = false;
+
     public string $invoiceDeliveryMode = 'print'; // print | email | both
 
     public string $invoiceEmailTo = '';
@@ -3929,6 +3932,22 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
                 return;
             }
+        }
+
+        // Speed: print + email — open the invoice right away; the email (slow SMTP) follows
+        // in a second request (sendInvoiceEmailAfterPrint) instead of holding up the print.
+        if ($print && $email) {
+            $this->showInvoiceDeliveryDialog = false;
+            $this->resetErrorBag('invoiceEmailTo');
+            $this->invoiceEmailAfterPrintPending = true;
+            $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder).'?v='.time());
+            $this->dispatch('so-invoice-email-after-print');
+
+            return;
+        }
+
+        if ($email) {
+            $to = trim($this->invoiceEmailTo);
 
             try {
                 app(\App\Services\DocumentPdfService::class)->emailSalesOrderInvoiceStyle(
@@ -3951,6 +3970,31 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         if ($print) {
             // Invoice layout (cig qty / previous balance) — not the plain sales-order-doc print.
             $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder).'?v='.time());
+        }
+    }
+
+    public function sendInvoiceEmailAfterPrint(): void
+    {
+        if (! $this->invoiceEmailAfterPrintPending || ! $this->salesOrder?->exists) {
+            return;
+        }
+        $this->invoiceEmailAfterPrintPending = false;
+
+        $to = trim($this->invoiceEmailTo);
+        if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        try {
+            app(\App\Services\DocumentPdfService::class)->emailSalesOrderInvoiceStyle(
+                $this->salesOrder->fresh(['customer', 'invoice', 'lines']),
+                $to,
+                auth()->user(),
+                $this->invoiceEmailSubject !== '' ? $this->invoiceEmailSubject : null
+            );
+            $this->notifyAlert('Invoice emailed to '.$to, 'success');
+        } catch (\Throwable $e) {
+            $this->notifyAlert('Could not email invoice: '.$e->getMessage(), 'error');
         }
     }
 
@@ -7644,6 +7688,11 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         const url = payload?.url ?? payload?.[0]?.url;
         if (!url) return;
         window.open(url, '_blank');
+    });
+
+    // Print already opened — now send the email (separate request so printing never waits on SMTP).
+    $wire.on('so-invoice-email-after-print', () => {
+        $wire.sendInvoiceEmailAfterPrint();
     });
 
     // Keep unknown-item alarm going until OK; stop extra scans from leaving the page.

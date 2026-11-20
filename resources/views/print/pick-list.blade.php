@@ -264,6 +264,7 @@
             }
         }
     </style>
+    @include('layouts.partials.desktop_print')
 </head>
 <body>
 @php

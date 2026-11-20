@@ -91,6 +91,9 @@ return [
         // server-only data, never shipped inside the desktop installer
         'sql',
         'productionsql',
+        'production sql',
+        'requirment',
+        'scripts',
         'sample',
         'python_data_processing',
         'mobile',
@@ -112,6 +115,13 @@ return [
         'storage/app/sync/*',
         'storage/app/desktop/*',
         'storage/app/backups/*',
+        // server files (customer licenses, filings, exports, uploaded images) never ship;
+        // the desktop gets its own data through sync
+        'storage/app/*',
+        'storage/logs/*',
+        'storage/framework/cache/*',
+        'storage/framework/sessions/*',
+        'storage/framework/views/*',
     ],
 
     /**

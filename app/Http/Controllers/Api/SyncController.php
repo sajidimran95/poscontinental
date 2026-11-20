@@ -103,6 +103,9 @@ class SyncController extends Controller
             'last_pull_cursor' => $result['cursor'],
         ]);
 
+        // admin may rename the device or change its document prefix (Desktop devices)
+        $result['node'] = ['name' => $node->name, 'invoice_prefix' => $node->invoice_prefix];
+
         return response()->json(['success' => true] + $result);
     }
 

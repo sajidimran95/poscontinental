@@ -74,6 +74,12 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     /** Print / email choice after Print Invoice. */
     public bool $showInvoiceDeliveryDialog = false;
 
+    /**
+     * After save → print-options → Create Invoice & Print, return to a blank New Sales Order
+     * (or close this create tab) once print/email/cancel finishes — old desk behavior.
+     */
+    public bool $returnToCreateAfterInvoiceDelivery = false;
+
     /** Speed: "print + email" opens the print first, then emails in a follow-up request. */
     public bool $invoiceEmailAfterPrintPending = false;
 
@@ -3911,12 +3917,14 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
     public function cancelInvoiceDeliveryDialog(): void
     {
         $this->showInvoiceDeliveryDialog = false;
+        $this->finishAfterInvoiceDeliveryIfNeeded();
     }
 
     public function confirmInvoiceDeliveryDialog(): void
     {
         if (! $this->salesOrder?->exists) {
             $this->showInvoiceDeliveryDialog = false;
+            $this->finishAfterInvoiceDeliveryIfNeeded();
 
             return;
         }
@@ -3936,6 +3944,7 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
 
         // Speed: print + email — open the invoice right away; the email (slow SMTP) follows
         // in a second request (sendInvoiceEmailAfterPrint) instead of holding up the print.
+        // Return-to-create waits until that follow-up so the order is still loaded for SMTP.
         if ($print && $email) {
             $this->showInvoiceDeliveryDialog = false;
             $this->resetErrorBag('invoiceEmailTo');
@@ -3971,17 +3980,24 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
             // Invoice layout (cig qty / previous balance) — not the plain sales-order-doc print.
             $this->dispatch('open-order-invoice-pdf', url: route('sales.orders.invoice', $this->salesOrder).'?v='.time());
         }
+
+        $this->finishAfterInvoiceDeliveryIfNeeded();
     }
 
     public function sendInvoiceEmailAfterPrint(): void
     {
         if (! $this->invoiceEmailAfterPrintPending || ! $this->salesOrder?->exists) {
+            $this->invoiceEmailAfterPrintPending = false;
+            $this->finishAfterInvoiceDeliveryIfNeeded();
+
             return;
         }
         $this->invoiceEmailAfterPrintPending = false;
 
         $to = trim($this->invoiceEmailTo);
         if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            $this->finishAfterInvoiceDeliveryIfNeeded();
+
             return;
         }
 
@@ -3996,6 +4012,26 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
         } catch (\Throwable $e) {
             $this->notifyAlert('Could not email invoice: '.$e->getMessage(), 'error');
         }
+
+        $this->finishAfterInvoiceDeliveryIfNeeded();
+    }
+
+    /** After post-save invoice print/email/cancel: go back to blank New Sales Order create. */
+    protected function finishAfterInvoiceDeliveryIfNeeded(): void
+    {
+        if (! $this->returnToCreateAfterInvoiceDelivery) {
+            return;
+        }
+
+        $this->returnToCreateAfterInvoiceDelivery = false;
+        $this->salesOrder?->loadMissing('invoice');
+        $number = $this->salesOrder?->invoice?->invoice_number
+            ?: $this->salesOrder?->order_number;
+        session()->flash(
+            'status',
+            $this->withRepriceNote($number ? 'Invoice '.$number.' saved.' : 'Order saved.')
+        );
+        $this->finishSaveStayOnOrder();
     }
 
     #[On('pos-shortcut-f2')]
@@ -5790,6 +5826,8 @@ new #[Layout('layouts.app'), Title('New Sales Order')] class extends Component
                 $this->withRepriceNote('Invoice '.$invoice->invoice_number.' created. Choose print or email.'),
                 'success'
             );
+            // After print/email/cancel on this dialog, clear back to New Sales Order create.
+            $this->returnToCreateAfterInvoiceDelivery = true;
             $this->printInvoiceStyle();
 
             return;

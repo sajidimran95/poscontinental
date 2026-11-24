@@ -2,7 +2,7 @@
     <div class="p-4 md:p-6 space-y-4">
         <div>
             <h1 class="text-xl font-semibold text-slate-900">Sync status</h1>
-            <p class="text-sm text-slate-600">This PC works offline and syncs with the online POS every minute.</p>
+            <p class="text-sm text-slate-600">This PC works offline and syncs with the online POS every 15 seconds.</p>
         </div>
 
         @php
@@ -39,6 +39,10 @@
                     <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700" style="background:#4f46e5;color:#fff;border-radius:4px;padding:.5rem 1rem;font-weight:600;font-size:.875rem;border:0;cursor:pointer" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">Sync now</button>
                 </form>
                 <a href="{{ route('desktop.printer') }}" class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Receipt printer</a>
+                <form method="POST" action="{{ route('desktop.redownload') }}" onsubmit="return confirm('Download all data from the online POS again? Unsent changes are sent first. This can take a few minutes.')">
+                    @csrf
+                    <button type="submit" style="border:1px solid #cbd5e1;border-radius:4px;padding:.5rem 1rem;font-size:.875rem;background:#fff;cursor:pointer">Re-download server data</button>
+                </form>
             </div>
         </div>
 

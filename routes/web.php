@@ -169,6 +169,7 @@ Route::middleware(['auth', 'feature'])->group(function () {
         Route::get('/desktop/sync', [DesktopSyncController::class, 'status'])->name('desktop.status');
         Route::post('/desktop/sync', [DesktopSyncController::class, 'syncNow'])->name('desktop.sync_now');
         Route::post('/desktop/sync/conflicts', [DesktopSyncController::class, 'resolveConflicts'])->name('desktop.resolve_conflicts');
+        Route::post('/desktop/sync/redownload', [DesktopSyncController::class, 'redownload'])->name('desktop.redownload');
         Route::get('/desktop/printer', [DesktopPrintController::class, 'index'])->name('desktop.printer');
         Route::post('/desktop/printer', [DesktopPrintController::class, 'store'])->name('desktop.printer.save');
         Route::post('/desktop/print', [DesktopPrintController::class, 'print'])->name('desktop.print');

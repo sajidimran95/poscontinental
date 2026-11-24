@@ -90,6 +90,68 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
         }
     }
 
+    /**
+     * Read-only desktop sync health check: triggers, change log, desktop devices.
+     */
+    public function syncCheck(): void
+    {
+        $this->output = '';
+        $this->status = '';
+        $this->error = '';
+
+        try {
+            $db = \Illuminate\Support\Facades\DB::class;
+            $lines = ['> sync check'];
+            $lines[] = 'SYNC_MODE: '.config('sync.mode').'   (server is correct for the live site)';
+            $lines[] = 'Timezone (PHP): '.config('app.timezone').'   now: '.now()->format('Y-m-d H:i:s');
+            $lines[] = 'MySQL NOW(): '.($db::selectOne('SELECT NOW() AS n')->n ?? '?');
+
+            $triggers = count(\App\Sync\SyncSchema::existingTriggers());
+            $tables = count(\App\Sync\SyncSchema::syncedTables());
+            $lines[] = '';
+            $lines[] = 'Sync triggers: '.$triggers.' (expected '.($tables * 3).' = 3 x '.$tables.' tables)';
+
+            if (\Illuminate\Support\Facades\Schema::hasTable('sync_log')) {
+                $log = $db::selectOne('SELECT COUNT(*) AS c, MAX(id) AS m, MAX(created_at) AS t FROM sync_log');
+                $lines[] = 'sync_log: '.$log->c.' rows, last id '.($log->m ?? '-').', last change '.($log->t ?? '-');
+                $recent = $db::select('SELECT origin, COUNT(*) AS c FROM sync_log WHERE created_at >= NOW() - INTERVAL 1 DAY GROUP BY origin');
+                foreach ($recent as $r) {
+                    $lines[] = '  last 24h from node '.$r->origin.($r->origin == 0 ? ' (online site)' : ' (desktop)').': '.$r->c.' changes';
+                }
+            } else {
+                $lines[] = 'sync_log table is missing (run migrations).';
+            }
+
+            if (\Illuminate\Support\Facades\Schema::hasTable('sync_nodes')) {
+                $lines[] = '';
+                $lines[] = 'Desktop devices:';
+                foreach ($db::table('sync_nodes')->orderBy('node_no')->get() as $n) {
+                    $lines[] = '  #'.$n->node_no.' '.($n->name ?? '').' | last push: '.($n->last_push_at ?? 'never')
+                        .' | last pull: '.($n->last_pull_at ?? 'never').' | cursor: '.($n->last_pull_cursor ?? 0);
+                }
+            }
+
+            $lines[] = '';
+            if ($triggers === 0) {
+                $lines[] = 'PROBLEM: no triggers. Online sales and desktop orders are not recorded for the other desktops.';
+                $lines[] = 'Fix: press "Install Sync Triggers".';
+                $this->error = 'Sync triggers are missing on this server.';
+            } else {
+                $this->status = 'Sync check finished.';
+            }
+            $this->output = implode("\n", $lines);
+        } catch (\Throwable $e) {
+            $this->error = $e->getMessage();
+        }
+    }
+
+    public function installSyncTriggers(): void
+    {
+        $this->runCommands([
+            'sync:triggers' => [],
+        ], 'Sync triggers installed. Press "Sync Check" to confirm.');
+    }
+
     public function optimizeClear(): void
     {
         $this->runCommands([
@@ -326,7 +388,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="clearCache"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                 >
                     Clear Cache
@@ -335,7 +397,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runMigrations"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn"
                     wire:confirm="Run database migrations now? This updates the schema."
                 >
@@ -345,7 +407,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="syncAllocatedStock"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Resync allocated stock from open sales orders? Fixes Available qty when allocation is stale."
                 >
@@ -355,7 +417,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="auditInvoices"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                 >
                     Audit Invoices
@@ -364,7 +426,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="optimizeClear"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn"
                 >
                     Optimize Clear
@@ -382,7 +444,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="buildAssets"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Rebuild CSS/JS with npm run build? Required after design/CSS updates (e.g. Expand tab)."
                 >
@@ -392,7 +454,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="storageLink"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn"
                     wire:confirm="Create or refresh the public/storage link? Needed for item images and uploads."
                 >
@@ -402,11 +464,30 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="syncItemMedia"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Copy item images from storage into public/uploads so previews work on the live server?"
                 >
                     Sync Item Images
+                </button>
+                <button
+                    type="button"
+                    wire:click="syncCheck"
+                    wire:loading.attr="disabled"
+                    wire:target="syncCheck,installSyncTriggers"
+                    class="desk-btn"
+                >
+                    Sync Check
+                </button>
+                <button
+                    type="button"
+                    wire:click="installSyncTriggers"
+                    wire:loading.attr="disabled"
+                    wire:target="syncCheck,installSyncTriggers"
+                    class="desk-btn desk-btn-primary"
+                    wire:confirm="Install the desktop sync triggers? Data is not changed; only the change-tracking triggers are recreated."
+                >
+                    Install Sync Triggers
                 </button>
             </div>
 
@@ -416,7 +497,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedDemoData"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                     wire:confirm="Seed demo master + documents (SO, PO, Receiving, Invoice, RTV)? Existing demo numbers are skipped."
                 >
@@ -426,7 +507,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="seedUom"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn desk-btn-primary"
                 >
                     Seed UOM Schedules
@@ -435,7 +516,7 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                     type="button"
                     wire:click="runSeeders"
                     wire:loading.attr="disabled"
-                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                    wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
                     class="desk-btn"
                     wire:confirm="Run the full DatabaseSeeder? Existing records (like company CWI) will be skipped."
                 >
@@ -461,9 +542,9 @@ new #[Layout('layouts.app'), Title('Terminal')] class extends Component
                 class="font-mono"
                 style="margin:0;min-height:10rem;max-height:22rem;overflow:auto;padding:0.75rem;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:0.75rem;line-height:1.45;white-space:pre-wrap"
                 wire:loading.class="opacity-60"
-                wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders"
+                wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers"
             >{{ $output !== '' ? $output : 'No commands run yet.' }}</pre>
-            <p wire:loading wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
+            <p wire:loading wire:target="clearCache,runMigrations,auditInvoices,optimizeClear,storageLink,syncItemMedia,syncAllocatedStock,buildAssets,seedUom,seedDemoData,runSeeders,syncCheck,installSyncTriggers" class="item-hint" style="border:0;margin:0.5rem 0 0;padding:0">
                 Running…
             </p>
         </div>

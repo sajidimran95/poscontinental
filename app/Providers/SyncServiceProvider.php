@@ -61,7 +61,8 @@ class SyncServiceProvider extends ServiceProvider
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
             if (SyncNode::isClient()) {
-                $schedule->command('sync:run')->everyMinute()->withoutOverlapping(30)->runInBackground();
+                // every 15s: an order made on one PC reaches the server and the other PCs in about 20-30s
+                $schedule->command('sync:run')->everyFifteenSeconds()->withoutOverlapping(30)->runInBackground();
             }
             if (SyncNode::isServer()) {
                 $schedule->command('sync:prune')->dailyAt('03:30');

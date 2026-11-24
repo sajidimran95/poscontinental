@@ -38,7 +38,7 @@ return [
 
     // Server only hands out log entries older than this, so entries of
     // transactions still committing are not skipped by a pull cursor.
-    'pull_lag_seconds' => (int) env('SYNC_PULL_LAG_SECONDS', 10),
+    'pull_lag_seconds' => (int) env('SYNC_PULL_LAG_SECONDS', 5),
 
     // Server keeps change log entries this long. A desktop offline for longer must re-download.
     'log_retention_days' => (int) env('SYNC_LOG_RETENTION_DAYS', 45),

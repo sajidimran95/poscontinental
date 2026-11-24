@@ -137,6 +137,14 @@
         table.items.is-barcode th.price, table.items.is-barcode td.price { width: 9%; }
         table.items.is-barcode th.disc, table.items.is-barcode td.disc { width: 8%; }
         table.items.is-barcode th.amt, table.items.is-barcode td.amt { width: 8%; }
+        /* End of category group: just a touch stronger than normal row lines */
+        table.items tbody tr.is-cat-end td {
+            border-bottom: 1px solid #666;
+            padding-bottom: 4px;
+        }
+        table.items tbody tr.is-cat-end + tr td {
+            padding-top: 4px;
+        }
         td.bc { text-align: left; }
         td.bc img { height: 34px; max-width: 100%; }
         td.bc .digits { font-size: 7px; letter-spacing: 0.04em; margin-top: 1px; }
@@ -213,8 +221,28 @@
     $paymentLabel = $order?->paymentTerm?->name ?: ($order?->paymentTerm?->code ?: '-');
     $routeLabel = $order?->route?->name ?: ($order?->route?->code ?: '-');
 
+    // Category-wise grouping + A–Z within category (no serial column).
+    $lineSortKey = static fn ($line) => [
+        mb_strtoupper(trim((string) ($line->item?->category?->name ?? 'ZZZZ'))),
+        (int) ($line->item?->category_id ?? PHP_INT_MAX),
+        (float) ($line->qty_ordered ?? 0) < 0 ? 0 : 1,
+        mb_strtoupper(trim((string) ($line->description ?? $line->item?->description ?? ''))),
+        mb_strtoupper(trim((string) ($line->item_code ?? $line->item?->item_code ?? ''))),
+        (int) ($line->line_no ?? 0),
+        (int) ($line->id ?? 0),
+    ];
     $lines = ($order?->lines ?? collect())
-        ->sortBy(fn ($line) => [(int) ($line->line_no ?? 0), (int) $line->id])
+        ->sort(function ($a, $b) use ($lineSortKey) {
+            [$ka, $kb] = [$lineSortKey($a), $lineSortKey($b)];
+            foreach ($ka as $i => $va) {
+                $cmp = is_int($va) || is_float($va) ? $va <=> $kb[$i] : strnatcasecmp((string) $va, (string) $kb[$i]);
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+            }
+
+            return 0;
+        })
         ->values();
     $buckets = DocumentMerchandiseTotals::fromLines($lines);
 
@@ -333,13 +361,16 @@
         </tr>
     </thead>
     <tbody>
-        @forelse ($lines as $line)
+        @forelse ($lines as $i => $line)
             @php
                 $qty = (float) $line->qty_ordered;
                 $itemCode = (string) $line->item_code;
                 $itemBarcode = $showItemBarcodes ? SalesOrderLinePresentation::itemBarcode($line) : '';
+                $groupKey = static fn ($l) => (int) ($l->item?->category_id ?? 0);
+                $next = $lines->get($i + 1);
+                $isCatEnd = $next === null || $groupKey($next) !== $groupKey($line);
             @endphp
-            <tr>
+            <tr @class(['is-cat-end' => $isCatEnd && $next !== null])>
                 <td class="qty">{{ $fmtQty($qty) }}</td>
                 @if ($showItemBarcodes)
                     <td class="bc">

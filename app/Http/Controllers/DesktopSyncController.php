@@ -146,6 +146,33 @@ class DesktopSyncController extends Controller
         return redirect()->route('desktop.status')->with('sync_result', $result);
     }
 
+    /**
+     * Replaces this PC's data with a fresh copy of the server (fixes data missed while the
+     * server was not recording changes). Only when everything local was sent first.
+     */
+    public function redownload()
+    {
+        set_time_limit(0);
+        $result = $this->client->run();
+        $pending = (int) DB::table('sync_log')->where('origin', 0)->count();
+
+        if (! empty($result['error']) || $pending > 0 || ! empty(\App\Sync\SyncState::get('pending_push'))) {
+            return redirect()->route('desktop.status')->with('sync_result', $result + [
+                'error' => 'Re-download stopped: this PC still has '.$pending.' unsent change(s)'
+                    .(! empty($result['error']) ? ' ('.$result['error'].')' : '')
+                    .'. Connect to the internet, press Sync now, then try again.',
+            ]);
+        }
+        if ((DownloadProgress::read()['state'] ?? null) === 'running') {
+            return redirect('/desktop/setup');
+        }
+
+        \App\Sync\SyncState::forget('bootstrapped_at');
+        $this->startDownload();
+
+        return redirect('/desktop/setup');
+    }
+
     public function resolveConflicts()
     {
         DB::table('sync_conflicts')->where('resolved', 0)->update(['resolved' => 1, 'updated_at' => now()]);

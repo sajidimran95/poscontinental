@@ -2,6 +2,7 @@
 
 use App\Livewire\Concerns\BrowsesItemsForInquiry;
 use App\Livewire\Concerns\SearchesItemEntryHits;
+use App\Models\InventoryJournalEntry;
 use App\Models\Item;
 use App\Models\Site;
 use Livewire\Attributes\Layout;
@@ -20,6 +21,9 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
     public ?int $itemId = null;
 
     public string $lookupError = '';
+
+    /** current = site quantities · journals = sold / received / counted history */
+    public string $detailTab = 'current';
 
     /** @var list<array{id:int, code:string, description:string}> */
     public array $lookupSuggestions = [];
@@ -115,9 +119,19 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
 
     public function clearLookup(): void
     {
-        $this->reset(['itemCode', 'itemId', 'lookupError', 'lookupSuggestions', 'entryHits']);
+        $this->reset(['itemCode', 'itemId', 'lookupError', 'lookupSuggestions', 'entryHits', 'detailTab']);
         $this->closeBrowse();
         $this->js('requestAnimationFrame(() => { const el = document.getElementById("ss-code"); if (el) el.value = ""; el?.focus(); });');
+    }
+
+    public function showCurrentStock(): void
+    {
+        $this->detailTab = 'current';
+    }
+
+    public function showInventoryJournals(): void
+    {
+        $this->detailTab = 'journals';
     }
 
     public function pickBrowseItem(int $itemId, $keepBrowseOpen = null, $qty = null): void
@@ -153,6 +167,16 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
                 ->find($this->itemId)
             : null;
 
+        $journalEntries = ($item && $this->detailTab === 'journals')
+            ? InventoryJournalEntry::query()
+                ->where('company_id', $companyId)
+                ->where('item_id', $item->id)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->limit(500)
+                ->get()
+            : collect();
+
         return array_merge($this->inquiryBrowseViewData(), [
             'item' => $item,
             'sites' => Site::query()
@@ -160,6 +184,7 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
                 ->where('is_active', true)
                 ->orderBy('code')
                 ->get(),
+            'journalEntries' => $journalEntries,
         ]);
     }
 
@@ -303,58 +328,185 @@ new #[Layout('layouts.app'), Title('Stock Status')] class extends Component
             </div>
         @endif
 
+        @if ($item)
+            <x-mode-tabs
+                :tabs="['current' => 'Current Stock', 'journals' => 'Inventory Journals']"
+                :active="$detailTab"
+                model="detailTab"
+            />
+        @endif
+
         <div class="desk-grid">
-            <table class="desk-table">
-                <thead>
-                    <tr>
-                        <th>Site</th>
-                        <th class="text-right">In Stock</th>
-                        <th class="text-right">Allocated</th>
-                        <th class="text-right">On Order</th>
-                        <th class="text-right">Back Order</th>
-                        <th class="text-right">Available</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if ($item)
-                        @forelse ($sites as $site)
-                            @php
-                                $available = (float) $item->available_quantity;
-                                $low = (float) $item->reorder_point > 0 && $available <= (float) $item->reorder_point;
-                            @endphp
+            @if (! $item || $detailTab === 'current')
+                @if ($item)
+                    @php
+                        $onHand = (float) $item->quantity_in_stock;
+                        $allocated = (float) $item->allocated_qty;
+                        $onOrder = (float) $item->on_order_qty;
+                        $backOrder = (float) $item->back_order_qty;
+                        $available = (float) $item->available_quantity;
+                        $low = (float) $item->reorder_point > 0 && $available <= (float) $item->reorder_point;
+                    @endphp
+                    <div class="inq-stock-wrap">
+                        <div class="inq-stock-head">
+                            <div>
+                                <div class="inq-stock-head-title">Current Stock</div>
+                                <div class="inq-stock-head-sub">On-hand vs allocated for <strong>{{ $item->item_code }}</strong></div>
+                            </div>
+                            @if ($low)
+                                <span class="inq-stock-low-pill">Low stock</span>
+                            @endif
+                        </div>
+
+                        <div class="inq-stock-metrics" role="group" aria-label="Stock quantities">
+                            <div class="inq-stock-metric">
+                                <span class="inq-stock-metric-lbl">In Stock</span>
+                                <span class="inq-stock-metric-val">{{ number_format($onHand, 2) }}</span>
+                            </div>
+                            <div class="inq-stock-metric">
+                                <span class="inq-stock-metric-lbl">Allocated</span>
+                                <span class="inq-stock-metric-val is-alloc">{{ number_format($allocated, 2) }}</span>
+                            </div>
+                            <div class="inq-stock-metric">
+                                <span class="inq-stock-metric-lbl">On Order</span>
+                                <span class="inq-stock-metric-val">{{ number_format($onOrder, 2) }}</span>
+                            </div>
+                            <div class="inq-stock-metric">
+                                <span class="inq-stock-metric-lbl">Back Order</span>
+                                <span class="inq-stock-metric-val">{{ number_format($backOrder, 2) }}</span>
+                            </div>
+                            <div @class(['inq-stock-metric', 'is-available', 'is-low' => $low])>
+                                <span class="inq-stock-metric-lbl">Available</span>
+                                <span class="inq-stock-metric-val">{{ number_format($available, 2) }}</span>
+                            </div>
+                        </div>
+
+                        <div class="inq-stock-sites">
+                            <div class="inq-stock-sites-lbl">By site</div>
+                            <table class="inq-stock-site-table">
+                                <colgroup>
+                                    <col class="inq-stock-col-site">
+                                    <col class="inq-stock-col-qty">
+                                    <col class="inq-stock-col-qty">
+                                    <col class="inq-stock-col-qty">
+                                    <col class="inq-stock-col-qty">
+                                    <col class="inq-stock-col-qty">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>Site</th>
+                                        <th>In Stock</th>
+                                        <th>Allocated</th>
+                                        <th>On Order</th>
+                                        <th>Back Order</th>
+                                        <th>Available</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse ($sites as $site)
+                                        <tr wire:key="ss-site-{{ $site->id }}">
+                                            <td>
+                                                <div class="inq-stock-site">
+                                                    <span class="inq-stock-site-code">{{ $site->code }}</span>
+                                                    <span class="inq-stock-site-name">{{ $site->name }}</span>
+                                                </div>
+                                            </td>
+                                            <td>{{ number_format($onHand, 2) }}</td>
+                                            <td class="is-alloc">{{ number_format($allocated, 2) }}</td>
+                                            <td>{{ number_format($onOrder, 2) }}</td>
+                                            <td>{{ number_format($backOrder, 2) }}</td>
+                                            <td @class(['is-avail', 'is-low' => $low])>{{ number_format($available, 2) }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="6" class="inq-stock-empty-cell">No active sites configured.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @else
+                    <table class="desk-table">
+                        <thead>
                             <tr>
-                                <td>
-                                    <span class="desk-num">{{ $site->code }}</span>
-                                    <span class="inq-site-name">{{ $site->name }}</span>
-                                </td>
-                                <td class="desk-money">{{ number_format((float) $item->quantity_in_stock, 2) }}</td>
-                                <td class="desk-money">{{ number_format((float) $item->allocated_qty, 2) }}</td>
-                                <td class="desk-money">{{ number_format((float) $item->on_order_qty, 2) }}</td>
-                                <td class="desk-money">{{ number_format((float) $item->back_order_qty, 2) }}</td>
-                                <td class="desk-money">
-                                    <strong @class(['inq-low' => $low])>{{ number_format($available, 2) }}</strong>
-                                    @if ($low)
-                                        <span class="desk-pill desk-pill-muted">Low</span>
-                                    @endif
-                                </td>
+                                <th>Site</th>
+                                <th class="text-right">In Stock</th>
+                                <th class="text-right">Allocated</th>
+                                <th class="text-right">On Order</th>
+                                <th class="text-right">Back Order</th>
+                                <th class="text-right">Available</th>
                             </tr>
-                        @empty
+                        </thead>
+                        <tbody>
                             <tr class="is-empty">
-                                <td colspan="6">No active sites configured.</td>
+                                <td colspan="6">Lookup an item to view stock status by site.</td>
                             </tr>
-                        @endforelse
-                    @else
-                        <tr class="is-empty">
-                            <td colspan="6">Lookup an item to view stock status by site.</td>
-                        </tr>
-                    @endif
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                @endif
+            @else
+                <div class="inq-journal-wrap">
+                    <div class="inq-journal-bar">
+                        <div>
+                            <div class="inq-journal-title">Inventory Journals</div>
+                            <div class="inq-journal-sub">Sales, receiving, counts &amp; adjustments for {{ $item->item_code }}</div>
+                        </div>
+                        <div class="inq-journal-count">
+                            <span class="inq-journal-count-n">{{ number_format($journalEntries->count()) }}</span>
+                            <span class="inq-journal-count-l">{{ $journalEntries->count() === 1 ? 'entry' : 'entries' }}</span>
+                        </div>
+                    </div>
+                    <table class="desk-table inq-journal-table">
+                        <thead>
+                            <tr>
+                                <th class="inq-j-col-desc">Entry Description</th>
+                                <th class="inq-j-col-date">Entry Date</th>
+                                <th class="inq-j-col-qty text-right">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($journalEntries as $entry)
+                                @php
+                                    $kind = $entry->entryKind();
+                                    $qty = (float) $entry->qty_change;
+                                    $refLabel = $entry->entryReferenceLabel();
+                                @endphp
+                                <tr wire:key="ss-journal-{{ $entry->id }}" class="inq-journal-row">
+                                    <td class="inq-j-col-desc">
+                                        <div class="inq-journal-entry">
+                                            <span class="inq-journal-kind inq-journal-kind-{{ $kind }}">{{ $entry->entryKindLabel() }}</span>
+                                            @if ($refLabel !== '')
+                                                <span class="inq-journal-ref">({{ $refLabel }})</span>
+                                            @endif
+                                        </div>
+                                    </td>
+                                    <td class="inq-j-col-date desk-num">{{ optional($entry->created_at)?->format('m/d/Y') ?: '—' }}</td>
+                                    <td @class([
+                                        'inq-j-col-qty',
+                                        'desk-money',
+                                        'inq-journal-qty-out' => $qty < -0.00005,
+                                        'inq-journal-qty-in' => $qty > 0.00005,
+                                    ])>{{ number_format($qty, 2) }}</td>
+                                </tr>
+                            @empty
+                                <tr class="is-empty">
+                                    <td colspan="3">No inventory journals for this item yet (sales, receiving, or stock counts).</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            @endif
         </div>
 
         <div class="desk-footer">
             @if ($item)
-                <span>Quantities are company-level on the item; listed per active site for reference.</span>
+                @if ($detailTab === 'journals')
+                    <span>Sold, received, counted, and adjustments — order / receipt numbers shown in parentheses.</span>
+                @else
+                    <span>Quantities are company-level on the item; listed per active site for reference.</span>
+                @endif
                 @if (Route::has('inventory.items.edit'))
                     <div class="desk-footer-actions">
                         <a href="{{ route('inventory.items.edit', $item) }}" wire:navigate class="desk-btn desk-btn-sm">Open Item</a>
